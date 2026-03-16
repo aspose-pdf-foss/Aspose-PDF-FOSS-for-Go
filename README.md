@@ -2,14 +2,6 @@
 
 A pure Go library for PDF manipulation — split, merge, rotate, extract pages, read metadata, and encrypt documents. No external dependencies.
 
-## Installation
-
-```bash
-go get github.com/aspose/pdf-for-go
-```
-
-**Requirements:** Go 1.24+
-
 ## Quick Start
 
 ```go
