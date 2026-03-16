@@ -19,6 +19,7 @@ pages/
 output/
 all_pages/
 some_pages/
+result_files/
 
 # Test PDFs (keep source PDFs, ignore generated ones)
 *_page*.pdf
