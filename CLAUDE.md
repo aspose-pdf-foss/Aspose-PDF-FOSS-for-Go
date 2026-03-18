@@ -64,6 +64,10 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 - `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — writes a password-protected PDF using RC4-128 (PDF 1.4 Standard Security Handler, revision 3)
 - `(*Document).SetPassword(userPassword, ownerPassword)` — configures encryption for the next `Save`/`WriteTo` call; if ownerPassword is empty it defaults to userPassword
 
+**`validate.go`**
+- `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
+- Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `ENCRYPTED`
+
 ### PDF parsing pipeline
 
 1. **`io.go`** — file I/O (`readFile`, `writeFile`)
