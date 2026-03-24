@@ -209,3 +209,56 @@ func buildMinimalPDF() []byte {
 func makeStream(data []byte) []byte {
 	return []byte(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(data), data))
 }
+
+func TestSplitFiles(t *testing.T) {
+	entries, err := os.ReadDir("test_data/split")
+	if err != nil {
+		t.Fatalf("read test_data/split: %v", err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		t.Run(name, func(t *testing.T) {
+			inputPath := filepath.Join("test_data/split", name)
+			stem := name[:len(name)-len(filepath.Ext(name))]
+			outDir := filepath.Join("result_files", stem)
+
+			paths, err := asposepdf.SplitFunc(inputPath, outDir, 1, 0,
+				func(page, _ int) string {
+					return fmt.Sprintf("%d.pdf", page)
+				},
+			)
+			if err != nil {
+				t.Fatalf("Split: %v", err)
+			}
+			if len(paths) == 0 {
+				t.Fatal("no output files produced")
+			}
+			for _, p := range paths {
+				info, err := os.Stat(p)
+				if err != nil {
+					t.Errorf("output file missing: %v", err)
+					continue
+				}
+				if info.Size() == 0 {
+					t.Errorf("output file is empty: %s", p)
+					continue
+				}
+				report, err := asposepdf.Validate(p)
+				if err != nil {
+					t.Errorf("Validate %s: %v", p, err)
+					continue
+				}
+				if !report.Valid {
+					for _, issue := range report.Issues {
+						t.Errorf("%s: %s: %s", filepath.Base(p), issue.Code, issue.Message)
+					}
+				}
+			}
+			t.Logf("split into %d pages → %s", len(paths), outDir)
+		})
+	}
+}

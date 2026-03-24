@@ -9,7 +9,7 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
-const marketingPDF = "test_data/marketing.pdf"
+const marketingPDF = "test_data/split/marketing.pdf"
 const marketingPages = 2
 
 func TestDocumentOpen(t *testing.T) {
@@ -216,7 +216,7 @@ func TestDocumentAppendFrom(t *testing.T) {
 }
 
 func TestDocumentWriteTo(t *testing.T) {
-	doc, err := asposepdf.Open("test_data/4pages.pdf")
+	doc, err := asposepdf.Open("test_data/split/4pages.pdf")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

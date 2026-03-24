@@ -7,7 +7,7 @@ import (
 )
 
 func TestGetMetadata(t *testing.T) {
-	meta, err := asposepdf.GetMetadata("test_data/4pages.pdf")
+	meta, err := asposepdf.GetMetadata("test_data/split/4pages.pdf")
 	if err != nil {
 		t.Fatalf("GetMetadata: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestGetMetadata(t *testing.T) {
 }
 
 func TestDocumentMetadata(t *testing.T) {
-	doc, err := asposepdf.Open("test_data/4pages.pdf")
+	doc, err := asposepdf.Open("test_data/split/4pages.pdf")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -57,11 +57,11 @@ func TestDocumentMetadata(t *testing.T) {
 
 func TestDocumentMetadataAfterAppendFrom(t *testing.T) {
 	// After AppendFrom, Metadata returns info from the first (primary) document.
-	doc1, err := asposepdf.Open("test_data/4pages.pdf")
+	doc1, err := asposepdf.Open("test_data/split/4pages.pdf")
 	if err != nil {
 		t.Fatalf("Open doc1: %v", err)
 	}
-	doc2, err := asposepdf.Open("test_data/marketing.pdf")
+	doc2, err := asposepdf.Open("test_data/split/marketing.pdf")
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}

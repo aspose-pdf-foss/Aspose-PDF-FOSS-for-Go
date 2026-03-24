@@ -282,13 +282,22 @@ func (d *rawDocument) collectDeps(objNum int, deps map[int]bool) error {
 	if deps[objNum] {
 		return nil // already visited
 	}
-	deps[objNum] = true
 
 	obj, err := d.getObject(objNum)
 	if err != nil {
 		return nil // best-effort
 	}
 
+	// Skip /Pages and /Catalog nodes — they belong to the page tree and are
+	// rebuilt by the writer. Including them would produce duplicate /Pages objects.
+	if dict, ok := obj.Value.(pdfDict); ok {
+		switch dictGetName(dict, "/Type") {
+		case "/Pages", "/Catalog":
+			return nil
+		}
+	}
+
+	deps[objNum] = true
 	d.collectValueDeps(obj.Value, deps)
 	return nil
 }

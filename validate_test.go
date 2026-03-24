@@ -94,6 +94,30 @@ func TestValidate_EncryptedPDF(t *testing.T) {
 	}
 }
 
+func TestValidate_OrphanedPagesNode(t *testing.T) {
+	// Split a real PDF and validate each page — the fix in collectDeps must ensure
+	// no orphaned /Pages objects appear in the output.
+	inputPath := "test_data/split/4pages.pdf"
+	outDir := t.TempDir()
+
+	paths, err := asposepdf.Split(inputPath, outDir)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+
+	for _, p := range paths {
+		report, err := asposepdf.Validate(p)
+		if err != nil {
+			t.Fatalf("Validate %s: %v", p, err)
+		}
+		for _, issue := range report.Issues {
+			if issue.Code == "PAGE_TREE_ERROR" {
+				t.Errorf("%s: unexpected PAGE_TREE_ERROR: %s", p, issue.Message)
+			}
+		}
+	}
+}
+
 // hasIssue reports whether the report contains an issue with the given code.
 func hasIssue(r *asposepdf.ValidationReport, code string) bool {
 	for _, issue := range r.Issues {

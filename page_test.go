@@ -6,7 +6,7 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
-const fourPagesPDF = "test_data/4pages.pdf"
+const fourPagesPDF = "test_data/split/4pages.pdf"
 const fourPagesCount = 4
 
 // 4pages.pdf pages are US Letter: 612 x 792 pt.

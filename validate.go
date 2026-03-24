@@ -83,7 +83,87 @@ func Validate(inputPath string) (*ValidationReport, error) {
 		report.add("PAGE_TREE_ERROR", err.Error())
 	}
 
+	// 6. Check for orphaned /Pages objects — objects with /Type /Pages that are
+	// not reachable from the root page tree. This can happen when a splitter bug
+	// copies the original page tree nodes into the output alongside the new /Pages node.
+	if err := validateNoOrphanedPagesNodes(doc, report); err != nil {
+		report.add("PAGE_TREE_ERROR", fmt.Sprintf("orphan check failed: %s", err))
+	}
+
 	return report, nil
+}
+
+// validateNoOrphanedPagesNodes reports a PAGE_TREE_ERROR for every /Pages object
+// that exists in the xref but is not reachable from the root page tree.
+func validateNoOrphanedPagesNodes(doc *rawDocument, report *ValidationReport) error {
+	// Collect all /Pages node numbers reachable from the Catalog.
+	reachable := make(map[int]bool)
+	rootRef, ok := doc.trailer["/Root"]
+	if !ok {
+		return nil // already caught by page-tree check
+	}
+	catalog, err := doc.resolveDict(rootRef)
+	if err != nil {
+		return nil
+	}
+	pagesRef, ok := catalog["/Pages"]
+	if !ok {
+		return nil
+	}
+	collectPagesNodes(doc, pagesRef, reachable)
+
+	// Scan every non-free object for /Type /Pages.
+	orphans := 0
+	for objNum, entry := range doc.xref.entries {
+		if entry.Free {
+			continue
+		}
+		obj, err := doc.getObject(objNum)
+		if err != nil {
+			continue
+		}
+		d, ok := obj.Value.(pdfDict)
+		if !ok {
+			continue
+		}
+		if dictGetName(d, "/Type") == "/Pages" && !reachable[objNum] {
+			orphans++
+		}
+	}
+	if orphans > 0 {
+		report.add("PAGE_TREE_ERROR", fmt.Sprintf("%d orphaned /Pages object(s) not reachable from catalog", orphans))
+	}
+	return nil
+}
+
+// collectPagesNodes recursively collects object numbers of /Pages nodes reachable from ref.
+func collectPagesNodes(doc *rawDocument, ref pdfValue, out map[int]bool) {
+	r, ok := ref.(pdfRef)
+	if !ok {
+		return
+	}
+	if out[r.Num] {
+		return
+	}
+	d, err := doc.resolveDict(ref)
+	if err != nil {
+		return
+	}
+	if dictGetName(d, "/Type") != "/Pages" {
+		return
+	}
+	out[r.Num] = true
+	kids, ok := d["/Kids"]
+	if !ok {
+		return
+	}
+	arr, ok := kids.(pdfArray)
+	if !ok {
+		return
+	}
+	for _, kid := range arr {
+		collectPagesNodes(doc, kid, out)
+	}
 }
 
 // openDocumentFromBytes is like openDocument but reuses already-read bytes.
