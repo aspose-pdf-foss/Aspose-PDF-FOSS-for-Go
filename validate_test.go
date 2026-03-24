@@ -142,6 +142,30 @@ func TestValidate_PageParentRef(t *testing.T) {
 	}
 }
 
+func TestValidate_StrippedStreamFilter(t *testing.T) {
+	// Split Binder1.pdf and validate — before the Decoded flag fix, JPEG image
+	// streams were written without /Filter, triggering a STREAM_ERROR.
+	inputPath := "test_data/split/Binder1.pdf"
+	outDir := t.TempDir()
+
+	paths, err := asposepdf.Split(inputPath, outDir)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+
+	for _, p := range paths {
+		report, err := asposepdf.Validate(p)
+		if err != nil {
+			t.Fatalf("Validate %s: %v", p, err)
+		}
+		for _, issue := range report.Issues {
+			if issue.Code == "STREAM_ERROR" {
+				t.Errorf("%s: %s", p, issue.Message)
+			}
+		}
+	}
+}
+
 // hasIssue reports whether the report contains an issue with the given code.
 func hasIssue(r *asposepdf.ValidationReport, code string) bool {
 	for _, issue := range r.Issues {

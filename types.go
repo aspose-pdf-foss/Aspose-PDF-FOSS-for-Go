@@ -30,8 +30,9 @@ type pdfArray []pdfValue
 
 // pdfStream is a PDF stream object.
 type pdfStream struct {
-	Dict pdfDict
-	Data []byte // decompressed
+	Dict    pdfDict
+	Data    []byte // decompressed when Decoded==true; raw otherwise
+	Decoded bool   // true if Data has been successfully decompressed
 }
 
 // pdfObject is an indirect object "n g obj ... endobj".

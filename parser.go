@@ -115,10 +115,11 @@ func parseDictOrStream(l *lexer) (pdfValue, error) {
 		}
 		decoded, err := decodeStream(d, streamData)
 		if err != nil {
-			// Return stream with raw data on decode error.
-			return &pdfStream{Dict: d, Data: streamData}, nil
+			// Unsupported filter (e.g. DCTDecode/JPEG): keep raw bytes and
+			// preserve the original /Filter so the writer copies it as-is.
+			return &pdfStream{Dict: d, Data: streamData, Decoded: false}, nil
 		}
-		return &pdfStream{Dict: d, Data: decoded}, nil
+		return &pdfStream{Dict: d, Data: decoded, Decoded: true}, nil
 	}
 	return d, nil
 }

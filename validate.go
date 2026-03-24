@@ -95,7 +95,62 @@ func Validate(inputPath string) (*ValidationReport, error) {
 	// cause Acrobat to reject the file even though the page tree traversal succeeds.
 	validatePageParentRefs(doc, report)
 
+	// 8. Detect streams whose /Filter was stripped but data is still compressed.
+	// This happens when a writer copies a stream it could not decode (e.g. DCTDecode/
+	// JPEG) and then removes the /Filter entry, leaving opaque bytes with no encoding
+	// declaration — Acrobat reports "Insufficient data for an image".
+	validateStreamFilters(doc, report)
+
 	return report, nil
+}
+
+// validateStreamFilters reports a STREAM_ERROR for every stream that has no
+// /Filter in its dict but whose data begins with a known compression magic
+// sequence (zlib or JPEG), indicating that the filter was incorrectly stripped.
+func validateStreamFilters(doc *rawDocument, report *ValidationReport) {
+	for objNum, entry := range doc.xref.entries {
+		if entry.Free {
+			continue
+		}
+		obj, err := doc.getObject(objNum)
+		if err != nil {
+			continue
+		}
+		s, ok := obj.Value.(*pdfStream)
+		if !ok {
+			continue
+		}
+		// Only streams that declare no filter are candidates.
+		if _, hasFilter := s.Dict["/Filter"]; hasFilter {
+			continue
+		}
+		if looksCompressed(s.Data) {
+			report.add("STREAM_ERROR", fmt.Sprintf(
+				"object %d: stream has no /Filter but data appears compressed (filter may have been stripped)",
+				objNum,
+			))
+		}
+	}
+}
+
+// looksCompressed returns true when data begins with a well-known compression
+// magic sequence that should never appear in raw (unencoded) PDF stream content.
+func looksCompressed(data []byte) bool {
+	if len(data) < 3 {
+		return false
+	}
+	// JPEG: FF D8 FF
+	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return true
+	}
+	// zlib (deflate): first byte 0x78, second byte one of 01 / 5E / 9C / DA
+	if data[0] == 0x78 {
+		switch data[1] {
+		case 0x01, 0x5E, 0x9C, 0xDA:
+			return true
+		}
+	}
+	return false
 }
 
 // validatePageParentRefs checks that every /Type /Page object has a /Parent that

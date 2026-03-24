@@ -105,11 +105,12 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 		}
 		buf.WriteString("]")
 	case *pdfStream:
-		// Write uncompressed stream (simpler; avoids re-encoding).
 		d := make(pdfDict, len(val.Dict))
 		for k, dv := range val.Dict {
-			// Remove encoding filters — we write raw (decoded) data.
-			if k == "/Filter" || k == "/DecodeParms" || k == "/FFilter" || k == "/FDecodeParms" {
+			// Remove encoding filters only when the data was successfully decoded.
+			// If Decoded==false the raw compressed bytes are preserved as-is,
+			// so the original /Filter must stay in the dict.
+			if val.Decoded && (k == "/Filter" || k == "/DecodeParms" || k == "/FFilter" || k == "/FDecodeParms") {
 				continue
 			}
 			d[k] = dv
