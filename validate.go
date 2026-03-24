@@ -90,7 +90,46 @@ func Validate(inputPath string) (*ValidationReport, error) {
 		report.add("PAGE_TREE_ERROR", fmt.Sprintf("orphan check failed: %s", err))
 	}
 
+	// 7. Verify that every /Page object's /Parent resolves to a /Pages node.
+	// A misremapped /Parent reference (e.g. pointing to a content stream) would
+	// cause Acrobat to reject the file even though the page tree traversal succeeds.
+	validatePageParentRefs(doc, report)
+
 	return report, nil
+}
+
+// validatePageParentRefs checks that every /Type /Page object has a /Parent that
+// resolves to an object with /Type /Pages.
+func validatePageParentRefs(doc *rawDocument, report *ValidationReport) {
+	for objNum, entry := range doc.xref.entries {
+		if entry.Free {
+			continue
+		}
+		obj, err := doc.getObject(objNum)
+		if err != nil {
+			continue
+		}
+		d, ok := obj.Value.(pdfDict)
+		if !ok {
+			continue
+		}
+		if dictGetName(d, "/Type") != "/Page" {
+			continue
+		}
+		parentVal, ok := d["/Parent"]
+		if !ok {
+			report.add("PAGE_TREE_ERROR", fmt.Sprintf("page object %d has no /Parent", objNum))
+			continue
+		}
+		parentDict, err := doc.resolveDict(parentVal)
+		if err != nil {
+			report.add("PAGE_TREE_ERROR", fmt.Sprintf("page object %d: /Parent cannot be resolved: %s", objNum, err))
+			continue
+		}
+		if dictGetName(parentDict, "/Type") != "/Pages" {
+			report.add("PAGE_TREE_ERROR", fmt.Sprintf("page object %d: /Parent does not point to a /Pages node", objNum))
+		}
+	}
 }
 
 // validateNoOrphanedPagesNodes reports a PAGE_TREE_ERROR for every /Pages object

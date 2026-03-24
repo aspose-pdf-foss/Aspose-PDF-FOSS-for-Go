@@ -74,6 +74,12 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 		buf.WriteByte(' ')
 		buf.WriteString(strconv.Itoa(val.Gen))
 		buf.WriteString(" R")
+	case pdfDirectRef:
+		// Already in new object space — write as-is, no remapping.
+		buf.WriteString(strconv.Itoa(val.Num))
+		buf.WriteByte(' ')
+		buf.WriteString(strconv.Itoa(val.Gen))
+		buf.WriteString(" R")
 	case pdfDict:
 		buf.WriteString("<<")
 		// Sort keys for deterministic output.
@@ -262,7 +268,7 @@ func buildDocumentPDF(entries []mutablePage, patches map[patchKey]pdfDict, encCf
 				for k, v := range d {
 					patched[k] = v
 				}
-				patched["/Parent"] = pdfRef{Num: pagesNum, Gen: 0}
+				patched["/Parent"] = pdfDirectRef{Num: pagesNum, Gen: 0}
 				pk := patchKey{dep.src, dep.objNum}
 				for k, v := range patches[pk] {
 					patched[k] = v

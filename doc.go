@@ -240,9 +240,10 @@ func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error 
 		}
 	case "/Page", "": // empty /Type is tolerated for compatibility with some malformed PDFs
 		deps := make(map[int]bool)
-		if err := d.collectDeps(ref.Num, deps); err != nil {
-			return err
-		}
+		// Add the page object itself directly (bypassing the /Page guard in
+		// collectDeps) and then collect its value-level dependencies.
+		deps[ref.Num] = true
+		d.collectValueDeps(nodeDict, deps)
 		// Also collect inherited resources from ancestor Pages nodes.
 		if err := d.collectInheritedDeps(nodeRef, deps); err != nil {
 			return err
@@ -288,11 +289,12 @@ func (d *rawDocument) collectDeps(objNum int, deps map[int]bool) error {
 		return nil // best-effort
 	}
 
-	// Skip /Pages and /Catalog nodes — they belong to the page tree and are
-	// rebuilt by the writer. Including them would produce duplicate /Pages objects.
+	// Skip page-tree structural nodes — they are rebuilt by the writer.
+	// /Page objects reached transitively (e.g. via link annotations) must also
+	// be skipped: including a foreign page would leave its /Parent dangling.
 	if dict, ok := obj.Value.(pdfDict); ok {
 		switch dictGetName(dict, "/Type") {
-		case "/Pages", "/Catalog":
+		case "/Pages", "/Catalog", "/Page":
 			return nil
 		}
 	}

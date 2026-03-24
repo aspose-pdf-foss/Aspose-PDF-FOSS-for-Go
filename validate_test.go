@@ -118,6 +118,30 @@ func TestValidate_OrphanedPagesNode(t *testing.T) {
 	}
 }
 
+func TestValidate_PageParentRef(t *testing.T) {
+	// Split Binder1.pdf — its object #2 is a content stream, not /Pages.
+	// Before the pdfDirectRef fix, /Parent in split pages pointed to that stream.
+	inputPath := "test_data/split/Binder1.pdf"
+	outDir := t.TempDir()
+
+	paths, err := asposepdf.Split(inputPath, outDir)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+
+	for _, p := range paths {
+		report, err := asposepdf.Validate(p)
+		if err != nil {
+			t.Fatalf("Validate %s: %v", p, err)
+		}
+		for _, issue := range report.Issues {
+			if issue.Code == "PAGE_TREE_ERROR" {
+				t.Errorf("%s: %s", p, issue.Message)
+			}
+		}
+	}
+}
+
 // hasIssue reports whether the report contains an issue with the given code.
 func hasIssue(r *asposepdf.ValidationReport, code string) bool {
 	for _, issue := range r.Issues {

@@ -12,6 +12,13 @@ type pdfRef struct {
 	Gen int
 }
 
+// pdfDirectRef is like pdfRef but writeValue outputs it without remapping.
+// Use this when the object number is already in the output (new) space.
+type pdfDirectRef struct {
+	Num int
+	Gen int
+}
+
 // pdfName is a PDF name object like /Name.
 type pdfName string
 
