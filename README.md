@@ -84,6 +84,22 @@ fmt.Println(meta.Title, meta.Author, meta.CreationDate)
 err := pdf.Encrypt("input.pdf", "output.pdf", "userpass", "ownerpass")
 ```
 
+### Validation
+
+```go
+report, err := pdf.Validate("input.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+if !report.Valid {
+    for _, issue := range report.Issues {
+        fmt.Println(issue.Code, issue.Message)
+    }
+}
+```
+
+Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`.
+
 ### Mutable Document API
 
 ```go
