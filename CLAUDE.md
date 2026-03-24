@@ -66,7 +66,8 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 
 **`validate.go`**
 - `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
-- Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `ENCRYPTED`
+- Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`
+- Checks performed: header, xref/trailer, all objects readable, page tree traversal, orphaned `/Pages` nodes, `/Page` → `/Parent` refs resolve to `/Pages`, streams without `/Filter` don't contain compressed data
 
 ### PDF parsing pipeline
 
@@ -89,9 +90,13 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 
 `buildDocumentPDF` is used by `(*Document).WriteTo`: handles pages from multiple source documents in arbitrary order, with per-page patches (e.g. `/Rotate`).
 
+**`pdfDirectRef`** (defined in `types.go`) — like `pdfRef` but written by `writeValue` without remapping. Used for `/Parent` patches so that the new `/Pages` object number (which lives in the output space, not the source space) is never accidentally translated by the remap function.
+
 ### Dependency collection
 
-`collectDeps` recursively walks the object graph (dict values, array elements, stream dict, and raw stream bytes via regex `\b(\d+)\s+\d+\s+R\b`) to find all referenced objects. `collectInheritedDeps` additionally walks up the page tree to capture inherited `/Resources`.
+`collectDeps` recursively walks the object graph (dict values, array elements, stream dict, and raw stream bytes via regex `\b(\d+)\s+\d+\s+R\b`) to find all referenced objects. It skips `/Pages`, `/Catalog`, and `/Page` nodes — these belong to the page tree and are rebuilt by the writer. `collectInheritedDeps` additionally walks up the page tree to capture inherited `/Resources`.
+
+`walkPageTree` adds each `/Page` object to deps directly (bypassing `collectDeps`) and then calls `collectValueDeps` on its dict, so foreign page objects reached transitively (e.g. via link annotations) are never copied into the output.
 
 ## Output conventions
 
@@ -100,6 +105,7 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 
 ## Testing conventions
 
-- Test PDF files are stored in `test_data/` (`marketing.pdf`, `document.pdf`, `4pages.pdf`).
-- When writing tests that use real PDF files, always take them from `test_data/` and ask the user which file to use before hardcoding a name.
+- Test PDF files are stored in `test_data/split/` (`4pages.pdf`, `Binder1.pdf`, `PdfWithLinks.pdf`, `PdfWithTable.pdf`, `alfa.pdf`, `marketing.pdf`).
+- When writing tests that use real PDF files, always take them from `test_data/split/` and ask the user which file to use before hardcoding a name.
 - Each feature gets its own `*_test.go` file (e.g. `merger_test.go`, `splitter_test.go`).
+- `TestSplitFiles` in `splitter_test.go` iterates all files in `test_data/split/`, splits each into `result_files/<stem>/`, and validates every output page with `Validate`.
