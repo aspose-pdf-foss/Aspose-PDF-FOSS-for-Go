@@ -255,6 +255,20 @@ func (d *Document) Extract(outputPath string, ranges ...PageRange) error {
 	return writeFile(outputPath, data)
 }
 
+// normalizeRange clamps from/to to valid bounds [1, total] and validates ordering.
+func normalizeRange(from, to, total int) (int, int, error) {
+	if from < 1 {
+		from = 1
+	}
+	if to < 1 || to > total {
+		to = total
+	}
+	if from > to {
+		return 0, 0, fmt.Errorf("invalid range: from=%d > to=%d", from, to)
+	}
+	return from, to, nil
+}
+
 // patchedRotation returns the effective /Rotate for a page,
 // considering already-applied patches first, then the source dict.
 func (d *Document) patchedRotation(key patchKey, e mutablePage) RotationAngle {

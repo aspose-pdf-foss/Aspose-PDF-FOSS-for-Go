@@ -1,6 +1,7 @@
 package asposepdf_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,7 +101,13 @@ func TestValidate_OrphanedPagesNode(t *testing.T) {
 	inputPath := "testdata/split/4pages.pdf"
 	outDir := t.TempDir()
 
-	paths, err := asposepdf.Split(inputPath, outDir)
+	doc, err := asposepdf.Open(inputPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	paths, err := doc.Split(outDir, func(page, _ int) string {
+		return fmt.Sprintf("page%03d.pdf", page)
+	})
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
@@ -124,7 +131,13 @@ func TestValidate_PageParentRef(t *testing.T) {
 	inputPath := "testdata/split/Binder1.pdf"
 	outDir := t.TempDir()
 
-	paths, err := asposepdf.Split(inputPath, outDir)
+	doc, err := asposepdf.Open(inputPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	paths, err := doc.Split(outDir, func(page, _ int) string {
+		return fmt.Sprintf("page%03d.pdf", page)
+	})
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
@@ -148,7 +161,13 @@ func TestValidate_StrippedStreamFilter(t *testing.T) {
 	inputPath := "testdata/split/Binder1.pdf"
 	outDir := t.TempDir()
 
-	paths, err := asposepdf.Split(inputPath, outDir)
+	doc, err := asposepdf.Open(inputPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	paths, err := doc.Split(outDir, func(page, _ int) string {
+		return fmt.Sprintf("page%03d.pdf", page)
+	})
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
