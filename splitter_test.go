@@ -9,6 +9,13 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
+func checkValidation(t *testing.T, label string, report *asposepdf.ValidationReport) {
+	t.Helper()
+	for _, issue := range report.Issues {
+		t.Errorf("%s: %s: %s", label, issue.Code, issue.Message)
+	}
+}
+
 func TestSplitSmallPDF(t *testing.T) {
 	pdf := buildMinimalPDF()
 	tmpDir := t.TempDir()
@@ -173,11 +180,7 @@ func TestExtractFiles(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Validate %s: %v", c.name, err)
 				}
-				if !report.Valid {
-					for _, issue := range report.Issues {
-						t.Errorf("%s: %s: %s", c.name, issue.Code, issue.Message)
-					}
-				}
+				checkValidation(t, c.name, report)
 			}
 			t.Logf("%s (%d pages) → first_half=%d second_half=%d", stem, total, mid, total-mid)
 		})
@@ -322,11 +325,7 @@ func TestSplitFiles(t *testing.T) {
 					t.Errorf("Validate %s: %v", p, err)
 					continue
 				}
-				if !report.Valid {
-					for _, issue := range report.Issues {
-						t.Errorf("%s: %s: %s", filepath.Base(p), issue.Code, issue.Message)
-					}
-				}
+				checkValidation(t, filepath.Base(p), report)
 			}
 			t.Logf("split into %d pages → %s", len(paths), outDir)
 		})

@@ -349,7 +349,7 @@ func flateDecode(data []byte) ([]byte, error) {
 
 func flateEncode(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
-	w, err := zlib.NewWriterLevel(&buf, zlib.BestCompression)
+	w, err := zlib.NewWriterLevel(&buf, zlib.DefaultCompression)
 	if err != nil {
 		return nil, err
 	}
