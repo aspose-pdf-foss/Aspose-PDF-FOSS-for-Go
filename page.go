@@ -12,7 +12,7 @@ type PageSize struct {
 // It reflects the current state of the document, including any mutations.
 type Page struct {
 	doc   *Document
-	index int // 0-based index in doc.entries
+	index int // 0-based index in doc.pages
 }
 
 // Number returns the 1-based page number within the document.
@@ -23,7 +23,7 @@ func (p *Page) Number() int {
 // Size returns the page dimensions from its MediaBox.
 // If MediaBox is not set on the page itself, it is inherited from the page tree.
 func (p *Page) Size() (PageSize, error) {
-	e := p.doc.entries[p.index]
+	e := p.doc.pages[p.index]
 	return mediaBoxSize(e.src, e.page.objNum)
 }
 
@@ -31,15 +31,15 @@ func (p *Page) Size() (PageSize, error) {
 // It reflects any rotation applied via Document.Rotate as well as the original /Rotate
 // value stored in the PDF.
 func (p *Page) Rotation() RotationAngle {
-	e := p.doc.entries[p.index]
+	e := p.doc.pages[p.index]
 	key := patchKey{e.src, e.page.objNum}
 	return p.doc.patchedRotation(key, e)
 }
 
 // Pages returns a live view of all pages in the document.
 func (d *Document) Pages() []*Page {
-	pages := make([]*Page, len(d.entries))
-	for i := range d.entries {
+	pages := make([]*Page, len(d.pages))
+	for i := range d.pages {
 		pages[i] = &Page{doc: d, index: i}
 	}
 	return pages
@@ -47,8 +47,8 @@ func (d *Document) Pages() []*Page {
 
 // Page returns a live view of the page at the given 1-based number.
 func (d *Document) Page(n int) (*Page, error) {
-	if n < 1 || n > len(d.entries) {
-		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.entries))
+	if n < 1 || n > len(d.pages) {
+		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 	}
 	return &Page{doc: d, index: n - 1}, nil
 }
@@ -59,8 +59,8 @@ func PageSizes(inputPath string) ([]PageSize, error) {
 	if err != nil {
 		return nil, err
 	}
-	sizes := make([]PageSize, len(doc.entries))
-	for i, e := range doc.entries {
+	sizes := make([]PageSize, len(doc.pages))
+	for i, e := range doc.pages {
 		sz, err := mediaBoxSize(e.src, e.page.objNum)
 		if err != nil {
 			return nil, fmt.Errorf("page %d: %w", i+1, err)

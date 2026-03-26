@@ -21,7 +21,7 @@ type patchKey struct {
 // Document is a mutable PDF document. Pages can be reordered, rotated,
 // extracted, and merged from multiple sources before saving.
 type Document struct {
-	entries       []mutablePage
+	pages         []mutablePage
 	patches       map[patchKey]pdfDict
 	encryptConfig *encryptConfig // nil = no encryption
 }
@@ -36,23 +36,23 @@ func Open(path string) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open PDF: %w", err)
 	}
-	pages, err := doc.pages()
+	rawPages, err := doc.pages()
 	if err != nil {
 		return nil, fmt.Errorf("read pages: %w", err)
 	}
-	entries := make([]mutablePage, len(pages))
-	for i, p := range pages {
-		entries[i] = mutablePage{src: doc, page: p}
+	pages := make([]mutablePage, len(rawPages))
+	for i, p := range rawPages {
+		pages[i] = mutablePage{src: doc, page: p}
 	}
 	return &Document{
-		entries: entries,
+		pages:   pages,
 		patches: make(map[patchKey]pdfDict),
 	}, nil
 }
 
 // PageCount returns the current number of pages in the document.
 func (d *Document) PageCount() int {
-	return len(d.entries)
+	return len(d.pages)
 }
 
 // Rotate rotates selected pages clockwise by the given angle (Rotate90, Rotate180, or Rotate270).
@@ -67,12 +67,12 @@ func (d *Document) Rotate(angle RotationAngle, pageNums ...int) error {
 	if err := angle.validate(); err != nil {
 		return err
 	}
-	indices, err := resolvePageIndices(len(d.entries), pageNums)
+	indices, err := resolvePageIndices(len(d.pages), pageNums)
 	if err != nil {
 		return err
 	}
 	for _, i := range indices {
-		e := d.entries[i]
+		e := d.pages[i]
 		key := patchKey{e.src, e.page.objNum}
 		current := d.patchedRotation(key, e)
 		d.setPatch(key, "/Rotate", (int(current)+int(angle))%360)
@@ -92,13 +92,13 @@ func (d *Document) ExtractPages(ranges ...PageRange) error {
 	}
 	var selected []mutablePage
 	for _, r := range ranges {
-		from, to, err := normalizeRange(r.From, r.To, len(d.entries))
+		from, to, err := normalizeRange(r.From, r.To, len(d.pages))
 		if err != nil {
 			return err
 		}
-		selected = append(selected, d.entries[from-1:to]...)
+		selected = append(selected, d.pages[from-1:to]...)
 	}
-	d.entries = selected
+	d.pages = selected
 	return nil
 }
 
@@ -111,12 +111,12 @@ func (d *Document) ExtractPages(ranges ...PageRange) error {
 func (d *Document) Reorder(order []int) error {
 	result := make([]mutablePage, len(order))
 	for i, n := range order {
-		if n < 1 || n > len(d.entries) {
-			return fmt.Errorf("page number %d out of range (1..%d)", n, len(d.entries))
+		if n < 1 || n > len(d.pages) {
+			return fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 		}
-		result[i] = d.entries[n-1]
+		result[i] = d.pages[n-1]
 	}
-	d.entries = result
+	d.pages = result
 	return nil
 }
 
@@ -130,7 +130,7 @@ func (d *Document) Reorder(order []int) error {
 //	doc1.AppendFrom(doc2)
 //	doc1.Save("combined.pdf")
 func (d *Document) AppendFrom(other *Document) {
-	d.entries = append(d.entries, other.entries...)
+	d.pages = append(d.pages, other.pages...)
 	for key, patch := range other.patches {
 		d.patches[key] = patch
 	}
@@ -155,10 +155,10 @@ func (d *Document) SetPassword(userPassword, ownerPassword string) {
 // WriteTo writes the current document state to w.
 // It implements io.WriterTo.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
-	if len(d.entries) == 0 {
+	if len(d.pages) == 0 {
 		return 0, fmt.Errorf("document has no pages")
 	}
-	data, err := buildDocumentPDF(d.entries, d.patches, d.encryptConfig)
+	data, err := buildDocumentPDF(d.pages, d.patches, d.encryptConfig)
 	if err != nil {
 		return 0, err
 	}

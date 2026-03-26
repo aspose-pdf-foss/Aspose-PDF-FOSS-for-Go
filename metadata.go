@@ -33,10 +33,10 @@ func GetMetadata(inputPath string) (Metadata, error) {
 // For documents assembled from multiple sources, metadata from the first
 // source document is returned.
 func (d *Document) Metadata() (Metadata, error) {
-	if len(d.entries) == 0 {
+	if len(d.pages) == 0 {
 		return Metadata{}, fmt.Errorf("document has no pages")
 	}
-	return readMetadata(d.entries[0].src)
+	return readMetadata(d.pages[0].src)
 }
 
 // readMetadata extracts the Info dictionary from a parsed document.
