@@ -97,7 +97,7 @@ func TestValidate_EncryptedPDF(t *testing.T) {
 func TestValidate_OrphanedPagesNode(t *testing.T) {
 	// Split a real PDF and validate each page — the fix in collectDeps must ensure
 	// no orphaned /Pages objects appear in the output.
-	inputPath := "test_data/split/4pages.pdf"
+	inputPath := "testdata/split/4pages.pdf"
 	outDir := t.TempDir()
 
 	paths, err := asposepdf.Split(inputPath, outDir)
@@ -121,7 +121,7 @@ func TestValidate_OrphanedPagesNode(t *testing.T) {
 func TestValidate_PageParentRef(t *testing.T) {
 	// Split Binder1.pdf — its object #2 is a content stream, not /Pages.
 	// Before the pdfDirectRef fix, /Parent in split pages pointed to that stream.
-	inputPath := "test_data/split/Binder1.pdf"
+	inputPath := "testdata/split/Binder1.pdf"
 	outDir := t.TempDir()
 
 	paths, err := asposepdf.Split(inputPath, outDir)
@@ -145,7 +145,7 @@ func TestValidate_PageParentRef(t *testing.T) {
 func TestValidate_StrippedStreamFilter(t *testing.T) {
 	// Split Binder1.pdf and validate — before the Decoded flag fix, JPEG image
 	// streams were written without /Filter, triggering a STREAM_ERROR.
-	inputPath := "test_data/split/Binder1.pdf"
+	inputPath := "testdata/split/Binder1.pdf"
 	outDir := t.TempDir()
 
 	paths, err := asposepdf.Split(inputPath, outDir)

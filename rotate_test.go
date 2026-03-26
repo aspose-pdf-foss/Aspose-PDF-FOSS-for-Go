@@ -11,7 +11,7 @@ import (
 
 const resultDir = "result_files"
 
-const testPDF = "test_data/split/4pages.pdf"
+const testPDF = "testdata/split/4pages.pdf"
 
 func TestRotateAllPages(t *testing.T) {
 	outputPath := filepath.Join(resultDir, "rotate_all_pages.pdf")

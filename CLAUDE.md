@@ -105,7 +105,7 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 
 ## Testing conventions
 
-- Test PDF files are stored in `test_data/split/` (`4pages.pdf`, `Binder1.pdf`, `PdfWithLinks.pdf`, `PdfWithTable.pdf`, `alfa.pdf`, `marketing.pdf`).
-- When writing tests that use real PDF files, always take them from `test_data/split/` and ask the user which file to use before hardcoding a name.
+- Test PDF files are stored in `testdata/split/` (`4pages.pdf`, `Binder1.pdf`, `PdfWithLinks.pdf`, `PdfWithTable.pdf`, `alfa.pdf`, `marketing.pdf`).
+- When writing tests that use real PDF files, always take them from `testdata/split/` and ask the user which file to use before hardcoding a name.
 - Each feature gets its own `*_test.go` file (e.g. `merger_test.go`, `splitter_test.go`).
-- `TestSplitFiles` in `splitter_test.go` iterates all files in `test_data/split/`, splits each into `result_files/<stem>/`, and validates every output page with `Validate`.
+- `TestSplitFiles` in `splitter_test.go` iterates all files in `testdata/split/`, splits each into `result_files/<stem>/`, and validates every output page with `Validate`.

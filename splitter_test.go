@@ -211,9 +211,9 @@ func makeStream(data []byte) []byte {
 }
 
 func TestSplitFiles(t *testing.T) {
-	entries, err := os.ReadDir("test_data/split")
+	entries, err := os.ReadDir("testdata/split")
 	if err != nil {
-		t.Fatalf("read test_data/split: %v", err)
+		t.Fatalf("read testdata/split: %v", err)
 	}
 
 	for _, e := range entries {
@@ -222,7 +222,7 @@ func TestSplitFiles(t *testing.T) {
 		}
 		name := e.Name()
 		t.Run(name, func(t *testing.T) {
-			inputPath := filepath.Join("test_data/split", name)
+			inputPath := filepath.Join("testdata/split", name)
 			stem := name[:len(name)-len(filepath.Ext(name))]
 			outDir := filepath.Join("result_files", stem)
 
