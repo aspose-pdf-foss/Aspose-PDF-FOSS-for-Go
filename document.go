@@ -1,6 +1,7 @@
 package asposepdf
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -32,9 +33,26 @@ type Document struct {
 //
 //	doc, err := asposepdf.Open("input.pdf")
 func Open(path string) (*Document, error) {
-	doc, err := openDocument(path)
+	data, err := readFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open PDF: %w", err)
+	}
+	return OpenStream(bytes.NewReader(data))
+}
+
+// OpenStream reads a PDF from r and returns a mutable Document.
+//
+// Example:
+//
+//	doc, err := asposepdf.OpenStream(file)
+func OpenStream(r io.Reader) (*Document, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read PDF: %w", err)
+	}
+	doc, err := openDocumentFromBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse PDF: %w", err)
 	}
 	rawPages, err := doc.pages()
 	if err != nil {
