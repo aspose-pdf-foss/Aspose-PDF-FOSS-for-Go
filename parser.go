@@ -347,6 +347,21 @@ func flateDecode(data []byte) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
+func flateEncode(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w, err := zlib.NewWriterLevel(&buf, zlib.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func asciiHexDecode(data []byte) ([]byte, error) {
 	// Remove whitespace and '>' terminator
 	var clean strings.Builder

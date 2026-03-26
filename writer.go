@@ -107,7 +107,7 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 	case *pdfStream:
 		d := make(pdfDict, len(val.Dict))
 		for k, dv := range val.Dict {
-			// Remove encoding filters only when the data was successfully decoded.
+			// Remove encoding filters — we re-compress decoded data below.
 			// If Decoded==false the raw compressed bytes are preserved as-is,
 			// so the original /Filter must stay in the dict.
 			if val.Decoded && (k == "/Filter" || k == "/DecodeParms" || k == "/FFilter" || k == "/FDecodeParms") {
@@ -116,6 +116,14 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 			d[k] = dv
 		}
 		data := val.Data
+		if val.Decoded {
+			// Re-compress with FlateDecode to restore the original size savings.
+			if compressed, err := flateEncode(data); err == nil {
+				data = compressed
+				d["/Filter"] = pdfName("/FlateDecode")
+			}
+			// On error (shouldn't happen) fall through and write uncompressed.
+		}
 		if encFn != nil {
 			data = encFn(data)
 		}
