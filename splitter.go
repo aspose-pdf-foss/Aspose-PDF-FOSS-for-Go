@@ -142,15 +142,3 @@ func Extract(inputPath, outputPath string, ranges ...PageRange) error {
 	return writeFile(outputPath, data)
 }
 
-// PageCount returns the number of pages in a PDF file without splitting it.
-func PageCount(inputPath string) (int, error) {
-	doc, err := openDocument(inputPath)
-	if err != nil {
-		return 0, fmt.Errorf("open PDF: %w", err)
-	}
-	pages, err := doc.pages()
-	if err != nil {
-		return 0, err
-	}
-	return len(pages), nil
-}

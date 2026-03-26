@@ -26,11 +26,7 @@ func TestMerge(t *testing.T) {
 		t.Fatalf("Merge: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount on merged PDF: %v", err)
-	}
-	if n != 4 {
+	if n := pageCountFromFile(t, outputPath); n != 4 {
 		t.Fatalf("expected 4 pages, got %d", n)
 	}
 

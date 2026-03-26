@@ -28,7 +28,6 @@ Pure Go library. No external dependencies. All code is in the root package `pdfs
 - `Split(inputPath, outputDir)` — splits all pages, delegates to `SplitRange(1, 0)`
 - `SplitRange(inputPath, outputDir, from, to)` — splits a page range (1-based, `to=0` means last page)
 - `Extract(inputPath, outputPath, ranges...)` — builds a new PDF from selected page ranges
-- `PageCount(inputPath)` — returns total page count without splitting
 
 **`merger.go`**
 - `Merge(outputPath, inputPaths...)` — combines pages from multiple PDFs into one

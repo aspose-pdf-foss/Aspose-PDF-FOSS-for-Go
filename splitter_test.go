@@ -91,11 +91,7 @@ func TestExtract(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount on extracted PDF: %v", err)
-	}
-	if n != 1 {
+	if n := pageCountFromFile(t, outputPath); n != 1 {
 		t.Fatalf("expected 1 page in extracted PDF, got %d", n)
 	}
 
@@ -107,11 +103,7 @@ func TestExtract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract all: %v", err)
 	}
-	n, err = asposepdf.PageCount(outputPath2)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != 2 {
+	if n := pageCountFromFile(t, outputPath2); n != 2 {
 		t.Fatalf("expected 2 pages, got %d", n)
 	}
 
@@ -137,10 +129,7 @@ func TestExtractFiles(t *testing.T) {
 			stem := name[:len(name)-len(filepath.Ext(name))]
 			outDir := filepath.Join("result_files", "TestExtractFiles", stem)
 
-			total, err := asposepdf.PageCount(inputPath)
-			if err != nil {
-				t.Fatalf("PageCount: %v", err)
-			}
+			total := pageCountFromFile(t, inputPath)
 			if total < 2 {
 				t.Skipf("need at least 2 pages, got %d", total)
 			}
@@ -168,11 +157,7 @@ func TestExtractFiles(t *testing.T) {
 					t.Fatalf("Extract %s: %v", c.name, err)
 				}
 
-				got, err := asposepdf.PageCount(outPath)
-				if err != nil {
-					t.Fatalf("PageCount %s: %v", c.name, err)
-				}
-				if got != c.wantPages {
+				if got := pageCountFromFile(t, outPath); got != c.wantPages {
 					t.Errorf("%s: expected %d pages, got %d", c.name, c.wantPages, got)
 				}
 
@@ -223,11 +208,7 @@ func TestPageCount(t *testing.T) {
 		t.Fatalf("write test PDF: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(inputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != 2 {
+	if n := pageCountFromFile(t, inputPath); n != 2 {
 		t.Fatalf("expected 2, got %d", n)
 	}
 }

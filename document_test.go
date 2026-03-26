@@ -36,11 +36,7 @@ func TestDocumentSave(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != marketingPages {
+	if n := pageCountFromFile(t, outputPath); n != marketingPages {
 		t.Fatalf("expected %d pages after save, got %d", marketingPages, n)
 	}
 }
@@ -142,11 +138,7 @@ func TestDocumentExtractPages(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != 1 {
+	if n := pageCountFromFile(t, outputPath); n != 1 {
 		t.Fatalf("expected 1 page in saved file, got %d", n)
 	}
 }
@@ -172,11 +164,7 @@ func TestDocumentReorder(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != marketingPages {
+	if n := pageCountFromFile(t, outputPath); n != marketingPages {
 		t.Fatalf("expected %d pages in saved file, got %d", marketingPages, n)
 	}
 }
@@ -206,11 +194,7 @@ func TestDocumentAppendFrom(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if n != want {
+	if n := pageCountFromFile(t, outputPath); n != want {
 		t.Fatalf("expected %d pages in saved file, got %d", want, n)
 	}
 }
@@ -242,11 +226,7 @@ func TestDocumentWriteTo(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	if got != 4 {
+	if got := pageCountFromFile(t, outputPath); got != 4 {
 		t.Fatalf("expected 4 pages, got %d", got)
 	}
 }

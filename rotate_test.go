@@ -23,15 +23,8 @@ func TestRotateAllPages(t *testing.T) {
 		t.Fatalf("Rotate: %v", err)
 	}
 
-	n, err := asposepdf.PageCount(outputPath)
-	if err != nil {
-		t.Fatalf("PageCount: %v", err)
-	}
-	orig, err := asposepdf.PageCount(testPDF)
-	if err != nil {
-		t.Fatalf("PageCount original: %v", err)
-	}
-	if n != orig {
+	orig := pageCountFromFile(t, testPDF)
+	if n := pageCountFromFile(t, outputPath); n != orig {
 		t.Fatalf("page count changed: want %d, got %d", orig, n)
 	}
 
