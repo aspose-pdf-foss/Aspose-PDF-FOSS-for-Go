@@ -78,11 +78,6 @@ func SplitFunc(inputPath, outputDir string, from, to int, nameFn func(page, tota
 	return paths, nil
 }
 
-// PageRange specifies an inclusive range of pages (1-based).
-type PageRange struct {
-	From, To int
-}
-
 // normalizeRange clamps from/to to valid bounds [1, total] and validates ordering.
 func normalizeRange(from, to, total int) (int, int, error) {
 	if from < 1 {
