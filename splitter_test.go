@@ -224,7 +224,7 @@ func TestSplitFiles(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			inputPath := filepath.Join("testdata/split", name)
 			stem := name[:len(name)-len(filepath.Ext(name))]
-			outDir := filepath.Join("result_files", stem)
+			outDir := filepath.Join("result_files", "TestSplitFiles", stem)
 
 			paths, err := asposepdf.SplitFunc(inputPath, outDir, 1, 0,
 				func(page, _ int) string {
