@@ -19,8 +19,8 @@ func (d *Document) Split() ([]*Document, error) {
 	result := make([]*Document, len(d.pages))
 	for i := range d.pages {
 		result[i] = &Document{
-			pages:   []mutablePage{d.pages[i]},
-			patches: d.patches,
+			pages:   []pageRef{d.pages[i]},
+			patches: copyPatches(d.patches),
 		}
 	}
 	return result, nil
@@ -39,7 +39,7 @@ func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 	if len(ranges) == 0 {
 		return nil, fmt.Errorf("no page ranges specified")
 	}
-	var selected []mutablePage
+	var selected []pageRef
 	for _, r := range ranges {
 		from, to, err := normalizeRange(r.From, r.To, len(d.pages))
 		if err != nil {
@@ -49,6 +49,6 @@ func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 	}
 	return &Document{
 		pages:   selected,
-		patches: d.patches,
+		patches: copyPatches(d.patches),
 	}, nil
 }

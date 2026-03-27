@@ -32,9 +32,9 @@ func buildMultiPagePDF(doc *rawDocument, pages []*pageInfo) ([]byte, error) {
 // pagePatches maps original object numbers to pdfDict entries that are merged into
 // the page dict at write time (overwriting any existing keys with the same name).
 func buildMultiPagePDFEx(doc *rawDocument, pages []*pageInfo, pagePatches map[int]pdfDict) ([]byte, error) {
-	entries := make([]mutablePage, len(pages))
+	entries := make([]pageRef, len(pages))
 	for i, p := range pages {
-		entries[i] = mutablePage{src: doc, page: p}
+		entries[i] = pageRef{src: doc, page: p}
 	}
 	patches := make(map[patchKey]pdfDict, len(pagePatches))
 	for objNum, d := range pagePatches {
@@ -176,7 +176,7 @@ func sortedKeys(m map[int]bool) []int {
 // buildDocumentPDF constructs a PDF from a mutable page list with optional per-page patches.
 // Pages may come from multiple source documents in any order.
 // encCfg, if non-nil, enables RC4-128 encryption of the output.
-func buildDocumentPDF(entries []mutablePage, patches map[patchKey]pdfDict, encCfg *encryptConfig) ([]byte, error) {
+func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *encryptConfig) ([]byte, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("no pages to write")
 	}

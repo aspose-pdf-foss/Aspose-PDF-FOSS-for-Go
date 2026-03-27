@@ -13,7 +13,7 @@ func Merge(outputPath string, inputPaths ...string) error {
 		return fmt.Errorf("no input files specified")
 	}
 
-	var entries []mutablePage
+	var entries []pageRef
 	for _, path := range inputPaths {
 		doc, err := openDocument(path)
 		if err != nil {
@@ -24,7 +24,7 @@ func Merge(outputPath string, inputPaths ...string) error {
 			return fmt.Errorf("read pages from %q: %w", path, err)
 		}
 		for _, p := range pages {
-			entries = append(entries, mutablePage{src: doc, page: p})
+			entries = append(entries, pageRef{src: doc, page: p})
 		}
 	}
 

@@ -46,7 +46,8 @@ func TestDocumentRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
+	doc, err = doc.Rotate(asposepdf.Rotate90)
+	if err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -70,8 +71,8 @@ func TestDocumentRotateSpecificPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Rotate only page 1.
-	if err := doc.Rotate(asposepdf.Rotate180, 1); err != nil {
+	doc, err = doc.Rotate(asposepdf.Rotate180, 1)
+	if err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -95,10 +96,12 @@ func TestDocumentRotateAccumulates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
+	doc, err = doc.Rotate(asposepdf.Rotate90)
+	if err != nil {
 		t.Fatalf("first Rotate: %v", err)
 	}
-	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
+	doc, err = doc.Rotate(asposepdf.Rotate90)
+	if err != nil {
 		t.Fatalf("second Rotate: %v", err)
 	}
 
@@ -122,7 +125,6 @@ func TestDocumentExtractPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Extract only page 1 into a new document.
 	extracted, err := doc.Extract(asposepdf.PageRange{From: 1, To: 1})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -149,8 +151,8 @@ func TestDocumentReorder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Reverse page order: [2, 1].
-	if err := doc.Reorder([]int{2, 1}); err != nil {
+	doc, err = doc.Reorder([]int{2, 1})
+	if err != nil {
 		t.Fatalf("Reorder: %v", err)
 	}
 	if doc.PageCount() != marketingPages {
@@ -180,18 +182,18 @@ func TestDocumentAppendFrom(t *testing.T) {
 		t.Fatalf("Open doc2: %v", err)
 	}
 
-	doc1.AppendFrom(doc2)
+	combined := doc1.AppendFrom(doc2)
 
 	want := marketingPages * 2
-	if doc1.PageCount() != want {
-		t.Fatalf("expected %d pages after AppendFrom, got %d", want, doc1.PageCount())
+	if combined.PageCount() != want {
+		t.Fatalf("expected %d pages after AppendFrom, got %d", want, combined.PageCount())
 	}
 
 	outputPath := filepath.Join(resultDir, "document_append_from.pdf")
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
 	}
-	if err := doc1.Save(outputPath); err != nil {
+	if err := combined.Save(outputPath); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -218,7 +220,6 @@ func TestDocumentWriteTo(t *testing.T) {
 		t.Fatal("output does not start with PDF header")
 	}
 
-	// Save buffer to result_files for visual inspection.
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
 	}
@@ -237,7 +238,7 @@ func TestDocumentInvalidRotateAngle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc.Rotate(asposepdf.RotationAngle(45)); err == nil {
+	if _, err := doc.Rotate(asposepdf.RotationAngle(45)); err == nil {
 		t.Fatal("expected error for angle=45")
 	}
 }
@@ -247,7 +248,7 @@ func TestDocumentInvalidReorderPageNum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc.Reorder([]int{1, 5}); err == nil {
+	if _, err := doc.Reorder([]int{1, 5}); err == nil {
 		t.Fatal("expected error for page 5 in a 2-page document")
 	}
 }

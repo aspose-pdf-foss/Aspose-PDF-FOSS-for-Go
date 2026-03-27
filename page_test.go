@@ -85,8 +85,9 @@ func TestPageRotation(t *testing.T) {
 		}
 	}
 
-	// Rotate page 1 by 90° and verify it is reflected immediately via Page.Rotation().
-	if err := doc.Rotate(90, 1); err != nil {
+	// Rotate page 1 by 90° and verify it is reflected via Page.Rotation().
+	doc, err = doc.Rotate(asposepdf.Rotate90, 1)
+	if err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 	p1, _ := doc.Page(1)
@@ -100,9 +101,11 @@ func TestPageRotation(t *testing.T) {
 	}
 
 	// Rotate page 1 again by 90° — should accumulate to 180°.
-	if err := doc.Rotate(90, 1); err != nil {
+	doc, err = doc.Rotate(asposepdf.Rotate90, 1)
+	if err != nil {
 		t.Fatalf("second Rotate: %v", err)
 	}
+	p1, _ = doc.Page(1)
 	if r := p1.Rotation(); r != 180 {
 		t.Errorf("page 1: expected rotation 180 after two Rotate(90), got %d", r)
 	}

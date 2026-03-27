@@ -24,21 +24,23 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 ### Public API
 
-**`document.go`** — mutable Document API; the primary entry point for all operations
-- `Open(path)` — opens a PDF file and returns a mutable `*Document`
-- `OpenStream(r io.Reader)` — opens a PDF from an `io.Reader` and returns a mutable `*Document`
+**`document.go`** — immutable Document API; all operations return a new `*Document`; the receiver is never modified
+- `Open(path)` — opens a PDF file and returns a `*Document`
+- `OpenStream(r io.Reader)` — opens a PDF from an `io.Reader` and returns a `*Document`
 - `(*Document).PageCount()` — current page count
-- `(*Document).Pages()` — returns live `[]*Page` views of all pages
-- `(*Document).Page(n)` — returns a live `*Page` view of page n (1-based)
-- `(*Document).Rotate(angle, pageNums...)` — rotates pages in-place
-- `(*Document).Reorder(order)` — rearranges pages; pages may be repeated or omitted
-- `(*Document).AppendFrom(other)` — appends all pages from another Document
-- `(*Document).Split()` — returns each page as a separate `*Document`
-- `(*Document).Extract(ranges...)` — returns a new `*Document` with the selected page ranges; original is not mutated
-- `(*Document).WriteTo(w)` — writes current state to an `io.Writer` (implements `io.WriterTo`)
-- `(*Document).Save(outputPath)` — writes current state to file
+- `(*Document).Pages()` — returns `[]*Page` views of all pages
+- `(*Document).Page(n)` — returns a `*Page` view of page n (1-based)
+- `(*Document).Rotate(angle, pageNums...) (*Document, error)` — returns a new Document with selected pages rotated; rotation accumulates
+- `(*Document).Reorder(order) (*Document, error)` — returns a new Document with pages rearranged; pages may be repeated or omitted
+- `(*Document).AppendFrom(other) *Document` — returns a new Document with all pages from other appended
+- `(*Document).SetPassword(userPassword, ownerPassword) *Document` — returns a new Document configured to be encrypted when saved
+- `(*Document).WriteTo(w) (int64, error)` — writes the document to an `io.Writer` (implements `io.WriterTo`)
+- `(*Document).Save(outputPath) error` — writes the document to a file
 - `(*Document).Metadata()` — returns Info metadata from the primary source document
-- `(*Document).SetPassword(userPassword, ownerPassword)` — configures encryption for the next `Save`/`WriteTo` call
+
+**`document_split.go`** — split/extract operations
+- `(*Document).Split() ([]*Document, error)` — returns each page as a separate `*Document`
+- `(*Document).Extract(ranges...) (*Document, error)` — returns a new `*Document` with the selected page ranges
 
 **`merger.go`**
 - `Merge(outputPath, inputPaths...)` — combines pages from multiple PDFs into one

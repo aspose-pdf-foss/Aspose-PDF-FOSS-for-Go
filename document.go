@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-// mutablePage holds a page and its source document.
-type mutablePage struct {
+// pageRef holds a page and its source document.
+type pageRef struct {
 	src  *rawDocument
 	page *pageInfo
 }
@@ -19,15 +19,15 @@ type patchKey struct {
 	objNum int
 }
 
-// Document is a mutable PDF document. Pages can be reordered, rotated,
-// extracted, and merged from multiple sources before saving.
+// Document is a PDF document. All operations return new Documents;
+// the receiver is never modified.
 type Document struct {
-	pages         []mutablePage
+	pages         []pageRef
 	patches       map[patchKey]pdfDict
 	encryptConfig *encryptConfig // nil = no encryption
 }
 
-// Open opens a PDF file and returns a mutable Document.
+// Open opens a PDF file and returns a Document.
 //
 // Example:
 //
@@ -40,7 +40,7 @@ func Open(path string) (*Document, error) {
 	return OpenStream(bytes.NewReader(data))
 }
 
-// OpenStream reads a PDF from r and returns a mutable Document.
+// OpenStream reads a PDF from r and returns a Document.
 //
 // Example:
 //
@@ -58,9 +58,9 @@ func OpenStream(r io.Reader) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read pages: %w", err)
 	}
-	pages := make([]mutablePage, len(rawPages))
+	pages := make([]pageRef, len(rawPages))
 	for i, p := range rawPages {
-		pages[i] = mutablePage{src: doc, page: p}
+		pages[i] = pageRef{src: doc, page: p}
 	}
 	return &Document{
 		pages:   pages,
@@ -68,89 +68,89 @@ func OpenStream(r io.Reader) (*Document, error) {
 	}, nil
 }
 
-// PageCount returns the current number of pages in the document.
+// PageCount returns the number of pages in the document.
 func (d *Document) PageCount() int {
 	return len(d.pages)
 }
 
-// Rotate rotates selected pages clockwise by the given angle (Rotate90, Rotate180, or Rotate270).
-// The rotation is added to any existing rotation (including previously applied rotations).
-// If no page numbers are given, all pages are rotated. Page numbers are 1-based.
+// Rotate returns a new Document with selected pages rotated clockwise by angle
+// (Rotate90, Rotate180, or Rotate270). The rotation is added to any existing
+// rotation. If no page numbers are given, all pages are rotated. Page numbers are 1-based.
 //
 // Example:
 //
-//	doc.Rotate(asposepdf.Rotate90)        // rotate all pages
-//	doc.Rotate(asposepdf.Rotate180, 1, 3) // rotate pages 1 and 3
-func (d *Document) Rotate(angle RotationAngle, pageNums ...int) error {
+//	doc, err = doc.Rotate(asposepdf.Rotate90)        // rotate all pages
+//	doc, err = doc.Rotate(asposepdf.Rotate180, 1, 3) // rotate pages 1 and 3
+func (d *Document) Rotate(angle RotationAngle, pageNums ...int) (*Document, error) {
 	if err := angle.validate(); err != nil {
-		return err
+		return nil, err
 	}
 	indices, err := resolvePageIndices(len(d.pages), pageNums)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	result := d.withCopiedPatches()
 	for _, i := range indices {
-		e := d.pages[i]
+		e := result.pages[i]
 		key := patchKey{e.src, e.page.objNum}
-		current := d.patchedRotation(key, e)
-		d.setPatch(key, "/Rotate", (int(current)+int(angle))%360)
+		current := result.patchedRotation(key, e)
+		result.setPatch(key, "/Rotate", (int(current)+int(angle))%360)
 	}
-	return nil
+	return result, nil
 }
 
-
-// Reorder rearranges pages according to order, a slice of 1-based page numbers.
-// Pages may be repeated or omitted. The result will have len(order) pages.
+// Reorder returns a new Document with pages rearranged according to order,
+// a slice of 1-based page numbers. Pages may be repeated or omitted.
 //
 // Example — reverse a 4-page document:
 //
-//	doc.Reorder([]int{4, 3, 2, 1})
-func (d *Document) Reorder(order []int) error {
-	result := make([]mutablePage, len(order))
+//	doc, err = doc.Reorder([]int{4, 3, 2, 1})
+func (d *Document) Reorder(order []int) (*Document, error) {
+	result := make([]pageRef, len(order))
 	for i, n := range order {
 		if n < 1 || n > len(d.pages) {
-			return fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
+			return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 		}
 		result[i] = d.pages[n-1]
 	}
-	d.pages = result
-	return nil
+	return &Document{pages: result, patches: copyPatches(d.patches)}, nil
 }
 
-// AppendFrom appends all pages from other at the end of this document.
-// Patches applied to other are preserved.
+// AppendFrom returns a new Document with all pages from other appended.
 //
 // Example:
 //
 //	doc1, _ := asposepdf.Open("part1.pdf")
 //	doc2, _ := asposepdf.Open("part2.pdf")
-//	doc1.AppendFrom(doc2)
-//	doc1.Save("combined.pdf")
-func (d *Document) AppendFrom(other *Document) {
-	d.pages = append(d.pages, other.pages...)
-	for key, patch := range other.patches {
-		d.patches[key] = patch
+//	combined := doc1.AppendFrom(doc2)
+//	combined.Save("combined.pdf")
+func (d *Document) AppendFrom(other *Document) *Document {
+	newPages := append(append([]pageRef{}, d.pages...), other.pages...)
+	newPatches := copyPatches(d.patches)
+	for k, v := range other.patches {
+		newPatches[k] = v
 	}
+	return &Document{pages: newPages, patches: newPatches}
 }
 
-// SetPassword configures the document to be encrypted when saved.
-// userPassword is required to open the document; ownerPassword controls permission settings.
-// If ownerPassword is empty, it defaults to userPassword.
-// The document is encrypted using RC4-128 (PDF 1.4 Standard Security Handler).
+// SetPassword returns a new Document configured to be encrypted when saved.
+// userPassword is required to open the document; ownerPassword controls
+// permission settings. If ownerPassword is empty, it defaults to userPassword.
 //
 // Example:
 //
-//	doc.SetPassword("secret", "")
+//	doc = doc.SetPassword("secret", "")
 //	doc.Save("encrypted.pdf")
-func (d *Document) SetPassword(userPassword, ownerPassword string) {
-	d.encryptConfig = &encryptConfig{
+func (d *Document) SetPassword(userPassword, ownerPassword string) *Document {
+	result := d.withCopiedPatches()
+	result.encryptConfig = &encryptConfig{
 		userPassword:  userPassword,
 		ownerPassword: ownerPassword,
 	}
+	return result
 }
 
-// WriteTo writes the current document state to w.
-// It implements io.WriterTo.
+// WriteTo writes the document to w. It implements io.WriterTo.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	if len(d.pages) == 0 {
 		return 0, fmt.Errorf("document has no pages")
@@ -163,7 +163,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-// Save writes the current document state to outputPath.
+// Save writes the document to outputPath.
 func (d *Document) Save(outputPath string) error {
 	f, err := os.Create(outputPath)
 	if err != nil {
@@ -188,9 +188,27 @@ func normalizeRange(from, to, total int) (int, int, error) {
 	return from, to, nil
 }
 
+// withCopiedPatches returns a shallow copy of d with an independent patches map.
+func (d *Document) withCopiedPatches() *Document {
+	return &Document{
+		pages:         append([]pageRef{}, d.pages...),
+		patches:       copyPatches(d.patches),
+		encryptConfig: d.encryptConfig,
+	}
+}
+
+// copyPatches returns a shallow copy of patches.
+func copyPatches(src map[patchKey]pdfDict) map[patchKey]pdfDict {
+	dst := make(map[patchKey]pdfDict, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 // patchedRotation returns the effective /Rotate for a page,
 // considering already-applied patches first, then the source dict.
-func (d *Document) patchedRotation(key patchKey, e mutablePage) RotationAngle {
+func (d *Document) patchedRotation(key patchKey, e pageRef) RotationAngle {
 	if p, ok := d.patches[key]; ok {
 		if r, ok := p["/Rotate"]; ok {
 			if n, ok := r.(int); ok {

@@ -10,21 +10,22 @@ import pdf "github.com/aspose/pdf-for-go"
 // Open a PDF
 doc, err := pdf.Open("input.pdf")
 
-// Split into individual pages
-paths, err := doc.Split("output_dir/", func(page, total int) string {
-    return fmt.Sprintf("page%03d.pdf", page)
-})
+// Split into individual page documents
+pages, err := doc.Split()
+for i, p := range pages {
+    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
+}
 
 // Merge multiple PDFs into one
 doc2, _ := pdf.Open("file2.pdf")
-doc.AppendFrom(doc2)
-doc.Save("merged.pdf")
+merged := doc.AppendFrom(doc2)
+merged.Save("merged.pdf")
 ```
 
 ## Features
 
-- **Split** — split a document into individual pages with custom file naming
-- **Extract** — build a new PDF from selected page ranges without mutating the source
+- **Split** — split a document into individual pages
+- **Extract** — build a new Document from selected page ranges without mutating the source
 - **Merge** — combine multiple PDFs into a single document
 - **Rotate** — rotate pages by 90°, 180°, or 270°
 - **Page info** — read page count and dimensions
@@ -34,6 +35,8 @@ doc.Save("merged.pdf")
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
+
+All `*Document` methods return a new `*Document`; the receiver is never modified.
 
 ### Opening documents
 
@@ -50,16 +53,11 @@ doc, err = pdf.OpenStream(r)
 ```go
 doc, err := pdf.Open("input.pdf")
 
-// Split all pages into separate files
-paths, err := doc.Split("output_dir/", func(page, total int) string {
-    return fmt.Sprintf("page%03d.pdf", page)
-})
-
-// Split a range: keep only pages 2–4, then split
-doc.ExtractPages(pdf.PageRange{From: 2, To: 4})
-paths, err = doc.Split("output_dir/", func(page, _ int) string {
-    return fmt.Sprintf("page%03d.pdf", page)
-})
+// Split into individual page documents
+pages, err := doc.Split()
+for i, p := range pages {
+    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
+}
 ```
 
 ### Extracting page ranges
@@ -67,11 +65,12 @@ paths, err = doc.Split("output_dir/", func(page, _ int) string {
 ```go
 doc, err := pdf.Open("input.pdf")
 
-// Save pages 1–3 and 7–9 to a new PDF (doc is not mutated)
-err = doc.Extract("output.pdf",
+// Build a new document with pages 1–3 and 7–9 (doc is not mutated)
+extracted, err := doc.Extract(
     pdf.PageRange{From: 1, To: 3},
     pdf.PageRange{From: 7, To: 9},
 )
+extracted.Save("output.pdf")
 ```
 
 ### Merging
@@ -120,7 +119,7 @@ err := pdf.Encrypt("input.pdf", "output.pdf", "userpass", "ownerpass")
 
 // Via Document (applied on Save/WriteTo)
 doc, _ := pdf.Open("input.pdf")
-doc.SetPassword("userpass", "ownerpass")
+doc = doc.SetPassword("userpass", "ownerpass")
 err = doc.Save("output.pdf")
 ```
 
@@ -140,7 +139,7 @@ if !report.Valid {
 
 Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`.
 
-### Mutable Document API
+### Document API
 
 ```go
 doc, err := pdf.Open("input.pdf")
@@ -148,29 +147,25 @@ doc, err := pdf.Open("input.pdf")
 fmt.Println(doc.PageCount())   // total pages
 fmt.Println(doc.Metadata())    // Info dictionary
 
-// Rotate pages in-place
-doc.Rotate(pdf.Rotate90, 1, 2)
-
-// Keep only selected page ranges (mutates the document)
-doc.ExtractPages(pdf.PageRange{From: 1, To: 5})
+// Rotate pages (returns new Document; rotation accumulates)
+doc, err = doc.Rotate(pdf.Rotate90, 1, 2)
+doc, err = doc.Rotate(pdf.Rotate90, 1, 2) // page 1 and 2 are now at 180°
 
 // Reorder pages (pages may be repeated or omitted)
-doc.Reorder([]int{3, 1, 2})
+doc, err = doc.Reorder([]int{3, 1, 2})
 
 // Append pages from another document
 other, _ := pdf.Open("other.pdf")
-doc.AppendFrom(other)
+doc = doc.AppendFrom(other)
 
-// Split into individual files
-paths, err := doc.Split("output_dir/", func(page, total int) string {
-    return fmt.Sprintf("page%03d.pdf", page)
-})
+// Split into individual page documents
+pages, err := doc.Split()
 
-// Extract page ranges to a new file (does not mutate doc)
-err = doc.Extract("output.pdf", pdf.PageRange{From: 1, To: 3})
+// Extract page ranges to a new Document
+sub, err := doc.Extract(pdf.PageRange{From: 1, To: 3})
 
 // Password-protect on save
-doc.SetPassword("userpass", "ownerpass")
+doc = doc.SetPassword("userpass", "ownerpass")
 
 // Save to file or writer
 err = doc.Save("output.pdf")
