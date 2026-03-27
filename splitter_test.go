@@ -1,6 +1,7 @@
 package asposepdf_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,6 +127,40 @@ func TestDocumentExtract(t *testing.T) {
 
 	// No ranges — must fail.
 	if err := doc.Extract(outputPath); err == nil {
+		t.Fatal("expected error for empty ranges")
+	}
+}
+
+func TestDocumentExtractTo(t *testing.T) {
+	pdf := buildMinimalPDF()
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.pdf")
+	if err := os.WriteFile(inputPath, pdf, 0o644); err != nil {
+		t.Fatalf("write test PDF: %v", err)
+	}
+
+	doc, err := asposepdf.Open(inputPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// ExtractTo page 2 into a buffer.
+	var buf bytes.Buffer
+	if err := doc.ExtractTo(&buf, asposepdf.PageRange{From: 2, To: 2}); err != nil {
+		t.Fatalf("ExtractTo: %v", err)
+	}
+
+	// Write buffer to file and verify page count.
+	outPath := filepath.Join(tmpDir, "extracted.pdf")
+	if err := os.WriteFile(outPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write extracted: %v", err)
+	}
+	if n := pageCountFromFile(t, outPath); n != 1 {
+		t.Fatalf("expected 1 page, got %d", n)
+	}
+
+	// No ranges — must fail.
+	if err := doc.ExtractTo(&buf); err == nil {
 		t.Fatal("expected error for empty ranges")
 	}
 }

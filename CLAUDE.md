@@ -36,6 +36,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).AppendFrom(other)` — appends all pages from another Document
 - `(*Document).Split(outputDir, nameFn)` — saves each page as a separate PDF file; nameFn(page, total) returns the filename
 - `(*Document).Extract(outputPath, ranges...)` — saves selected page ranges to a new PDF without mutating the document
+- `(*Document).ExtractTo(w, ranges...)` — writes selected page ranges as a PDF to an `io.Writer`
 - `(*Document).WriteTo(w)` — writes current state to an `io.Writer` (implements `io.WriterTo`)
 - `(*Document).Save(outputPath)` — writes current state to file
 - `(*Document).Metadata()` — returns Info metadata from the primary source document
