@@ -31,6 +31,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).Pages()` — returns `[]*Page` views of all pages
 - `(*Document).Page(n)` — returns a `*Page` view of page n (1-based)
 - `(*Document).Rotate(angle, pageNums...) (*Document, error)` — returns a new Document with selected pages rotated; rotation accumulates
+- `(*Document).SetRotation(angle, pageNums...) (*Document, error)` — returns a new Document with selected pages set to exactly angle, replacing any existing rotation
 - `(*Document).Reorder(order) (*Document, error)` — returns a new Document with pages rearranged; pages may be repeated or omitted
 - `(*Document).AppendFrom(other) *Document` — returns a new Document with all pages from other appended
 - `(*Document).SetPassword(userPassword, ownerPassword) *Document` — returns a new Document configured to be encrypted when saved

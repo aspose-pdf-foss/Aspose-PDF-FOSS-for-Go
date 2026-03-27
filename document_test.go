@@ -258,6 +258,39 @@ func TestDocumentWriteTo(t *testing.T) {
 	}
 }
 
+func TestDocumentSetRotation(t *testing.T) {
+	doc, err := asposepdf.Open(marketingPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// First rotate page 1 to 180°, then set it absolutely to 90°.
+	doc, err = doc.Rotate(asposepdf.Rotate180, 1)
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	doc, err = doc.SetRotation(asposepdf.Rotate90, 1)
+	if err != nil {
+		t.Fatalf("SetRotation: %v", err)
+	}
+
+	outputPath := filepath.Join(resultDir, "document_set_rotation.pdf")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatalf("create result dir: %v", err)
+	}
+	if err := doc.Save(outputPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, _ := os.ReadFile(outputPath)
+	// Must be 90°, not 270° (180+90).
+	if count := bytes.Count(data, []byte("/Rotate 90")); count != 1 {
+		t.Errorf("expected /Rotate 90 exactly once, got %d", count)
+	}
+	if bytes.Contains(data, []byte("/Rotate 270")) {
+		t.Error("found /Rotate 270 — SetRotation must not accumulate")
+	}
+}
+
 func TestDocumentInvalidRotateAngle(t *testing.T) {
 	doc, err := asposepdf.Open(marketingPDF)
 	if err != nil {
@@ -265,6 +298,9 @@ func TestDocumentInvalidRotateAngle(t *testing.T) {
 	}
 	if _, err := doc.Rotate(asposepdf.RotationAngle(45)); err == nil {
 		t.Fatal("expected error for angle=45")
+	}
+	if _, err := doc.SetRotation(asposepdf.RotationAngle(45)); err == nil {
+		t.Fatal("SetRotation: expected error for angle=45")
 	}
 }
 

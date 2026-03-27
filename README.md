@@ -151,6 +151,10 @@ fmt.Println(doc.Metadata())    // Info dictionary
 doc, err = doc.Rotate(pdf.Rotate90, 1, 2)
 doc, err = doc.Rotate(pdf.Rotate90, 1, 2) // page 1 and 2 are now at 180°
 
+// Set absolute rotation (replaces existing rotation)
+doc, err = doc.SetRotation(pdf.Rotate90, 1) // page 1 is now exactly 90°
+doc, err = doc.SetRotation(pdf.Rotate0)     // reset all pages to 0°
+
 // Reorder pages (pages may be repeated or omitted)
 doc, err = doc.Reorder([]int{3, 1, 2})
 

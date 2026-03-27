@@ -31,6 +31,31 @@ func (d *Document) Rotate(angle RotationAngle, pageNums ...int) (*Document, erro
 	return result, nil
 }
 
+// SetRotation returns a new Document with selected pages set to exactly angle
+// (Rotate0, Rotate90, Rotate180, or Rotate270), replacing any existing rotation.
+// If no page numbers are given, all pages are affected. Page numbers are 1-based.
+//
+// Example:
+//
+//	doc, err = doc.SetRotation(asposepdf.Rotate90)        // set all pages to 90°
+//	doc, err = doc.SetRotation(asposepdf.Rotate0, 1, 3)  // reset pages 1 and 3 to 0°
+func (d *Document) SetRotation(angle RotationAngle, pageNums ...int) (*Document, error) {
+	if err := angle.validate(); err != nil {
+		return nil, err
+	}
+	indices, err := resolvePageIndices(len(d.pages), pageNums)
+	if err != nil {
+		return nil, err
+	}
+	result := d.withCopiedPatches()
+	for _, i := range indices {
+		e := result.pages[i]
+		key := patchKey{e.src, e.page.objNum}
+		result.setPatch(key, "/Rotate", int(angle))
+	}
+	return result, nil
+}
+
 // Split returns each page of the document as a separate *Document.
 // The original document is not modified.
 //
