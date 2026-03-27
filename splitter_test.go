@@ -1,7 +1,6 @@
 package asposepdf_test
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,8 +69,8 @@ func TestDocumentSplitRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc.ExtractPages(asposepdf.PageRange{From: 2, To: 2}); err != nil {
-		t.Fatalf("ExtractPages: %v", err)
+	if err := doc.KeepPages(asposepdf.PageRange{From: 2, To: 2}); err != nil {
+		t.Fatalf("KeepPages: %v", err)
 	}
 	paths, err := doc.Split(outDir, func(page, _ int) string {
 		return fmt.Sprintf("page%03d.pdf", page)
@@ -88,7 +87,7 @@ func TestDocumentSplitRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := doc2.ExtractPages(asposepdf.PageRange{From: 3, To: 1}); err == nil {
+	if err := doc2.KeepPages(asposepdf.PageRange{From: 3, To: 1}); err == nil {
 		t.Fatal("expected error for invalid range")
 	}
 }
@@ -106,61 +105,38 @@ func TestDocumentExtract(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	outputPath := filepath.Join(tmpDir, "extracted.pdf")
-
-	// Extract only page 2 (of 2).
-	if err := doc.Extract(outputPath, asposepdf.PageRange{From: 2, To: 2}); err != nil {
+	// Extract only page 2 (of 2) — original doc must stay unchanged.
+	extracted, err := doc.Extract(asposepdf.PageRange{From: 2, To: 2})
+	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if n := pageCountFromFile(t, outputPath); n != 1 {
-		t.Fatalf("expected 1 page in extracted PDF, got %d", n)
+	if extracted.PageCount() != 1 {
+		t.Fatalf("expected 1 page in extracted doc, got %d", extracted.PageCount())
+	}
+	if doc.PageCount() != 2 {
+		t.Fatalf("original doc must not be mutated, got %d pages", doc.PageCount())
 	}
 
-	// Extract pages 1 and 2 (all).
-	outputPath2 := filepath.Join(tmpDir, "extracted2.pdf")
-	if err := doc.Extract(outputPath2, asposepdf.PageRange{From: 1, To: 2}); err != nil {
+	// Save to file and verify.
+	outputPath := filepath.Join(tmpDir, "extracted.pdf")
+	if err := extracted.Save(outputPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if n := pageCountFromFile(t, outputPath); n != 1 {
+		t.Fatalf("expected 1 page in saved file, got %d", n)
+	}
+
+	// Extract via WriteTo (stream output).
+	extracted2, err := doc.Extract(asposepdf.PageRange{From: 1, To: 2})
+	if err != nil {
 		t.Fatalf("Extract all: %v", err)
 	}
-	if n := pageCountFromFile(t, outputPath2); n != 2 {
-		t.Fatalf("expected 2 pages, got %d", n)
+	if extracted2.PageCount() != 2 {
+		t.Fatalf("expected 2 pages, got %d", extracted2.PageCount())
 	}
 
 	// No ranges — must fail.
-	if err := doc.Extract(outputPath); err == nil {
-		t.Fatal("expected error for empty ranges")
-	}
-}
-
-func TestDocumentExtractTo(t *testing.T) {
-	pdf := buildMinimalPDF()
-	tmpDir := t.TempDir()
-	inputPath := filepath.Join(tmpDir, "input.pdf")
-	if err := os.WriteFile(inputPath, pdf, 0o644); err != nil {
-		t.Fatalf("write test PDF: %v", err)
-	}
-
-	doc, err := asposepdf.Open(inputPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	// ExtractTo page 2 into a buffer.
-	var buf bytes.Buffer
-	if err := doc.ExtractTo(&buf, asposepdf.PageRange{From: 2, To: 2}); err != nil {
-		t.Fatalf("ExtractTo: %v", err)
-	}
-
-	// Write buffer to file and verify page count.
-	outPath := filepath.Join(tmpDir, "extracted.pdf")
-	if err := os.WriteFile(outPath, buf.Bytes(), 0o644); err != nil {
-		t.Fatalf("write extracted: %v", err)
-	}
-	if n := pageCountFromFile(t, outPath); n != 1 {
-		t.Fatalf("expected 1 page, got %d", n)
-	}
-
-	// No ranges — must fail.
-	if err := doc.ExtractTo(&buf); err == nil {
+	if _, err := doc.Extract(); err == nil {
 		t.Fatal("expected error for empty ranges")
 	}
 }
@@ -207,9 +183,14 @@ func TestExtractFiles(t *testing.T) {
 			}
 
 			for _, c := range cases {
-				outPath := filepath.Join(outDir, c.name)
-				if err := doc.Extract(outPath, asposepdf.PageRange{From: c.from, To: c.to}); err != nil {
+				extracted, err := doc.Extract(asposepdf.PageRange{From: c.from, To: c.to})
+				if err != nil {
 					t.Fatalf("Extract %s: %v", c.name, err)
+				}
+
+				outPath := filepath.Join(outDir, c.name)
+				if err := extracted.Save(outPath); err != nil {
+					t.Fatalf("Save %s: %v", c.name, err)
 				}
 
 				if got := pageCountFromFile(t, outPath); got != c.wantPages {

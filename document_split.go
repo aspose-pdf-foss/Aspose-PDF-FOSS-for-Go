@@ -2,7 +2,6 @@ package asposepdf
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -40,45 +39,29 @@ func (d *Document) Split(outputDir string, nameFn func(page, total int) string) 
 	return paths, nil
 }
 
-// ExtractTo writes pages matching the specified ranges as a PDF to w.
+// Extract returns a new Document containing only the pages in the specified ranges.
 // Ranges are 1-based and inclusive. Pages appear in the order the ranges are listed.
+// The original document is not modified.
 //
 // Example:
 //
 //	doc, _ := asposepdf.Open("input.pdf")
-//	err := doc.ExtractTo(w, asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
-func (d *Document) ExtractTo(w io.Writer, ranges ...PageRange) error {
+//	extracted, err := doc.Extract(asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
+//	extracted.Save("output.pdf")
+func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 	if len(ranges) == 0 {
-		return fmt.Errorf("no page ranges specified")
+		return nil, fmt.Errorf("no page ranges specified")
 	}
 	var selected []mutablePage
 	for _, r := range ranges {
 		from, to, err := normalizeRange(r.From, r.To, len(d.pages))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		selected = append(selected, d.pages[from-1:to]...)
 	}
-	data, err := buildDocumentPDF(selected, d.patches, d.encryptConfig)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(data)
-	return err
-}
-
-// Extract saves pages matching the specified ranges to a new PDF at outputPath.
-// Ranges are 1-based and inclusive. Pages appear in the order the ranges are listed.
-//
-// Example:
-//
-//	doc, _ := asposepdf.Open("input.pdf")
-//	err := doc.Extract("output.pdf", asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
-func (d *Document) Extract(outputPath string, ranges ...PageRange) error {
-	f, err := os.Create(outputPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return d.ExtractTo(f, ranges...)
+	return &Document{
+		pages:   selected,
+		patches: d.patches,
+	}, nil
 }

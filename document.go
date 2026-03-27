@@ -98,13 +98,13 @@ func (d *Document) Rotate(angle RotationAngle, pageNums ...int) error {
 	return nil
 }
 
-// ExtractPages keeps only the specified page ranges, discarding all other pages.
+// KeepPages keeps only the specified page ranges, discarding all other pages.
 // Ranges are 1-based and inclusive.
 //
 // Example:
 //
-//	doc.ExtractPages(asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
-func (d *Document) ExtractPages(ranges ...PageRange) error {
+//	doc.KeepPages(asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
+func (d *Document) KeepPages(ranges ...PageRange) error {
 	if len(ranges) == 0 {
 		return fmt.Errorf("no page ranges specified")
 	}
