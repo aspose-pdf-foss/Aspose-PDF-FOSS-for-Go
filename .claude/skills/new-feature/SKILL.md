@@ -11,16 +11,16 @@ Follow these steps:
 
 1. **Design** — describe the public signature and confirm it fits the existing
    API style:
-   - Methods on `*Document` return a new `*Document` (or `([]*Document, error)`);
+   - All public API is exposed as methods on `*Document`; there are no
+     standalone functions that accept file paths
+   - Methods return a new `*Document` (or `([]*Document, error)`);
      the receiver is never modified
-   - Standalone functions (like `Merge`, `Rotate`) accept file paths and write
-     to an output path
    - No external dependencies
 
 2. **Implementation** — add code in the appropriate file:
-   - New `*Document` method → add to `document.go` or a dedicated
-     `document_<feature>.go` if the feature is large
-   - New standalone function → create `<feature>.go` in the root package
+   - Operations that manipulate pages (rotate, reorder, split, extract,
+     append, etc.) → `document_pages.go`
+   - Core document lifecycle (open, save, metadata) → `document.go`
    - PDF writing logic that extends the write pipeline → `writer.go`
    - All code lives in package `asposepdf` (module root)
 
