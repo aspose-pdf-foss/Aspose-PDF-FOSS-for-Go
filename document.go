@@ -204,7 +204,8 @@ func (d *Document) setPatch(key patchKey, k string, v pdfValue) {
 }
 
 // resolvePageIndices converts 1-based page numbers to 0-based indices.
-// If pageNums is empty, returns all indices.
+// If pageNums is empty, returns all indices. Duplicates are silently removed;
+// order is preserved based on first occurrence.
 func resolvePageIndices(total int, pageNums []int) ([]int, error) {
 	if len(pageNums) == 0 {
 		indices := make([]int, total)
@@ -213,12 +214,16 @@ func resolvePageIndices(total int, pageNums []int) ([]int, error) {
 		}
 		return indices, nil
 	}
-	indices := make([]int, len(pageNums))
-	for i, n := range pageNums {
+	seen := make(map[int]bool, len(pageNums))
+	indices := make([]int, 0, len(pageNums))
+	for _, n := range pageNums {
 		if n < 1 || n > total {
 			return nil, fmt.Errorf("page number %d out of range (1..%d)", n, total)
 		}
-		indices[i] = n - 1
+		if !seen[n] {
+			seen[n] = true
+			indices = append(indices, n-1)
+		}
 	}
 	return indices, nil
 }

@@ -120,6 +120,31 @@ func TestDocumentRotateAccumulates(t *testing.T) {
 	}
 }
 
+func TestDocumentRotateDuplicatePageNums(t *testing.T) {
+	doc, err := asposepdf.Open(marketingPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc, err = doc.Rotate(asposepdf.Rotate90, 1, 1)
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+
+	outputPath := filepath.Join(resultDir, "document_rotate_duplicate_page_nums.pdf")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatalf("create result dir: %v", err)
+	}
+	if err := doc.Save(outputPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, _ := os.ReadFile(outputPath)
+	// Duplicate page 1 must be deduplicated — rotation is 90°, not 180°.
+	if count := bytes.Count(data, []byte("/Rotate 90")); count != 1 {
+		t.Errorf("expected /Rotate 90 exactly once, got %d", count)
+	}
+}
+
 func TestDocumentExtractPages(t *testing.T) {
 	doc, err := asposepdf.Open(marketingPDF)
 	if err != nil {
