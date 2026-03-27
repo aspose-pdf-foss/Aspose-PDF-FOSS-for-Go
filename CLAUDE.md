@@ -33,7 +33,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).Rotate(angle, pageNums...)` — rotates pages in-place
 - `(*Document).Reorder(order)` — rearranges pages; pages may be repeated or omitted
 - `(*Document).AppendFrom(other)` — appends all pages from another Document
-- `(*Document).Split(outputDir, nameFn)` — saves each page as a separate PDF file; nameFn(page, total) returns the filename
+- `(*Document).Split()` — returns each page as a separate `*Document`
 - `(*Document).Extract(ranges...)` — returns a new `*Document` with the selected page ranges; original is not mutated
 - `(*Document).WriteTo(w)` — writes current state to an `io.Writer` (implements `io.WriterTo`)
 - `(*Document).Save(outputPath)` — writes current state to file

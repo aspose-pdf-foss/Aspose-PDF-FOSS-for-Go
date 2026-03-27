@@ -1,42 +1,29 @@
 package asposepdf
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-)
+import "fmt"
 
-// Split saves each page of the document as an individual PDF file in outputDir.
-// nameFn receives the 1-based page number and total page count and must return a filename (not a path).
-// Returns the paths of created files.
+// Split returns each page of the document as a separate *Document.
+// The original document is not modified.
 //
 // Example:
 //
 //	doc, _ := asposepdf.Open("document.pdf")
-//	paths, err := doc.Split("./pages", func(page, total int) string {
-//	    return fmt.Sprintf("page_%d_of_%d.pdf", page, total)
-//	})
-func (d *Document) Split(outputDir string, nameFn func(page, total int) string) ([]string, error) {
+//	pages, err := doc.Split()
+//	for i, p := range pages {
+//	    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
+//	}
+func (d *Document) Split() ([]*Document, error) {
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("document has no pages")
 	}
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create output dir: %w", err)
-	}
-	total := len(d.pages)
-	var paths []string
-	for i := 0; i < total; i++ {
-		outPath := filepath.Join(outputDir, nameFn(i+1, total))
-		data, err := buildDocumentPDF(d.pages[i:i+1], d.patches, d.encryptConfig)
-		if err != nil {
-			return nil, fmt.Errorf("write page %d: %w", i+1, err)
+	result := make([]*Document, len(d.pages))
+	for i := range d.pages {
+		result[i] = &Document{
+			pages:   []mutablePage{d.pages[i]},
+			patches: d.patches,
 		}
-		if err := writeFile(outPath, data); err != nil {
-			return nil, fmt.Errorf("write page %d: %w", i+1, err)
-		}
-		paths = append(paths, outPath)
 	}
-	return paths, nil
+	return result, nil
 }
 
 // Extract returns a new Document containing only the pages in the specified ranges.

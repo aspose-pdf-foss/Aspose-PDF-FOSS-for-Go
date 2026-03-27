@@ -95,22 +95,32 @@ func TestValidate_EncryptedPDF(t *testing.T) {
 	}
 }
 
-func TestValidate_OrphanedPagesNode(t *testing.T) {
-	// Split a real PDF and validate each page — the fix in collectDeps must ensure
-	// no orphaned /Pages objects appear in the output.
-	inputPath := "testdata/split/4pages.pdf"
-	outDir := t.TempDir()
-
-	doc, err := asposepdf.Open(inputPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	paths, err := doc.Split(outDir, func(page, _ int) string {
-		return fmt.Sprintf("page%03d.pdf", page)
-	})
+// splitAndSave splits doc into individual pages, saves each to outDir, and returns the paths.
+func splitAndSave(t *testing.T, doc *asposepdf.Document, outDir string) []string {
+	t.Helper()
+	pages, err := doc.Split()
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
+	var paths []string
+	for i, p := range pages {
+		path := filepath.Join(outDir, fmt.Sprintf("page%03d.pdf", i+1))
+		if err := p.Save(path); err != nil {
+			t.Fatalf("Save page %d: %v", i+1, err)
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func TestValidate_OrphanedPagesNode(t *testing.T) {
+	// Split a real PDF and validate each page — the fix in collectDeps must ensure
+	// no orphaned /Pages objects appear in the output.
+	doc, err := asposepdf.Open("testdata/split/4pages.pdf")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	paths := splitAndSave(t, doc, t.TempDir())
 
 	for _, p := range paths {
 		report, err := asposepdf.Validate(p)
@@ -128,19 +138,11 @@ func TestValidate_OrphanedPagesNode(t *testing.T) {
 func TestValidate_PageParentRef(t *testing.T) {
 	// Split Binder1.pdf — its object #2 is a content stream, not /Pages.
 	// Before the pdfDirectRef fix, /Parent in split pages pointed to that stream.
-	inputPath := "testdata/split/Binder1.pdf"
-	outDir := t.TempDir()
-
-	doc, err := asposepdf.Open(inputPath)
+	doc, err := asposepdf.Open("testdata/split/Binder1.pdf")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	paths, err := doc.Split(outDir, func(page, _ int) string {
-		return fmt.Sprintf("page%03d.pdf", page)
-	})
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
+	paths := splitAndSave(t, doc, t.TempDir())
 
 	for _, p := range paths {
 		report, err := asposepdf.Validate(p)
@@ -158,19 +160,11 @@ func TestValidate_PageParentRef(t *testing.T) {
 func TestValidate_StrippedStreamFilter(t *testing.T) {
 	// Split Binder1.pdf and validate — before the Decoded flag fix, JPEG image
 	// streams were written without /Filter, triggering a STREAM_ERROR.
-	inputPath := "testdata/split/Binder1.pdf"
-	outDir := t.TempDir()
-
-	doc, err := asposepdf.Open(inputPath)
+	doc, err := asposepdf.Open("testdata/split/Binder1.pdf")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	paths, err := doc.Split(outDir, func(page, _ int) string {
-		return fmt.Sprintf("page%03d.pdf", page)
-	})
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
+	paths := splitAndSave(t, doc, t.TempDir())
 
 	for _, p := range paths {
 		report, err := asposepdf.Validate(p)

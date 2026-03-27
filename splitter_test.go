@@ -30,26 +30,27 @@ func TestDocumentSplit(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	outDir := filepath.Join(tmpDir, "out")
-	paths, err := doc.Split(outDir, func(page, _ int) string {
-		return fmt.Sprintf("page%03d.pdf", page)
-	})
+	pages, err := doc.Split()
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
-
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 pages, got %d", len(paths))
+	if len(pages) != 2 {
+		t.Fatalf("expected 2 pages, got %d", len(pages))
 	}
 
-	for _, p := range paths {
-		info, err := os.Stat(p)
+	// Save each page and verify the file exists and is non-empty.
+	for i, p := range pages {
+		outPath := filepath.Join(tmpDir, fmt.Sprintf("page%03d.pdf", i+1))
+		if err := p.Save(outPath); err != nil {
+			t.Fatalf("Save page %d: %v", i+1, err)
+		}
+		info, err := os.Stat(outPath)
 		if err != nil {
 			t.Errorf("output file missing: %v", err)
 			continue
 		}
 		if info.Size() == 0 {
-			t.Errorf("output file is empty: %s", p)
+			t.Errorf("output file is empty: %s", outPath)
 		}
 	}
 }
@@ -62,25 +63,22 @@ func TestDocumentSplitRange(t *testing.T) {
 		t.Fatalf("write test PDF: %v", err)
 	}
 
-	outDir := filepath.Join(tmpDir, "out")
-
-	// Split only page 2 of 2.
 	doc, err := asposepdf.Open(inputPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	page2, err := doc.Extract(asposepdf.PageRange{From: 2, To: 2})
+
+	// Split only page 2 of 2.
+	page2doc, err := doc.Extract(asposepdf.PageRange{From: 2, To: 2})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	paths, err := page2.Split(outDir, func(page, _ int) string {
-		return fmt.Sprintf("page%03d.pdf", page)
-	})
+	pages, err := page2doc.Split()
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
-	if len(paths) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(paths))
+	if len(pages) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(pages))
 	}
 
 	// from > to must fail.
@@ -123,7 +121,7 @@ func TestDocumentExtract(t *testing.T) {
 		t.Fatalf("expected 1 page in saved file, got %d", n)
 	}
 
-	// Extract via WriteTo (stream output).
+	// Extract pages 1 and 2 (all).
 	extracted2, err := doc.Extract(asposepdf.PageRange{From: 1, To: 2})
 	if err != nil {
 		t.Fatalf("Extract all: %v", err)
@@ -159,7 +157,7 @@ func TestExtractFiles(t *testing.T) {
 				t.Skipf("need at least 2 pages, got %d", total)
 			}
 
-			mid := total / 2 // floor → first half is smaller for odd counts
+			mid := total / 2
 
 			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				t.Fatalf("MkdirAll: %v", err)
@@ -202,37 +200,6 @@ func TestExtractFiles(t *testing.T) {
 			}
 			t.Logf("%s (%d pages) → first_half=%d second_half=%d", stem, total, mid, total-mid)
 		})
-	}
-}
-
-func TestDocumentSplitCustomName(t *testing.T) {
-	pdf := buildMinimalPDF()
-	tmpDir := t.TempDir()
-	inputPath := filepath.Join(tmpDir, "input.pdf")
-	if err := os.WriteFile(inputPath, pdf, 0o644); err != nil {
-		t.Fatalf("write test PDF: %v", err)
-	}
-
-	doc, err := asposepdf.Open(inputPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	outDir := filepath.Join(tmpDir, "out")
-	paths, err := doc.Split(outDir, func(page, total int) string {
-		return fmt.Sprintf("p%d_of_%d.pdf", page, total)
-	})
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 pages, got %d", len(paths))
-	}
-	wantNames := []string{"p1_of_2.pdf", "p2_of_2.pdf"}
-	for i, p := range paths {
-		if filepath.Base(p) != wantNames[i] {
-			t.Errorf("page %d: got filename %q, want %q", i+1, filepath.Base(p), wantNames[i])
-		}
 	}
 }
 
@@ -321,33 +288,41 @@ func TestSplitFiles(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 
-			paths, err := doc.Split(outDir, func(page, _ int) string {
-				return fmt.Sprintf("%d.pdf", page)
-			})
+			pages, err := doc.Split()
 			if err != nil {
 				t.Fatalf("Split: %v", err)
 			}
-			if len(paths) == 0 {
-				t.Fatal("no output files produced")
+			if len(pages) == 0 {
+				t.Fatal("no pages produced")
 			}
-			for _, p := range paths {
-				info, err := os.Stat(p)
+
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+
+			for i, p := range pages {
+				outPath := filepath.Join(outDir, fmt.Sprintf("%d.pdf", i+1))
+				if err := p.Save(outPath); err != nil {
+					t.Errorf("Save page %d: %v", i+1, err)
+					continue
+				}
+				info, err := os.Stat(outPath)
 				if err != nil {
 					t.Errorf("output file missing: %v", err)
 					continue
 				}
 				if info.Size() == 0 {
-					t.Errorf("output file is empty: %s", p)
+					t.Errorf("output file is empty: %s", outPath)
 					continue
 				}
-				report, err := asposepdf.Validate(p)
+				report, err := asposepdf.Validate(outPath)
 				if err != nil {
-					t.Errorf("Validate %s: %v", p, err)
+					t.Errorf("Validate %s: %v", outPath, err)
 					continue
 				}
-				checkValidation(t, filepath.Base(p), report)
+				checkValidation(t, fmt.Sprintf("%d.pdf", i+1), report)
 			}
-			t.Logf("split into %d pages → %s", len(paths), outDir)
+			t.Logf("split into %d pages → %s", len(pages), outDir)
 		})
 	}
 }
