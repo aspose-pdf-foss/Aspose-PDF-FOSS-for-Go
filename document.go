@@ -73,31 +73,6 @@ func (d *Document) PageCount() int {
 	return len(d.pages)
 }
 
-// Rotate returns a new Document with selected pages rotated clockwise by angle
-// (Rotate90, Rotate180, or Rotate270). The rotation is added to any existing
-// rotation. If no page numbers are given, all pages are rotated. Page numbers are 1-based.
-//
-// Example:
-//
-//	doc, err = doc.Rotate(asposepdf.Rotate90)        // rotate all pages
-//	doc, err = doc.Rotate(asposepdf.Rotate180, 1, 3) // rotate pages 1 and 3
-func (d *Document) Rotate(angle RotationAngle, pageNums ...int) (*Document, error) {
-	if err := angle.validate(); err != nil {
-		return nil, err
-	}
-	indices, err := resolvePageIndices(len(d.pages), pageNums)
-	if err != nil {
-		return nil, err
-	}
-	result := d.withCopiedPatches()
-	for _, i := range indices {
-		e := result.pages[i]
-		key := patchKey{e.src, e.page.objNum}
-		current := result.patchedRotation(key, e)
-		result.setPatch(key, "/Rotate", (int(current)+int(angle))%360)
-	}
-	return result, nil
-}
 
 // Reorder returns a new Document with pages rearranged according to order,
 // a slice of 1-based page numbers. Pages may be repeated or omitted.
