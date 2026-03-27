@@ -17,10 +17,15 @@ func (d *Document) Split() ([]*Document, error) {
 		return nil, fmt.Errorf("document has no pages")
 	}
 	result := make([]*Document, len(d.pages))
-	for i := range d.pages {
+	for i, p := range d.pages {
+		key := patchKey{p.src, p.page.objNum}
+		patches := make(map[patchKey]pdfDict)
+		if patch, ok := d.patches[key]; ok {
+			patches[key] = patch
+		}
 		result[i] = &Document{
-			pages:   []pageRef{d.pages[i]},
-			patches: copyPatches(d.patches),
+			pages:   []pageRef{p},
+			patches: patches,
 		}
 	}
 	return result, nil

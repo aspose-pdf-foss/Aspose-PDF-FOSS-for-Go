@@ -174,16 +174,16 @@ func (d *Document) Save(outputPath string) error {
 	return err
 }
 
-// normalizeRange clamps from/to to valid bounds [1, total] and validates ordering.
+// normalizeRange validates from/to against [1, total] and returns an error for any invalid input.
 func normalizeRange(from, to, total int) (int, int, error) {
-	if from < 1 {
-		from = 1
+	if from < 1 || from > total {
+		return 0, 0, fmt.Errorf("page range from=%d out of bounds (1..%d)", from, total)
 	}
 	if to < 1 || to > total {
-		to = total
+		return 0, 0, fmt.Errorf("page range to=%d out of bounds (1..%d)", to, total)
 	}
 	if from > to {
-		return 0, 0, fmt.Errorf("invalid range: from=%d > to=%d", from, to)
+		return 0, 0, fmt.Errorf("invalid page range: from=%d > to=%d", from, to)
 	}
 	return from, to, nil
 }

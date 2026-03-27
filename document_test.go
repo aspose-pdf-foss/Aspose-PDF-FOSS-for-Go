@@ -261,4 +261,13 @@ func TestDocumentInvalidExtract(t *testing.T) {
 	if _, err := doc.Extract(); err == nil {
 		t.Fatal("expected error for empty ranges")
 	}
+	if _, err := doc.Extract(asposepdf.PageRange{From: 0, To: 1}); err == nil {
+		t.Fatal("expected error for from=0")
+	}
+	if _, err := doc.Extract(asposepdf.PageRange{From: 1, To: 999}); err == nil {
+		t.Fatal("expected error for to out of bounds")
+	}
+	if _, err := doc.Extract(asposepdf.PageRange{From: 2, To: 1}); err == nil {
+		t.Fatal("expected error for from > to")
+	}
 }
