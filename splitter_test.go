@@ -82,7 +82,7 @@ func TestDocumentSplitRange(t *testing.T) {
 	}
 
 	// from > to must fail.
-	if _, err := doc.Extract(asposepdf.PageRange{From: 3, To: 1}); err == nil {
+	if _, err := doc.Extract(asposepdf.PageRange{From: 2, To: 1}); err == nil {
 		t.Fatal("expected error for invalid range")
 	}
 }
