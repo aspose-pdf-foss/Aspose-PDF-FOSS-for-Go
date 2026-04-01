@@ -55,8 +55,8 @@ func TestDocumentMetadata(t *testing.T) {
 	}
 }
 
-func TestDocumentMetadataAfterAppendFrom(t *testing.T) {
-	// After AppendFrom, Metadata returns info from the first (primary) document.
+func TestDocumentMetadataAfterAppend(t *testing.T) {
+	// After Append, Metadata returns info from the first (primary) document.
 	doc1, err := asposepdf.Open("testdata/split/4pages.pdf")
 	if err != nil {
 		t.Fatalf("Open doc1: %v", err)
@@ -65,9 +65,9 @@ func TestDocumentMetadataAfterAppendFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}
-	doc1.AppendFrom(doc2)
+	combined := doc1.Append(doc2)
 
-	meta, err := doc1.Metadata()
+	meta, err := combined.Metadata()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}

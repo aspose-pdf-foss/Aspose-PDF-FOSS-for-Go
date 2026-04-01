@@ -197,7 +197,7 @@ func TestDocumentReorder(t *testing.T) {
 	}
 }
 
-func TestDocumentAppendFrom(t *testing.T) {
+func TestDocumentAppend(t *testing.T) {
 	doc1, err := asposepdf.Open(marketingPDF)
 	if err != nil {
 		t.Fatalf("Open doc1: %v", err)
@@ -212,11 +212,11 @@ func TestDocumentAppendFrom(t *testing.T) {
 	}
 
 	// Variadic: append two documents at once.
-	combined := doc1.AppendFrom(doc2, doc3)
+	combined := doc1.Append(doc2, doc3)
 
 	want := marketingPages * 3
 	if combined.PageCount() != want {
-		t.Fatalf("expected %d pages after AppendFrom, got %d", want, combined.PageCount())
+		t.Fatalf("expected %d pages after Append, got %d", want, combined.PageCount())
 	}
 
 	outputPath := filepath.Join(resultDir, "document_append_from.pdf")
@@ -232,7 +232,7 @@ func TestDocumentAppendFrom(t *testing.T) {
 	}
 
 	// nil arguments must be skipped.
-	withNil := doc1.AppendFrom(nil, doc2, nil)
+	withNil := doc1.Append(nil, doc2, nil)
 	if withNil.PageCount() != marketingPages*2 {
 		t.Fatalf("nil args: expected %d pages, got %d", marketingPages*2, withNil.PageCount())
 	}

@@ -18,7 +18,7 @@ for i, p := range pages {
 
 // Merge multiple PDFs into one
 doc2, _ := pdf.Open("file2.pdf")
-merged := doc.AppendFrom(doc2)
+merged := doc.Append(doc2)
 merged.Save("merged.pdf")
 ```
 
@@ -145,7 +145,7 @@ doc, err = doc.Reorder([]int{3, 1, 2})
 // Append pages from one or more documents
 doc2, _ := pdf.Open("part2.pdf")
 doc3, _ := pdf.Open("part3.pdf")
-doc = doc.AppendFrom(doc2, doc3)
+doc = doc.Append(doc2, doc3)
 
 // Split into individual page documents
 pages, err := doc.Split()
