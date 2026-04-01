@@ -91,20 +91,46 @@ func (d *Document) Reorder(order []int) (*Document, error) {
 	return &Document{pages: result, patches: copyPatches(d.patches)}, nil
 }
 
-// AppendFrom returns a new Document with all pages from other appended.
+// AppendFrom returns a new Document with all pages from others appended in order.
+// nil arguments are silently skipped.
 //
 // Example:
 //
 //	doc1, _ := asposepdf.Open("part1.pdf")
 //	doc2, _ := asposepdf.Open("part2.pdf")
-//	combined := doc1.AppendFrom(doc2)
+//	doc3, _ := asposepdf.Open("part3.pdf")
+//	combined := doc1.AppendFrom(doc2, doc3)
 //	combined.Save("combined.pdf")
-func (d *Document) AppendFrom(other *Document) *Document {
-	newPages := append(append([]pageRef{}, d.pages...), other.pages...)
-	newPatches := copyPatches(d.patches)
-	for k, v := range other.patches {
-		newPatches[k] = v
+func (d *Document) AppendFrom(others ...*Document) *Document {
+	newPages := append([]pageRef{}, d.pages...)
+	for _, other := range others {
+		if other == nil {
+			continue
+		}
+		newPages = append(newPages, other.pages...)
 	}
+
+	// Build patches only from pages actually present in the result,
+	// preserving each contributing document's own patches.
+	newPatches := make(map[patchKey]pdfDict)
+	for _, p := range d.pages {
+		key := patchKey{p.src, p.page.objNum}
+		if patch, ok := d.patches[key]; ok {
+			newPatches[key] = patch
+		}
+	}
+	for _, other := range others {
+		if other == nil {
+			continue
+		}
+		for _, p := range other.pages {
+			key := patchKey{p.src, p.page.objNum}
+			if patch, ok := other.patches[key]; ok {
+				newPatches[key] = patch
+			}
+		}
+	}
+
 	return &Document{pages: newPages, patches: newPatches}
 }
 

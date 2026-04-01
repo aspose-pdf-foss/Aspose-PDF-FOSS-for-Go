@@ -206,10 +206,15 @@ func TestDocumentAppendFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}
+	doc3, err := asposepdf.Open(marketingPDF)
+	if err != nil {
+		t.Fatalf("Open doc3: %v", err)
+	}
 
-	combined := doc1.AppendFrom(doc2)
+	// Variadic: append two documents at once.
+	combined := doc1.AppendFrom(doc2, doc3)
 
-	want := marketingPages * 2
+	want := marketingPages * 3
 	if combined.PageCount() != want {
 		t.Fatalf("expected %d pages after AppendFrom, got %d", want, combined.PageCount())
 	}
@@ -224,6 +229,12 @@ func TestDocumentAppendFrom(t *testing.T) {
 
 	if n := pageCountFromFile(t, outputPath); n != want {
 		t.Fatalf("expected %d pages in saved file, got %d", want, n)
+	}
+
+	// nil arguments must be skipped.
+	withNil := doc1.AppendFrom(nil, doc2, nil)
+	if withNil.PageCount() != marketingPages*2 {
+		t.Fatalf("nil args: expected %d pages, got %d", marketingPages*2, withNil.PageCount())
 	}
 }
 

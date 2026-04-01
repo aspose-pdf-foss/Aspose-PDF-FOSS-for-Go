@@ -142,9 +142,10 @@ doc, err = doc.SetRotation(pdf.Rotate0)     // reset all pages to 0°
 // Reorder pages (pages may be repeated or omitted)
 doc, err = doc.Reorder([]int{3, 1, 2})
 
-// Append pages from another document
-other, _ := pdf.Open("other.pdf")
-doc = doc.AppendFrom(other)
+// Append pages from one or more documents
+doc2, _ := pdf.Open("part2.pdf")
+doc3, _ := pdf.Open("part3.pdf")
+doc = doc.AppendFrom(doc2, doc3)
 
 // Split into individual page documents
 pages, err := doc.Split()
