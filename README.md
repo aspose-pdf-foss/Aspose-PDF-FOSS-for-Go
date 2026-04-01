@@ -28,7 +28,7 @@ merged.Save("merged.pdf")
 - **Extract** — build a new Document from selected page ranges without mutating the source
 - **Merge** — combine multiple PDFs into a single document
 - **Rotate** — rotate pages by 90°, 180°, or 270°
-- **Page info** — read page count and dimensions
+- **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
 - **Metadata** — read document Info (title, author, dates, etc.)
 - **Encrypt** — password-protect PDFs with RC4-128 (PDF 1.4 Standard Security Handler)
 - **Validate** — check structural integrity of a PDF file
@@ -169,9 +169,18 @@ doc, _ := pdf.Open("input.pdf")
 pages := doc.Pages()
 for _, p := range pages {
     size, _ := p.Size()
-    fmt.Printf("Page %d: %.0fx%.0f pt, rotation %d°\n",
-        p.Number(), size.Width, size.Height, p.Rotation())
+    fmt.Printf("Page %d: %.0fx%.0f pt, rotation %d°, label %q\n",
+        p.Number(), size.Width, size.Height, p.Rotation(), p.Label())
 }
+
+// PDF boxes — each falls back to the next in the chain if not set:
+// ArtBox/TrimBox/BleedBox → CropBox → MediaBox
+p, _ := doc.Page(1)
+mediaBox, _ := p.Size()
+cropBox,  _ := p.CropBox()
+trimBox,  _ := p.TrimBox()
+bleedBox, _ := p.BleedBox()
+artBox,   _ := p.ArtBox()
 ```
 
 ## License

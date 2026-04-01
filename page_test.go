@@ -111,6 +111,40 @@ func TestPageRotation(t *testing.T) {
 	}
 }
 
+func TestPageBoxesFallbackToMediaBox(t *testing.T) {
+	// 4pages.pdf has no explicit CropBox/TrimBox/BleedBox/ArtBox,
+	// so all boxes must fall back to the MediaBox (612x792 pt).
+	doc, err := asposepdf.Open(fourPagesPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	p, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+
+	checks := []struct {
+		name string
+		fn   func() (asposepdf.PageSize, error)
+	}{
+		{"CropBox", p.CropBox},
+		{"TrimBox", p.TrimBox},
+		{"BleedBox", p.BleedBox},
+		{"ArtBox", p.ArtBox},
+	}
+	for _, c := range checks {
+		sz, err := c.fn()
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", c.name, err)
+			continue
+		}
+		if sz.Width != letterWidth || sz.Height != letterHeight {
+			t.Errorf("%s: expected %.0fx%.0f, got %.2fx%.2f",
+				c.name, letterWidth, letterHeight, sz.Width, sz.Height)
+		}
+	}
+}
+
 func TestDocumentPageInvalidNumber(t *testing.T) {
 	doc, err := asposepdf.Open(fourPagesPDF)
 	if err != nil {

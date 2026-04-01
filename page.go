@@ -76,6 +76,38 @@ func (d *Document) Page(n int) (*Page, error) {
 	return &Page{doc: d, index: n - 1}, nil
 }
 
+// CropBox returns the crop box of the page.
+// The crop box defines the visible region. If not explicitly set on the page,
+// it falls back to the MediaBox.
+func (p *Page) CropBox() (PageSize, error) {
+	e := p.doc.pages[p.index]
+	return pageBoxWithFallback(e.src, e.page.objNum, "/CropBox")
+}
+
+// TrimBox returns the trim box of the page.
+// The trim box defines the intended final dimensions after trimming.
+// Falls back to CropBox, then MediaBox if not set.
+func (p *Page) TrimBox() (PageSize, error) {
+	e := p.doc.pages[p.index]
+	return pageBoxWithFallback(e.src, e.page.objNum, "/TrimBox", "/CropBox")
+}
+
+// BleedBox returns the bleed box of the page.
+// The bleed box defines the region to which content is clipped in production.
+// Falls back to CropBox, then MediaBox if not set.
+func (p *Page) BleedBox() (PageSize, error) {
+	e := p.doc.pages[p.index]
+	return pageBoxWithFallback(e.src, e.page.objNum, "/BleedBox", "/CropBox")
+}
+
+// ArtBox returns the art box of the page.
+// The art box defines the extent of meaningful content.
+// Falls back to CropBox, then MediaBox if not set.
+func (p *Page) ArtBox() (PageSize, error) {
+	e := p.doc.pages[p.index]
+	return pageBoxWithFallback(e.src, e.page.objNum, "/ArtBox", "/CropBox")
+}
+
 // PageSizes returns the dimensions of every page in the given PDF file.
 func PageSizes(inputPath string) ([]PageSize, error) {
 	doc, err := Open(inputPath)
@@ -91,6 +123,32 @@ func PageSizes(inputPath string) ([]PageSize, error) {
 		sizes[i] = sz
 	}
 	return sizes, nil
+}
+
+// pageBoxWithFallback reads the first named box that exists on the page dict.
+// If none of the requested boxes are found, it falls back to the MediaBox
+// (walking the parent chain if needed).
+// Note: only MediaBox is inherited per the PDF spec; the other boxes are looked
+// up directly on the page object.
+func pageBoxWithFallback(src *rawDocument, objNum int, boxes ...string) (PageSize, error) {
+	obj, err := src.getObject(objNum)
+	if err != nil {
+		return PageSize{}, err
+	}
+	d, ok := obj.Value.(pdfDict)
+	if !ok {
+		return PageSize{}, fmt.Errorf("object %d is not a dict", objNum)
+	}
+	for _, name := range boxes {
+		if v, ok := d[name]; ok {
+			arr, err := resolveToArray(src, v)
+			if err != nil {
+				continue
+			}
+			return mediaBoxFromArray(arr)
+		}
+	}
+	return mediaBoxSize(src, objNum)
 }
 
 // mediaBoxSize reads the /MediaBox of the page object at objNum,

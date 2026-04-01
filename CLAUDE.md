@@ -50,7 +50,15 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).Number()` — 1-based page number within the document
 - `(*Page).Size()` — page dimensions from MediaBox (with inheritance from page tree)
 - `(*Page).Rotation()` — effective rotation in degrees (0, 90, 180, 270); reflects Document.Rotate patches
+- `(*Page).CropBox()` — visible region; falls back to MediaBox if not set
+- `(*Page).TrimBox()` — intended trim dimensions; falls back to CropBox then MediaBox
+- `(*Page).BleedBox()` — production bleed region; falls back to CropBox then MediaBox
+- `(*Page).ArtBox()` — meaningful content extent; falls back to CropBox then MediaBox
 - `PageSize` struct — Width, Height in points (1/72 inch)
+
+**`page_labels.go`** — page label support
+- `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
+- Supported styles: `/D` decimal, `/r`/`/R` roman, `/a`/`/A` alphabetic; optional `/P` prefix and `/St` start value
 
 **`page_range.go`**
 - `PageRange` struct — From, To (1-based, inclusive)
