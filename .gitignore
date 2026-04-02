@@ -32,3 +32,6 @@ result_files/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Local examples (not part of the public library)
+my_examples/
