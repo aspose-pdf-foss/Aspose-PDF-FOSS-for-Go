@@ -22,12 +22,15 @@ func TestMetadataCustomFieldsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGetMetadata(t *testing.T) {
-	meta, err := asposepdf.GetMetadata("testdata/split/4pages.pdf")
+func TestDocumentMetadataFields(t *testing.T) {
+	doc, err := asposepdf.Open(fourPagesPDF)
 	if err != nil {
-		t.Fatalf("GetMetadata: %v", err)
+		t.Fatalf("Open: %v", err)
 	}
-
+	meta, err := doc.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
 	if meta.Title != "Untitled" {
 		t.Errorf("Title: got %q, want %q", meta.Title, "Untitled")
 	}
@@ -43,7 +46,6 @@ func TestGetMetadata(t *testing.T) {
 	if meta.ModDate == "" {
 		t.Error("ModDate should not be empty")
 	}
-	// Fields absent in this file must be empty strings.
 	if meta.Author != "" {
 		t.Errorf("Author: expected empty, got %q", meta.Author)
 	}

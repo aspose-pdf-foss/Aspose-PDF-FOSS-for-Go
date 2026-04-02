@@ -19,19 +19,6 @@ type Metadata struct {
 	Custom       map[string]string // arbitrary Info dict entries
 }
 
-// GetMetadata reads the Info metadata from a PDF file.
-//
-// Example:
-//
-//	meta, err := asposepdf.GetMetadata("input.pdf")
-//	fmt.Println(meta.Title, meta.Author)
-func GetMetadata(inputPath string) (Metadata, error) {
-	doc, err := openDocument(inputPath)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("open PDF: %w", err)
-	}
-	return readMetadata(doc)
-}
 
 // Metadata returns the Info metadata from the primary source document.
 // For documents assembled from multiple sources, metadata from the first
