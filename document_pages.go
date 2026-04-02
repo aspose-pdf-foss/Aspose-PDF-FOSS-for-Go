@@ -56,6 +56,23 @@ func (d *Document) SetRotation(angle RotationAngle, pageNums ...int) (*Document,
 	return result, nil
 }
 
+// Reorder returns a new Document with pages rearranged according to order,
+// a slice of 1-based page numbers. Pages may be repeated or omitted.
+//
+// Example — reverse a 4-page document:
+//
+//	doc, err = doc.Reorder([]int{4, 3, 2, 1})
+func (d *Document) Reorder(order []int) (*Document, error) {
+	result := make([]pageRef, len(order))
+	for i, n := range order {
+		if n < 1 || n > len(d.pages) {
+			return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
+		}
+		result[i] = d.pages[n-1]
+	}
+	return &Document{pages: result, patches: copyPatches(d.patches)}, nil
+}
+
 // Split returns each page of the document as a separate *Document.
 // The original document is not modified.
 //
