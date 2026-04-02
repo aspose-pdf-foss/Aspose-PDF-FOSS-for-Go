@@ -144,7 +144,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	if len(d.pages) == 0 {
 		return 0, fmt.Errorf("document has no pages")
 	}
-	data, err := buildDocumentPDF(d.pages, d.patches, d.encryptConfig)
+	data, err := buildDocumentPDF(d.pages, d.patches, d.encryptConfig, d.metadataConfig)
 	if err != nil {
 		return 0, err
 	}

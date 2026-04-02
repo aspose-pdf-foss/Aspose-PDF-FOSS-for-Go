@@ -40,7 +40,7 @@ func buildMultiPagePDFEx(doc *rawDocument, pages []*pageInfo, pagePatches map[in
 	for objNum, d := range pagePatches {
 		patches[patchKey{doc, objNum}] = d
 	}
-	return buildDocumentPDF(entries, patches, nil)
+	return buildDocumentPDF(entries, patches, nil, nil)
 }
 
 // writeValue serialises a PDF value to buf, remapping object reference numbers via remap.
@@ -176,7 +176,7 @@ func sortedKeys(m map[int]bool) []int {
 // buildDocumentPDF constructs a PDF from a mutable page list with optional per-page patches.
 // Pages may come from multiple source documents in any order.
 // encCfg, if non-nil, enables RC4-128 encryption of the output.
-func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *encryptConfig) ([]byte, error) {
+func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *encryptConfig, metaCfg *metadataConfig) ([]byte, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("no pages to write")
 	}
@@ -211,6 +211,13 @@ func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *e
 			return nil, fmt.Errorf("init encryption: %w", err)
 		}
 		encryptObjNum = newNum
+		newNum++
+	}
+
+	// Reserve an object number for the Info dictionary if metadata is being written.
+	var infoObjNum int
+	if metaCfg != nil && !metaCfg.clear {
+		infoObjNum = newNum
 		newNum++
 	}
 
@@ -316,6 +323,15 @@ func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *e
 	fmt.Fprintf(&buf, "%d 0 obj\n<< /Type /Catalog /Pages %d 0 R >>\nendobj\n",
 		catalogNum, pagesNum)
 
+	// Write /Info dictionary (strings only — no remapping or encryption needed).
+	if infoObjNum > 0 {
+		identity := func(n int) int { return n }
+		offsets[infoObjNum] = int64(buf.Len())
+		fmt.Fprintf(&buf, "%d 0 obj\n", infoObjNum)
+		writeValue(&buf, buildInfoDict(metaCfg.meta), identity, nil)
+		buf.WriteString("\nendobj\n")
+	}
+
 	// Write /Encrypt dictionary (if encryption is active).
 	// Per PDF spec, the /Encrypt object itself is never encrypted.
 	if encState != nil {
@@ -343,6 +359,9 @@ func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *e
 
 	// Write trailer.
 	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R", newNum, catalogNum)
+	if infoObjNum > 0 {
+		fmt.Fprintf(&buf, " /Info %d 0 R", infoObjNum)
+	}
 	if encState != nil {
 		fmt.Fprintf(&buf, " /Encrypt %d 0 R /ID [", encryptObjNum)
 		writeHexBytes(&buf, encState.fileID)

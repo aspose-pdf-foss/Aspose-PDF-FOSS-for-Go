@@ -1,6 +1,7 @@
 package asposepdf_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	asposepdf "github.com/aspose/pdf-for-go"
@@ -89,5 +90,128 @@ func TestDocumentMetadataAfterAppend(t *testing.T) {
 	// Should still be doc1's metadata.
 	if meta.Title != "Untitled" {
 		t.Errorf("Title: got %q, want %q", meta.Title, "Untitled")
+	}
+}
+
+func TestSetMetadataRoundTrip(t *testing.T) {
+	doc, err := asposepdf.Open(fourPagesPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	want := asposepdf.Metadata{
+		Title:   "Test Title",
+		Author:  "Test Author",
+		Subject: "Test Subject",
+	}
+	doc = doc.SetMetadata(want)
+
+	tmp := filepath.Join(t.TempDir(), "out.pdf")
+	if err := doc.Save(tmp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	doc2, err := asposepdf.Open(tmp)
+	if err != nil {
+		t.Fatalf("Open saved: %v", err)
+	}
+	got, err := doc2.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if got.Title != want.Title {
+		t.Errorf("Title: got %q, want %q", got.Title, want.Title)
+	}
+	if got.Author != want.Author {
+		t.Errorf("Author: got %q, want %q", got.Author, want.Author)
+	}
+	if got.Subject != want.Subject {
+		t.Errorf("Subject: got %q, want %q", got.Subject, want.Subject)
+	}
+	if got.Keywords != "" {
+		t.Errorf("Keywords: expected empty, got %q", got.Keywords)
+	}
+}
+
+func TestSetMetadataCustomFields(t *testing.T) {
+	doc, err := asposepdf.Open(fourPagesPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc = doc.SetMetadata(asposepdf.Metadata{
+		Title:  "Doc",
+		Custom: map[string]string{"Department": "Legal", "Version": "2.0"},
+	})
+
+	tmp := filepath.Join(t.TempDir(), "out.pdf")
+	if err := doc.Save(tmp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	doc2, err := asposepdf.Open(tmp)
+	if err != nil {
+		t.Fatalf("Open saved: %v", err)
+	}
+	got, err := doc2.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if got.Custom["Department"] != "Legal" {
+		t.Errorf("Department: got %q, want %q", got.Custom["Department"], "Legal")
+	}
+	if got.Custom["Version"] != "2.0" {
+		t.Errorf("Version: got %q, want %q", got.Custom["Version"], "2.0")
+	}
+}
+
+func TestSetMetadataReplaces(t *testing.T) {
+	// Source doc has Title="Untitled"; SetMetadata with Title="" must omit it.
+	doc, err := asposepdf.Open(fourPagesPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc = doc.SetMetadata(asposepdf.Metadata{Author: "New Author"})
+
+	tmp := filepath.Join(t.TempDir(), "out.pdf")
+	if err := doc.Save(tmp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	doc2, err := asposepdf.Open(tmp)
+	if err != nil {
+		t.Fatalf("Open saved: %v", err)
+	}
+	got, err := doc2.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if got.Author != "New Author" {
+		t.Errorf("Author: got %q, want %q", got.Author, "New Author")
+	}
+	// Title from source must NOT appear — SetMetadata is a full replacement.
+	if got.Title != "" {
+		t.Errorf("Title must be absent after SetMetadata without Title, got %q", got.Title)
+	}
+}
+
+func TestClearMetadata(t *testing.T) {
+	doc, err := asposepdf.Open(fourPagesPDF)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc = doc.ClearMetadata()
+
+	tmp := filepath.Join(t.TempDir(), "out.pdf")
+	if err := doc.Save(tmp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	doc2, err := asposepdf.Open(tmp)
+	if err != nil {
+		t.Fatalf("Open saved: %v", err)
+	}
+	got, err := doc2.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if got.Title != "" || got.Author != "" || got.Subject != "" ||
+		got.Keywords != "" || got.Creator != "" || got.Producer != "" ||
+		got.CreationDate != "" || got.ModDate != "" || len(got.Custom) != 0 {
+		t.Errorf("expected empty Metadata after ClearMetadata, got %+v", got)
 	}
 }
