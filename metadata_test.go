@@ -8,8 +8,7 @@ import (
 )
 
 func TestMetadataCustomFieldsRoundTrip(t *testing.T) {
-	// 4pages.pdf has no custom fields — Custom must be nil or empty.
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -23,7 +22,7 @@ func TestMetadataCustomFieldsRoundTrip(t *testing.T) {
 }
 
 func TestDocumentMetadataFields(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -55,16 +54,14 @@ func TestDocumentMetadataFields(t *testing.T) {
 }
 
 func TestDocumentMetadata(t *testing.T) {
-	doc, err := asposepdf.Open("testdata/split/4pages.pdf")
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-
 	meta, err := doc.Metadata()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-
 	if meta.Title != "Untitled" {
 		t.Errorf("Title: got %q, want %q", meta.Title, "Untitled")
 	}
@@ -74,12 +71,12 @@ func TestDocumentMetadata(t *testing.T) {
 }
 
 func TestDocumentMetadataAfterAppend(t *testing.T) {
-	// After Append, Metadata returns info from the first (primary) document.
-	doc1, err := asposepdf.Open("testdata/split/4pages.pdf")
+	group := testGroups(t)[0]
+	doc1, err := asposepdf.Open(group[0])
 	if err != nil {
 		t.Fatalf("Open doc1: %v", err)
 	}
-	doc2, err := asposepdf.Open("testdata/split/marketing.pdf")
+	doc2, err := asposepdf.Open(group[1])
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}
@@ -96,7 +93,7 @@ func TestDocumentMetadataAfterAppend(t *testing.T) {
 }
 
 func TestSetMetadataRoundTrip(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -107,7 +104,7 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 	}
 	doc.SetMetadata(want)
 
-	// Metadata() now reads live from doc.info — no save/reload needed.
+	// Metadata() reads live from doc.info — no save/reload needed.
 	got, err := doc.Metadata()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
@@ -147,7 +144,7 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 }
 
 func TestSetMetadataCustomFields(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -177,8 +174,7 @@ func TestSetMetadataCustomFields(t *testing.T) {
 }
 
 func TestSetMetadataReplaces(t *testing.T) {
-	// Source doc has Title="Untitled"; SetMetadata with Title="" must omit it.
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -206,7 +202,7 @@ func TestSetMetadataReplaces(t *testing.T) {
 }
 
 func TestClearMetadata(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

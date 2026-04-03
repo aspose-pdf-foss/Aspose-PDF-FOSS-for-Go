@@ -10,7 +10,7 @@ import (
 // TestPageLabelDefaultDecimal verifies that pages without /PageLabels return
 // their decimal page numbers ("1", "2", …).
 func TestPageLabelDefaultDecimal(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

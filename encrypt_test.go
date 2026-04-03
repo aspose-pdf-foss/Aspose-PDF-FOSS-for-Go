@@ -10,9 +10,8 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
-// TestEncryptSetPassword verifies that Document.SetPassword produces an encrypted PDF.
 func TestEncryptSetPassword(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -27,7 +26,6 @@ func TestEncryptSetPassword(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(outputPath)
-
 	if !bytes.HasPrefix(data, []byte("%PDF-")) {
 		t.Fatal("output does not start with PDF header")
 	}
@@ -45,15 +43,14 @@ func TestEncryptSetPassword(t *testing.T) {
 	}
 }
 
-// TestEncryptContentIsObfuscated verifies that content from 4pages.pdf is not
-// readable in clear-text after encryption.
 func TestEncryptContentIsObfuscated(t *testing.T) {
-	plainData, err := os.ReadFile(fourPagesPDF)
+	path := testFile(t)
+	plainData, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read source PDF: %v", err)
 	}
 
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -68,7 +65,6 @@ func TestEncryptContentIsObfuscated(t *testing.T) {
 	}
 
 	encrypted, _ := os.ReadFile(outputPath)
-
 	if !bytes.HasPrefix(encrypted, []byte("%PDF-")) {
 		t.Fatal("encrypted output does not start with PDF header")
 	}
@@ -80,19 +76,17 @@ func TestEncryptContentIsObfuscated(t *testing.T) {
 	}
 }
 
-// TestEncryptFunc verifies the functional Encrypt API using 4pages.pdf.
 func TestEncryptFunc(t *testing.T) {
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
 	}
 	outputPath := filepath.Join(resultDir, "encrypt_func.pdf")
 
-	if err := asposepdf.Encrypt(fourPagesPDF, outputPath, "user123", "owner456"); err != nil {
+	if err := asposepdf.Encrypt(testFile(t), outputPath, "user123", "owner456"); err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
 
 	data, _ := os.ReadFile(outputPath)
-
 	if !bytes.HasPrefix(data, []byte("%PDF-")) {
 		t.Fatal("output does not start with PDF header")
 	}
@@ -104,9 +98,8 @@ func TestEncryptFunc(t *testing.T) {
 	}
 }
 
-// TestEncryptEmptyPassword verifies that an empty password is a valid input.
 func TestEncryptEmptyPassword(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -126,10 +119,8 @@ func TestEncryptEmptyPassword(t *testing.T) {
 	}
 }
 
-// TestOpenEncryptedReturnsError verifies that opening an encrypted PDF returns a clear
-// error instead of a cryptic parsing failure.
 func TestOpenEncryptedReturnsError(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -149,9 +140,8 @@ func TestOpenEncryptedReturnsError(t *testing.T) {
 	}
 }
 
-// TestEncryptPreservesPageCount verifies the page count is unchanged after encrypt.
 func TestEncryptPreservesPageCount(t *testing.T) {
-	doc, err := asposepdf.Open(fourPagesPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -166,7 +156,6 @@ func TestEncryptPreservesPageCount(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Page count is tracked in-memory; it must be unchanged by SetPassword.
 	if doc.PageCount() != wantPages {
 		t.Errorf("expected %d pages after SetPassword, got %d", wantPages, doc.PageCount())
 	}

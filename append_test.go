@@ -10,104 +10,58 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
-const appendTestData = "testdata/append"
-
 func TestDocumentAppend(t *testing.T) {
-	entries, err := os.ReadDir(appendTestData)
-	if err != nil {
-		t.Fatalf("read %s: %v", appendTestData, err)
-	}
-
-	// Collect openable file paths.
-	var paths []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		p := filepath.Join(appendTestData, e.Name())
-		doc, err := asposepdf.Open(p)
-		if err != nil {
-			t.Logf("skipping %s: %v", e.Name(), err)
-			continue
-		}
-		_ = doc
-		paths = append(paths, p)
-	}
-	if len(paths) < 2 {
-		t.Skipf("need at least 2 openable files in %s, got %d", appendTestData, len(paths))
-	}
-
 	outDir := filepath.Join(resultDir, "TestDocumentAppend")
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	// Merge each file with each other file (once per pair).
-	for i := 0; i < len(paths); i++ {
-		for j := i + 1; j < len(paths); j++ {
-			pa, pb := paths[i], paths[j]
-			t.Run(fmt.Sprintf("%s+%s", stem(pa), stem(pb)), func(t *testing.T) {
-				a, err := asposepdf.Open(pa)
-				if err != nil {
-					t.Fatalf("Open a: %v", err)
-				}
-				b, err := asposepdf.Open(pb)
-				if err != nil {
-					t.Fatalf("Open b: %v", err)
-				}
-				want := a.PageCount() + b.PageCount()
-				a.Append(b)
-				if a.PageCount() != want {
-					t.Fatalf("expected %d pages, got %d", want, a.PageCount())
-				}
-
-				outPath := filepath.Join(outDir, fmt.Sprintf("%s+%s.pdf", stem(pa), stem(pb)))
-				if err := a.Save(outPath); err != nil {
-					t.Fatalf("Save: %v", err)
-				}
-
-				report, err := asposepdf.Validate(outPath)
-				if err != nil {
-					t.Fatalf("Validate: %v", err)
-				}
-				checkValidation(t, outPath, report)
-			})
-		}
-	}
-
-	// Merge all openable files into one document.
-	t.Run("all", func(t *testing.T) {
-		docs := make([]*asposepdf.Document, len(paths))
-		wantPages := 0
-		for i, p := range paths {
-			d, err := asposepdf.Open(p)
-			if err != nil {
-				t.Fatalf("Open %s: %v", p, err)
+	for _, group := range testGroups(t) {
+		groupName := strings.Join(stems(group), "+")
+		t.Run(groupName, func(t *testing.T) {
+			if len(group) < 2 {
+				t.Fatalf("group %q must have at least 2 files", groupName)
 			}
-			docs[i] = d
-			wantPages += d.PageCount()
-		}
+			base, err := asposepdf.Open(group[0])
+			if err != nil {
+				t.Fatalf("Open %s: %v", group[0], err)
+			}
+			wantPages := base.PageCount()
 
-		docs[0].Append(docs[1:]...)
-		if docs[0].PageCount() != wantPages {
-			t.Fatalf("expected %d pages, got %d", wantPages, docs[0].PageCount())
-		}
+			others := make([]*asposepdf.Document, 0, len(group)-1)
+			for _, path := range group[1:] {
+				doc, err := asposepdf.Open(path)
+				if err != nil {
+					t.Fatalf("Open %s: %v", path, err)
+				}
+				wantPages += doc.PageCount()
+				others = append(others, doc)
+			}
 
-		outPath := filepath.Join(outDir, "all.pdf")
-		if err := docs[0].Save(outPath); err != nil {
-			t.Fatalf("Save: %v", err)
-		}
+			base.Append(others...)
+			if base.PageCount() != wantPages {
+				t.Fatalf("expected %d pages, got %d", wantPages, base.PageCount())
+			}
 
-		report, err := asposepdf.Validate(outPath)
-		if err != nil {
-			t.Fatalf("Validate: %v", err)
-		}
-		checkValidation(t, outPath, report)
-		t.Logf("merged %d files → %d pages", len(docs), docs[0].PageCount())
-	})
+			outPath := filepath.Join(outDir, fmt.Sprintf("%s.pdf", groupName))
+			if err := base.Save(outPath); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+
+			report, err := asposepdf.Validate(outPath)
+			if err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			checkValidation(t, outPath, report)
+		})
+	}
 }
 
-func stem(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
+// stems returns the stem (filename without extension) of each path.
+func stems(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = stem(p)
+	}
+	return out
 }

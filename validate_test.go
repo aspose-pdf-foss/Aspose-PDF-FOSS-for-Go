@@ -79,7 +79,6 @@ func TestValidate_TruncatedFile(t *testing.T) {
 }
 
 func TestValidate_EncryptedPDF(t *testing.T) {
-	// Build an encrypted PDF by running Encrypt on our minimal PDF.
 	src := writeTempPDF(t, buildMinimalPDF())
 	dst := filepath.Join(t.TempDir(), "encrypted.pdf")
 	if err := asposepdf.Encrypt(src, dst, "user", "owner"); err != nil {
@@ -114,9 +113,7 @@ func splitAndSave(t *testing.T, doc *asposepdf.Document, outDir string) []string
 }
 
 func TestValidate_OrphanedPagesNode(t *testing.T) {
-	// Split a real PDF and validate each page — the fix in collectDeps must ensure
-	// no orphaned /Pages objects appear in the output.
-	doc, err := asposepdf.Open("testdata/split/4pages.pdf")
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -136,9 +133,9 @@ func TestValidate_OrphanedPagesNode(t *testing.T) {
 }
 
 func TestValidate_PageParentRef(t *testing.T) {
-	// Split Binder1.pdf — its object #2 is a content stream, not /Pages.
+	// Binder1.pdf: its object #2 is a content stream, not /Pages.
 	// Before the pdfDirectRef fix, /Parent in split pages pointed to that stream.
-	doc, err := asposepdf.Open("testdata/split/Binder1.pdf")
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -158,9 +155,9 @@ func TestValidate_PageParentRef(t *testing.T) {
 }
 
 func TestValidate_StrippedStreamFilter(t *testing.T) {
-	// Split Binder1.pdf and validate — before the Decoded flag fix, JPEG image
-	// streams were written without /Filter, triggering a STREAM_ERROR.
-	doc, err := asposepdf.Open("testdata/split/Binder1.pdf")
+	// Binder1.pdf: before the Decoded flag fix, JPEG image streams were written
+	// without /Filter, triggering a STREAM_ERROR.
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

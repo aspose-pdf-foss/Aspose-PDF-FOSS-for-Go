@@ -1,0 +1,67 @@
+{
+  "TestDocumentOpen":                    [["marketing.pdf"]],
+  "TestDocumentSave":                    [["marketing.pdf"]],
+  "TestDocumentRotate":                  [["marketing.pdf"]],
+  "TestDocumentRotateSpecificPage":      [["marketing.pdf"]],
+  "TestDocumentRotateAccumulates":       [["marketing.pdf"]],
+  "TestDocumentRotateDuplicatePageNums": [["marketing.pdf"]],
+  "TestDocumentExtractPages":            [["marketing.pdf"]],
+  "TestDocumentReorder":                 [["marketing.pdf"]],
+  "TestDocumentWriteTo":                 [["4pages.pdf"]],
+  "TestDocumentSetRotation":             [["marketing.pdf"]],
+  "TestDocumentInvalidRotateAngle":      [["marketing.pdf"]],
+  "TestDocumentRotateZeroIsNoop":        [["marketing.pdf"]],
+  "TestDocumentInvalidReorderPageNum":   [["marketing.pdf"]],
+  "TestDocumentInvalidExtract":          [["marketing.pdf"]],
+
+  "TestDocumentAppend": [
+    ["Hello world.pdf", "PdfWithAcroForm.pdf"],
+    ["4pages.pdf", "marketing.pdf"]
+  ],
+
+  "TestEncryptSetPassword":         [["4pages.pdf"]],
+  "TestEncryptContentIsObfuscated": [["4pages.pdf"]],
+  "TestEncryptFunc":                [["4pages.pdf"]],
+  "TestEncryptEmptyPassword":       [["4pages.pdf"]],
+  "TestOpenEncryptedReturnsError":  [["4pages.pdf"]],
+  "TestEncryptPreservesPageCount":  [["4pages.pdf"]],
+
+  "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
+  "TestDocumentMetadataFields":        [["4pages.pdf"]],
+  "TestDocumentMetadata":              [["4pages.pdf"]],
+  "TestDocumentMetadataAfterAppend":   [["4pages.pdf", "marketing.pdf"]],
+  "TestSetMetadataRoundTrip":          [["4pages.pdf"]],
+  "TestSetMetadataCustomFields":       [["4pages.pdf"]],
+  "TestSetMetadataReplaces":           [["4pages.pdf"]],
+  "TestClearMetadata":                 [["4pages.pdf"]],
+
+  "TestPageLabelDefaultDecimal":     [["4pages.pdf"]],
+  "TestPageSizes":                   [["4pages.pdf"]],
+  "TestDocumentPages":               [["4pages.pdf"]],
+  "TestDocumentPage":                [["4pages.pdf"]],
+  "TestPageRotation":                [["marketing.pdf"]],
+  "TestPageBoxesFallbackToMediaBox": [["4pages.pdf"]],
+  "TestDocumentPageInvalidNumber":   [["4pages.pdf"]],
+
+  "TestSplitFiles": [
+    ["4pages.pdf"],
+    ["Binder1.pdf"],
+    ["PdfWithLinks.pdf"],
+    ["PdfWithTable.pdf"],
+    ["alfa.pdf"],
+    ["marketing.pdf"]
+  ],
+
+  "TestExtractFiles": [
+    ["4pages.pdf"],
+    ["Binder1.pdf"],
+    ["PdfWithLinks.pdf"],
+    ["PdfWithTable.pdf"],
+    ["alfa.pdf"],
+    ["marketing.pdf"]
+  ],
+
+  "TestValidate_OrphanedPagesNode":    [["4pages.pdf"]],
+  "TestValidate_PageParentRef":        [["Binder1.pdf"]],
+  "TestValidate_StrippedStreamFilter": [["Binder1.pdf"]]
+}

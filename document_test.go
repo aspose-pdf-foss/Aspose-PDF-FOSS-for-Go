@@ -9,11 +9,8 @@ import (
 	asposepdf "github.com/aspose/pdf-for-go"
 )
 
-const marketingPDF = "testdata/split/marketing.pdf"
-const marketingPages = 2
-
 func TestDocumentOpen(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -23,7 +20,7 @@ func TestDocumentOpen(t *testing.T) {
 }
 
 func TestDocumentSave(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -42,7 +39,7 @@ func TestDocumentSave(t *testing.T) {
 }
 
 func TestDocumentRotate(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -66,7 +63,7 @@ func TestDocumentRotate(t *testing.T) {
 }
 
 func TestDocumentRotateSpecificPage(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -90,7 +87,7 @@ func TestDocumentRotateSpecificPage(t *testing.T) {
 }
 
 func TestDocumentRotateAccumulates(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -117,7 +114,7 @@ func TestDocumentRotateAccumulates(t *testing.T) {
 }
 
 func TestDocumentRotateDuplicatePageNums(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -141,7 +138,7 @@ func TestDocumentRotateDuplicatePageNums(t *testing.T) {
 }
 
 func TestDocumentExtractPages(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -167,7 +164,7 @@ func TestDocumentExtractPages(t *testing.T) {
 }
 
 func TestDocumentReorder(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -192,7 +189,7 @@ func TestDocumentReorder(t *testing.T) {
 }
 
 func TestDocumentWriteTo(t *testing.T) {
-	doc, err := asposepdf.Open("testdata/split/4pages.pdf")
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -217,13 +214,13 @@ func TestDocumentWriteTo(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if got := pageCountFromFile(t, outputPath); got != 4 {
-		t.Fatalf("expected 4 pages, got %d", got)
+	if got := pageCountFromFile(t, outputPath); got != fourPagesCount {
+		t.Fatalf("expected %d pages, got %d", fourPagesCount, got)
 	}
 }
 
 func TestDocumentSetRotation(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -254,7 +251,7 @@ func TestDocumentSetRotation(t *testing.T) {
 }
 
 func TestDocumentInvalidRotateAngle(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -267,7 +264,7 @@ func TestDocumentInvalidRotateAngle(t *testing.T) {
 }
 
 func TestDocumentRotateZeroIsNoop(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -281,7 +278,7 @@ func TestDocumentRotateZeroIsNoop(t *testing.T) {
 }
 
 func TestDocumentInvalidReorderPageNum(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -291,7 +288,7 @@ func TestDocumentInvalidReorderPageNum(t *testing.T) {
 }
 
 func TestDocumentInvalidExtract(t *testing.T) {
-	doc, err := asposepdf.Open(marketingPDF)
+	doc, err := asposepdf.Open(testFile(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -38,7 +38,6 @@ func TestDocumentSplit(t *testing.T) {
 		t.Fatalf("expected 2 pages, got %d", len(pages))
 	}
 
-	// Save each page and verify the file exists and is non-empty.
 	for i, p := range pages {
 		outPath := filepath.Join(tmpDir, fmt.Sprintf("page%03d.pdf", i+1))
 		if err := p.Save(outPath); err != nil {
@@ -137,20 +136,9 @@ func TestDocumentExtract(t *testing.T) {
 }
 
 func TestExtractFiles(t *testing.T) {
-	entries, err := os.ReadDir("testdata/split")
-	if err != nil {
-		t.Fatalf("read testdata/split: %v", err)
-	}
-
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		t.Run(name, func(t *testing.T) {
-			inputPath := filepath.Join("testdata/split", name)
-			stem := name[:len(name)-len(filepath.Ext(name))]
-			outDir := filepath.Join("result_files", "TestExtractFiles", stem)
+	for _, inputPath := range testFiles(t) {
+		t.Run(stem(inputPath), func(t *testing.T) {
+			outDir := filepath.Join(resultDir, "TestExtractFiles", stem(inputPath))
 
 			total := pageCountFromFile(t, inputPath)
 			if total < 2 {
@@ -198,7 +186,7 @@ func TestExtractFiles(t *testing.T) {
 				}
 				checkValidation(t, c.name, report)
 			}
-			t.Logf("%s (%d pages) → first_half=%d second_half=%d", stem, total, mid, total-mid)
+			t.Logf("%s (%d pages) → first_half=%d second_half=%d", stem(inputPath), total, mid, total-mid)
 		})
 	}
 }
@@ -268,20 +256,9 @@ func makeStream(data []byte) []byte {
 }
 
 func TestSplitFiles(t *testing.T) {
-	entries, err := os.ReadDir("testdata/split")
-	if err != nil {
-		t.Fatalf("read testdata/split: %v", err)
-	}
-
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		t.Run(name, func(t *testing.T) {
-			inputPath := filepath.Join("testdata/split", name)
-			stem := name[:len(name)-len(filepath.Ext(name))]
-			outDir := filepath.Join("result_files", "TestSplitFiles", stem)
+	for _, inputPath := range testFiles(t) {
+		t.Run(stem(inputPath), func(t *testing.T) {
+			outDir := filepath.Join(resultDir, "TestSplitFiles", stem(inputPath))
 
 			doc, err := asposepdf.Open(inputPath)
 			if err != nil {
