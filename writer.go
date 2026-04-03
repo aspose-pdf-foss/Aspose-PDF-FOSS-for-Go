@@ -2,50 +2,174 @@ package asposepdf
 
 import (
 	"bytes"
+	"compress/zlib"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// writePage writes a single-page PDF for the given page to path.
-func writePage(doc *rawDocument, page *pageInfo, path string) error {
-	data, err := buildPagePDF(doc, page)
-	if err != nil {
-		return err
+// buildDocumentPDF serializes d to a PDF byte slice.
+func buildDocumentPDF(d *Document) ([]byte, error) {
+	var encState *encryptState
+	if d.encrypt != nil {
+		var err error
+		encState, err = newEncryptState(d.encrypt)
+		if err != nil {
+			return nil, fmt.Errorf("encrypt: %w", err)
+		}
 	}
-	return writeFile(path, data)
-}
 
-// buildPagePDF constructs a minimal valid PDF containing just the given page.
-func buildPagePDF(doc *rawDocument, page *pageInfo) ([]byte, error) {
-	return buildMultiPagePDF(doc, []*pageInfo{page})
-}
-
-// buildMultiPagePDF constructs a minimal valid PDF containing the given pages in order.
-// All pages must come from the same document.
-func buildMultiPagePDF(doc *rawDocument, pages []*pageInfo) ([]byte, error) {
-	return buildMultiPagePDFEx(doc, pages, nil)
-}
-
-// buildMultiPagePDFEx is like buildMultiPagePDF but accepts per-page dict patches.
-// pagePatches maps original object numbers to pdfDict entries that are merged into
-// the page dict at write time (overwriting any existing keys with the same name).
-func buildMultiPagePDFEx(doc *rawDocument, pages []*pageInfo, pagePatches map[int]pdfDict) ([]byte, error) {
-	entries := make([]pageRef, len(pages))
-	for i, p := range pages {
-		entries[i] = pageRef{src: doc, page: p}
+	// Assign sequential output IDs to all content objects.
+	// Reserve IDs for structural objects built by the writer.
+	contentIDs := sortedObjectIDs(d.objects)
+	remap := make(map[int]int, len(contentIDs))
+	nextOut := 1
+	for _, id := range contentIDs {
+		remap[id] = nextOut
+		nextOut++
 	}
-	patches := make(map[patchKey]pdfDict, len(pagePatches))
-	for objNum, d := range pagePatches {
-		patches[patchKey{doc, objNum}] = d
+	pagesObjID := nextOut
+	nextOut++
+	catalogObjID := nextOut
+	nextOut++
+	var infoObjID int
+	if d.info != nil {
+		infoObjID = nextOut
+		nextOut++
 	}
-	return buildDocumentPDF(entries, patches, nil, nil)
+	var encryptObjID int
+	if encState != nil {
+		encryptObjID = nextOut
+		nextOut++
+	}
+	totalObjects := nextOut // exclusive upper bound
+
+	remapFn := func(n int) int {
+		if out, ok := remap[n]; ok {
+			return out
+		}
+		return n
+	}
+
+	// Patch /Parent in every page dict to point to the new /Pages node.
+	// Use pdfDirectRef so the writer outputs the ID as-is without remapping.
+	for _, page := range d.pages {
+		if dict, ok := page.Value.(pdfDict); ok {
+			dict["/Parent"] = pdfDirectRef{Num: pagesObjID}
+		}
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	buf.WriteString("%\xe2\xe3\xcf\xd3\n") // binary marker
+
+	offsets := make(map[int]int64, totalObjects)
+
+	// Write content objects.
+	for _, oldID := range contentIDs {
+		obj := d.objects[oldID]
+		outID := remap[oldID]
+		offsets[outID] = int64(buf.Len())
+		var encFn func([]byte) []byte
+		if encState != nil {
+			encFn = func(b []byte) []byte { return encState.encryptBytes(outID, b) }
+		}
+		writeObject(&buf, outID, obj.Value, remapFn, encFn)
+	}
+
+	// Write /Pages node.
+	offsets[pagesObjID] = int64(buf.Len())
+	writePageTreeNode(&buf, pagesObjID, d.pages, remapFn)
+
+	// Write /Catalog.
+	offsets[catalogObjID] = int64(buf.Len())
+	fmt.Fprintf(&buf, "%d 0 obj\n<<\n/Type /Catalog\n/Pages %d 0 R\n>>\nendobj\n",
+		catalogObjID, pagesObjID)
+
+	// Write /Info if present.
+	if infoObjID != 0 {
+		offsets[infoObjID] = int64(buf.Len())
+		var encFn func([]byte) []byte
+		if encState != nil {
+			encFn = func(b []byte) []byte { return encState.encryptBytes(infoObjID, b) }
+		}
+		writeObject(&buf, infoObjID, pdfValue(d.info), remapFn, encFn)
+	}
+
+	// Write /Encrypt if present.
+	if encryptObjID != 0 {
+		offsets[encryptObjID] = int64(buf.Len())
+		encDict := buildEncryptDict(encState)
+		writeObject(&buf, encryptObjID, pdfValue(encDict), func(n int) int { return n }, nil)
+	}
+
+	// Write xref table.
+	xrefOffset := int64(buf.Len())
+	fmt.Fprintf(&buf, "xref\n0 %d\n", totalObjects)
+	fmt.Fprintf(&buf, "0000000000 65535 f \n")
+	for i := 1; i < totalObjects; i++ {
+		off, ok := offsets[i]
+		if !ok {
+			fmt.Fprintf(&buf, "0000000000 00000 f \n")
+		} else {
+			fmt.Fprintf(&buf, "%010d 00000 n \n", off)
+		}
+	}
+
+	// Write trailer.
+	buf.WriteString("trailer\n<<\n")
+	fmt.Fprintf(&buf, "/Size %d\n", totalObjects)
+	fmt.Fprintf(&buf, "/Root %d 0 R\n", catalogObjID)
+	if infoObjID != 0 {
+		fmt.Fprintf(&buf, "/Info %d 0 R\n", infoObjID)
+	}
+	if encState != nil {
+		fmt.Fprintf(&buf, "/Encrypt %d 0 R\n", encryptObjID)
+		buf.WriteString("/ID [")
+		writeHexBytes(&buf, encState.fileID)
+		buf.WriteString(" ")
+		writeHexBytes(&buf, encState.fileID)
+		buf.WriteString("]\n")
+	}
+	buf.WriteString(">>\n")
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOffset)
+
+	return buf.Bytes(), nil
 }
 
-// writeValue serialises a PDF value to buf, remapping object reference numbers via remap.
+// writePageTreeNode writes the /Pages node with kids pointing to pages.
+func writePageTreeNode(buf *bytes.Buffer, pagesObjID int, pages []*pdfObject, remapFn func(int) int) {
+	fmt.Fprintf(buf, "%d 0 obj\n<<\n/Type /Pages\n/Count %d\n/Kids [", pagesObjID, len(pages))
+	for i, page := range pages {
+		if i > 0 {
+			buf.WriteString(" ")
+		}
+		fmt.Fprintf(buf, "%d 0 R", remapFn(page.Num))
+	}
+	buf.WriteString("]\n>>\nendobj\n")
+}
+
+// writeObject writes "N 0 obj\n...\nendobj\n" for the given value.
+func writeObject(buf *bytes.Buffer, id int, v pdfValue, remapFn func(int) int, encFn func([]byte) []byte) {
+	fmt.Fprintf(buf, "%d 0 obj\n", id)
+	writeValue(buf, v, remapFn, encFn)
+	buf.WriteString("\nendobj\n")
+}
+
+// sortedObjectIDs returns the object IDs from objects in ascending order.
+func sortedObjectIDs(objects map[int]*pdfObject) []int {
+	ids := make([]int, 0, len(objects))
+	for id := range objects {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	return ids
+}
+
+// writeValue serialises a PDF value to buf, remapping object reference numbers via remapFn.
 // encFn, if non-nil, is called to encrypt string and stream data for the current object.
-func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([]byte) []byte) {
+func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func([]byte) []byte) {
 	switch val := v.(type) {
 	case pdfNull:
 		buf.WriteString("null")
@@ -70,7 +194,7 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 			buf.WriteString(")")
 		}
 	case pdfRef:
-		buf.WriteString(strconv.Itoa(remap(val.Num)))
+		buf.WriteString(strconv.Itoa(remapFn(val.Num)))
 		buf.WriteByte(' ')
 		buf.WriteString(strconv.Itoa(val.Gen))
 		buf.WriteString(" R")
@@ -82,7 +206,6 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 		buf.WriteString(" R")
 	case pdfDict:
 		buf.WriteString("<<")
-		// Sort keys for deterministic output.
 		keys := make([]string, 0, len(val))
 		for k := range val {
 			keys = append(keys, k)
@@ -92,7 +215,7 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 			buf.WriteString("\n")
 			buf.WriteString(k)
 			buf.WriteString(" ")
-			writeValue(buf, val[k], remap, encFn)
+			writeValue(buf, val[k], remapFn, encFn)
 		}
 		buf.WriteString("\n>>")
 	case pdfArray:
@@ -101,7 +224,7 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 			if i > 0 {
 				buf.WriteString(" ")
 			}
-			writeValue(buf, item, remap, encFn)
+			writeValue(buf, item, remapFn, encFn)
 		}
 		buf.WriteString("]")
 	case *pdfStream:
@@ -117,259 +240,63 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remap func(int) int, encFn func([
 		}
 		data := val.Data
 		if val.Decoded {
-			// Re-compress with FlateDecode to restore the original size savings.
-			if compressed, err := flateEncode(data); err == nil {
-				data = compressed
-				d["/Filter"] = pdfName("/FlateDecode")
-			}
-			// On error (shouldn't happen) fall through and write uncompressed.
+			var zbuf bytes.Buffer
+			w := zlib.NewWriter(&zbuf)
+			w.Write(data)
+			w.Close()
+			data = zbuf.Bytes()
+			d["/Filter"] = pdfName("/FlateDecode")
 		}
 		if encFn != nil {
 			data = encFn(data)
 		}
 		d["/Length"] = len(data)
-		writeValue(buf, d, remap, encFn)
+		writeValue(buf, d, remapFn, nil) // dict keys are not encrypted
 		buf.WriteString("\nstream\n")
 		buf.Write(data)
 		buf.WriteString("\nendstream")
 	}
 }
 
-// writeHexBytes writes data as a PDF hex string: <hex...>.
-func writeHexBytes(buf *bytes.Buffer, data []byte) {
-	const hexChars = "0123456789abcdef"
+// writeHexBytes writes b as a PDF hex string <AABB...>.
+func writeHexBytes(buf *bytes.Buffer, b []byte) {
+	const hex = "0123456789abcdef"
 	buf.WriteByte('<')
-	for _, b := range data {
-		buf.WriteByte(hexChars[b>>4])
-		buf.WriteByte(hexChars[b&0xf])
+	for _, c := range b {
+		buf.WriteByte(hex[c>>4])
+		buf.WriteByte(hex[c&0xf])
 	}
 	buf.WriteByte('>')
 }
 
+// escapeLiteral escapes special characters in a PDF literal string.
 func escapeLiteral(s string) string {
 	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
-			b.WriteString(`\(`)
-		case ')':
-			b.WriteString(`\)`)
-		case '\\':
-			b.WriteString(`\\`)
+	for _, c := range []byte(s) {
+		switch c {
+		case '(', ')', '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\n':
+			b.WriteString(`\n`)
 		default:
-			b.WriteByte(s[i])
+			b.WriteByte(c)
 		}
 	}
 	return b.String()
 }
 
-func sortedKeys(m map[int]bool) []int {
-	keys := make([]int, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// buildEncryptDict builds the /Encrypt dictionary for standard RC4-128 security.
+func buildEncryptDict(s *encryptState) pdfDict {
+	return pdfDict{
+		"/Filter": pdfName("/Standard"),
+		"/V":      2,
+		"/R":      3,
+		"/Length": 128,
+		"/P":      int(encryptPermissions),
+		"/O":      string(s.ownerEntry),
+		"/U":      string(s.userEntry),
 	}
-	sort.Ints(keys)
-	return keys
-}
-
-// buildDocumentPDF constructs a PDF from a mutable page list with optional per-page patches.
-// Pages may come from multiple source documents in any order.
-// encCfg, if non-nil, enables RC4-128 encryption of the output.
-func buildDocumentPDF(entries []pageRef, patches map[patchKey]pdfDict, encCfg *encryptConfig, metaCfg *metadataConfig) ([]byte, error) {
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("no pages to write")
-	}
-
-	type objKey struct {
-		src    *rawDocument
-		objNum int
-	}
-
-	// Assign globally unique new object numbers to every dependency object.
-	// 1 = Catalog, 2 = Pages, 3..N = content objects.
-	globalMap := make(map[objKey]int)
-	newNum := 3
-	for _, e := range entries {
-		for num := range e.page.deps {
-			key := objKey{e.src, num}
-			if _, ok := globalMap[key]; !ok {
-				globalMap[key] = newNum
-				newNum++
-			}
-		}
-	}
-
-	// If encryption is requested, compute keys and reserve an object number for
-	// the /Encrypt dictionary (it is NOT itself encrypted).
-	var encState *encryptState
-	var encryptObjNum int
-	if encCfg != nil {
-		var err error
-		encState, err = newEncryptState(encCfg)
-		if err != nil {
-			return nil, fmt.Errorf("init encryption: %w", err)
-		}
-		encryptObjNum = newNum
-		newNum++
-	}
-
-	// Reserve an object number for the Info dictionary if metadata is being written.
-	var infoObjNum int
-	if metaCfg != nil && !metaCfg.clear {
-		infoObjNum = newNum
-		newNum++
-	}
-
-	isPageObj := make(map[objKey]bool)
-	for _, e := range entries {
-		isPageObj[objKey{e.src, e.page.objNum}] = true
-	}
-
-	const catalogNum = 1
-	const pagesNum = 2
-
-	var buf bytes.Buffer
-	buf.Grow(128 * 1024)
-	offsets := make(map[int]int64)
-
-	buf.WriteString("%PDF-1.4\n")
-	buf.WriteString("%\xe2\xe3\xcf\xd3\n")
-
-	// Collect all unique (src, objNum) pairs in deterministic order
-	// (sorted by their assigned new object number).
-	type srcDep struct {
-		src    *rawDocument
-		objNum int
-	}
-	allDeps := make([]srcDep, 0, len(globalMap))
-	seen := make(map[objKey]bool)
-	for _, e := range entries {
-		for num := range e.page.deps {
-			key := objKey{e.src, num}
-			if !seen[key] {
-				seen[key] = true
-				allDeps = append(allDeps, srcDep{e.src, num})
-			}
-		}
-	}
-	sort.Slice(allDeps, func(i, j int) bool {
-		return globalMap[objKey{allDeps[i].src, allDeps[i].objNum}] <
-			globalMap[objKey{allDeps[j].src, allDeps[j].objNum}]
-	})
-
-	for _, dep := range allDeps {
-		key := objKey{dep.src, dep.objNum}
-		nn := globalMap[key]
-		offsets[nn] = int64(buf.Len())
-
-		srcDoc := dep.src
-		remap := func(oldNum int) int {
-			if nn2, ok := globalMap[objKey{srcDoc, oldNum}]; ok {
-				return nn2
-			}
-			return oldNum
-		}
-
-		obj, err := dep.src.getObject(dep.objNum)
-		if err != nil {
-			fmt.Fprintf(&buf, "%d 0 obj\nnull\nendobj\n", nn)
-			continue
-		}
-
-		val := obj.Value
-		if isPageObj[key] {
-			if d, ok := val.(pdfDict); ok {
-				patched := make(pdfDict, len(d))
-				for k, v := range d {
-					patched[k] = v
-				}
-				patched["/Parent"] = pdfDirectRef{Num: pagesNum, Gen: 0}
-				pk := patchKey{dep.src, dep.objNum}
-				for k, v := range patches[pk] {
-					patched[k] = v
-				}
-				val = patched
-			}
-		}
-
-		// Build a per-object encrypt function (nil when no encryption).
-		var encFn func([]byte) []byte
-		if encState != nil {
-			objNum := nn // capture for closure
-			encFn = func(data []byte) []byte {
-				return encState.encryptBytes(objNum, data)
-			}
-		}
-
-		fmt.Fprintf(&buf, "%d 0 obj\n", nn)
-		writeValue(&buf, val, remap, encFn)
-		buf.WriteString("\nendobj\n")
-	}
-
-	// Write Pages object (contains only names and refs — no encryption needed).
-	offsets[pagesNum] = int64(buf.Len())
-	fmt.Fprintf(&buf, "%d 0 obj\n<< /Type /Pages /Kids [", pagesNum)
-	for i, e := range entries {
-		if i > 0 {
-			buf.WriteByte(' ')
-		}
-		fmt.Fprintf(&buf, "%d 0 R", globalMap[objKey{e.src, e.page.objNum}])
-	}
-	fmt.Fprintf(&buf, "] /Count %d >>\nendobj\n", len(entries))
-
-	// Write Catalog (contains only names and refs — no encryption needed).
-	offsets[catalogNum] = int64(buf.Len())
-	fmt.Fprintf(&buf, "%d 0 obj\n<< /Type /Catalog /Pages %d 0 R >>\nendobj\n",
-		catalogNum, pagesNum)
-
-	// Write /Info dictionary (strings only — no remapping or encryption needed).
-	if infoObjNum > 0 {
-		identity := func(n int) int { return n }
-		offsets[infoObjNum] = int64(buf.Len())
-		fmt.Fprintf(&buf, "%d 0 obj\n", infoObjNum)
-		writeValue(&buf, buildInfoDict(metaCfg.meta), identity, nil)
-		buf.WriteString("\nendobj\n")
-	}
-
-	// Write /Encrypt dictionary (if encryption is active).
-	// Per PDF spec, the /Encrypt object itself is never encrypted.
-	if encState != nil {
-		offsets[encryptObjNum] = int64(buf.Len())
-		fmt.Fprintf(&buf, "%d 0 obj\n", encryptObjNum)
-		fmt.Fprintf(&buf, "<< /Filter /Standard /V 2 /R 3 /Length 128 /P %d\n/O ", int(encryptPermissions))
-		writeHexBytes(&buf, encState.ownerEntry)
-		buf.WriteString("\n/U ")
-		writeHexBytes(&buf, encState.userEntry)
-		buf.WriteString("\n>>\nendobj\n")
-	}
-
-	// Write xref table.
-	xrefOffset := int64(buf.Len())
-	fmt.Fprintf(&buf, "xref\n0 %d\n", newNum)
-	buf.WriteString("0000000000 65535 f\r\n")
-	for i := 1; i < newNum; i++ {
-		off, ok := offsets[i]
-		if !ok {
-			buf.WriteString("0000000000 65535 f\r\n")
-		} else {
-			fmt.Fprintf(&buf, "%010d 00000 n\r\n", off)
-		}
-	}
-
-	// Write trailer.
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R", newNum, catalogNum)
-	if infoObjNum > 0 {
-		fmt.Fprintf(&buf, " /Info %d 0 R", infoObjNum)
-	}
-	if encState != nil {
-		fmt.Fprintf(&buf, " /Encrypt %d 0 R /ID [", encryptObjNum)
-		writeHexBytes(&buf, encState.fileID)
-		buf.WriteByte(' ')
-		writeHexBytes(&buf, encState.fileID)
-		buf.WriteByte(']')
-	}
-	fmt.Fprintf(&buf, " >>\nstartxref\n%d\n%%%%EOF\n", xrefOffset)
-
-	return buf.Bytes(), nil
 }

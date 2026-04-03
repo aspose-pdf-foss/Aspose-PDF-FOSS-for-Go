@@ -3,21 +3,15 @@ package asposepdf
 import "fmt"
 
 // RotationAngle represents a valid PDF page rotation in clockwise degrees.
-// Only the values defined as constants (Rotate0, Rotate90, Rotate180, Rotate270) are valid.
 type RotationAngle int
 
 const (
-	// Rotate0 is the default orientation (no rotation).
-	Rotate0 RotationAngle = 0
-	// Rotate90 rotates a page 90 degrees clockwise.
-	Rotate90 RotationAngle = 90
-	// Rotate180 rotates a page 180 degrees (upside down).
+	Rotate0   RotationAngle = 0
+	Rotate90  RotationAngle = 90
 	Rotate180 RotationAngle = 180
-	// Rotate270 rotates a page 270 degrees clockwise (90 degrees counter-clockwise).
 	Rotate270 RotationAngle = 270
 )
 
-// validate returns an error if a is not a valid PDF rotation angle.
 func (a RotationAngle) validate() error {
 	if a != Rotate0 && a != Rotate90 && a != Rotate180 && a != Rotate270 {
 		return fmt.Errorf("angle must be Rotate0, Rotate90, Rotate180, or Rotate270; got %d", a)
@@ -43,69 +37,56 @@ func (p *Page) Number() int {
 	return p.index + 1
 }
 
+// pageObj returns the underlying pdfObject for this page.
+func (p *Page) pageObj() *pdfObject {
+	return p.doc.pages[p.index]
+}
+
+// pageDict returns the page's dictionary, or nil if not a dict.
+func (p *Page) pageDict() pdfDict {
+	if d, ok := p.pageObj().Value.(pdfDict); ok {
+		return d
+	}
+	return nil
+}
+
 // Size returns the page dimensions from its MediaBox.
 // If MediaBox is not set on the page itself, it is inherited from the page tree.
 func (p *Page) Size() (PageSize, error) {
-	e := p.doc.pages[p.index]
-	return mediaBoxSize(e.src, e.page.objNum)
+	return mediaBoxSize(p.doc.objects, p.pageObj().Num)
 }
 
-// Rotation returns the effective rotation of the page.
-// It reflects any rotation applied via Document.Rotate as well as the original /Rotate
-// value stored in the PDF.
+// Rotation returns the effective rotation of the page in degrees (0, 90, 180, 270).
 func (p *Page) Rotation() RotationAngle {
-	e := p.doc.pages[p.index]
-	key := patchKey{e.src, e.page.objNum}
-	return p.doc.patchedRotation(key, e)
-}
-
-// Pages returns a live view of all pages in the document.
-func (d *Document) Pages() []*Page {
-	pages := make([]*Page, len(d.pages))
-	for i := range d.pages {
-		pages[i] = &Page{doc: d, index: i}
+	d := p.pageDict()
+	if d == nil {
+		return Rotate0
 	}
-	return pages
-}
-
-// Page returns a live view of the page at the given 1-based number.
-func (d *Document) Page(n int) (*Page, error) {
-	if n < 1 || n > len(d.pages) {
-		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
-	}
-	return &Page{doc: d, index: n - 1}, nil
+	return RotationAngle(dictGetInt(d, "/Rotate"))
 }
 
 // CropBox returns the crop box of the page.
-// The crop box defines the visible region. If not explicitly set on the page,
-// it falls back to the MediaBox.
+// Falls back to MediaBox if not set.
 func (p *Page) CropBox() (PageSize, error) {
-	e := p.doc.pages[p.index]
-	return pageBoxWithFallback(e.src, e.page.objNum, "/CropBox")
+	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/CropBox")
 }
 
 // TrimBox returns the trim box of the page.
-// The trim box defines the intended final dimensions after trimming.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) TrimBox() (PageSize, error) {
-	e := p.doc.pages[p.index]
-	return pageBoxWithFallback(e.src, e.page.objNum, "/TrimBox", "/CropBox")
+	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/TrimBox", "/CropBox")
 }
 
 // BleedBox returns the bleed box of the page.
-// The bleed box defines the region to which content is clipped in production.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) BleedBox() (PageSize, error) {
-	e := p.doc.pages[p.index]
-	return pageBoxWithFallback(e.src, e.page.objNum, "/BleedBox", "/CropBox")
+	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/BleedBox", "/CropBox")
 }
 
 // ArtBox returns the art box of the page.
-// The art box defines the extent of meaningful content.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) ArtBox() (PageSize, error) {
-	e := p.doc.pages[p.index]
-	return pageBoxWithFallback(e.src, e.page.objNum, "/ArtBox", "/CropBox")
+	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/ArtBox", "/CropBox")
 }
 
 // PageSizes returns the dimensions of every page in the given PDF file.
@@ -115,8 +96,8 @@ func PageSizes(inputPath string) ([]PageSize, error) {
 		return nil, err
 	}
 	sizes := make([]PageSize, len(doc.pages))
-	for i, e := range doc.pages {
-		sz, err := mediaBoxSize(e.src, e.page.objNum)
+	for i, pg := range doc.pages {
+		sz, err := mediaBoxSize(doc.objects, pg.Num)
 		if err != nil {
 			return nil, fmt.Errorf("page %d: %w", i+1, err)
 		}
@@ -126,14 +107,11 @@ func PageSizes(inputPath string) ([]PageSize, error) {
 }
 
 // pageBoxWithFallback reads the first named box that exists on the page dict.
-// If none of the requested boxes are found, it falls back to the MediaBox
-// (walking the parent chain if needed).
-// Note: only MediaBox is inherited per the PDF spec; the other boxes are looked
-// up directly on the page object.
-func pageBoxWithFallback(src *rawDocument, objNum int, boxes ...string) (PageSize, error) {
-	obj, err := src.getObject(objNum)
-	if err != nil {
-		return PageSize{}, err
+// If none of the requested boxes are found, it falls back to the MediaBox.
+func pageBoxWithFallback(objects map[int]*pdfObject, objNum int, boxes ...string) (PageSize, error) {
+	obj, ok := objects[objNum]
+	if !ok {
+		return PageSize{}, fmt.Errorf("object %d not found", objNum)
 	}
 	d, ok := obj.Value.(pdfDict)
 	if !ok {
@@ -141,19 +119,19 @@ func pageBoxWithFallback(src *rawDocument, objNum int, boxes ...string) (PageSiz
 	}
 	for _, name := range boxes {
 		if v, ok := d[name]; ok {
-			arr, err := resolveToArray(src, v)
-			if err != nil {
+			arr, ok := resolveRefToArray(objects, v)
+			if !ok {
 				continue
 			}
 			return mediaBoxFromArray(arr)
 		}
 	}
-	return mediaBoxSize(src, objNum)
+	return mediaBoxSize(objects, objNum)
 }
 
 // mediaBoxSize reads the /MediaBox of the page object at objNum,
 // walking up the /Parent chain if needed (inheritance).
-func mediaBoxSize(src *rawDocument, objNum int) (PageSize, error) {
+func mediaBoxSize(objects map[int]*pdfObject, objNum int) (PageSize, error) {
 	visited := make(map[int]bool)
 	for {
 		if visited[objNum] {
@@ -161,9 +139,9 @@ func mediaBoxSize(src *rawDocument, objNum int) (PageSize, error) {
 		}
 		visited[objNum] = true
 
-		obj, err := src.getObject(objNum)
-		if err != nil {
-			return PageSize{}, err
+		obj, ok := objects[objNum]
+		if !ok {
+			return PageSize{}, fmt.Errorf("object %d not found", objNum)
 		}
 		d, ok := obj.Value.(pdfDict)
 		if !ok {
@@ -171,14 +149,13 @@ func mediaBoxSize(src *rawDocument, objNum int) (PageSize, error) {
 		}
 
 		if mb, ok := d["/MediaBox"]; ok {
-			arr, err := resolveToArray(src, mb)
-			if err != nil {
-				return PageSize{}, fmt.Errorf("invalid /MediaBox: %w", err)
+			arr, ok := resolveRefToArray(objects, mb)
+			if !ok {
+				return PageSize{}, fmt.Errorf("invalid /MediaBox")
 			}
 			return mediaBoxFromArray(arr)
 		}
 
-		// Not found on this node — walk up to /Parent.
 		parentVal, ok := d["/Parent"]
 		if !ok {
 			return PageSize{}, fmt.Errorf("no /MediaBox found for object %d", objNum)
@@ -189,19 +166,6 @@ func mediaBoxSize(src *rawDocument, objNum int) (PageSize, error) {
 		}
 		objNum = parentRef.Num
 	}
-}
-
-// resolveToArray resolves v to a pdfArray, following one level of indirection if needed.
-func resolveToArray(src *rawDocument, v pdfValue) (pdfArray, error) {
-	rv, err := src.resolve(v)
-	if err != nil {
-		return nil, err
-	}
-	arr, ok := rv.(pdfArray)
-	if !ok {
-		return nil, fmt.Errorf("expected array, got %T", rv)
-	}
-	return arr, nil
 }
 
 // mediaBoxFromArray converts a [x1 y1 x2 y2] PDF array to PageSize.
@@ -222,4 +186,3 @@ func mediaBoxFromArray(arr pdfArray) (PageSize, error) {
 		Height: vals[3] - vals[1],
 	}, nil
 }
-

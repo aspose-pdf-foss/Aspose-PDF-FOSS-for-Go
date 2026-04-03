@@ -83,9 +83,9 @@ func TestDocumentMetadataAfterAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}
-	combined := doc1.Append(doc2)
+	doc1.Append(doc2)
 
-	meta, err := combined.Metadata()
+	meta, err := doc1.Metadata()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -105,17 +105,10 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 		Author:  "Test Author",
 		Subject: "Test Subject",
 	}
-	doc = doc.SetMetadata(want)
+	doc.SetMetadata(want)
 
-	tmp := filepath.Join(t.TempDir(), "out.pdf")
-	if err := doc.Save(tmp); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	doc2, err := asposepdf.Open(tmp)
-	if err != nil {
-		t.Fatalf("Open saved: %v", err)
-	}
-	got, err := doc2.Metadata()
+	// Metadata() now reads live from doc.info — no save/reload needed.
+	got, err := doc.Metadata()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -131,6 +124,26 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 	if got.Keywords != "" {
 		t.Errorf("Keywords: expected empty, got %q", got.Keywords)
 	}
+
+	// Also verify round-trip through save/reload.
+	tmp := filepath.Join(t.TempDir(), "out.pdf")
+	if err := doc.Save(tmp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	doc2, err := asposepdf.Open(tmp)
+	if err != nil {
+		t.Fatalf("Open saved: %v", err)
+	}
+	got2, err := doc2.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata after reload: %v", err)
+	}
+	if got2.Title != want.Title {
+		t.Errorf("reloaded Title: got %q, want %q", got2.Title, want.Title)
+	}
+	if got2.Author != want.Author {
+		t.Errorf("reloaded Author: got %q, want %q", got2.Author, want.Author)
+	}
 }
 
 func TestSetMetadataCustomFields(t *testing.T) {
@@ -138,7 +151,7 @@ func TestSetMetadataCustomFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetMetadata(asposepdf.Metadata{
+	doc.SetMetadata(asposepdf.Metadata{
 		Title:  "Doc",
 		Custom: map[string]string{"Department": "Legal", "Version": "2.0"},
 	})
@@ -169,7 +182,7 @@ func TestSetMetadataReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetMetadata(asposepdf.Metadata{Author: "New Author"})
+	doc.SetMetadata(asposepdf.Metadata{Author: "New Author"})
 
 	tmp := filepath.Join(t.TempDir(), "out.pdf")
 	if err := doc.Save(tmp); err != nil {
@@ -197,7 +210,7 @@ func TestClearMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.ClearMetadata()
+	doc.ClearMetadata()
 
 	tmp := filepath.Join(t.TempDir(), "out.pdf")
 	if err := doc.Save(tmp); err != nil {

@@ -19,8 +19,7 @@ import (
 //
 // If the document has no /PageLabels entry, the decimal page number is returned.
 func (p *Page) Label() string {
-	e := p.doc.pages[p.index]
-	label, err := computePageLabel(e.src, p.index)
+	label, err := computePageLabel(p.doc, p.index)
 	if err != nil {
 		return fmt.Sprintf("%d", p.index+1)
 	}
@@ -28,21 +27,12 @@ func (p *Page) Label() string {
 }
 
 // computePageLabel returns the formatted label for the page at 0-based pageIndex.
-func computePageLabel(src *rawDocument, pageIndex int) (string, error) {
-	rootRef, ok := src.trailer["/Root"]
+func computePageLabel(doc *Document, pageIndex int) (string, error) {
+	labelsVal, ok := doc.catalog["/PageLabels"]
 	if !ok {
 		return fmt.Sprintf("%d", pageIndex+1), nil
 	}
-	catalog, err := src.resolveDict(rootRef)
-	if err != nil {
-		return "", err
-	}
-	labelsVal, ok := catalog["/PageLabels"]
-	if !ok {
-		return fmt.Sprintf("%d", pageIndex+1), nil
-	}
-
-	pairs, err := flattenNumberTree(src, labelsVal)
+	pairs, err := flattenNumberTree(doc.objects, labelsVal)
 	if err != nil || len(pairs) == 0 {
 		return fmt.Sprintf("%d", pageIndex+1), nil
 	}
@@ -67,23 +57,23 @@ type numberTreeEntry struct {
 }
 
 // flattenNumberTree recursively collects all (key, dict) pairs from a PDF number tree.
-func flattenNumberTree(src *rawDocument, nodeVal pdfValue) ([]numberTreeEntry, error) {
-	node, err := src.resolveDict(nodeVal)
-	if err != nil {
-		return nil, err
+func flattenNumberTree(objects map[int]*pdfObject, nodeVal pdfValue) ([]numberTreeEntry, error) {
+	node, ok := resolveRefToDict(objects, nodeVal)
+	if !ok {
+		return nil, fmt.Errorf("number tree node is not a dict")
 	}
 
 	// Leaf node: /Nums [key value key value ...]
 	if numsVal, ok := node["/Nums"]; ok {
-		arr, err := resolveToArray(src, numsVal)
-		if err != nil {
-			return nil, err
+		arr, ok := resolveRefToArray(objects, numsVal)
+		if !ok {
+			return nil, fmt.Errorf("/Nums is not an array")
 		}
 		var entries []numberTreeEntry
 		for i := 0; i+1 < len(arr); i += 2 {
 			key := toInt(arr[i])
-			d, err := src.resolveDict(arr[i+1])
-			if err != nil {
+			d, ok := resolveRefToDict(objects, arr[i+1])
+			if !ok {
 				continue
 			}
 			entries = append(entries, numberTreeEntry{key: key, dict: d})
@@ -93,13 +83,13 @@ func flattenNumberTree(src *rawDocument, nodeVal pdfValue) ([]numberTreeEntry, e
 
 	// Intermediate node: /Kids [child child ...]
 	if kidsVal, ok := node["/Kids"]; ok {
-		arr, err := resolveToArray(src, kidsVal)
-		if err != nil {
-			return nil, err
+		arr, ok := resolveRefToArray(objects, kidsVal)
+		if !ok {
+			return nil, fmt.Errorf("/Kids is not an array")
 		}
 		var entries []numberTreeEntry
 		for _, kid := range arr {
-			sub, err := flattenNumberTree(src, kid)
+			sub, err := flattenNumberTree(objects, kid)
 			if err != nil {
 				continue
 			}

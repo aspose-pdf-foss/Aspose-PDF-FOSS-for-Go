@@ -188,6 +188,6 @@ func Encrypt(inputPath, outputPath, userPassword, ownerPassword string) error {
 	if err != nil {
 		return err
 	}
-	doc = doc.SetPassword(userPassword, ownerPassword)
+	doc.SetPassword(userPassword, ownerPassword)
 	return doc.Save(outputPath)
 }

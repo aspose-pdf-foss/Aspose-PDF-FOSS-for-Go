@@ -1,9 +1,6 @@
 package asposepdf
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // Metadata contains document information from the PDF Info dictionary.
 // Fields not present in the source PDF are empty strings.
@@ -19,28 +16,16 @@ type Metadata struct {
 	Custom       map[string]string // arbitrary Info dict entries
 }
 
-
-// Metadata returns the Info metadata from the primary source document.
-// For documents assembled from multiple sources, metadata from the first
-// source document is returned.
+// Metadata returns the Info metadata from this document.
 func (d *Document) Metadata() (Metadata, error) {
-	if len(d.pages) == 0 {
-		return Metadata{}, fmt.Errorf("document has no pages")
-	}
-	return readMetadata(d.pages[0].src)
-}
-
-// readMetadata extracts the Info dictionary from a parsed document.
-func readMetadata(doc *rawDocument) (Metadata, error) {
-	infoRef, ok := doc.trailer["/Info"]
-	if !ok {
+	if d.info == nil {
 		return Metadata{}, nil
 	}
-	infoDict, err := doc.resolveDict(infoRef)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("read Info dict: %w", err)
-	}
+	return readMetadataFromDict(d.info), nil
+}
 
+// readMetadataFromDict extracts a Metadata value from a pdfDict.
+func readMetadataFromDict(infoDict pdfDict) Metadata {
 	standardKeys := map[string]bool{
 		"/Title": true, "/Author": true, "/Subject": true, "/Keywords": true,
 		"/Creator": true, "/Producer": true, "/CreationDate": true, "/ModDate": true,
@@ -57,7 +42,6 @@ func readMetadata(doc *rawDocument) (Metadata, error) {
 			custom[strings.TrimPrefix(k, "/")] = s
 		}
 	}
-
 	return Metadata{
 		Title:        infoString(infoDict, "/Title"),
 		Author:       infoString(infoDict, "/Author"),
@@ -68,13 +52,18 @@ func readMetadata(doc *rawDocument) (Metadata, error) {
 		CreationDate: infoString(infoDict, "/CreationDate"),
 		ModDate:      infoString(infoDict, "/ModDate"),
 		Custom:       custom,
-	}, nil
+	}
 }
 
-// metadataConfig holds the metadata override to apply when saving a Document.
-type metadataConfig struct {
-	meta  Metadata
-	clear bool // if true, omit the Info dictionary entirely
+// SetMetadata replaces the document's Info dictionary with the given metadata.
+// Empty string fields are omitted. This is a full replacement.
+func (d *Document) SetMetadata(meta Metadata) {
+	d.info = buildInfoDict(meta)
+}
+
+// ClearMetadata removes the Info dictionary entirely.
+func (d *Document) ClearMetadata() {
+	d.info = nil
 }
 
 // buildInfoDict converts a Metadata value into a pdfDict for the Info object.
@@ -107,30 +96,6 @@ func buildInfoDict(meta Metadata) pdfDict {
 		}
 	}
 	return d
-}
-
-// SetMetadata returns a new Document configured to write meta as the PDF Info
-// dictionary when saved. Empty string fields are omitted. This is a full
-// replacement: any metadata from the source document is discarded on save.
-//
-// To update a single field, read the current metadata, modify it, and call
-// SetMetadata with the updated struct:
-//
-//	meta, _ := doc.Metadata()
-//	meta.Title = "New Title"
-//	doc = doc.SetMetadata(meta)
-func (d *Document) SetMetadata(meta Metadata) *Document {
-	result := d.withCopiedPatches()
-	result.metadataConfig = &metadataConfig{meta: meta}
-	return result
-}
-
-// ClearMetadata returns a new Document configured to omit the Info dictionary
-// entirely when saved. Use this to strip all metadata before publishing.
-func (d *Document) ClearMetadata() *Document {
-	result := d.withCopiedPatches()
-	result.metadataConfig = &metadataConfig{clear: true}
-	return result
 }
 
 // infoString returns a string field from the Info dictionary, or "" if absent.

@@ -16,7 +16,7 @@ func TestEncryptSetPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetPassword("secret", "ownerpass")
+	doc.SetPassword("secret", "ownerpass")
 
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
@@ -57,7 +57,7 @@ func TestEncryptContentIsObfuscated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetPassword("secret", "")
+	doc.SetPassword("secret", "")
 
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
@@ -110,7 +110,7 @@ func TestEncryptEmptyPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetPassword("", "")
+	doc.SetPassword("", "")
 
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
@@ -133,7 +133,7 @@ func TestOpenEncryptedReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc = doc.SetPassword("user", "owner")
+	doc.SetPassword("user", "owner")
 
 	tmp := filepath.Join(t.TempDir(), "encrypted.pdf")
 	if err := doc.Save(tmp); err != nil {
@@ -156,7 +156,7 @@ func TestEncryptPreservesPageCount(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	wantPages := doc.PageCount()
-	doc = doc.SetPassword("pass", "")
+	doc.SetPassword("pass", "")
 
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("create result dir: %v", err)
