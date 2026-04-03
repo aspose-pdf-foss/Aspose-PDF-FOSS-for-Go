@@ -5,145 +5,7 @@ import (
 	"regexp"
 )
 
-// rawDocument is a parsed PDF file. It is immutable — it only reads data.
-// The public Document type holds references to one or more rawDocuments as page sources.
-type rawDocument struct {
-	data    []byte
-	xref    *xrefTable
-	trailer pdfDict
-
-	// Cache of parsed objects.
-	cache map[int]*pdfObject
-
-	// Object streams cache: streamObjNum -> parsed objects inside that stream.
-	objStreams map[int][]*pdfObject
-}
-
-// openDocument reads and parses a PDF file.
-func openDocument(path string) (*rawDocument, error) {
-	data, err := readFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	startOff, err := findStartXRef(data)
-	if err != nil {
-		return nil, err
-	}
-
-	xref, trailer, err := parseXRef(data, startOff)
-	if err != nil {
-		return nil, err
-	}
-
-	return &rawDocument{
-		data:      data,
-		xref:      xref,
-		trailer:   trailer,
-		cache:     make(map[int]*pdfObject),
-		objStreams: make(map[int][]*pdfObject),
-	}, nil
-}
-
-// getObject returns the parsed pdfObject for the given object number.
-func (d *rawDocument) getObject(num int) (*pdfObject, error) {
-	if obj, ok := d.cache[num]; ok {
-		return obj, nil
-	}
-
-	entry, ok := d.xref.entries[num]
-	if !ok {
-		return nil, fmt.Errorf("object %d not in xref", num)
-	}
-	if entry.Free {
-		return nil, fmt.Errorf("object %d is free", num)
-	}
-
-	var obj *pdfObject
-	var err error
-
-	if entry.Compressed {
-		obj, err = d.getFromObjStream(entry.StreamObjNum, num)
-	} else {
-		obj, err = parseIndirectObject(d.data, entry.Offset)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	d.cache[num] = obj
-	return obj, nil
-}
-
-// getFromObjStream retrieves an object stored inside an object stream.
-func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject, error) {
-	if objs, ok := d.objStreams[streamObjNum]; ok {
-		for _, o := range objs {
-			if o.Num == targetNum {
-				return o, nil
-			}
-		}
-		return nil, fmt.Errorf("object %d not found in stream %d", targetNum, streamObjNum)
-	}
-
-	streamObj, err := d.getObject(streamObjNum)
-	if err != nil {
-		return nil, fmt.Errorf("object stream %d: %w", streamObjNum, err)
-	}
-	s, ok := streamObj.Value.(*pdfStream)
-	if !ok {
-		return nil, fmt.Errorf("object %d is not a stream", streamObjNum)
-	}
-
-	n := dictGetInt(s.Dict, "/N")    // number of objects in the stream
-	first := dictGetInt(s.Dict, "/First") // byte offset of first object
-
-	// Parse the header: pairs of (objNum, offset) for each object.
-	headerData := s.Data[:first]
-	hl := newLexer(headerData)
-	type objOffset struct {
-		num    int
-		offset int
-	}
-	offsets := make([]objOffset, 0, n)
-	for i := 0; i < n; i++ {
-		t1, _ := hl.Next()
-		t2, _ := hl.Next()
-		if t1.kind != tokInt || t2.kind != tokInt {
-			break
-		}
-		oNum := toIntBytes(t1.raw)
-		oOff := toIntBytes(t2.raw)
-		offsets = append(offsets, objOffset{num: oNum, offset: first + oOff})
-	}
-
-	// Parse each object from the stream body.
-	var parsed []*pdfObject
-	for i, oo := range offsets {
-		end := len(s.Data)
-		if i+1 < len(offsets) {
-			end = offsets[i+1].offset
-		}
-		objData := s.Data[oo.offset:end]
-		l := newLexer(objData)
-		val, err := parseValue(l)
-		if err != nil {
-			continue
-		}
-		parsed = append(parsed, &pdfObject{Num: oo.num, Gen: 0, Value: val})
-	}
-
-	d.objStreams[streamObjNum] = parsed
-
-	for _, o := range parsed {
-		if o.Num == targetNum {
-			return o, nil
-		}
-	}
-	return nil, fmt.Errorf("object %d not found in stream %d", targetNum, streamObjNum)
-}
-
-// toInt from raw token bytes
+// toIntBytes converts a byte slice of ASCII digits to int.
 func toIntBytes(raw []byte) int {
 	n := 0
 	for _, b := range raw {
@@ -154,179 +16,269 @@ func toIntBytes(raw []byte) int {
 	return n
 }
 
-// resolve follows an indirect reference.
-func (d *rawDocument) resolve(v pdfValue) (pdfValue, error) {
-	ref, ok := v.(pdfRef)
-	if !ok {
-		return v, nil
+// parseAllObjects iterates every non-free entry in xref and parses the
+// corresponding object, decoding streams eagerly. Returns a map of objNum → *pdfObject.
+// trailer is required to initialise the rawDocument used for object-stream parsing.
+func parseAllObjects(data []byte, xref *xrefTable, trailer pdfDict) (map[int]*pdfObject, error) {
+	// Re-use the rawDocument parsing logic (private to validate.go) to handle
+	// object streams (PDF 1.5+ compressed objects). Both files are in the same package.
+	raw := &rawDocument{
+		data:      data,
+		xref:      xref,
+		trailer:   trailer,
+		cache:     make(map[int]*pdfObject),
+		objStreams: make(map[int][]*pdfObject),
 	}
-	obj, err := d.getObject(ref.Num)
-	if err != nil {
-		return nil, err
+
+	objects := make(map[int]*pdfObject, len(xref.entries))
+	for num, entry := range xref.entries {
+		if entry.Free {
+			continue
+		}
+		obj, err := raw.getObject(num)
+		if err != nil {
+			return nil, fmt.Errorf("parse object %d: %w", num, err)
+		}
+		objects[num] = obj
 	}
-	return obj.Value, nil
+	return objects, nil
 }
 
-// resolveDict resolves a value to a pdfDict.
-func (d *rawDocument) resolveDict(v pdfValue) (pdfDict, error) {
-	rv, err := d.resolve(v)
-	if err != nil {
-		return nil, err
-	}
-	switch rd := rv.(type) {
-	case pdfDict:
-		return rd, nil
-	case *pdfStream:
-		return rd.Dict, nil
-	}
-	return nil, fmt.Errorf("expected dict, got %T", rv)
-}
-
-// pages walks the page tree and returns a list of pageInfo for each page.
-func (d *rawDocument) pages() ([]*pageInfo, error) {
-	rootRef, ok := d.trailer["/Root"]
-	if !ok {
-		return nil, fmt.Errorf("trailer missing /Root")
-	}
-	catalog, err := d.resolveDict(rootRef)
-	if err != nil {
-		return nil, fmt.Errorf("catalog: %w", err)
-	}
-
-	pagesRef, ok := catalog["/Pages"]
+// resolvePageTree walks the /Pages tree in catalog and returns the ordered list
+// of /Page objects.
+func resolvePageTree(objects map[int]*pdfObject, catalog pdfDict) ([]*pdfObject, error) {
+	pagesVal, ok := catalog["/Pages"]
 	if !ok {
 		return nil, fmt.Errorf("catalog missing /Pages")
 	}
-
-	var result []*pageInfo
-	if err := d.walkPageTree(pagesRef, &result); err != nil {
+	var result []*pdfObject
+	if err := walkPageTree(objects, pagesVal, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-// pageInfo describes a single PDF page and all objects it needs.
-type pageInfo struct {
-	objNum int
-	deps   map[int]bool // all object numbers needed (including the page itself)
-}
-
-func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error {
-	ref, ok := nodeRef.(pdfRef)
+func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, result *[]*pdfObject) error {
+	ref, ok := nodeVal.(pdfRef)
 	if !ok {
-		return fmt.Errorf("page tree node is not a ref")
+		return fmt.Errorf("page tree node is not a ref: %T", nodeVal)
 	}
-
-	nodeDict, err := d.resolveDict(nodeRef)
-	if err != nil {
-		return err
+	obj, ok := objects[ref.Num]
+	if !ok {
+		return fmt.Errorf("object %d not found", ref.Num)
 	}
-
-	nodeType := dictGetName(nodeDict, "/Type")
-	switch nodeType {
+	nodeDict, ok := obj.Value.(pdfDict)
+	if !ok {
+		return fmt.Errorf("page tree object %d is not a dict", ref.Num)
+	}
+	switch dictGetName(nodeDict, "/Type") {
 	case "/Pages":
-		kids, ok := nodeDict["/Kids"]
+		kidsVal, ok := nodeDict["/Kids"]
 		if !ok {
-			return fmt.Errorf("Pages node missing /Kids")
+			return fmt.Errorf("Pages node %d missing /Kids", ref.Num)
 		}
-		arr, ok := kids.(pdfArray)
+		arr, ok := kidsVal.(pdfArray)
 		if !ok {
 			return fmt.Errorf("/Kids is not an array")
 		}
 		for _, kid := range arr {
-			if err := d.walkPageTree(kid, result); err != nil {
+			if err := walkPageTree(objects, kid, result); err != nil {
 				return err
 			}
 		}
 	case "/Page", "": // empty /Type is tolerated for compatibility with some malformed PDFs
-		deps := make(map[int]bool)
-		// Add the page object itself directly (bypassing the /Page guard in
-		// collectDeps) and then collect its value-level dependencies.
-		deps[ref.Num] = true
-		d.collectValueDeps(nodeDict, deps)
-		// Also collect inherited resources from ancestor Pages nodes.
-		if err := d.collectInheritedDeps(nodeRef, deps); err != nil {
-			return err
-		}
-		*result = append(*result, &pageInfo{objNum: ref.Num, deps: deps})
+		*result = append(*result, obj)
 	default:
-		return fmt.Errorf("unknown page tree node type: %s", nodeType)
+		return fmt.Errorf("unknown page tree node type: %s at object %d",
+			dictGetName(nodeDict, "/Type"), ref.Num)
 	}
 	return nil
 }
 
-// collectInheritedDeps collects resource dependencies from parent Pages nodes.
-func (d *rawDocument) collectInheritedDeps(pageRef pdfValue, deps map[int]bool) error {
-	nodeDict, err := d.resolveDict(pageRef)
-	if err != nil {
-		return err
-	}
-	parentRef, ok := nodeDict["/Parent"]
+// extractInfo reads the /Info dictionary from the trailer, resolving the reference.
+// Returns nil if no /Info entry is present.
+func extractInfo(objects map[int]*pdfObject, trailer pdfDict) pdfDict {
+	infoVal, ok := trailer["/Info"]
 	if !ok {
 		return nil
 	}
-	parentDict, err := d.resolveDict(parentRef)
-	if err != nil {
-		return err
+	ref, ok := infoVal.(pdfRef)
+	if !ok {
+		return nil
 	}
-	if res, ok := parentDict["/Resources"]; ok {
-		d.collectValueDeps(res, deps)
+	obj, ok := objects[ref.Num]
+	if !ok {
+		return nil
 	}
-	return d.collectInheritedDeps(parentRef, deps)
+	d, ok := obj.Value.(pdfDict)
+	if !ok {
+		return nil
+	}
+	return d
 }
 
-// reRef matches PDF indirect references like "5 0 R".
-var reRef = regexp.MustCompile(`\b(\d+)\s+\d+\s+R\b`)
-
-// collectDeps recursively collects all object numbers referenced by objNum.
-func (d *rawDocument) collectDeps(objNum int, deps map[int]bool) error {
-	if deps[objNum] {
-		return nil // already visited
+// extractCatalog resolves the /Root reference from the trailer.
+func extractCatalog(objects map[int]*pdfObject, trailer pdfDict) (pdfDict, error) {
+	rootVal, ok := trailer["/Root"]
+	if !ok {
+		return nil, fmt.Errorf("trailer missing /Root")
 	}
-
-	obj, err := d.getObject(objNum)
-	if err != nil {
-		return nil // best-effort
+	ref, ok := rootVal.(pdfRef)
+	if !ok {
+		return nil, fmt.Errorf("/Root is not a ref")
 	}
+	obj, ok := objects[ref.Num]
+	if !ok {
+		return nil, fmt.Errorf("/Root object %d not found", ref.Num)
+	}
+	d, ok := obj.Value.(pdfDict)
+	if !ok {
+		return nil, fmt.Errorf("/Root object %d is not a dict", ref.Num)
+	}
+	return d, nil
+}
 
-	// Skip page-tree structural nodes — they are rebuilt by the writer.
-	// /Page objects reached transitively (e.g. via link annotations) must also
-	// be skipped: including a foreign page would leave its /Parent dangling.
-	if dict, ok := obj.Value.(pdfDict); ok {
-		switch dictGetName(dict, "/Type") {
-		case "/Pages", "/Catalog", "/Page":
-			return nil
+// maxObjectID returns the largest object ID in the map.
+func maxObjectID(objects map[int]*pdfObject) int {
+	max := 0
+	for id := range objects {
+		if id > max {
+			max = id
 		}
 	}
-
-	deps[objNum] = true
-	d.collectValueDeps(obj.Value, deps)
-	return nil
+	return max
 }
 
-func (d *rawDocument) collectValueDeps(v pdfValue, deps map[int]bool) {
+// collectPageDeps returns a map of all objects needed to render page,
+// including the page object itself. Skips /Pages, /Catalog, and /Page nodes
+// reached transitively (e.g. via link annotations).
+func collectPageDeps(objects map[int]*pdfObject, page *pdfObject) map[int]*pdfObject {
+	deps := make(map[int]*pdfObject)
+	visited := make(map[int]bool)
+	// Add the page itself directly (skip the type guard in collectObjDeps).
+	deps[page.Num] = page
+	visited[page.Num] = true
+	if d, ok := page.Value.(pdfDict); ok {
+		collectDictDeps(objects, d, deps, visited)
+	}
+	return deps
+}
+
+func collectObjDeps(objects map[int]*pdfObject, num int, deps map[int]*pdfObject, visited map[int]bool) {
+	if visited[num] {
+		return
+	}
+	obj, ok := objects[num]
+	if !ok {
+		return
+	}
+	// Skip page-tree structural nodes — they are rebuilt by the writer.
+	if d, ok := obj.Value.(pdfDict); ok {
+		switch dictGetName(d, "/Type") {
+		case "/Pages", "/Catalog", "/Page":
+			return
+		}
+	}
+	visited[num] = true
+	deps[num] = obj
+	collectValueDepsDoc(objects, obj.Value, deps, visited)
+}
+
+func collectValueDepsDoc(objects map[int]*pdfObject, v pdfValue, deps map[int]*pdfObject, visited map[int]bool) {
 	switch val := v.(type) {
 	case pdfRef:
-		d.collectDeps(val.Num, deps)
+		collectObjDeps(objects, val.Num, deps, visited)
 	case pdfDict:
-		for _, dv := range val {
-			d.collectValueDeps(dv, deps)
-		}
+		collectDictDeps(objects, val, deps, visited)
 	case pdfArray:
 		for _, av := range val {
-			d.collectValueDeps(av, deps)
+			collectValueDepsDoc(objects, av, deps, visited)
 		}
 	case *pdfStream:
-		for _, dv := range val.Dict {
-			d.collectValueDeps(dv, deps)
-		}
-		// Also scan raw stream data for references (e.g. content streams).
-		refs := reRef.FindAllSubmatch(val.Data, -1)
-		for _, m := range refs {
+		collectDictDeps(objects, val.Dict, deps, visited)
+		// Scan stream bytes for inline references (content streams).
+		for _, m := range reRefDoc.FindAllSubmatch(val.Data, -1) {
 			n := toIntBytes(m[1])
 			if n > 0 {
-				d.collectDeps(n, deps)
+				collectObjDeps(objects, n, deps, visited)
 			}
 		}
 	}
+}
+
+func collectDictDeps(objects map[int]*pdfObject, d pdfDict, deps map[int]*pdfObject, visited map[int]bool) {
+	for _, dv := range d {
+		collectValueDepsDoc(objects, dv, deps, visited)
+	}
+}
+
+var reRefDoc = regexp.MustCompile(`\b(\d+)\s+\d+\s+R\b`)
+
+// rewriteRefs returns a deep copy of v with all pdfRef IDs translated through idMap.
+// Objects whose IDs are not in idMap are left as-is.
+func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {
+	switch val := v.(type) {
+	case pdfRef:
+		if newID, ok := idMap[val.Num]; ok {
+			return pdfRef{Num: newID, Gen: val.Gen}
+		}
+		return val
+	case pdfDict:
+		nd := make(pdfDict, len(val))
+		for k, dv := range val {
+			nd[k] = rewriteRefs(dv, idMap)
+		}
+		return nd
+	case pdfArray:
+		na := make(pdfArray, len(val))
+		for i, av := range val {
+			na[i] = rewriteRefs(av, idMap)
+		}
+		return na
+	case *pdfStream:
+		nd := make(pdfDict, len(val.Dict))
+		for k, dv := range val.Dict {
+			nd[k] = rewriteRefs(dv, idMap)
+		}
+		newData := reRefDoc.ReplaceAllFunc(val.Data, func(match []byte) []byte {
+			sub := reRefDoc.FindSubmatch(match)
+			if sub == nil {
+				return match
+			}
+			n := toIntBytes(sub[1])
+			if newID, ok := idMap[n]; ok {
+				return []byte(fmt.Sprintf("%d 0 R", newID))
+			}
+			return match
+		})
+		return &pdfStream{Dict: nd, Data: newData, Decoded: val.Decoded}
+	}
+	return v
+}
+
+// resolveRef follows one level of indirection if v is a pdfRef.
+func resolveRef(objects map[int]*pdfObject, v pdfValue) pdfValue {
+	ref, ok := v.(pdfRef)
+	if !ok {
+		return v
+	}
+	obj, ok := objects[ref.Num]
+	if !ok {
+		return v
+	}
+	return obj.Value
+}
+
+// resolveRefToDict resolves v to a pdfDict, following a ref if needed.
+func resolveRefToDict(objects map[int]*pdfObject, v pdfValue) (pdfDict, bool) {
+	rv := resolveRef(objects, v)
+	d, ok := rv.(pdfDict)
+	return d, ok
+}
+
+// resolveRefToArray resolves v to a pdfArray, following a ref if needed.
+func resolveRefToArray(objects map[int]*pdfObject, v pdfValue) (pdfArray, bool) {
+	rv := resolveRef(objects, v)
+	a, ok := rv.(pdfArray)
+	return a, ok
 }

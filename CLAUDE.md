@@ -64,8 +64,9 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `PageRange` struct — From, To (1-based, inclusive)
 
 **`metadata.go`**
-- `GetMetadata(inputPath)` — reads Info metadata from a PDF file
-- `Metadata` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate
+- `(*Document).SetMetadata(meta) *Document` — returns a new Document configured to write meta as the Info dictionary on save; full replacement, empty fields omitted
+- `(*Document).ClearMetadata() *Document` — returns a new Document that omits the Info dictionary on save
+- `Metadata` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Custom map[string]string
 
 **`encrypt.go`**
 - `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — writes a password-protected PDF using RC4-128 (PDF 1.4 Standard Security Handler, revision 3)

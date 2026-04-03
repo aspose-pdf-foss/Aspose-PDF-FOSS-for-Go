@@ -46,8 +46,7 @@ func TestDocumentRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc, err = doc.Rotate(asposepdf.Rotate90)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -71,8 +70,7 @@ func TestDocumentRotateSpecificPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc, err = doc.Rotate(asposepdf.Rotate180, 1)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate180, 1); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -96,12 +94,10 @@ func TestDocumentRotateAccumulates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc, err = doc.Rotate(asposepdf.Rotate90)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
 		t.Fatalf("first Rotate: %v", err)
 	}
-	doc, err = doc.Rotate(asposepdf.Rotate90)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate90); err != nil {
 		t.Fatalf("second Rotate: %v", err)
 	}
 
@@ -125,8 +121,7 @@ func TestDocumentRotateDuplicatePageNums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc, err = doc.Rotate(asposepdf.Rotate90, 1, 1)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate90, 1, 1); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -176,8 +171,7 @@ func TestDocumentReorder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc, err = doc.Reorder([]int{2, 1})
-	if err != nil {
+	if err := doc.Reorder([]int{2, 1}); err != nil {
 		t.Fatalf("Reorder: %v", err)
 	}
 	if doc.PageCount() != marketingPages {
@@ -196,7 +190,6 @@ func TestDocumentReorder(t *testing.T) {
 		t.Fatalf("expected %d pages in saved file, got %d", marketingPages, n)
 	}
 }
-
 
 func TestDocumentWriteTo(t *testing.T) {
 	doc, err := asposepdf.Open("testdata/split/4pages.pdf")
@@ -235,12 +228,10 @@ func TestDocumentSetRotation(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	// First rotate page 1 to 180°, then set it absolutely to 90°.
-	doc, err = doc.Rotate(asposepdf.Rotate180, 1)
-	if err != nil {
+	if err := doc.Rotate(asposepdf.Rotate180, 1); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
-	doc, err = doc.SetRotation(asposepdf.Rotate90, 1)
-	if err != nil {
+	if err := doc.SetRotation(asposepdf.Rotate90, 1); err != nil {
 		t.Fatalf("SetRotation: %v", err)
 	}
 
@@ -267,10 +258,10 @@ func TestDocumentInvalidRotateAngle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := doc.Rotate(asposepdf.RotationAngle(45)); err == nil {
+	if err := doc.Rotate(asposepdf.RotationAngle(45)); err == nil {
 		t.Fatal("expected error for angle=45")
 	}
-	if _, err := doc.SetRotation(asposepdf.RotationAngle(45)); err == nil {
+	if err := doc.SetRotation(asposepdf.RotationAngle(45)); err == nil {
 		t.Fatal("SetRotation: expected error for angle=45")
 	}
 }
@@ -280,12 +271,12 @@ func TestDocumentRotateZeroIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	result, err := doc.Rotate(asposepdf.Rotate0)
-	if err != nil {
+	before := doc.PageCount()
+	if err := doc.Rotate(asposepdf.Rotate0); err != nil {
 		t.Fatalf("Rotate(Rotate0): %v", err)
 	}
-	if result.PageCount() != doc.PageCount() {
-		t.Errorf("expected %d pages, got %d", doc.PageCount(), result.PageCount())
+	if doc.PageCount() != before {
+		t.Errorf("expected %d pages, got %d", before, doc.PageCount())
 	}
 }
 
@@ -294,7 +285,7 @@ func TestDocumentInvalidReorderPageNum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if _, err := doc.Reorder([]int{1, 5}); err == nil {
+	if err := doc.Reorder([]int{1, 5}); err == nil {
 		t.Fatal("expected error for page 5 in a 2-page document")
 	}
 }

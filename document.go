@@ -7,24 +7,14 @@ import (
 	"os"
 )
 
-// pageRef holds a page and its source document.
-type pageRef struct {
-	src  *rawDocument
-	page *pageInfo
-}
-
-// patchKey identifies a page object within a specific source document.
-type patchKey struct {
-	src    *rawDocument
-	objNum int
-}
-
-// Document is a PDF document. All operations return new Documents;
-// the receiver is never modified.
+// Document is a PDF document. Operations directly mutate the receiver.
 type Document struct {
-	pages         []pageRef
-	patches       map[patchKey]pdfDict
-	encryptConfig *encryptConfig // nil = no encryption
+	objects map[int]*pdfObject // all PDF objects by ID
+	pages   []*pdfObject       // ordered /Page objects
+	catalog pdfDict            // /Catalog dict
+	info    pdfDict            // /Info dict; nil = no metadata
+	encrypt *encryptConfig     // nil = no encryption
+	nextID  int                // next available object ID
 }
 
 // Open opens a PDF file and returns a Document.
@@ -50,24 +40,51 @@ func OpenStream(r io.Reader) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read PDF: %w", err)
 	}
-	doc, err := openDocumentFromBytes(data)
+
+	startOff, err := findStartXRef(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse PDF: %w", err)
 	}
-	if _, ok := doc.trailer["/Encrypt"]; ok {
+	xref, trailer, err := parseXRef(data, startOff)
+	if err != nil {
+		return nil, fmt.Errorf("parse PDF: %w", err)
+	}
+	if _, ok := trailer["/Encrypt"]; ok {
 		return nil, fmt.Errorf("parse PDF: encrypted PDF is not supported")
 	}
-	rawPages, err := doc.pages()
+
+	objects, err := parseAllObjects(data, xref, trailer)
+	if err != nil {
+		return nil, fmt.Errorf("parse PDF: %w", err)
+	}
+
+	catalog, err := extractCatalog(objects, trailer)
+	if err != nil {
+		return nil, fmt.Errorf("parse PDF: %w", err)
+	}
+
+	pages, err := resolvePageTree(objects, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("read pages: %w", err)
 	}
-	pages := make([]pageRef, len(rawPages))
-	for i, p := range rawPages {
-		pages[i] = pageRef{src: doc, page: p}
+
+	// Remove structural page-tree and catalog objects — the writer rebuilds them.
+	// Keeping them would produce orphaned /Pages nodes that fail validation.
+	for id, obj := range objects {
+		if d, ok := obj.Value.(pdfDict); ok {
+			switch dictGetName(d, "/Type") {
+			case "/Pages", "/Catalog":
+				delete(objects, id)
+			}
+		}
 	}
+
 	return &Document{
+		objects: objects,
 		pages:   pages,
-		patches: make(map[patchKey]pdfDict),
+		catalog: catalog,
+		info:    extractInfo(objects, trailer),
+		nextID:  maxObjectID(objects) + 1,
 	}, nil
 }
 
@@ -76,82 +93,72 @@ func (d *Document) PageCount() int {
 	return len(d.pages)
 }
 
-
-// Reorder returns a new Document with pages rearranged according to order,
-// a slice of 1-based page numbers. Pages may be repeated or omitted.
-//
-// Example — reverse a 4-page document:
-//
-//	doc, err = doc.Reorder([]int{4, 3, 2, 1})
-func (d *Document) Reorder(order []int) (*Document, error) {
-	result := make([]pageRef, len(order))
-	for i, n := range order {
-		if n < 1 || n > len(d.pages) {
-			return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
-		}
-		result[i] = d.pages[n-1]
+// Pages returns a live view of all pages in the document.
+func (d *Document) Pages() []*Page {
+	pages := make([]*Page, len(d.pages))
+	for i := range d.pages {
+		pages[i] = &Page{doc: d, index: i}
 	}
-	return &Document{pages: result, patches: copyPatches(d.patches)}, nil
+	return pages
 }
 
-// Append returns a new Document with all pages from others appended in order.
-// nil arguments are silently skipped.
+// Page returns a live view of the page at the given 1-based number.
+func (d *Document) Page(n int) (*Page, error) {
+	if n < 1 || n > len(d.pages) {
+		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
+	}
+	return &Page{doc: d, index: n - 1}, nil
+}
+
+// Append adds all pages from others to this document, merging their objects.
+// Nil arguments are silently skipped.
 //
 // Example:
 //
 //	doc1, _ := asposepdf.Open("part1.pdf")
 //	doc2, _ := asposepdf.Open("part2.pdf")
-//	doc3, _ := asposepdf.Open("part3.pdf")
-//	combined := doc1.Append(doc2, doc3)
-//	combined.Save("combined.pdf")
-func (d *Document) Append(others ...*Document) *Document {
-	newPages := append([]pageRef{}, d.pages...)
+//	doc1.Append(doc2)
+//	doc1.Save("combined.pdf")
+func (d *Document) Append(others ...*Document) {
 	for _, other := range others {
 		if other == nil {
 			continue
 		}
-		newPages = append(newPages, other.pages...)
-	}
-
-	// Build patches only from pages actually present in the result,
-	// preserving each contributing document's own patches.
-	newPatches := make(map[patchKey]pdfDict)
-	for _, p := range d.pages {
-		key := patchKey{p.src, p.page.objNum}
-		if patch, ok := d.patches[key]; ok {
-			newPatches[key] = patch
+		// Build ID mapping: other's object IDs → new IDs in d.
+		idMap := make(map[int]int, len(other.objects))
+		for oldID := range other.objects {
+			idMap[oldID] = d.nextID
+			d.nextID++
 		}
-	}
-	for _, other := range others {
-		if other == nil {
-			continue
-		}
-		for _, p := range other.pages {
-			key := patchKey{p.src, p.page.objNum}
-			if patch, ok := other.patches[key]; ok {
-				newPatches[key] = patch
+		// Copy objects with rewritten refs.
+		for oldID, obj := range other.objects {
+			newID := idMap[oldID]
+			d.objects[newID] = &pdfObject{
+				Num:   newID,
+				Gen:   obj.Gen,
+				Value: rewriteRefs(obj.Value, idMap),
 			}
 		}
+		// Add pages (using new IDs).
+		for _, page := range other.pages {
+			d.pages = append(d.pages, d.objects[idMap[page.Num]])
+		}
 	}
-
-	return &Document{pages: newPages, patches: newPatches}
 }
 
-// SetPassword returns a new Document configured to be encrypted when saved.
-// userPassword is required to open the document; ownerPassword controls
-// permission settings. If ownerPassword is empty, it defaults to userPassword.
+// SetPassword configures the document to be encrypted when saved.
+// userPassword is required to open; ownerPassword controls permissions.
+// If ownerPassword is empty, it defaults to userPassword.
 //
 // Example:
 //
-//	doc = doc.SetPassword("secret", "")
+//	doc.SetPassword("secret", "")
 //	doc.Save("encrypted.pdf")
-func (d *Document) SetPassword(userPassword, ownerPassword string) *Document {
-	result := d.withCopiedPatches()
-	result.encryptConfig = &encryptConfig{
+func (d *Document) SetPassword(userPassword, ownerPassword string) {
+	d.encrypt = &encryptConfig{
 		userPassword:  userPassword,
 		ownerPassword: ownerPassword,
 	}
-	return result
 }
 
 // WriteTo writes the document to w. It implements io.WriterTo.
@@ -159,7 +166,7 @@ func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	if len(d.pages) == 0 {
 		return 0, fmt.Errorf("document has no pages")
 	}
-	data, err := buildDocumentPDF(d.pages, d.patches, d.encryptConfig)
+	data, err := buildDocumentPDF(d)
 	if err != nil {
 		return 0, err
 	}
@@ -178,7 +185,7 @@ func (d *Document) Save(outputPath string) error {
 	return err
 }
 
-// validateRange validates from/to against [1, total] and returns an error for any invalid input.
+// validateRange validates from/to against [1, total].
 func validateRange(from, to, total int) (int, int, error) {
 	if from < 1 || from > total {
 		return 0, 0, fmt.Errorf("page range from=%d out of bounds (1..%d)", from, total)
@@ -192,62 +199,8 @@ func validateRange(from, to, total int) (int, int, error) {
 	return from, to, nil
 }
 
-// withCopiedPatches returns a shallow copy of d with an independent patches map.
-func (d *Document) withCopiedPatches() *Document {
-	return &Document{
-		pages:         append([]pageRef{}, d.pages...),
-		patches:       copyPatches(d.patches),
-		encryptConfig: d.encryptConfig,
-	}
-}
-
-// copyPatches returns a shallow copy of patches.
-func copyPatches(src map[patchKey]pdfDict) map[patchKey]pdfDict {
-	dst := make(map[patchKey]pdfDict, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-// patchedRotation returns the effective /Rotate for a page,
-// considering already-applied patches first, then the source dict.
-func (d *Document) patchedRotation(key patchKey, e pageRef) RotationAngle {
-	if p, ok := d.patches[key]; ok {
-		if r, ok := p["/Rotate"]; ok {
-			if n, ok := r.(int); ok {
-				return RotationAngle(n)
-			}
-		}
-	}
-	rot, _ := pageRotation(e.src, e.page)
-	return rot
-}
-
-// pageRotation returns the current /Rotate value for a page (defaults to 0 if absent).
-func pageRotation(doc *rawDocument, p *pageInfo) (RotationAngle, error) {
-	obj, err := doc.getObject(p.objNum)
-	if err != nil {
-		return 0, fmt.Errorf("get page object %d: %w", p.objNum, err)
-	}
-	d, ok := obj.Value.(pdfDict)
-	if !ok {
-		return 0, nil
-	}
-	return RotationAngle(dictGetInt(d, "/Rotate")), nil
-}
-
-// setPatch sets a single key/value in the patch dict for key.
-func (d *Document) setPatch(key patchKey, k string, v pdfValue) {
-	if d.patches[key] == nil {
-		d.patches[key] = make(pdfDict)
-	}
-	d.patches[key][k] = v
-}
-
 // resolvePageIndices converts 1-based page numbers to 0-based indices.
-// If pageNums is empty, returns all indices. Duplicates are silently removed;
-// order is preserved based on first occurrence.
+// If pageNums is empty, returns all indices. Duplicates are silently removed.
 func resolvePageIndices(total int, pageNums []int) ([]int, error) {
 	if len(pageNums) == 0 {
 		indices := make([]int, total)

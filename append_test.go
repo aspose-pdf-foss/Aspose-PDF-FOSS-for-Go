@@ -18,12 +18,8 @@ func TestDocumentAppend(t *testing.T) {
 		t.Fatalf("read %s: %v", appendTestData, err)
 	}
 
-	// Open all files; skip encrypted or otherwise unreadable ones.
-	type namedDoc struct {
-		path string
-		doc  *asposepdf.Document
-	}
-	var docs []namedDoc
+	// Collect openable file paths.
+	var paths []string
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -34,10 +30,11 @@ func TestDocumentAppend(t *testing.T) {
 			t.Logf("skipping %s: %v", e.Name(), err)
 			continue
 		}
-		docs = append(docs, namedDoc{path: p, doc: doc})
+		_ = doc
+		paths = append(paths, p)
 	}
-	if len(docs) < 2 {
-		t.Skipf("need at least 2 openable files in %s, got %d", appendTestData, len(docs))
+	if len(paths) < 2 {
+		t.Skipf("need at least 2 openable files in %s, got %d", appendTestData, len(paths))
 	}
 
 	outDir := filepath.Join(resultDir, "TestDocumentAppend")
@@ -46,18 +43,26 @@ func TestDocumentAppend(t *testing.T) {
 	}
 
 	// Merge each file with each other file (once per pair).
-	for i := 0; i < len(docs); i++ {
-		for j := i + 1; j < len(docs); j++ {
-			a, b := docs[i], docs[j]
-			t.Run(fmt.Sprintf("%s+%s", stem(a.path), stem(b.path)), func(t *testing.T) {
-				combined := a.doc.Append(b.doc)
-				want := a.doc.PageCount() + b.doc.PageCount()
-				if combined.PageCount() != want {
-					t.Fatalf("expected %d pages, got %d", want, combined.PageCount())
+	for i := 0; i < len(paths); i++ {
+		for j := i + 1; j < len(paths); j++ {
+			pa, pb := paths[i], paths[j]
+			t.Run(fmt.Sprintf("%s+%s", stem(pa), stem(pb)), func(t *testing.T) {
+				a, err := asposepdf.Open(pa)
+				if err != nil {
+					t.Fatalf("Open a: %v", err)
+				}
+				b, err := asposepdf.Open(pb)
+				if err != nil {
+					t.Fatalf("Open b: %v", err)
+				}
+				want := a.PageCount() + b.PageCount()
+				a.Append(b)
+				if a.PageCount() != want {
+					t.Fatalf("expected %d pages, got %d", want, a.PageCount())
 				}
 
-				outPath := filepath.Join(outDir, fmt.Sprintf("%s+%s.pdf", stem(a.path), stem(b.path)))
-				if err := combined.Save(outPath); err != nil {
+				outPath := filepath.Join(outDir, fmt.Sprintf("%s+%s.pdf", stem(pa), stem(pb)))
+				if err := a.Save(outPath); err != nil {
 					t.Fatalf("Save: %v", err)
 				}
 
@@ -72,20 +77,24 @@ func TestDocumentAppend(t *testing.T) {
 
 	// Merge all openable files into one document.
 	t.Run("all", func(t *testing.T) {
+		docs := make([]*asposepdf.Document, len(paths))
 		wantPages := 0
-		allDocs := make([]*asposepdf.Document, len(docs))
-		for i, nd := range docs {
-			allDocs[i] = nd.doc
-			wantPages += nd.doc.PageCount()
+		for i, p := range paths {
+			d, err := asposepdf.Open(p)
+			if err != nil {
+				t.Fatalf("Open %s: %v", p, err)
+			}
+			docs[i] = d
+			wantPages += d.PageCount()
 		}
 
-		combined := allDocs[0].Append(allDocs[1:]...)
-		if combined.PageCount() != wantPages {
-			t.Fatalf("expected %d pages, got %d", wantPages, combined.PageCount())
+		docs[0].Append(docs[1:]...)
+		if docs[0].PageCount() != wantPages {
+			t.Fatalf("expected %d pages, got %d", wantPages, docs[0].PageCount())
 		}
 
 		outPath := filepath.Join(outDir, "all.pdf")
-		if err := combined.Save(outPath); err != nil {
+		if err := docs[0].Save(outPath); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 
@@ -94,7 +103,7 @@ func TestDocumentAppend(t *testing.T) {
 			t.Fatalf("Validate: %v", err)
 		}
 		checkValidation(t, outPath, report)
-		t.Logf("merged %d files → %d pages", len(docs), combined.PageCount())
+		t.Logf("merged %d files → %d pages", len(docs), docs[0].PageCount())
 	})
 }
 

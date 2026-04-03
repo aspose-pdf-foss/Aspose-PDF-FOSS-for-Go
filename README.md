@@ -91,8 +91,27 @@ for i, s := range sizes {
 ### Metadata
 
 ```go
-meta, err := pdf.GetMetadata("input.pdf")
+// Read
+doc, _ := pdf.Open("input.pdf")
+meta, _ := doc.Metadata()
 fmt.Println(meta.Title, meta.Author, meta.CreationDate)
+
+// Write (full replacement — unset fields are omitted from the PDF)
+doc = doc.SetMetadata(pdf.Metadata{
+    Title:  "My Document",
+    Author: "Jane Smith",
+    Custom: map[string]string{"Department": "Legal"},
+})
+doc.Save("output.pdf")
+
+// Update a single field: read → modify → write
+meta, _ = doc.Metadata()
+meta.Title = "Updated Title"
+doc = doc.SetMetadata(meta)
+
+// Strip all metadata
+doc = doc.ClearMetadata()
+doc.Save("clean.pdf")
 ```
 
 ### Encryption
