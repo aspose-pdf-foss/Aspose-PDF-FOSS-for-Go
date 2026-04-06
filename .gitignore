@@ -35,3 +35,8 @@ result_files/
 
 # Local examples (not part of the public library)
 my_examples/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
