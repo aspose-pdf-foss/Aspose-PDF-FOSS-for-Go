@@ -72,6 +72,24 @@ func TestParseContentStreamTJArray(t *testing.T) {
 	}
 }
 
+func TestApplyDifferences(t *testing.T) {
+	base := standardEncoding
+	diffs := pdfArray{
+		32, pdfName("/Euro"),
+		65, pdfName("/Omega"),
+	}
+	enc := applyDifferences(base, diffs)
+	if enc[32] != '€' {
+		t.Errorf("pos 32: got %c, want €", enc[32])
+	}
+	if enc[65] != 'Ω' {
+		t.Errorf("pos 65: got %c, want Ω", enc[65])
+	}
+	if enc[66] != base[66] {
+		t.Errorf("pos 66 should be unchanged")
+	}
+}
+
 func TestParseContentStreamInlineImage(t *testing.T) {
 	data := []byte("BT (Before) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI BT (After) Tj ET")
 	ops, err := parseContentStream(data)
