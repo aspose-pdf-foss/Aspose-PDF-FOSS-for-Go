@@ -2,6 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "server",
-  "dolt_database": "aspose.pdf_for_go_foss",
+  "dolt_database": "pdf_go",
   "project_id": "d6914106-4079-46cf-bd30-2222d25bb406"
 }
