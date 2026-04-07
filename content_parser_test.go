@@ -241,6 +241,47 @@ func TestApplyDifferences(t *testing.T) {
 	}
 }
 
+func TestStandard14Widths(t *testing.T) {
+	// Helvetica: 'A' = 667, 'i' = 222, space = 278
+	w, ok := standard14Widths("/Helvetica")
+	if !ok {
+		t.Fatal("expected Helvetica to be a standard 14 font")
+	}
+	if w[65] != 667 {
+		t.Errorf("Helvetica 'A': got %v, want 667", w[65])
+	}
+	if w[105] != 222 {
+		t.Errorf("Helvetica 'i': got %v, want 222", w[105])
+	}
+	if w[32] != 278 {
+		t.Errorf("Helvetica space: got %v, want 278", w[32])
+	}
+
+	// Courier: all printable = 600
+	w, ok = standard14Widths("/Courier")
+	if !ok {
+		t.Fatal("expected Courier to be a standard 14 font")
+	}
+	if w[65] != 600 {
+		t.Errorf("Courier 'A': got %v, want 600", w[65])
+	}
+
+	// Times-Roman: 'A' = 722
+	w, ok = standard14Widths("/Times-Roman")
+	if !ok {
+		t.Fatal("expected Times-Roman to be a standard 14 font")
+	}
+	if w[65] != 722 {
+		t.Errorf("Times-Roman 'A': got %v, want 722", w[65])
+	}
+
+	// Unknown font returns false.
+	_, ok = standard14Widths("/CustomFont+XYZ")
+	if ok {
+		t.Error("expected ok=false for unknown font")
+	}
+}
+
 func TestParseContentStreamInlineImage(t *testing.T) {
 	data := []byte("BT (Before) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI BT (After) Tj ET")
 	ops, err := parseContentStream(data)
