@@ -352,7 +352,16 @@ func (e *textExtractor) emitRune(r rune) {
 		dy := e.lastY - y
 
 		// Use the font's space character width for space detection.
-		spaceWidth := e.font.widths[32] / 1000.0 * e.fontSize
+		var spaceWidth float64
+		if e.font.isType0 {
+			if sw, ok := e.font.cidWidths[0x0020]; ok {
+				spaceWidth = sw / 1000.0 * e.fontSize
+			} else {
+				spaceWidth = e.font.defaultW / 1000.0 * e.fontSize
+			}
+		} else {
+			spaceWidth = e.font.widths[32] / 1000.0 * e.fontSize
+		}
 		if spaceWidth < 1 {
 			spaceWidth = e.fontSize * 0.25
 		}
@@ -360,9 +369,16 @@ func (e *textExtractor) emitRune(r rune) {
 			spaceWidth = 1
 		}
 
-		if math.Abs(dy) > e.fontSize*0.5 {
+		// Scale thresholds to device space. dx is in device space
+		// (after Tm * CTM), but spaceWidth is in text space. Apply
+		// the combined Tm+CTM horizontal scale factor.
+		scale := e.textScaleX()
+		effectiveSpaceWidth := spaceWidth * scale
+		effectiveFontSize := e.fontSize * scale
+
+		if math.Abs(dy) > effectiveFontSize*0.5 {
 			e.buf.WriteByte('\n')
-		} else if dx > spaceWidth*0.3 {
+		} else if dx > effectiveSpaceWidth*0.3 {
 			e.buf.WriteByte(' ')
 		}
 	}
@@ -376,6 +392,17 @@ func (e *textExtractor) emitRune(r rune) {
 func (e *textExtractor) currentPos() (float64, float64) {
 	m := matMul(e.tm, e.ctm)
 	return m[4], m[5]
+}
+
+// textScaleX returns the horizontal scale factor from text space to device space.
+// This accounts for both the text matrix (Tm) and current transformation matrix (CTM).
+func (e *textExtractor) textScaleX() float64 {
+	m := matMul(e.tm, e.ctm)
+	sx := math.Sqrt(m[0]*m[0] + m[1]*m[1])
+	if sx < 0.001 {
+		return 1
+	}
+	return sx
 }
 
 func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict) {
