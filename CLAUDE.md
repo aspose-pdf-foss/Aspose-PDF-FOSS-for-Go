@@ -103,12 +103,12 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 `rewriteRefs` deep-copies a `pdfValue` tree translating all `pdfRef` IDs through an id-map. Used by `Append` to merge objects from another document without ID collisions.
 
-### Text extraction (`text.go`, `content_parser.go`, `font.go`, `encoding.go`)
+### Text extraction (`text.go`, `content_parser.go`, `font.go`, `font_metrics.go`, `encoding.go`)
 
 1. `parseContentStream(data)` tokenizes content stream bytes into `contentOp` structs (operator + operands), reusing the existing `lexer`
-2. `resolveFont(objects, fontDict)` maps font dictionaries to `fontInfo{name, encoding [256]rune, known bool}` — supports WinAnsi, MacRoman, Standard encodings, `/Differences`, standard 14 fonts, Symbol, ZapfDingbats
-3. `textExtractor` state machine processes operators (BT/ET/Tf/Td/Tm/Tj/TJ/etc.), tracking text matrix position, font, and spacing
-4. Space/newline insertion uses heuristics: horizontal gap > spaceWidth×0.3 → space, vertical shift > fontSize×0.5 → newline
+2. `resolveFont(objects, fontDict)` maps font dictionaries to `fontInfo{name, encoding [256]rune, widths [256]float64, known bool}` — supports WinAnsi, MacRoman, Standard encodings, `/Differences`, standard 14 fonts, Symbol, ZapfDingbats; resolves glyph widths from `/Widths` array, Standard 14 built-in metrics (`font_metrics.go`), or 600-unit fallback
+3. `textExtractor` state machine processes operators (BT/ET/Tf/Td/Tm/Tj/TJ/Tz/etc.), tracking text matrix position, font, spacing, and horizontal scaling; advances text matrix by glyph width after each character (PDF spec 9.4.4)
+4. Space/newline insertion uses font metrics: horizontal gap > spaceWidth×0.3 → space, vertical shift > fontSize×0.5 → newline
 5. Form XObjects (`Do` operator) are recursively processed with inherited CTM and overridden resources
 
 ## Output conventions
