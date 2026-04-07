@@ -24,8 +24,10 @@ type TextFragment struct {
 	Height      float64   // text height in points (from ascent/descent metrics)
 	Bold        bool
 	Italic      bool
-	CharSpacing float64   // character spacing (Tc operator) in text space units
-	Color       TextColor // fill color
+	CharSpacing  float64   // character spacing (Tc operator) in text space units
+	Color        TextColor // fill color
+	IsSubscript  bool      // Y is below the line baseline
+	IsSuperscript bool     // Y is above the line baseline
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
@@ -83,8 +85,18 @@ func assembleLine(frags []textFragment) TextLine {
 		return frags[i].x < frags[j].x
 	})
 
+	// Determine baseline Y from the fragment with the largest font size.
+	baselineY := frags[0].y
+	maxFontSize := frags[0].fontSize
+	for _, f := range frags[1:] {
+		if f.fontSize > maxFontSize {
+			maxFontSize = f.fontSize
+			baselineY = f.y
+		}
+	}
+
 	line := TextLine{
-		Y: frags[0].y,
+		Y: baselineY,
 	}
 
 	var buf strings.Builder
@@ -108,19 +120,30 @@ func assembleLine(frags []textFragment) TextLine {
 
 		buf.WriteString(text)
 		lastEmitted = i
-		line.Fragments = append(line.Fragments, TextFragment{
-			Text:     text,
-			X:        f.x,
-			Y:        f.y,
-			Width:    f.endX - f.x,
-			FontName: cleanFontName(f.fontName),
+		tf := TextFragment{
+			Text:        text,
+			X:           f.x,
+			Y:           f.y,
+			Width:       f.endX - f.x,
+			FontName:    cleanFontName(f.fontName),
 			FontSize:    f.fontSize,
 			Height:      f.height,
 			Bold:        f.bold,
 			Italic:      f.italic,
 			CharSpacing: f.charSpacing,
 			Color:       TextColor{R: f.colorR, G: f.colorG, B: f.colorB},
-		})
+		}
+		// Detect sub/superscript: smaller font with Y offset from baseline.
+		if f.fontSize < maxFontSize*0.85 {
+			dy := f.y - baselineY
+			threshold := maxFontSize * 0.2
+			if dy > threshold {
+				tf.IsSuperscript = true
+			} else if dy < -threshold {
+				tf.IsSubscript = true
+			}
+		}
+		line.Fragments = append(line.Fragments, tf)
 	}
 
 	line.Text = buf.String()
