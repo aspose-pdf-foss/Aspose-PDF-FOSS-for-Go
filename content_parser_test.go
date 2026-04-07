@@ -72,6 +72,76 @@ func TestParseContentStreamTJArray(t *testing.T) {
 	}
 }
 
+func TestResolveFontWinAnsi(t *testing.T) {
+	objects := map[int]*pdfObject{}
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+		"/Encoding": pdfName("/WinAnsiEncoding"),
+	}
+	fi := resolveFont(objects, fontDict)
+	if fi.name != "/Helvetica" {
+		t.Errorf("name: got %q, want /Helvetica", fi.name)
+	}
+	if !fi.known {
+		t.Error("expected known=true for WinAnsiEncoding")
+	}
+	if fi.encoding[65] != 'A' {
+		t.Errorf("encoding[65]: got %c, want A", fi.encoding[65])
+	}
+}
+
+func TestResolveFontStandard14Default(t *testing.T) {
+	objects := map[int]*pdfObject{}
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Courier"),
+	}
+	fi := resolveFont(objects, fontDict)
+	if !fi.known {
+		t.Error("expected known=true for standard 14 font without /Encoding")
+	}
+}
+
+func TestResolveFontUnknown(t *testing.T) {
+	objects := map[int]*pdfObject{}
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/CustomFont+ABC"),
+	}
+	fi := resolveFont(objects, fontDict)
+	if fi.known {
+		t.Error("expected known=false for unknown font without /Encoding")
+	}
+}
+
+func TestResolveFontWithDifferences(t *testing.T) {
+	objects := map[int]*pdfObject{}
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+		"/Encoding": pdfDict{
+			"/Type":         pdfName("/Encoding"),
+			"/BaseEncoding": pdfName("/WinAnsiEncoding"),
+			"/Differences":  pdfArray{32, pdfName("/Euro")},
+		},
+	}
+	fi := resolveFont(objects, fontDict)
+	if !fi.known {
+		t.Error("expected known=true")
+	}
+	if fi.encoding[32] != '€' {
+		t.Errorf("encoding[32]: got %c, want €", fi.encoding[32])
+	}
+	if fi.encoding[65] != 'A' {
+		t.Errorf("encoding[65]: got %c, want A", fi.encoding[65])
+	}
+}
+
 func TestApplyDifferences(t *testing.T) {
 	base := standardEncoding
 	diffs := pdfArray{
