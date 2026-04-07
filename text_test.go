@@ -290,6 +290,31 @@ func TestExtractTextType0(t *testing.T) {
 	}
 }
 
+func TestExtractTextVisualOrder(t *testing.T) {
+	// Content stream draws footer first (y=50), then body (y=700).
+	// ExtractText should output body first (top-to-bottom).
+	content := []byte("BT /F1 12 Tf 100 50 Td (Footer) Tj ET BT /F1 12 Tf 100 700 Td (Body) Tj ET")
+	pdf := buildPDFWithContent(content)
+	doc, err := asposepdf.OpenStream(bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, _ := doc.Page(1)
+	text, err := page.ExtractText()
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	// Body (y=700) should come before Footer (y=50).
+	bodyIdx := strings.Index(text, "Body")
+	footerIdx := strings.Index(text, "Footer")
+	if bodyIdx < 0 || footerIdx < 0 {
+		t.Fatalf("text=%q, missing Body or Footer", text)
+	}
+	if bodyIdx > footerIdx {
+		t.Errorf("expected Body before Footer in visual order, got text=%q", text)
+	}
+}
+
 // --- Test helpers ---
 
 type extTestObj struct {

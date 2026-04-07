@@ -2,6 +2,7 @@ package asposepdf
 
 import (
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -68,6 +69,15 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 	return fonts
 }
 
+// textFragment is a contiguous run of text at a single position.
+type textFragment struct {
+	text     strings.Builder
+	x, y     float64 // device-space position of first rune
+	endX     float64 // device-space x after last glyph advance
+	fontName string
+	fontSize float64 // effective font size (fontSize * textScaleX)
+}
+
 type textExtractor struct {
 	objects map[int]*pdfObject
 	fonts   map[string]fontInfo
@@ -84,11 +94,12 @@ type textExtractor struct {
 	ctm          [6]float64 // current transformation matrix
 	ctmStack     [][6]float64
 
-	// Output.
-	buf    strings.Builder
-	lastX  float64
-	lastY  float64
-	hasPos bool
+	// Output: collected text fragments.
+	fragments []textFragment
+	curFrag   *textFragment // current fragment being built
+	lastX     float64       // x after last glyph advance
+	lastY     float64       // y after last glyph advance
+	hasPos    bool
 }
 
 func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *textExtractor {
@@ -105,7 +116,8 @@ func identityMatrix() [6]float64 {
 }
 
 func (e *textExtractor) text() string {
-	return cleanExtractedText(e.buf.String())
+	e.flushFragment()
+	return cleanExtractedText(buildTextFromFragments(e.fragments))
 }
 
 // cleanExtractedText trims trailing whitespace from each line and
@@ -346,47 +358,125 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 
 func (e *textExtractor) emitRune(r rune) {
 	x, y := e.currentPos()
+	effectiveFontSize := e.fontSize * e.textScaleX()
+	fontName := e.font.name
 
-	if e.hasPos {
-		dx := x - e.lastX
+	needNew := e.curFrag == nil ||
+		fontName != e.curFrag.fontName ||
+		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01
+
+	if !needNew && e.hasPos {
 		dy := e.lastY - y
-
-		// Use the font's space character width for space detection.
-		var spaceWidth float64
-		if e.font.isType0 {
-			if sw, ok := e.font.cidWidths[0x0020]; ok {
-				spaceWidth = sw / 1000.0 * e.fontSize
-			} else {
-				spaceWidth = e.font.defaultW / 1000.0 * e.fontSize
-			}
-		} else {
-			spaceWidth = e.font.widths[32] / 1000.0 * e.fontSize
-		}
-		if spaceWidth < 1 {
-			spaceWidth = e.fontSize * 0.25
-		}
-		if spaceWidth < 1 {
-			spaceWidth = 1
-		}
-
-		// Scale thresholds to device space. dx is in device space
-		// (after Tm * CTM), but spaceWidth is in text space. Apply
-		// the combined Tm+CTM horizontal scale factor.
-		scale := e.textScaleX()
-		effectiveSpaceWidth := spaceWidth * scale
-		effectiveFontSize := e.fontSize * scale
-
 		if math.Abs(dy) > effectiveFontSize*0.5 {
-			e.buf.WriteByte('\n')
-		} else if dx > effectiveSpaceWidth*0.3 {
-			e.buf.WriteByte(' ')
+			needNew = true
+		}
+		dx := x - e.lastX
+		spaceWidth := e.computeSpaceWidth()
+		scale := e.textScaleX()
+		if dx > spaceWidth*scale*0.3 {
+			needNew = true
 		}
 	}
 
-	e.buf.WriteRune(r)
+	if needNew {
+		e.flushFragment()
+		frag := textFragment{
+			x:        x,
+			y:        y,
+			fontName: fontName,
+			fontSize: effectiveFontSize,
+		}
+		e.fragments = append(e.fragments, frag)
+		e.curFrag = &e.fragments[len(e.fragments)-1]
+	}
+
+	e.curFrag.text.WriteRune(r)
 	e.lastX = x
 	e.lastY = y
 	e.hasPos = true
+}
+
+func (e *textExtractor) flushFragment() {
+	if e.curFrag != nil {
+		e.curFrag.endX = e.lastX
+		e.curFrag = nil
+	}
+}
+
+// computeSpaceWidth returns the space character width in text space units.
+func (e *textExtractor) computeSpaceWidth() float64 {
+	var spaceWidth float64
+	if e.font.isType0 {
+		if sw, ok := e.font.cidWidths[0x0020]; ok {
+			spaceWidth = sw / 1000.0 * e.fontSize
+		} else {
+			spaceWidth = e.font.defaultW / 1000.0 * e.fontSize
+		}
+	} else {
+		spaceWidth = e.font.widths[32] / 1000.0 * e.fontSize
+	}
+	if spaceWidth < 1 {
+		spaceWidth = e.fontSize * 0.25
+	}
+	if spaceWidth < 1 {
+		spaceWidth = 1
+	}
+	return spaceWidth
+}
+
+func buildTextFromFragments(frags []textFragment) string {
+	if len(frags) == 0 {
+		return ""
+	}
+	// Sort by Y desc then X asc (top-to-bottom, left-to-right visual order).
+	sort.Slice(frags, func(i, j int) bool {
+		if math.Abs(frags[i].y-frags[j].y) > 0.5 {
+			return frags[i].y > frags[j].y
+		}
+		return frags[i].x < frags[j].x
+	})
+
+	var buf strings.Builder
+	prevY := frags[0].y
+	prevEndX := frags[0].x
+	first := true
+	for _, f := range frags {
+		text := f.text.String()
+		if text == "" {
+			continue
+		}
+		if first {
+			buf.WriteString(text)
+			prevY = f.y
+			prevEndX = f.endX
+			first = false
+			continue
+		}
+		dy := prevY - f.y
+		threshold := f.fontSize * 0.3
+		if threshold < 1 {
+			threshold = 1
+		}
+		if math.Abs(dy) > threshold {
+			buf.WriteByte('\n')
+			if dy > f.fontSize*1.5 {
+				buf.WriteByte('\n')
+			}
+		} else {
+			gap := f.x - prevEndX
+			spaceThreshold := f.fontSize * 0.3
+			if spaceThreshold < 1 {
+				spaceThreshold = 1
+			}
+			if gap > spaceThreshold {
+				buf.WriteByte(' ')
+			}
+		}
+		buf.WriteString(text)
+		prevY = f.y
+		prevEndX = f.endX
+	}
+	return buf.String()
 }
 
 func (e *textExtractor) currentPos() (float64, float64) {
