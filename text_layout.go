@@ -51,7 +51,7 @@ func groupFragmentsIntoLines(frags []textFragment) []TextLine {
 		}
 		if len(curFrags) > 0 && math.Abs(f.y-curY) > threshold {
 			lines = append(lines, assembleLine(curFrags))
-			curFrags = curFrags[:0]
+			curFrags = nil
 		}
 		curFrags = append(curFrags, f)
 		curY = f.y
@@ -74,14 +74,15 @@ func assembleLine(frags []textFragment) TextLine {
 	}
 
 	var buf strings.Builder
+	lastEmitted := -1
 	for i, f := range frags {
 		text := f.text.String()
 		if text == "" {
 			continue
 		}
 
-		if i > 0 {
-			gap := f.x - frags[i-1].endX
+		if lastEmitted >= 0 {
+			gap := f.x - frags[lastEmitted].endX
 			spaceThreshold := f.fontSize * 0.3
 			if spaceThreshold < 1 {
 				spaceThreshold = 1
@@ -92,6 +93,7 @@ func assembleLine(frags []textFragment) TextLine {
 		}
 
 		buf.WriteString(text)
+		lastEmitted = i
 		line.Fragments = append(line.Fragments, TextFragment{
 			Text:     text,
 			X:        f.x,
