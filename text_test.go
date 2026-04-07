@@ -3,6 +3,8 @@ package asposepdf_test
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -164,20 +166,72 @@ func TestExtractTextFiles(t *testing.T) {
 			if len(texts) != doc.PageCount() {
 				t.Fatalf("expected %d pages, got %d", doc.PageCount(), len(texts))
 			}
+
+			outDir := filepath.Join(resultDir, "TestExtractTextFiles", stem(inputPath))
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+
+			var allText strings.Builder
 			for i, text := range texts {
 				trimmed := strings.TrimSpace(text)
 				if len(trimmed) == 0 {
 					t.Logf("page %d: empty text (may be image-only)", i+1)
-					continue
+				} else {
+					cleaned := strings.ReplaceAll(trimmed, "\uFFFD", "")
+					cleaned = strings.TrimSpace(cleaned)
+					if len(cleaned) == 0 {
+						t.Logf("page %d: all characters are U+FFFD (unknown encoding)", i+1)
+					}
 				}
-				cleaned := strings.ReplaceAll(trimmed, "\uFFFD", "")
-				cleaned = strings.TrimSpace(cleaned)
-				if len(cleaned) == 0 {
-					t.Logf("page %d: all characters are U+FFFD (unknown encoding)", i+1)
+
+				// Save per-page text.
+				pagePath := filepath.Join(outDir, fmt.Sprintf("page_%d.txt", i+1))
+				if err := os.WriteFile(pagePath, []byte(text), 0o644); err != nil {
+					t.Fatalf("write page %d: %v", i+1, err)
 				}
+
+				if i > 0 {
+					allText.WriteString("\n\n")
+				}
+				allText.WriteString(fmt.Sprintf("--- Page %d ---\n", i+1))
+				allText.WriteString(text)
 			}
-			t.Logf("%s: extracted text from %d pages", stem(inputPath), len(texts))
+
+			// Save full document text.
+			fullPath := filepath.Join(outDir, "full_text.txt")
+			if err := os.WriteFile(fullPath, []byte(allText.String()), 0o644); err != nil {
+				t.Fatalf("write full text: %v", err)
+			}
+
+			t.Logf("%s: extracted text from %d pages, saved to %s", stem(inputPath), len(texts), outDir)
 		})
+	}
+}
+
+func TestExtractTextNoSpuriousSpaces(t *testing.T) {
+	// Simulate the pattern that causes "shap e":
+	// (shap) Tj <advance-by-width-of-shap> Td (e the) Tj
+	// With Helvetica at 12pt, "shap" widths: s=556, h=556, a=556, p=556 = 2224
+	// In text space: 2224/1000 * 12 = 26.688 points
+	content := []byte("BT /F1 12 Tf 100 700 Td (shap) Tj 26.688 0 Td (e the) Tj ET")
+	pdf := buildPDFWithContent(content)
+	doc, err := asposepdf.OpenStream(bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, _ := doc.Page(1)
+	text, err := page.ExtractText()
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	// With correct glyph advance, "shap" advances tm by ~26.688,
+	// then Td moves by 26.688, so dx ≈ 0 — no space inserted.
+	if strings.Contains(text, "shap e") {
+		t.Errorf("spurious space detected: %q", text)
+	}
+	if !strings.Contains(text, "shape the") {
+		t.Errorf("text=%q, want it to contain 'shape the'", text)
 	}
 }
 

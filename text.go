@@ -73,15 +73,16 @@ type textExtractor struct {
 	fonts   map[string]fontInfo
 
 	// Text state.
-	font      fontInfo
-	fontSize  float64
-	charSpace float64
-	wordSpace float64
-	leading   float64
-	tm        [6]float64 // text matrix
-	lm        [6]float64 // line matrix
-	ctm       [6]float64 // current transformation matrix
-	ctmStack  [][6]float64
+	font         fontInfo
+	fontSize     float64
+	charSpace    float64
+	wordSpace    float64
+	leading      float64
+	horizScaling float64 // Tz / 100; default 1.0
+	tm           [6]float64 // text matrix
+	lm           [6]float64 // line matrix
+	ctm          [6]float64 // current transformation matrix
+	ctmStack     [][6]float64
 
 	// Output.
 	buf    strings.Builder
@@ -92,9 +93,10 @@ type textExtractor struct {
 
 func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *textExtractor {
 	return &textExtractor{
-		objects: objects,
-		fonts:   fonts,
-		ctm:     identityMatrix(),
+		objects:      objects,
+		fonts:        fonts,
+		ctm:          identityMatrix(),
+		horizScaling: 1.0,
 	}
 }
 
@@ -195,6 +197,11 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.leading = operandFloat(op.Operands[0])
 			}
 
+		case "Tz":
+			if len(op.Operands) >= 1 {
+				e.horizScaling = operandFloat(op.Operands[0]) / 100.0
+			}
+
 		case "cm":
 			if len(op.Operands) >= 6 {
 				var m [6]float64
@@ -221,6 +228,18 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 	}
 }
 
+func (e *textExtractor) advanceGlyph(code byte) {
+	w0 := e.font.widths[code]
+	tx := (w0/1000.0*e.fontSize + e.charSpace) * e.horizScaling
+	if code == 32 {
+		tx += e.wordSpace * e.horizScaling
+	}
+	e.tm = matMul(translateMatrix(tx, 0), e.tm)
+	// Update lastX/lastY to the post-advance position so that the next
+	// emitRune sees only the true inter-glyph gap (not the glyph width).
+	e.lastX, e.lastY = e.currentPos()
+}
+
 func (e *textExtractor) showString(operand pdfValue) {
 	s, ok := operand.(string)
 	if !ok {
@@ -233,6 +252,7 @@ func (e *textExtractor) showString(operand pdfValue) {
 			r = '\uFFFD'
 		}
 		e.emitRune(r)
+		e.advanceGlyph(code)
 	}
 }
 
@@ -251,6 +271,7 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 					r = '\uFFFD'
 				}
 				e.emitRune(r)
+				e.advanceGlyph(code)
 			}
 		case int:
 			displacement := -float64(v) / 1000.0 * e.fontSize
@@ -268,7 +289,12 @@ func (e *textExtractor) emitRune(r rune) {
 	if e.hasPos {
 		dx := x - e.lastX
 		dy := e.lastY - y
-		spaceWidth := e.fontSize * 0.25
+
+		// Use the font's space character width for space detection.
+		spaceWidth := e.font.widths[32] / 1000.0 * e.fontSize
+		if spaceWidth < 1 {
+			spaceWidth = e.fontSize * 0.25
+		}
 		if spaceWidth < 1 {
 			spaceWidth = 1
 		}
