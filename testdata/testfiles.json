@@ -63,5 +63,14 @@
 
   "TestValidate_OrphanedPagesNode":    [["4pages.pdf"]],
   "TestValidate_PageParentRef":        [["Binder1.pdf"]],
-  "TestValidate_StrippedStreamFilter": [["Binder1.pdf"]]
+  "TestValidate_StrippedStreamFilter": [["Binder1.pdf"]],
+
+  "TestExtractTextFiles": [
+    ["4pages.pdf"],
+    ["Binder1.pdf"],
+    ["PdfWithLinks.pdf"],
+    ["PdfWithTable.pdf"],
+    ["alfa.pdf"],
+    ["marketing.pdf"]
+  ]
 }

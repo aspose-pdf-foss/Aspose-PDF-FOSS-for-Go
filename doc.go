@@ -52,13 +52,13 @@ func resolvePageTree(objects map[int]*pdfObject, catalog pdfDict) ([]*pdfObject,
 		return nil, fmt.Errorf("catalog missing /Pages")
 	}
 	var result []*pdfObject
-	if err := walkPageTree(objects, pagesVal, &result); err != nil {
+	if err := walkPageTree(objects, pagesVal, nil, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, result *[]*pdfObject) error {
+func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inheritedResources pdfValue, result *[]*pdfObject) error {
 	ref, ok := nodeVal.(pdfRef)
 	if !ok {
 		return fmt.Errorf("page tree node is not a ref: %T", nodeVal)
@@ -71,6 +71,12 @@ func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, result *[]*pdfOb
 	if !ok {
 		return fmt.Errorf("page tree object %d is not a dict", ref.Num)
 	}
+
+	// Track inherited /Resources (same pattern as /MediaBox inheritance).
+	if res, ok := nodeDict["/Resources"]; ok {
+		inheritedResources = res
+	}
+
 	switch dictGetName(nodeDict, "/Type") {
 	case "/Pages":
 		kidsVal, ok := nodeDict["/Kids"]
@@ -82,11 +88,15 @@ func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, result *[]*pdfOb
 			return fmt.Errorf("/Kids is not an array")
 		}
 		for _, kid := range arr {
-			if err := walkPageTree(objects, kid, result); err != nil {
+			if err := walkPageTree(objects, kid, inheritedResources, result); err != nil {
 				return err
 			}
 		}
 	case "/Page", "": // empty /Type is tolerated for compatibility with some malformed PDFs
+		// Inherit /Resources if not present on page itself.
+		if _, hasRes := nodeDict["/Resources"]; !hasRes && inheritedResources != nil {
+			nodeDict["/Resources"] = inheritedResources
+		}
 		*result = append(*result, obj)
 	default:
 		return fmt.Errorf("unknown page tree node type: %s at object %d",

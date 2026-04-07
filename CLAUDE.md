@@ -38,6 +38,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).WriteTo(w) (int64, error)` — writes the document to an `io.Writer` (implements `io.WriterTo`)
 - `(*Document).Save(outputPath) error` — writes the document to a file
 - `(*Document).Metadata() (Metadata, error)` — returns Info metadata read from live in-memory state
+- `(*Document).ExtractText() ([]string, error)` — returns text for all pages (one entry per page)
 
 **`document_pages.go`** — split/extract operations
 - `(*Document).Split() ([]*Document, error)` — returns each page as a separate `*Document`
@@ -54,6 +55,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).TrimBox()` — intended trim dimensions; falls back to CropBox then MediaBox
 - `(*Page).BleedBox()` — production bleed region; falls back to CropBox then MediaBox
 - `(*Page).ArtBox()` — meaningful content extent; falls back to CropBox then MediaBox
+- `(*Page).ExtractText() (string, error)` — returns the text content of a page; unknown font characters become U+FFFD
 - `PageSize` struct — Width, Height in points (1/72 inch)
 
 **`page_labels.go`** — page label support
@@ -101,6 +103,14 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 `rewriteRefs` deep-copies a `pdfValue` tree translating all `pdfRef` IDs through an id-map. Used by `Append` to merge objects from another document without ID collisions.
 
+### Text extraction (`text.go`, `content_parser.go`, `font.go`, `font_metrics.go`, `encoding.go`)
+
+1. `parseContentStream(data)` tokenizes content stream bytes into `contentOp` structs (operator + operands), reusing the existing `lexer`
+2. `resolveFont(objects, fontDict)` maps font dictionaries to `fontInfo{name, encoding [256]rune, widths [256]float64, known bool}` — supports WinAnsi, MacRoman, Standard encodings, `/Differences`, standard 14 fonts, Symbol, ZapfDingbats; resolves glyph widths from `/Widths` array, Standard 14 built-in metrics (`font_metrics.go`), or 600-unit fallback
+3. `textExtractor` state machine processes operators (BT/ET/Tf/Td/Tm/Tj/TJ/Tz/etc.), tracking text matrix position, font, spacing, and horizontal scaling; advances text matrix by glyph width after each character (PDF spec 9.4.4)
+4. Space/newline insertion uses font metrics: horizontal gap > spaceWidth×0.3 → space, vertical shift > fontSize×0.5 → newline
+5. Form XObjects (`Do` operator) are recursively processed with inherited CTM and overridden resources
+
 ## Output conventions
 
 - All files produced by examples and manual runs are saved to `result_files/` in the project root.
@@ -113,3 +123,24 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - When writing tests that use real PDF files, use the `testFile(t)`, `testFiles(t)`, or `testGroups(t)` helpers from `helpers_test.go`, and add the corresponding entry to `testdata/testfiles.json`. Ask the user which file to use before adding a new entry.
 - Each feature gets its own `*_test.go` file (e.g. `splitter_test.go`, `metadata_test.go`).
 - `TestSplitFiles` in `splitter_test.go` iterates files listed in `testdata/testfiles.json` under `"TestSplitFiles"`, splits each into `result_files/TestSplitFiles/<stem>/`, and validates every output page with `Validate`.
+
+## Task tracking (beads)
+
+This project uses [beads](https://github.com/gastownhall/beads) for issue/task tracking via the `bd` CLI.
+
+```bash
+# Status overview
+bd status
+
+# Create an issue
+bd create "title" --body "description"
+
+# List issues
+bd list
+
+# Update issue status
+bd update <issue-id> --status <open|in-progress|closed>
+
+# View an issue
+bd show <issue-id>
+```

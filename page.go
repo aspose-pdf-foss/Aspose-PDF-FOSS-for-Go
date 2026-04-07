@@ -89,6 +89,56 @@ func (p *Page) ArtBox() (PageSize, error) {
 	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/ArtBox", "/CropBox")
 }
 
+// contentStreams returns the concatenated decoded content stream bytes for this page.
+// /Contents may be a single stream reference or an array of references.
+func (p *Page) contentStreams() ([]byte, error) {
+	d := p.pageDict()
+	if d == nil {
+		return nil, fmt.Errorf("page %d has no dict", p.Number())
+	}
+	contentsVal, ok := d["/Contents"]
+	if !ok {
+		return nil, nil // page with no content
+	}
+
+	objects := p.doc.objects
+	contentsVal = resolveRef(objects, contentsVal)
+
+	switch cv := contentsVal.(type) {
+	case *pdfStream:
+		return cv.Data, nil
+	case pdfArray:
+		var buf []byte
+		for _, item := range cv {
+			resolved := resolveRef(objects, item)
+			if s, ok := resolved.(*pdfStream); ok {
+				buf = append(buf, s.Data...)
+				buf = append(buf, '\n')
+			}
+		}
+		return buf, nil
+	default:
+		return nil, fmt.Errorf("unexpected /Contents type %T", contentsVal)
+	}
+}
+
+// pageResources returns the /Resources dict for this page (may be inherited).
+func (p *Page) pageResources() pdfDict {
+	d := p.pageDict()
+	if d == nil {
+		return nil
+	}
+	resVal, ok := d["/Resources"]
+	if !ok {
+		return nil
+	}
+	res := resolveRef(p.doc.objects, resVal)
+	if rd, ok := res.(pdfDict); ok {
+		return rd
+	}
+	return nil
+}
+
 // PageSizes returns the dimensions of every page in the given PDF file.
 func PageSizes(inputPath string) ([]PageSize, error) {
 	doc, err := Open(inputPath)
