@@ -2,18 +2,47 @@ package asposepdf
 
 // fontInfo holds the resolved encoding for a PDF font.
 type fontInfo struct {
-	name     string        // /BaseFont value, e.g. "/Helvetica"
-	encoding [256]rune     // character code → Unicode rune
-	widths   [256]float64  // character code → width in 1/1000 text space units
-	known    bool          // false if encoding could not be determined
+	name      string             // /BaseFont value, e.g. "/Helvetica"
+	encoding  [256]rune          // character code → Unicode rune (single-byte fonts)
+	widths    [256]float64       // character code → width in 1/1000 text space units
+	toUnicode map[uint16]rune    // ToUnicode CMap mapping (glyph ID -> Unicode)
+	cidWidths map[uint16]float64 // CID widths from /W array
+	defaultW  float64            // /DW default width for CIDFont (1000 if absent)
+	isType0   bool               // true = two-byte character codes (composite font)
+	known     bool               // false if encoding could not be determined
 }
 
 // resolveFont resolves a font dictionary to a fontInfo.
 // objects is needed to resolve indirect references in /Encoding.
 func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 	name := dictGetName(fontDict, "/BaseFont")
-	fi := fontInfo{name: name}
+	fi := fontInfo{name: name, defaultW: 1000}
 
+	// Detect Type0 (composite) font.
+	subtype := dictGetName(fontDict, "/Subtype")
+	if subtype == "/Type0" {
+		fi.isType0 = true
+	}
+
+	// Parse /ToUnicode CMap if present (works for any font type).
+	if tuVal, ok := fontDict["/ToUnicode"]; ok {
+		resolved := resolveRef(objects, tuVal)
+		if stream, ok := resolved.(*pdfStream); ok {
+			fi.toUnicode = parseCMap(stream.Data)
+			if len(fi.toUnicode) > 0 {
+				fi.known = true
+			}
+		}
+	}
+
+	// For Type0: toUnicode and known are already set above.
+	// Resolve descendant CIDFont for widths, then return.
+	if fi.isType0 {
+		fi.cidWidths, fi.defaultW = resolveCIDWidths(objects, fontDict)
+		return fi
+	}
+
+	// --- single-byte encoding logic ---
 	encVal, hasEncoding := fontDict["/Encoding"]
 	if hasEncoding {
 		encVal = resolveRef(objects, encVal)
@@ -53,6 +82,91 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 
 	fi.widths = resolveWidths(objects, fontDict, name)
 	return fi
+}
+
+// resolveCIDWidths extracts /DW and /W from the CIDFont descendant.
+func resolveCIDWidths(objects map[int]*pdfObject, type0Dict pdfDict) (map[uint16]float64, float64) {
+	widths := make(map[uint16]float64)
+	defaultW := 1000.0
+
+	descVal, ok := type0Dict["/DescendantFonts"]
+	if !ok {
+		return widths, defaultW
+	}
+	descResolved := resolveRef(objects, descVal)
+	descArr, ok := descResolved.(pdfArray)
+	if !ok || len(descArr) == 0 {
+		return widths, defaultW
+	}
+	cidDict, ok := resolveRefToDict(objects, descArr[0])
+	if !ok {
+		return widths, defaultW
+	}
+
+	if dw, ok := cidDict["/DW"]; ok {
+		defaultW = operandFloat(dw)
+	}
+
+	if wVal, ok := cidDict["/W"]; ok {
+		wResolved := resolveRef(objects, wVal)
+		if wArr, ok := wResolved.(pdfArray); ok {
+			parseCIDWidthArray(wArr, widths)
+		}
+	}
+
+	return widths, defaultW
+}
+
+// parseCIDWidthArray parses a /W array into a map.
+// The /W array has two forms:
+//   - c [w1 w2 ...] — individual widths starting at CID c
+//   - c_first c_last w — all CIDs in [c_first, c_last] get width w
+func parseCIDWidthArray(arr pdfArray, widths map[uint16]float64) {
+	i := 0
+	for i < len(arr) {
+		cidStart, ok := pdfValueToInt(arr[i])
+		if !ok {
+			i++
+			continue
+		}
+		i++
+		if i >= len(arr) {
+			break
+		}
+		switch v := arr[i].(type) {
+		case pdfArray:
+			for j, w := range v {
+				widths[uint16(cidStart+j)] = operandFloat(w)
+			}
+			i++
+		default:
+			cidEnd, ok := pdfValueToInt(arr[i])
+			if !ok {
+				i++
+				continue
+			}
+			i++
+			if i >= len(arr) {
+				break
+			}
+			w := operandFloat(arr[i])
+			i++
+			for c := cidStart; c <= cidEnd; c++ {
+				widths[uint16(c)] = w
+			}
+		}
+	}
+}
+
+// pdfValueToInt converts a pdfValue to int.
+func pdfValueToInt(v pdfValue) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
 }
 
 // resolveWidths extracts glyph widths from a font dictionary.

@@ -332,6 +332,121 @@ func TestResolveFontWidthsUnknownFallback(t *testing.T) {
 	}
 }
 
+func TestResolveFontType0WithToUnicode(t *testing.T) {
+	cmapData := []byte(`begincmap
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfchar
+<0003> <0020>
+<0004> <0041>
+endbfchar
+endcmap`)
+	cmapStream := &pdfStream{
+		Dict: pdfDict{"/Length": len(cmapData)},
+		Data: cmapData,
+	}
+	objects := map[int]*pdfObject{
+		10: {Value: cmapStream},
+		20: {Value: pdfDict{
+			"/Type":    pdfName("/Font"),
+			"/Subtype": pdfName("/CIDFontType2"),
+			"/DW":      1000,
+			"/W":       pdfArray{3, pdfArray{250, 600}},
+		}},
+	}
+	fontDict := pdfDict{
+		"/Type":            pdfName("/Font"),
+		"/Subtype":         pdfName("/Type0"),
+		"/BaseFont":        pdfName("/Calibri"),
+		"/Encoding":        pdfName("/Identity-H"),
+		"/ToUnicode":       pdfRef{Num: 10},
+		"/DescendantFonts": pdfArray{pdfRef{Num: 20}},
+	}
+	fi := resolveFont(objects, fontDict)
+	if !fi.isType0 {
+		t.Error("expected isType0=true")
+	}
+	if !fi.known {
+		t.Error("expected known=true")
+	}
+	if fi.toUnicode == nil {
+		t.Fatal("expected toUnicode to be populated")
+	}
+	if fi.toUnicode[0x0003] != 0x0020 {
+		t.Errorf("toUnicode[0x0003]: got %U, want U+0020", fi.toUnicode[0x0003])
+	}
+	if fi.toUnicode[0x0004] != 0x0041 {
+		t.Errorf("toUnicode[0x0004]: got %U, want U+0041", fi.toUnicode[0x0004])
+	}
+}
+
+func TestResolveFontCIDWidths(t *testing.T) {
+	objects := map[int]*pdfObject{
+		10: {Value: &pdfStream{
+			Dict: pdfDict{},
+			Data: []byte("begincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfchar\n<0003> <0041>\nendbfchar\nendcmap"),
+		}},
+		20: {Value: pdfDict{
+			"/Type":    pdfName("/Font"),
+			"/Subtype": pdfName("/CIDFontType2"),
+			"/DW":      500,
+			"/W":       pdfArray{3, pdfArray{250, 600}},
+		}},
+	}
+	fontDict := pdfDict{
+		"/Type":            pdfName("/Font"),
+		"/Subtype":         pdfName("/Type0"),
+		"/BaseFont":        pdfName("/TestFont"),
+		"/Encoding":        pdfName("/Identity-H"),
+		"/ToUnicode":       pdfRef{Num: 10},
+		"/DescendantFonts": pdfArray{pdfRef{Num: 20}},
+	}
+	fi := resolveFont(objects, fontDict)
+	if fi.defaultW != 500 {
+		t.Errorf("defaultW: got %v, want 500", fi.defaultW)
+	}
+	if fi.cidWidths[3] != 250 {
+		t.Errorf("cidWidths[3]: got %v, want 250", fi.cidWidths[3])
+	}
+	if fi.cidWidths[4] != 600 {
+		t.Errorf("cidWidths[4]: got %v, want 600", fi.cidWidths[4])
+	}
+}
+
+func TestResolveFontCIDWidthsRangeForm(t *testing.T) {
+	objects := map[int]*pdfObject{
+		10: {Value: &pdfStream{
+			Dict: pdfDict{},
+			Data: []byte("begincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\nendcmap"),
+		}},
+		20: {Value: pdfDict{
+			"/Type":    pdfName("/Font"),
+			"/Subtype": pdfName("/CIDFontType2"),
+			"/DW":      1000,
+			"/W":       pdfArray{10, 12, 400},
+		}},
+	}
+	fontDict := pdfDict{
+		"/Type":            pdfName("/Font"),
+		"/Subtype":         pdfName("/Type0"),
+		"/BaseFont":        pdfName("/TestFont"),
+		"/Encoding":        pdfName("/Identity-H"),
+		"/ToUnicode":       pdfRef{Num: 10},
+		"/DescendantFonts": pdfArray{pdfRef{Num: 20}},
+	}
+	fi := resolveFont(objects, fontDict)
+	if fi.cidWidths[10] != 400 {
+		t.Errorf("cidWidths[10]: got %v, want 400", fi.cidWidths[10])
+	}
+	if fi.cidWidths[11] != 400 {
+		t.Errorf("cidWidths[11]: got %v, want 400", fi.cidWidths[11])
+	}
+	if fi.cidWidths[12] != 400 {
+		t.Errorf("cidWidths[12]: got %v, want 400", fi.cidWidths[12])
+	}
+}
+
 func TestParseContentStreamInlineImage(t *testing.T) {
 	data := []byte("BT (Before) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI BT (After) Tj ET")
 	ops, err := parseContentStream(data)
