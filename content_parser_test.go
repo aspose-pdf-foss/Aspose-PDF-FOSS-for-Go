@@ -1,6 +1,87 @@
 package asposepdf
 
-import "testing"
+import (
+	"bytes"
+	"fmt"
+	"testing"
+)
+
+type testObj struct {
+	num  int
+	body []byte
+}
+
+func testMakeStream(data []byte) []byte {
+	return []byte(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(data), data))
+}
+
+func assemblePDF(objs []testObj) []byte {
+	var buf []byte
+	buf = append(buf, "%PDF-1.4\n"...)
+	offsets := make([]int, len(objs))
+	for i, o := range objs {
+		offsets[i] = len(buf)
+		buf = append(buf, fmt.Sprintf("%d 0 obj\n", o.num)...)
+		buf = append(buf, o.body...)
+		buf = append(buf, "\nendobj\n"...)
+	}
+	xrefOffset := len(buf)
+	buf = append(buf, "xref\n"...)
+	buf = append(buf, fmt.Sprintf("0 %d\n", len(objs)+1)...)
+	buf = append(buf, "0000000000 65535 f \r\n"...)
+	for _, off := range offsets {
+		buf = append(buf, fmt.Sprintf("%010d 00000 n \r\n", off)...)
+	}
+	buf = append(buf, "trailer\n"...)
+	buf = append(buf, fmt.Sprintf("<< /Size %d /Root 1 0 R >>\n", len(objs)+1)...)
+	buf = append(buf, "startxref\n"...)
+	buf = append(buf, fmt.Sprintf("%d\n", xrefOffset)...)
+	buf = append(buf, "%%EOF\n"...)
+	return buf
+}
+
+// buildTestPDF creates a minimal 2-page PDF with known content for internal tests.
+func buildTestPDF() []byte {
+	return assemblePDF([]testObj{
+		{1, []byte("<< /Type /Catalog /Pages 2 0 R >>")},
+		{2, []byte("<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>")},
+		{3, []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>")},
+		{4, testMakeStream([]byte("BT /F1 12 Tf 100 700 Td (Page 1) Tj ET"))},
+		{5, []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>")},
+		{6, testMakeStream([]byte("BT /F1 12 Tf 100 700 Td (Page 2) Tj ET"))},
+		{7, []byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")},
+	})
+}
+
+// buildTestPDFWithContent creates a single-page PDF with custom content and a Helvetica/WinAnsi font at /F1.
+func buildTestPDFWithContent(content []byte) []byte {
+	return assemblePDF([]testObj{
+		{1, []byte("<< /Type /Catalog /Pages 2 0 R >>")},
+		{2, []byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")},
+		{3, []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>")},
+		{4, testMakeStream(content)},
+		{5, []byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")},
+	})
+}
+
+func TestPageContentStreams(t *testing.T) {
+	pdf := buildTestPDF()
+	doc, err := OpenStream(bytes.NewReader(pdf))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page := &Page{doc: doc, index: 0}
+	data, err := page.contentStreams()
+	if err != nil {
+		t.Fatalf("contentStreams: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected non-empty content stream data")
+	}
+	if !bytes.Contains(data, []byte("Page 1")) {
+		t.Error("content stream should contain 'Page 1'")
+	}
+}
 
 func TestParseContentStreamSimple(t *testing.T) {
 	data := []byte("BT /F1 12 Tf 100 700 Td (Hello) Tj ET")
