@@ -285,6 +285,116 @@ var zapfDingbatsEncoding = [256]rune{
 	'\u27B8', '\u27B9', '\u27BA', '\u27BB', '\u27BC', '\u27BD', '\u27BE', '\uFFFD', // 248-255
 }
 
+// macExpertEncoding — used by expert character sets in Type 1 fonts.
+// Contains old-style figures, small caps, fractions, and other typographic extras.
+// Code→glyph-name mappings from PDF Reference Table D.4 (verified against Apache PDFBox).
+// Small caps map to their full-size letter for text extraction usability.
+// Old-style figures map to standard digits. PUA codepoints are avoided.
+var macExpertEncoding = [256]rune{
+	// 0-31: undefined
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 32: space, 33: exclamsmall, 34: Hungarumlautsmall, 35: undef
+	// 36: centoldstyle, 37: dollaroldstyle, 38: dollarsuperior, 39: ampersandsmall
+	' ', '!', '\u02DD', '\uFFFD', '\u00A2', '$', '$', '&',
+	// 40: Acutesmall, 41: parenleftsuperior, 42: parenrightsuperior, 43: twodotenleader
+	// 44: onedotenleader, 45: comma, 46: hyphen, 47: period
+	'\u00B4', '\u207D', '\u207E', '\u2025', '\u2024', ',', '-', '.',
+	// 48: fraction, 49-58: zerooldstyle..nineoldstyle, 59: colon, 60: semicolon
+	'\u2044', '0', '1', '2', '3', '4', '5', '6',
+	'7', '8', ':', ';', '\uFFFD', '\uFFFD', '\uFFFD', '?',
+	// 64-71: undef, undef, undef, undef, Ethsmall(67→Ð), undef..
+	'\uFFFD', '\uFFFD', '\uFFFD', '\u00D0', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 72: onehalf, 73: onequarter, 74: threequarters
+	// 75: oneeighth, 76: threeeighths, 77: fiveeighths, 78: seveneighths, 79: onethird
+	'\u00BD', '\u00BC', '\u00BE', '\u215B', '\u215C', '\u215D', '\u215E', '\u2153',
+	// 80: twothirds, 81: zerosuperior, 82-87: foursuperior..ninesuperior
+	'\u2154', '\u2070', '\u2074', '\u2075', '\u2076', '\u2077', '\u2078', '\u2079',
+	// 88-97: zeroinferior..nineinferior
+	'\u2080', '\u2081', '\u2082', '\u2083', '\u2084', '\u2085', '\u2086', '\u2087',
+	'\u2088', '\u2089',
+	// 98: centinferior, 99: dollarinferior, 100: periodinferior, 101: commainferior
+	'\u00A2', '$', '.', ',',
+	// 102-107: Agravesmall..Aringsmall → small caps → uppercase letters
+	'\u00C0', '\u00C1', '\u00C2', '\u00C3', '\u00C4', '\u00C5',
+	// 108: AEsmall, 109: Ccedillasmall
+	'\u00C6', '\u00C7',
+	// 110-117: Egravesmall..Idieresissmall
+	'\u00C8', '\u00C9', '\u00CA', '\u00CB', '\u00CC', '\u00CD', '\u00CE', '\u00CF',
+	// 118: Engsmall(→Ŋ), 119: undef(Ntildesmall→Ñ)
+	'\u014A', '\u00D1',
+	// 120-123: Oacutesmall..Odieresissmall, 124: OEsmall, 125: Oslashsmall
+	'\u00D3', '\u00D4', '\u00D5', '\u00D6', '\u0152', '\u00D8',
+	// 126: Ugravesmall, 127: Uacutesmall
+	'\u00D9', '\u00DA',
+	// 128: Ucircumflexsmall, 129: Udieresissmall
+	'\u00DB', '\u00DC',
+	// 130: undef, 131: Yacutesmall, 132: Thornsmall, 133: Ydieresissmall
+	'\uFFFD', '\u00DD', '\u00DE', '\u0178',
+	// 134: undef(osabornemedieval), 135: Aacutesmall(dup→Á)
+	'\uFFFD', '\u00C1',
+	// 136: undef(Acircumflexsmall dup), 137: undef, 138: undef, 139: undef
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 140: undef, 141: undef, 142: undef, 143: undef
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 144: exclamdownsmall
+	'\u00A1',
+	// 145-148: undef
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 149: cent
+	'\u00A2',
+	// 150-151: undef
+	'\uFFFD', '\uFFFD',
+	// 152: Lslashsmall(→Ł), 153-154: undef, 155: Scaronsmall(→Š), 156: Zcaronsmall(→Ž)
+	'\u0141', '\uFFFD', '\uFFFD', '\u0160', '\u017D',
+	// 157: Dieresissmall(→¨), 158: Brevesmall(→˘), 159: Caronsmall(→ˇ)
+	'\u00A8', '\u02D8', '\u02C7',
+	// 160: Dotaccentsmall(→˙), 161: Macronsmall(→¯), 162: figuredash(→‒)
+	'\u02D9', '\u00AF', '\u2012',
+	// 163: hypheninferior(→-), 164: Ogoneksmall(→˛), 165: Ringsmall(→˚)
+	'-', '\u02DB', '\u02DA',
+	// 166: Cedillasmall(→¸), 167: questiondownsmall(→¿)
+	'\u00B8', '\u00BF',
+	// 168: undef, 169: onesuperior(→¹), 170: twosuperior(→²), 171: threesuperior(→³)
+	'\uFFFD', '\u00B9', '\u00B2', '\u00B3',
+	// 172: centsuperior(→¢), 173-174: undef
+	'\u00A2', '\uFFFD', '\uFFFD',
+	// 175: parenleftinferior(→₍), 176: parenrightinferior(→₎)
+	'\u208D', '\u208E',
+	// 177-182: undef
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 183-196: Asmall..Nsmall → A..N
+	'A', 'B', '\uFFFD', 'C', 'D', 'E', 'F', 'G', 'H',
+	'I', 'J', 'K', 'L', 'M', 'N',
+	// 198: undef, 199-210: Osmall..Zsmall → O..Z
+	'\uFFFD', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	// 211: colonmonetary(→₡), 212: onefitted(→1), 213: rupiah
+	'\u20A1', '1', '\uFFFD',
+	// 214: Tildesmall(→˜), 215: undef
+	'\u02DC', '\uFFFD',
+	// 216: Ydieresissmall(dup→Ÿ), 217-218: undef
+	'\u0178', '\uFFFD', '\uFFFD',
+	// 219-225: undef
+	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 226: lslash(→ł), 227-228: undef
+	'\u0142', '\uFFFD', '\uFFFD',
+	// 229: ff, 230: fi, 231: fl, 232: ffi, 233: ffl
+	'\uFB00', '\uFB01', '\uFB02', '\uFB03', '\uFB04',
+	// 234: parenleftbt(→⁽), 235: parenrightbt(→⁾)
+	'\u207D', '\u207E',
+	// 236: Circumflexsmall(→ˆ), 237: hyphensuperior(→-)
+	'\u02C6', '-',
+	// 238: Gravesmall(→`), 239-247: undef
+	'`', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
+	'\uFFFD', '\uFFFD',
+	// 248: periodcentered(→·), 249-251: undef
+	'\u00B7', '\uFFFD', '\uFFFD', '\uFFFD',
+	// 252: periodsuperior(→.), 253-255: undef
+	'.', '\uFFFD', '\uFFFD', '\uFFFD',
+}
+
 // glyphToRune maps Adobe glyph names to Unicode rune values.
 // Used by applyDifferences to resolve /Differences entries.
 // Derived from the Adobe Glyph List (AGL).

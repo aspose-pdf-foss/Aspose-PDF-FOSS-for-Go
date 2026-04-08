@@ -221,6 +221,8 @@ func lookupEncoding(name string) ([256]rune, bool) {
 		return macRomanEncoding, true
 	case "/StandardEncoding":
 		return standardEncoding, true
+	case "/MacExpertEncoding":
+		return macExpertEncoding, true
 	default:
 		return [256]rune{}, false
 	}

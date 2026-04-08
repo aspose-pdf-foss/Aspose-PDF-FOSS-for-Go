@@ -236,6 +236,52 @@ func defaultWidths() [256]float64 {
 	return w
 }
 
+func TestMacExpertEncoding(t *testing.T) {
+	// Verify key mappings in MacExpertEncoding.
+	tests := []struct {
+		code byte
+		want rune
+		desc string
+	}{
+		{32, ' ', "space"},
+		{49, '0', "zerooldstyle"},
+		{50, '1', "oneoldstyle"},
+		{58, ':', "colon"},
+		{48, '\u2044', "fraction"},
+		{72, '\u00BD', "onehalf"},
+		{73, '\u00BC', "onequarter"},
+		{74, '\u00BE', "threequarters"},
+		{81, '\u2070', "zerosuperior"},
+		{88, '\u2080', "zeroinferior"},
+		{89, '\u2081', "oneinferior"},
+		{108, '\u00C6', "AEsmall→Æ"},
+		{183, 'A', "Asmall"},
+		{210, 'Z', "Zsmall"},
+		{229, '\uFB00', "ff ligature"},
+		{230, '\uFB01', "fi ligature"},
+		{231, '\uFB02', "fl ligature"},
+		{232, '\uFB03', "ffi ligature"},
+		{233, '\uFB04', "ffl ligature"},
+		{248, '\u00B7', "periodcentered"},
+	}
+	for _, tt := range tests {
+		got := macExpertEncoding[tt.code]
+		if got != tt.want {
+			t.Errorf("macExpertEncoding[%d] (%s) = %U, want %U", tt.code, tt.desc, got, tt.want)
+		}
+	}
+}
+
+func TestMacExpertEncodingLookup(t *testing.T) {
+	enc, ok := lookupEncoding("/MacExpertEncoding")
+	if !ok {
+		t.Fatal("lookupEncoding did not recognize /MacExpertEncoding")
+	}
+	if enc[230] != '\uFB01' {
+		t.Errorf("expected fi ligature at 230, got %U", enc[230])
+	}
+}
+
 func TestCleanFontName(t *testing.T) {
 	tests := []struct {
 		in, want string
