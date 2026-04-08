@@ -82,6 +82,160 @@ func TestGroupFragmentsNoSpuriousSpace(t *testing.T) {
 	}
 }
 
+func TestActualTextLigature(t *testing.T) {
+	// Simulate a content stream with /ActualText for a ligature:
+	//   /Span <</ActualText (ffi)>> BDC
+	//     (x) Tj          ← single glyph for the ffi ligature
+	//   EMC
+	objects := map[int]*pdfObject{}
+	fonts := map[string]fontInfo{
+		"/F1": {
+			name:     "/F1",
+			encoding: defaultEncoding(),
+			widths:   defaultWidths(),
+		},
+	}
+
+	ext := newTextExtractor(objects, fonts)
+	ops := []contentOp{
+		{Operator: "BT"},
+		{Operator: "Tf", Operands: []pdfValue{pdfName("/F1"), 12}},
+		{Operator: "Td", Operands: []pdfValue{100, 700}},
+		// Show "e" before the ligature.
+		{Operator: "Tj", Operands: []pdfValue{"e"}},
+		// BDC with inline ActualText dict — replace ligature glyph with "ffi".
+		{Operator: "BDC", Operands: []pdfValue{
+			pdfName("/Span"),
+			pdfDict{"/ActualText": "ffi"},
+		}},
+		{Operator: "Tj", Operands: []pdfValue{"x"}}, // suppressed glyph
+		{Operator: "EMC"},
+		// Show "cient" after the ligature.
+		{Operator: "Tj", Operands: []pdfValue{"cient"}},
+		{Operator: "ET"},
+	}
+	ext.process(ops, nil)
+	got := ext.text()
+	if !strings.Contains(got, "efficient") {
+		t.Errorf("expected text containing 'efficient', got %q", got)
+	}
+}
+
+func TestActualTextUTF16(t *testing.T) {
+	// /ActualText with UTF-16BE BOM encoding.
+	objects := map[int]*pdfObject{}
+	fonts := map[string]fontInfo{
+		"/F1": {
+			name:     "/F1",
+			encoding: defaultEncoding(),
+			widths:   defaultWidths(),
+		},
+	}
+
+	// UTF-16BE for "fi": BOM + 0066 + 0069
+	utf16 := "\xFE\xFF\x00\x66\x00\x69"
+
+	ext := newTextExtractor(objects, fonts)
+	ops := []contentOp{
+		{Operator: "BT"},
+		{Operator: "Tf", Operands: []pdfValue{pdfName("/F1"), 12}},
+		{Operator: "Td", Operands: []pdfValue{100, 700}},
+		{Operator: "BDC", Operands: []pdfValue{
+			pdfName("/Span"),
+			pdfDict{"/ActualText": utf16},
+		}},
+		{Operator: "Tj", Operands: []pdfValue{"X"}}, // suppressed
+		{Operator: "EMC"},
+		{Operator: "ET"},
+	}
+	ext.process(ops, nil)
+	got := ext.text()
+	if got != "fi" {
+		t.Errorf("expected 'fi', got %q", got)
+	}
+}
+
+func TestActualTextNested(t *testing.T) {
+	// Nested BDC: outer has no ActualText, inner does.
+	objects := map[int]*pdfObject{}
+	fonts := map[string]fontInfo{
+		"/F1": {
+			name:     "/F1",
+			encoding: defaultEncoding(),
+			widths:   defaultWidths(),
+		},
+	}
+
+	ext := newTextExtractor(objects, fonts)
+	ops := []contentOp{
+		{Operator: "BT"},
+		{Operator: "Tf", Operands: []pdfValue{pdfName("/F1"), 12}},
+		{Operator: "Td", Operands: []pdfValue{100, 700}},
+		// Outer BMC — no ActualText.
+		{Operator: "BMC", Operands: []pdfValue{pdfName("/P")}},
+		{Operator: "Tj", Operands: []pdfValue{"AB"}}, // normal — emitted
+		// Inner BDC with ActualText.
+		{Operator: "BDC", Operands: []pdfValue{
+			pdfName("/Span"),
+			pdfDict{"/ActualText": "CD"},
+		}},
+		{Operator: "Tj", Operands: []pdfValue{"xx"}}, // suppressed
+		{Operator: "EMC"}, // pops inner → emits "CD"
+		{Operator: "Tj", Operands: []pdfValue{"EF"}}, // normal — emitted
+		{Operator: "EMC"}, // pops outer
+		{Operator: "ET"},
+	}
+	ext.process(ops, nil)
+	got := ext.text()
+	if !strings.Contains(got, "ABCDEF") {
+		t.Errorf("expected text containing 'ABCDEF', got %q", got)
+	}
+}
+
+func TestBMCWithoutActualText(t *testing.T) {
+	// BMC without ActualText should pass glyphs through normally.
+	objects := map[int]*pdfObject{}
+	fonts := map[string]fontInfo{
+		"/F1": {
+			name:     "/F1",
+			encoding: defaultEncoding(),
+			widths:   defaultWidths(),
+		},
+	}
+
+	ext := newTextExtractor(objects, fonts)
+	ops := []contentOp{
+		{Operator: "BT"},
+		{Operator: "Tf", Operands: []pdfValue{pdfName("/F1"), 12}},
+		{Operator: "Td", Operands: []pdfValue{100, 700}},
+		{Operator: "BMC", Operands: []pdfValue{pdfName("/P")}},
+		{Operator: "Tj", Operands: []pdfValue{"Hello"}},
+		{Operator: "EMC"},
+		{Operator: "ET"},
+	}
+	ext.process(ops, nil)
+	got := ext.text()
+	if got != "Hello" {
+		t.Errorf("expected 'Hello', got %q", got)
+	}
+}
+
+func defaultEncoding() [256]rune {
+	var enc [256]rune
+	for i := 0; i < 256; i++ {
+		enc[i] = rune(i)
+	}
+	return enc
+}
+
+func defaultWidths() [256]float64 {
+	var w [256]float64
+	for i := 0; i < 256; i++ {
+		w[i] = 600 // monospace-like
+	}
+	return w
+}
+
 func TestCleanFontName(t *testing.T) {
 	tests := []struct {
 		in, want string

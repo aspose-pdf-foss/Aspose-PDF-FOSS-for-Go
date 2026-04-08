@@ -103,12 +103,22 @@ type textExtractor struct {
 	// Fill color (for text rendering).
 	fillR, fillG, fillB float64 // RGB, 0-1
 
+	// Marked content stack for ActualText support (BDC/BMC/EMC).
+	mcStack []markedContentEntry
+
 	// Output: collected text fragments.
 	fragments []textFragment
 	curFrag   *textFragment // current fragment being built
 	lastX     float64       // x after last glyph advance
 	lastY     float64       // y after last glyph advance
 	hasPos    bool
+}
+
+// markedContentEntry tracks a BDC/BMC nesting level.
+// When actualText is non-nil, glyphs inside are suppressed and the pointed-to
+// string is emitted instead when the matching EMC is encountered.
+type markedContentEntry struct {
+	actualText *string // nil means no /ActualText replacement
 }
 
 func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *textExtractor {
@@ -122,6 +132,17 @@ func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *te
 
 func identityMatrix() [6]float64 {
 	return [6]float64{1, 0, 0, 1, 0, 0}
+}
+
+// insideActualText returns true if the extractor is currently inside a
+// marked content sequence that carries /ActualText (glyph emission suppressed).
+func (e *textExtractor) insideActualText() bool {
+	for i := len(e.mcStack) - 1; i >= 0; i-- {
+		if e.mcStack[i].actualText != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *textExtractor) text() string {
@@ -262,6 +283,27 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.ctmStack = e.ctmStack[:len(e.ctmStack)-1]
 			}
 
+		case "BMC":
+			e.mcStack = append(e.mcStack, markedContentEntry{})
+
+		case "BDC":
+			entry := markedContentEntry{}
+			if len(op.Operands) >= 2 {
+				entry.actualText = e.resolveActualText(op.Operands[1], resources)
+			}
+			e.mcStack = append(e.mcStack, entry)
+
+		case "EMC":
+			if len(e.mcStack) > 0 {
+				top := e.mcStack[len(e.mcStack)-1]
+				e.mcStack = e.mcStack[:len(e.mcStack)-1]
+				if top.actualText != nil {
+					for _, r := range *top.actualText {
+						e.emitRune(r)
+					}
+				}
+			}
+
 		case "Do":
 			if len(op.Operands) >= 1 {
 				e.doFormXObject(op.Operands[0], resources)
@@ -398,6 +440,12 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 }
 
 func (e *textExtractor) emitRune(r rune) {
+	// Suppress glyph output inside /ActualText marked content spans.
+	// The replacement text is emitted at EMC instead.
+	if e.insideActualText() {
+		return
+	}
+
 	x, y := e.currentPos()
 	effectiveFontSize := e.fontSize * e.textScaleX()
 	fontName := e.font.name
@@ -563,6 +611,68 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 
 	e.fonts = savedFonts
 	e.ctm = savedCTM
+}
+
+// resolveActualText extracts /ActualText from a BDC property operand.
+// The operand is either an inline dict or a name referencing /Properties in resources.
+func (e *textExtractor) resolveActualText(operand pdfValue, resources pdfDict) *string {
+	var props pdfDict
+
+	switch v := operand.(type) {
+	case pdfDict:
+		props = v
+	case pdfName:
+		// Look up in /Properties resource dict.
+		if resources == nil {
+			return nil
+		}
+		propsVal, ok := resources["/Properties"]
+		if !ok {
+			return nil
+		}
+		propsDict, ok := resolveRefToDict(e.objects, propsVal)
+		if !ok {
+			return nil
+		}
+		entryVal, ok := propsDict[string(v)]
+		if !ok {
+			return nil
+		}
+		d, ok := resolveRefToDict(e.objects, entryVal)
+		if !ok {
+			return nil
+		}
+		props = d
+	default:
+		return nil
+	}
+
+	atVal, ok := props["/ActualText"]
+	if !ok {
+		return nil
+	}
+	s, ok := resolveRef(e.objects, atVal).(string)
+	if !ok {
+		return nil
+	}
+	// Decode UTF-16BE BOM if present.
+	s = decodeTextString(s)
+	return &s
+}
+
+// decodeTextString converts a PDF text string to Go string.
+// If it starts with UTF-16BE BOM (0xFE 0xFF), it is decoded as UTF-16BE;
+// otherwise it is returned as-is (PDFDocEncoding ≈ Latin-1).
+func decodeTextString(s string) string {
+	if len(s) >= 2 && s[0] == 0xFE && s[1] == 0xFF {
+		runes := make([]rune, 0, (len(s)-2)/2)
+		for i := 2; i+1 < len(s); i += 2 {
+			code := uint16(s[i])<<8 | uint16(s[i+1])
+			runes = append(runes, rune(code))
+		}
+		return string(runes)
+	}
+	return s
 }
 
 // operandName extracts a PDF name string from an operand.
