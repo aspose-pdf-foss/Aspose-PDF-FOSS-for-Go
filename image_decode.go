@@ -1,0 +1,145 @@
+package asposepdf
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+)
+
+// encodePNG encodes raw pixel data to PNG format.
+// components: 1=gray, 3=RGB, 4=CMYK (converted to RGB).
+// alpha: optional soft mask bytes (one byte per pixel, same dimensions), nil if no alpha.
+func encodePNG(pixels []byte, width, height, bpc, components int, alpha []byte) ([]byte, error) {
+	if components == 4 {
+		pixels = cmykToRGB(pixels, width*height)
+		components = 3
+	}
+
+	var img image.Image
+	switch {
+	case components == 1 && alpha != nil:
+		img = buildGrayAlpha(pixels, alpha, width, height, bpc)
+	case components == 1:
+		img = buildGray(pixels, width, height, bpc)
+	case components == 3 && alpha != nil:
+		img = buildRGBAlpha(pixels, alpha, width, height)
+	default:
+		img = buildRGB(pixels, width, height)
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func buildRGB(pixels []byte, width, height int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	stride := width * 3
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			off := y*stride + x*3
+			if off+2 >= len(pixels) {
+				break
+			}
+			img.SetNRGBA(x, y, color.NRGBA{R: pixels[off], G: pixels[off+1], B: pixels[off+2], A: 255})
+		}
+	}
+	return img
+}
+
+func buildRGBAlpha(pixels, alpha []byte, width, height int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	stride := width * 3
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			off := y*stride + x*3
+			aOff := y*width + x
+			if off+2 >= len(pixels) {
+				break
+			}
+			a := byte(255)
+			if aOff < len(alpha) {
+				a = alpha[aOff]
+			}
+			img.SetNRGBA(x, y, color.NRGBA{R: pixels[off], G: pixels[off+1], B: pixels[off+2], A: a})
+		}
+	}
+	return img
+}
+
+func buildGray(pixels []byte, width, height, bpc int) *image.Gray {
+	img := image.NewGray(image.Rect(0, 0, width, height))
+	if bpc == 8 {
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				off := y*width + x
+				if off >= len(pixels) {
+					break
+				}
+				img.SetGray(x, y, color.Gray{Y: pixels[off]})
+			}
+		}
+	} else if bpc < 8 {
+		// Sub-byte grayscale: unpack bits.
+		pixelsPerByte := 8 / bpc
+		maxVal := (1 << bpc) - 1
+		byteIdx := 0
+		for y := 0; y < height; y++ {
+			byteIdx = y * ((width*bpc + 7) / 8)
+			for x := 0; x < width; x++ {
+				if byteIdx >= len(pixels) {
+					break
+				}
+				bitOffset := (pixelsPerByte - 1 - (x % pixelsPerByte)) * bpc
+				val := (int(pixels[byteIdx]) >> bitOffset) & maxVal
+				gray := byte(val * 255 / maxVal)
+				img.SetGray(x, y, color.Gray{Y: gray})
+				if x%pixelsPerByte == pixelsPerByte-1 {
+					byteIdx++
+				}
+			}
+		}
+	}
+	return img
+}
+
+func buildGrayAlpha(pixels, alpha []byte, width, height, bpc int) *image.NRGBA {
+	gray := buildGray(pixels, width, height, bpc)
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			g := gray.GrayAt(x, y).Y
+			a := byte(255)
+			aOff := y*width + x
+			if aOff < len(alpha) {
+				a = alpha[aOff]
+			}
+			img.SetNRGBA(x, y, color.NRGBA{R: g, G: g, B: g, A: a})
+		}
+	}
+	return img
+}
+
+// cmykToRGB converts CMYK pixel data to RGB.
+// Formula: R=(1-C)*(1-K), G=(1-M)*(1-K), B=(1-Y)*(1-K)
+func cmykToRGB(pixels []byte, pixelCount int) []byte {
+	rgb := make([]byte, pixelCount*3)
+	for i := 0; i < pixelCount; i++ {
+		off := i * 4
+		if off+3 >= len(pixels) {
+			break
+		}
+		c := float64(pixels[off]) / 255.0
+		m := float64(pixels[off+1]) / 255.0
+		y := float64(pixels[off+2]) / 255.0
+		k := float64(pixels[off+3]) / 255.0
+		rgb[i*3] = byte((1 - c) * (1 - k) * 255)
+		rgb[i*3+1] = byte((1 - m) * (1 - k) * 255)
+		rgb[i*3+2] = byte((1 - y) * (1 - k) * 255)
+	}
+	return rgb
+}
+
