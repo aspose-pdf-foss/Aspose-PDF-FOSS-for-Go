@@ -113,6 +113,12 @@ func extractImagesFromOps(objects map[int]*pdfObject, ops []contentOp, resources
 					images = append(images, img)
 				}
 			}
+		case "BI":
+			if len(op.Operands) >= 2 {
+				if img, ok := extractInlineImage(op.Operands[0], op.Operands[1], ctm); ok {
+					images = append(images, img)
+				}
+			}
 		}
 	}
 	return images, nil
@@ -437,5 +443,80 @@ func componentsByCS(cs ImageColorSpace) int {
 	default:
 		return 3
 	}
+}
+
+// extractInlineImage builds an Image from parsed inline image operands.
+func extractInlineImage(dictVal, dataVal pdfValue, ctm [6]float64) (Image, bool) {
+	dict, ok := dictVal.(pdfDict)
+	if !ok {
+		return Image{}, false
+	}
+	rawData, ok := dataVal.(string)
+	if !ok {
+		return Image{}, false
+	}
+
+	width := dictGetInt(dict, "/Width")
+	height := dictGetInt(dict, "/Height")
+	bpc := dictGetInt(dict, "/BitsPerComponent")
+	if width <= 0 || height <= 0 {
+		return Image{}, false
+	}
+	if bpc == 0 {
+		bpc = 8
+	}
+
+	cs := resolveColorSpaceInline(dict)
+	filter := primaryFilter(dict)
+
+	img := Image{
+		Width:      width,
+		Height:     height,
+		BPC:        bpc,
+		ColorSpace: cs,
+		X:          ctm[4],
+		Y:          ctm[5],
+		PageWidth:  math.Sqrt(ctm[0]*ctm[0] + ctm[1]*ctm[1]),
+		PageHeight: math.Sqrt(ctm[2]*ctm[2] + ctm[3]*ctm[3]),
+		Inline:     true,
+	}
+
+	data := []byte(rawData)
+
+	if filter == "/DCTDecode" {
+		img.Data = data
+		img.Format = ImageFormatJPEG
+		return img, true
+	}
+
+	// Decode filters.
+	if filter != "" {
+		var err error
+		data, err = applyFilter(filter, data)
+		if err != nil {
+			return Image{}, false
+		}
+	}
+
+	components := componentsByCS(cs)
+	pngData, err := encodePNG(data, width, height, bpc, components, nil)
+	if err != nil {
+		return Image{}, false
+	}
+	img.Data = pngData
+	img.Format = ImageFormatPNG
+	return img, true
+}
+
+// resolveColorSpaceInline resolves color space from an inline image dict.
+func resolveColorSpaceInline(dict pdfDict) ImageColorSpace {
+	csVal, ok := dict["/ColorSpace"]
+	if !ok {
+		return ColorSpaceDeviceGray
+	}
+	if n, ok := csVal.(pdfName); ok {
+		return colorSpaceFromName(string(n))
+	}
+	return ColorSpaceDeviceRGB
 }
 

@@ -111,6 +111,28 @@ func TestEncodePNGCMYK(t *testing.T) {
 	}
 }
 
+func TestParseInlineImageDict(t *testing.T) {
+	dict := pdfDict{
+		"/W":   10,
+		"/H":   5,
+		"/BPC": 8,
+		"/CS":  pdfName("/RGB"),
+	}
+	norm := normalizeInlineDict(dict)
+	if dictGetInt(norm, "/Width") != 10 {
+		t.Errorf("Width=%d, want 10", dictGetInt(norm, "/Width"))
+	}
+	if dictGetInt(norm, "/Height") != 5 {
+		t.Errorf("Height=%d, want 5", dictGetInt(norm, "/Height"))
+	}
+	if dictGetInt(norm, "/BitsPerComponent") != 8 {
+		t.Errorf("BPC=%d, want 8", dictGetInt(norm, "/BitsPerComponent"))
+	}
+	if dictGetName(norm, "/ColorSpace") != "/DeviceRGB" {
+		t.Errorf("CS=%s, want /DeviceRGB", dictGetName(norm, "/ColorSpace"))
+	}
+}
+
 func TestDecodeJPEGToPixels(t *testing.T) {
 	// Create a tiny JPEG in memory.
 	img := image.NewNRGBA(image.Rect(0, 0, 2, 2))

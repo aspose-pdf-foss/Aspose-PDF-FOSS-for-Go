@@ -29,8 +29,12 @@ func parseContentStream(data []byte) ([]contentOp, error) {
 		case tokKeyword:
 			kw := string(tok.raw)
 			if kw == "BI" {
-				skipInlineImage(l)
-				ops = append(ops, contentOp{Operator: "BI"})
+				dict, imgData := parseInlineImage(l)
+				var biOperands []pdfValue
+				if dict != nil {
+					biOperands = []pdfValue{pdfValue(dict), pdfValue(string(imgData))}
+				}
+				ops = append(ops, contentOp{Operator: "BI", Operands: biOperands})
 				operands = nil
 				continue
 			}
@@ -111,32 +115,3 @@ func parseContentArray(l *lexer) (pdfArray, error) {
 	return arr, nil
 }
 
-// skipInlineImage skips past the binary data of an inline image (BI...ID...EI).
-// The lexer is positioned just after the "BI" keyword.
-func skipInlineImage(l *lexer) {
-	// Skip key-value pairs until "ID" keyword.
-	for {
-		tok, err := l.Next()
-		if err != nil || tok.kind == tokEOF {
-			return
-		}
-		if tok.kind == tokKeyword && string(tok.raw) == "ID" {
-			break
-		}
-	}
-	// Skip one whitespace byte after ID.
-	if l.pos < len(l.data) {
-		l.pos++
-	}
-	// Scan for whitespace + "EI" + delimiter.
-	for l.pos < len(l.data)-2 {
-		if isWhitespace(l.data[l.pos]) &&
-			l.data[l.pos+1] == 'E' && l.data[l.pos+2] == 'I' &&
-			(l.pos+3 >= len(l.data) || isDelimiter(l.data[l.pos+3])) {
-			l.pos += 3
-			return
-		}
-		l.pos++
-	}
-	l.pos = len(l.data)
-}
