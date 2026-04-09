@@ -1,6 +1,6 @@
 # Aspose.PDF for Go FOSS
 
-A pure Go library for PDF manipulation — split, merge, rotate, extract pages, read metadata, and encrypt documents. No external dependencies.
+A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read metadata, and encrypt documents. No external dependencies.
 
 ## Quick Start
 
@@ -32,6 +32,8 @@ merged.Save("merged.pdf")
 - **Metadata** — read document Info (title, author, dates, etc.)
 - **Encrypt** — password-protect PDFs with RC4-128 (PDF 1.4 Standard Security Handler)
 - **Validate** — check structural integrity of a PDF file
+- **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
+- **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
@@ -141,6 +143,63 @@ if !report.Valid {
 ```
 
 Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`.
+
+### Text Extraction
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Simple text — one string per page
+texts, err := doc.ExtractText()
+for i, text := range texts {
+    fmt.Printf("=== Page %d ===\n%s\n", i+1, text)
+}
+
+// Structured text with layout info
+layouts, err := doc.ExtractTextWithLayout()
+for _, lines := range layouts {
+    for _, line := range lines {
+        fmt.Printf("Y=%.1f: %s\n", line.Y, line.Text)
+        for _, frag := range line.Fragments {
+            fmt.Printf("  [%.1f,%.1f] %q font=%s size=%.1f bold=%v italic=%v\n",
+                frag.X, frag.Y, frag.Text, frag.FontName, frag.FontSize,
+                frag.Bold, frag.Italic)
+        }
+    }
+}
+
+// Per-page extraction
+page, _ := doc.Page(1)
+text, err := page.ExtractText()
+lines, err := page.ExtractTextWithLayout()
+```
+
+### Image Extraction
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Extract images from all pages
+allImages, err := doc.ExtractImages()
+for pageIdx, images := range allImages {
+    for imgIdx, img := range images {
+        ext := ".png"
+        if img.Format == pdf.ImageFormatJPEG {
+            ext = ".jpg"
+        }
+        img.Save(fmt.Sprintf("page%d_img%d%s", pageIdx+1, imgIdx+1, ext))
+
+        fmt.Printf("  %dx%d %s at (%.1f, %.1f)\n",
+            img.Width, img.Height, ext, img.X, img.Y)
+    }
+}
+
+// Per-page extraction
+page, _ := doc.Page(1)
+images, err := page.ExtractImages()
+```
+
+Images are output as JPEG (passthrough for DCTDecode streams) or PNG (everything else). Supported color spaces: DeviceRGB, DeviceGray, DeviceCMYK (converted to RGB), Indexed (palette expansion), and ICCBased. Soft masks are applied as PNG alpha channels.
 
 ### Document API
 
