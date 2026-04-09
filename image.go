@@ -109,8 +109,13 @@ func extractImagesFromOps(objects map[int]*pdfObject, ops []contentOp, resources
 		case "Do":
 			if len(op.Operands) >= 1 {
 				name := operandName(op.Operands[0])
+				// Try as image first.
 				if img, ok := extractXObjectImage(objects, resources, name, ctm); ok {
 					images = append(images, img)
+				} else {
+					// Try as Form XObject — recurse.
+					formImages := extractFormXObjectImages(objects, resources, name, ctm)
+					images = append(images, formImages...)
 				}
 			}
 		case "BI":
@@ -506,6 +511,77 @@ func extractInlineImage(dictVal, dataVal pdfValue, ctm [6]float64) (Image, bool)
 	img.Data = pngData
 	img.Format = ImageFormatPNG
 	return img, true
+}
+
+// extractFormXObjectImages extracts images from a Form XObject's content stream.
+func extractFormXObjectImages(objects map[int]*pdfObject, resources pdfDict, name string, ctm [6]float64) []Image {
+	if name == "" || resources == nil {
+		return nil
+	}
+	xobjVal, ok := resources["/XObject"]
+	if !ok {
+		return nil
+	}
+	xobjDict, ok := resolveRefToDict(objects, xobjVal)
+	if !ok {
+		return nil
+	}
+	formVal, ok := xobjDict[name]
+	if !ok {
+		return nil
+	}
+	resolved := resolveRef(objects, formVal)
+	stream, ok := resolved.(*pdfStream)
+	if !ok {
+		return nil
+	}
+	if dictGetName(stream.Dict, "/Subtype") != "/Form" {
+		return nil
+	}
+
+	var data []byte
+	if stream.Decoded {
+		data = stream.Data
+	} else {
+		var err error
+		data, err = decodeStream(stream.Dict, stream.Data)
+		if err != nil {
+			return nil
+		}
+	}
+
+	ops, err := parseContentStream(data)
+	if err != nil {
+		return nil
+	}
+
+	// Apply Form's /Matrix to CTM.
+	formCTM := ctm
+	if matVal, ok := stream.Dict["/Matrix"]; ok {
+		if arr, ok := matVal.(pdfArray); ok && len(arr) == 6 {
+			var fm [6]float64
+			for i := 0; i < 6; i++ {
+				fm[i] = operandFloat(arr[i])
+			}
+			formCTM = matMul(fm, ctm)
+		}
+	}
+
+	// Use form's resources, falling back to parent.
+	formResources := resources
+	if resVal, ok := stream.Dict["/Resources"]; ok {
+		if rd, ok := resolveRefToDict(objects, resVal); ok {
+			formResources = rd
+		}
+	}
+
+	images, _ := extractImagesFromOps(objects, ops, formResources)
+	// Offset positions by the form's translation.
+	for i := range images {
+		images[i].X += formCTM[4]
+		images[i].Y += formCTM[5]
+	}
+	return images
 }
 
 // resolveColorSpaceInline resolves color space from an inline image dict.

@@ -62,6 +62,13 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `TextColor` struct — R, G, B float64 (values in [0,1])
 - `TextLine` struct — Text, Y, Fragments []TextFragment
 - `TextFragment` struct — Text, X, Y, Width, FontName, FontSize, Height, Bold, Italic, CharSpacing, Color TextColor, IsSubscript, IsSuperscript
+- `(*Page).ExtractImages() ([]Image, error)` — returns all images found on the page
+- `(*Document).ExtractImages() ([][]Image, error)` — returns images for all pages (one slice per page)
+- `Image` struct — Data, Format, Width, Height, BPC, ColorSpace, X, Y, PageWidth, PageHeight, Inline
+- `ImageFormat` — ImageFormatPNG, ImageFormatJPEG
+- `ImageColorSpace` — ColorSpaceDeviceRGB, ColorSpaceDeviceGray, ColorSpaceDeviceCMYK, ColorSpaceIndexed, ColorSpaceICCBased
+- `(*Image).Save(path) error` — writes the image data to a file
+- `(*Image).WriteTo(w) (int64, error)` — writes the image data to a writer
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
@@ -118,6 +125,15 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 6. Visual sorting (`text_layout.go`): `groupFragmentsIntoLines` sorts fragments by Y descending then X ascending, groups by Y proximity into `TextLine` structs; `ExtractTextWithLayout` returns the structured result; `ExtractText` delegates to same pipeline
 7. Form XObjects (`Do` operator) are recursively processed with inherited CTM and overridden resources
 8. Marked content (`BDC`/`BMC`/`EMC`): when `BDC` carries `/ActualText` in its properties, glyph emission is suppressed and the replacement text is emitted at `EMC`; supports inline dicts, `/Properties` resource lookup, UTF-16BE strings, and nesting
+
+### Image extraction (`image.go`, `image_decode.go`, `image_inline.go`)
+
+1. Content stream walker tracks CTM via `cm`/`q`/`Q` and collects images on `Do` (XObject) and `BI` (inline)
+2. DCTDecode images are passed through as JPEG; all others are decoded to pixels and encoded as PNG
+3. Color spaces: DeviceRGB, DeviceGray, DeviceCMYK (→RGB), Indexed (palette expansion), ICCBased (treated as underlying RGB/Gray/CMYK)
+4. Soft masks (`/SMask`) are applied as PNG alpha channels; JPEG+SMask is re-encoded as PNG
+5. Inline images (BI/ID/EI) are parsed with abbreviation expansion (PDF spec Tables 4.43/4.44)
+6. Form XObjects are recursed into with inherited CTM and resources
 
 ## Output conventions
 
