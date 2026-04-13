@@ -39,6 +39,29 @@ type Image struct {
 	Inline     bool            // true if from inline image (BI/ID/EI)
 }
 
+// ImageInfo holds metadata about an image found on a page without decoding pixel data.
+// Call Extract() to perform the actual decoding and get the full Image.
+type ImageInfo struct {
+	Width      int             // pixel width
+	Height     int             // pixel height
+	BPC        int             // bits per component (original)
+	ColorSpace ImageColorSpace // original PDF color space
+	Format     ImageFormat     // output format (PNG or JPEG)
+	X, Y       float64         // position on page (lower-left, in points)
+	PageWidth  float64         // display width on page (in points)
+	PageHeight float64         // display height on page (in points)
+	Inline     bool            // true if from inline image (BI/ID/EI)
+	Name       string          // XObject name (e.g. "/Im0"); empty for inline
+
+	// private — for deferred extraction
+	objects map[int]*pdfObject
+	stream  *pdfStream
+	formVal pdfValue
+	dict    pdfDict  // inline: normalized dict
+	rawData []byte   // inline: raw image bytes
+	ctm     [6]float64
+}
+
 // Save writes the image data to a file.
 func (img *Image) Save(path string) error {
 	return os.WriteFile(path, img.Data, 0o644)
@@ -594,5 +617,261 @@ func resolveColorSpaceInline(dict pdfDict) ImageColorSpace {
 		return colorSpaceFromName(string(n))
 	}
 	return ColorSpaceDeviceRGB
+}
+
+// collectImageInfos walks content stream ops, tracking CTM, and collects image metadata
+// without decoding pixel data.
+func collectImageInfos(objects map[int]*pdfObject, ops []contentOp, resources pdfDict) []ImageInfo {
+	var infos []ImageInfo
+	ctm := identityMatrix()
+	var ctmStack [][6]float64
+
+	for _, op := range ops {
+		switch op.Operator {
+		case "cm":
+			if len(op.Operands) >= 6 {
+				var m [6]float64
+				for i := 0; i < 6; i++ {
+					m[i] = operandFloat(op.Operands[i])
+				}
+				ctm = matMul(m, ctm)
+			}
+		case "q":
+			ctmStack = append(ctmStack, ctm)
+		case "Q":
+			if len(ctmStack) > 0 {
+				ctm = ctmStack[len(ctmStack)-1]
+				ctmStack = ctmStack[:len(ctmStack)-1]
+			}
+		case "Do":
+			if len(op.Operands) >= 1 {
+				name := operandName(op.Operands[0])
+				if info, ok := xobjectImageInfo(objects, resources, name, ctm); ok {
+					infos = append(infos, info)
+				} else {
+					formInfos := formXObjectImageInfos(objects, resources, name, ctm)
+					infos = append(infos, formInfos...)
+				}
+			}
+		case "BI":
+			if len(op.Operands) >= 2 {
+				if info, ok := inlineImageInfo(op.Operands[0], op.Operands[1], ctm); ok {
+					infos = append(infos, info)
+				}
+			}
+		}
+	}
+	return infos
+}
+
+// xobjectImageInfo collects metadata for an XObject image without decoding pixels.
+func xobjectImageInfo(objects map[int]*pdfObject, resources pdfDict, name string, ctm [6]float64) (ImageInfo, bool) {
+	if name == "" || resources == nil {
+		return ImageInfo{}, false
+	}
+	xobjVal, ok := resources["/XObject"]
+	if !ok {
+		return ImageInfo{}, false
+	}
+	xobjDict, ok := resolveRefToDict(objects, xobjVal)
+	if !ok {
+		return ImageInfo{}, false
+	}
+	formVal, ok := xobjDict[name]
+	if !ok {
+		return ImageInfo{}, false
+	}
+	resolved := resolveRef(objects, formVal)
+	stream, ok := resolved.(*pdfStream)
+	if !ok {
+		return ImageInfo{}, false
+	}
+	if dictGetName(stream.Dict, "/Subtype") != "/Image" {
+		return ImageInfo{}, false
+	}
+
+	width := dictGetInt(stream.Dict, "/Width")
+	height := dictGetInt(stream.Dict, "/Height")
+	bpc := dictGetInt(stream.Dict, "/BitsPerComponent")
+	if width <= 0 || height <= 0 {
+		return ImageInfo{}, false
+	}
+
+	cs := resolveColorSpace(objects, stream.Dict)
+	filter := primaryFilter(stream.Dict)
+
+	// Determine output format.
+	format := ImageFormatPNG
+	if filter == "/DCTDecode" {
+		format = ImageFormatJPEG
+		// JPEG with soft mask must be re-encoded as PNG.
+		if _, hasSMask := stream.Dict["/SMask"]; hasSMask {
+			format = ImageFormatPNG
+		}
+	}
+
+	return ImageInfo{
+		Width:      width,
+		Height:     height,
+		BPC:        bpc,
+		ColorSpace: cs,
+		Format:     format,
+		X:          ctm[4],
+		Y:          ctm[5],
+		PageWidth:  math.Sqrt(ctm[0]*ctm[0] + ctm[1]*ctm[1]),
+		PageHeight: math.Sqrt(ctm[2]*ctm[2] + ctm[3]*ctm[3]),
+		Name:       name,
+		objects:    objects,
+		stream:     stream,
+		formVal:    formVal,
+		ctm:        ctm,
+	}, true
+}
+
+// inlineImageInfo collects metadata for an inline image without decoding pixels.
+func inlineImageInfo(dictVal, dataVal pdfValue, ctm [6]float64) (ImageInfo, bool) {
+	dict, ok := dictVal.(pdfDict)
+	if !ok {
+		return ImageInfo{}, false
+	}
+	rawData, ok := dataVal.(string)
+	if !ok {
+		return ImageInfo{}, false
+	}
+
+	width := dictGetInt(dict, "/Width")
+	height := dictGetInt(dict, "/Height")
+	bpc := dictGetInt(dict, "/BitsPerComponent")
+	if width <= 0 || height <= 0 {
+		return ImageInfo{}, false
+	}
+	if bpc == 0 {
+		bpc = 8
+	}
+
+	cs := resolveColorSpaceInline(dict)
+	filter := primaryFilter(dict)
+
+	format := ImageFormatPNG
+	if filter == "/DCTDecode" {
+		format = ImageFormatJPEG
+	}
+
+	return ImageInfo{
+		Width:      width,
+		Height:     height,
+		BPC:        bpc,
+		ColorSpace: cs,
+		Format:     format,
+		X:          ctm[4],
+		Y:          ctm[5],
+		PageWidth:  math.Sqrt(ctm[0]*ctm[0] + ctm[1]*ctm[1]),
+		PageHeight: math.Sqrt(ctm[2]*ctm[2] + ctm[3]*ctm[3]),
+		Inline:     true,
+		dict:       dict,
+		rawData:    []byte(rawData),
+		ctm:        ctm,
+	}, true
+}
+
+// formXObjectImageInfos collects image metadata from a Form XObject's content stream.
+func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name string, ctm [6]float64) []ImageInfo {
+	if name == "" || resources == nil {
+		return nil
+	}
+	xobjVal, ok := resources["/XObject"]
+	if !ok {
+		return nil
+	}
+	xobjDict, ok := resolveRefToDict(objects, xobjVal)
+	if !ok {
+		return nil
+	}
+	formVal, ok := xobjDict[name]
+	if !ok {
+		return nil
+	}
+	resolved := resolveRef(objects, formVal)
+	stream, ok := resolved.(*pdfStream)
+	if !ok {
+		return nil
+	}
+	if dictGetName(stream.Dict, "/Subtype") != "/Form" {
+		return nil
+	}
+
+	var data []byte
+	if stream.Decoded {
+		data = stream.Data
+	} else {
+		var err error
+		data, err = decodeStream(stream.Dict, stream.Data)
+		if err != nil {
+			return nil
+		}
+	}
+
+	ops, err := parseContentStream(data)
+	if err != nil {
+		return nil
+	}
+
+	formCTM := ctm
+	if matVal, ok := stream.Dict["/Matrix"]; ok {
+		if arr, ok := matVal.(pdfArray); ok && len(arr) == 6 {
+			var fm [6]float64
+			for i := 0; i < 6; i++ {
+				fm[i] = operandFloat(arr[i])
+			}
+			formCTM = matMul(fm, ctm)
+		}
+	}
+
+	formResources := resources
+	if resVal, ok := stream.Dict["/Resources"]; ok {
+		if rd, ok := resolveRefToDict(objects, resVal); ok {
+			formResources = rd
+		}
+	}
+
+	infos := collectImageInfos(objects, ops, formResources)
+	for i := range infos {
+		infos[i].X += formCTM[4]
+		infos[i].Y += formCTM[5]
+	}
+	return infos
+}
+
+// ImageInfos returns metadata for all images found on the page without decoding pixel data.
+func (p *Page) ImageInfos() ([]ImageInfo, error) {
+	data, err := p.contentStreams()
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	ops, err := parseContentStream(data)
+	if err != nil {
+		return nil, err
+	}
+
+	resources := p.pageResources()
+	return collectImageInfos(p.doc.objects, ops, resources), nil
+}
+
+// ImageInfos returns image metadata for all pages (one slice per page) without decoding pixel data.
+func (d *Document) ImageInfos() ([][]ImageInfo, error) {
+	pages := d.Pages()
+	result := make([][]ImageInfo, len(pages))
+	for i, p := range pages {
+		infos, err := p.ImageInfos()
+		if err != nil {
+			return nil, err
+		}
+		result[i] = infos
+	}
+	return result, nil
 }
 
