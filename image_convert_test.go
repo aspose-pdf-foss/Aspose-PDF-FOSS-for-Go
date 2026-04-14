@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -158,4 +159,115 @@ func imageRGB(w, h int) *image.NRGBA {
 // pngEncode encodes img as PNG into buf.
 func pngEncode(buf *bytes.Buffer, img image.Image) {
 	png.Encode(buf, img)
+}
+
+func TestImageToDocumentJPEG(t *testing.T) {
+	doc, err := ImageToDocument("testdata/Koala.jpg")
+	if err != nil {
+		t.Fatalf("ImageToDocument: %v", err)
+	}
+	if doc.PageCount() != 1 {
+		t.Fatalf("pages = %d, want 1", doc.PageCount())
+	}
+
+	page, _ := doc.Page(1)
+	size, err := page.Size()
+	if err != nil {
+		t.Fatalf("Size: %v", err)
+	}
+	// Page dimensions should be > 0.
+	if size.Width <= 0 || size.Height <= 0 {
+		t.Errorf("invalid page size: %.1fx%.1f", size.Width, size.Height)
+	}
+
+	// Should be able to save and reopen.
+	outPath := t.TempDir() + "/koala.pdf"
+	if err := doc.Save(outPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reopened, err := Open(outPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if reopened.PageCount() != 1 {
+		t.Errorf("reopened pages = %d, want 1", reopened.PageCount())
+	}
+}
+
+func TestImageToDocumentPNG(t *testing.T) {
+	doc, err := ImageToDocument("testdata/Penguins.png")
+	if err != nil {
+		t.Fatalf("ImageToDocument: %v", err)
+	}
+	if doc.PageCount() != 1 {
+		t.Fatalf("pages = %d, want 1", doc.PageCount())
+	}
+
+	outPath := t.TempDir() + "/penguins.pdf"
+	if err := doc.Save(outPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reopened, err := Open(outPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if reopened.PageCount() != 1 {
+		t.Errorf("reopened pages = %d, want 1", reopened.PageCount())
+	}
+}
+
+func TestImageToDocumentWithOptions(t *testing.T) {
+	doc, err := ImageToDocument("testdata/aspose-logo.png", ImageToDocumentOptions{
+		PageWidth:    595, // A4
+		PageHeight:   842,
+		MarginLeft:   36,
+		MarginRight:  36,
+		MarginTop:    36,
+		MarginBottom: 36,
+	})
+	if err != nil {
+		t.Fatalf("ImageToDocument: %v", err)
+	}
+
+	page, _ := doc.Page(1)
+	size, _ := page.Size()
+	if size.Width < 594 || size.Width > 596 {
+		t.Errorf("page width = %.1f, want ~595", size.Width)
+	}
+	if size.Height < 841 || size.Height > 843 {
+		t.Errorf("page height = %.1f, want ~842", size.Height)
+	}
+
+	outPath := t.TempDir() + "/logo.pdf"
+	if err := doc.Save(outPath); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+}
+
+func TestImageToDocumentMarginsExceedPage(t *testing.T) {
+	_, err := ImageToDocument("testdata/aspose-logo.png", ImageToDocumentOptions{
+		PageWidth:   100,
+		PageHeight:  100,
+		MarginLeft:  60,
+		MarginRight: 60,
+	})
+	if err == nil {
+		t.Fatal("expected error when margins exceed page dimensions")
+	}
+}
+
+func TestImageToDocumentFromStream(t *testing.T) {
+	f, err := os.Open("testdata/Koala.jpg")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	doc, err := ImageToDocumentFromStream(f)
+	if err != nil {
+		t.Fatalf("ImageToDocumentFromStream: %v", err)
+	}
+	if doc.PageCount() != 1 {
+		t.Fatalf("pages = %d, want 1", doc.PageCount())
+	}
 }
