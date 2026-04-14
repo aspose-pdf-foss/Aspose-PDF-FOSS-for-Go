@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -199,4 +201,88 @@ func createTestPNG(w, h int, withAlpha bool) []byte {
 		png.Encode(&buf, img)
 	}
 	return buf.Bytes()
+}
+
+func TestAddImageToPage(t *testing.T) {
+	doc := createBlankDocument(200, 300)
+
+	jpegData := []byte{
+		0xFF, 0xD8,
+		0xFF, 0xC0, 0x00, 0x0B, 0x08,
+		0x00, 0x0A, 0x00, 0x0A, 0x03,
+		0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+		0xFF, 0xD9,
+	}
+	tmpFile := t.TempDir() + "/test.jpg"
+	os.WriteFile(tmpFile, jpegData, 0o644)
+
+	page, _ := doc.Page(1)
+	err := page.AddImage(tmpFile, Rectangle{LLX: 10, LLY: 10, URX: 110, URY: 110})
+	if err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+
+	contentData, err := page.contentStreams()
+	if err != nil {
+		t.Fatalf("contentStreams: %v", err)
+	}
+	content := string(contentData)
+	if !strings.Contains(content, "Do") {
+		t.Error("content stream should contain Do operator")
+	}
+	if !strings.Contains(content, "cm") {
+		t.Error("content stream should contain cm operator")
+	}
+
+	res := page.pageResources()
+	if res == nil {
+		t.Fatal("page should have resources")
+	}
+	xobj, ok := res["/XObject"]
+	if !ok {
+		t.Fatal("resources should have /XObject")
+	}
+	xobjDict, ok := xobj.(pdfDict)
+	if !ok {
+		t.Fatal("/XObject should be a dict")
+	}
+	if len(xobjDict) != 1 {
+		t.Errorf("expected 1 XObject entry, got %d", len(xobjDict))
+	}
+}
+
+func TestAddImageInvalidRect(t *testing.T) {
+	doc := createBlankDocument(200, 300)
+	page, _ := doc.Page(1)
+
+	tmpFile := t.TempDir() + "/test.jpg"
+	os.WriteFile(tmpFile, []byte{0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x0A, 0x00, 0x0A, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xFF, 0xD9}, 0o644)
+
+	err := page.AddImage(tmpFile, Rectangle{LLX: 100, LLY: 10, URX: 50, URY: 110})
+	if err == nil {
+		t.Fatal("expected error for invalid rectangle")
+	}
+}
+
+func createBlankDocument(width, height float64) *Document {
+	contentStream := &pdfStream{
+		Dict:    pdfDict{},
+		Data:    []byte{},
+		Decoded: true,
+	}
+	contentObj := &pdfObject{Num: 1, Value: contentStream}
+
+	pageDict := pdfDict{
+		"/Type":      pdfName("/Page"),
+		"/MediaBox":  pdfArray{0.0, 0.0, width, height},
+		"/Resources": pdfDict{},
+		"/Contents":  pdfRef{Num: 1},
+	}
+	pageObj := &pdfObject{Num: 2, Value: pageDict}
+
+	return &Document{
+		objects: map[int]*pdfObject{1: contentObj, 2: pageObj},
+		pages:   []*pdfObject{pageObj},
+		nextID:  3,
+	}
 }

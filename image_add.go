@@ -7,6 +7,9 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"os"
+	"strconv"
+	"strings"
 )
 
 // createImageXObject builds a pdfStream for the image.
@@ -240,4 +243,120 @@ func parseJPEGHeader(r io.Reader) (jpegHeaderInfo, error) {
 			return jpegHeaderInfo{}, fmt.Errorf("failed to skip JPEG segment: %w", err)
 		}
 	}
+}
+
+// AddImage adds an image from a file to the page within the given rectangle.
+func (p *Page) AddImage(path string, rect Rectangle) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("add image: %w", err)
+	}
+	return p.addImageFromBytes(data, rect)
+}
+
+// AddImageFromStream adds an image from a reader to the page within the given rectangle.
+func (p *Page) AddImageFromStream(r io.Reader, rect Rectangle) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("add image: %w", err)
+	}
+	return p.addImageFromBytes(data, rect)
+}
+
+func (p *Page) addImageFromBytes(data []byte, rect Rectangle) error {
+	if err := rect.validate(); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("add image: empty data")
+	}
+
+	format, err := detectImageFormat(data)
+	if err != nil {
+		return err
+	}
+
+	imgStream, smaskStream, err := createImageXObject(data, format)
+	if err != nil {
+		return err
+	}
+
+	// Register SMask if present.
+	if smaskStream != nil {
+		smaskID := p.doc.nextID
+		p.doc.nextID++
+		p.doc.objects[smaskID] = &pdfObject{Num: smaskID, Value: smaskStream}
+		imgStream.Dict["/SMask"] = pdfRef{Num: smaskID}
+	}
+
+	// Register image XObject.
+	imgID := p.doc.nextID
+	p.doc.nextID++
+	p.doc.objects[imgID] = &pdfObject{Num: imgID, Value: imgStream}
+
+	// Add to page resources.
+	pageDict := p.pageDict()
+	if pageDict == nil {
+		return fmt.Errorf("add image: page has no dict")
+	}
+
+	resources, _ := pageDict["/Resources"].(pdfDict)
+	if resources == nil {
+		resources = pdfDict{}
+		pageDict["/Resources"] = resources
+	}
+	xobjDict, _ := resources["/XObject"].(pdfDict)
+	if xobjDict == nil {
+		xobjDict = pdfDict{}
+		resources["/XObject"] = xobjDict
+	}
+
+	name := nextXObjectName(xobjDict)
+	xobjDict[name] = pdfRef{Num: imgID}
+
+	// Append drawing operators to content stream.
+	w := rect.URX - rect.LLX
+	h := rect.URY - rect.LLY
+	ops := fmt.Sprintf("\nq\n%s 0 0 %s %s %s cm\n%s Do\nQ\n",
+		formatFloat(w), formatFloat(h), formatFloat(rect.LLX), formatFloat(rect.LLY), name)
+
+	return p.appendToContentStream([]byte(ops))
+}
+
+func nextXObjectName(xobjDict pdfDict) string {
+	for i := 0; ; i++ {
+		name := "/Im" + strconv.Itoa(i)
+		if _, exists := xobjDict[name]; !exists {
+			return name
+		}
+	}
+}
+
+func formatFloat(f float64) string {
+	s := strconv.FormatFloat(f, 'f', 4, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
+}
+
+func (p *Page) appendToContentStream(data []byte) error {
+	existing, err := p.contentStreams()
+	if err != nil {
+		return err
+	}
+
+	newData := append(existing, data...)
+	newStream := &pdfStream{
+		Dict:    pdfDict{},
+		Data:    newData,
+		Decoded: true,
+	}
+
+	newID := p.doc.nextID
+	p.doc.nextID++
+	p.doc.objects[newID] = &pdfObject{Num: newID, Value: newStream}
+
+	pageDict := p.pageDict()
+	pageDict["/Contents"] = pdfRef{Num: newID}
+	return nil
 }
