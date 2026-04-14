@@ -61,6 +61,7 @@ type ImageInfo struct {
 	dict    pdfDict  // inline: normalized dict
 	rawData []byte   // inline: raw image bytes
 	ctm     [6]float64
+	page    *Page // page this image belongs to (for Replace/Remove)
 }
 
 // Save writes the image data to a file.
@@ -685,7 +686,11 @@ func (p *Page) ImageInfos() ([]ImageInfo, error) {
 	}
 
 	resources := p.pageResources()
-	return collectImageInfos(p.doc.objects, ops, resources), nil
+	infos := collectImageInfos(p.doc.objects, ops, resources)
+	for i := range infos {
+		infos[i].page = p
+	}
+	return infos, nil
 }
 
 // ImageInfos returns image metadata for all pages (one slice per page) without decoding pixel data.
