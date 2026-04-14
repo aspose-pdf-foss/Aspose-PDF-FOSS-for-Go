@@ -91,5 +91,12 @@
   "TestImageInfos": [
     ["PdfWithImages.pdf"],
     ["PdfWithImages2.pdf"]
+  ],
+
+  "TestImageToDocumentFiles": [
+    ["Koala.jpg"],
+    ["Penguins.jpg"],
+    ["Penguins.png"],
+    ["aspose-logo.png"]
   ]
 }

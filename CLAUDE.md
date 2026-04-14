@@ -73,6 +73,12 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*ImageInfo).Extract() (*Image, error)` — decodes the image and returns the full Image with pixel data
 - `(*Page).ImageInfos() ([]ImageInfo, error)` — returns metadata for all images without decoding
 - `(*Document).ImageInfos() ([][]ImageInfo, error)` — returns image metadata for all pages without decoding
+- `Rectangle` struct — LLX, LLY, URX, URY (PDF rectangle in points)
+- `(*Page).AddImage(path, rect) error` — adds an image from a file to the page; format detected by magic bytes (JPEG, PNG)
+- `(*Page).AddImageFromStream(r, rect) error` — adds an image from an io.Reader to the page
+- `ImageToDocument(path, opts...) (*Document, error)` — creates a single-page PDF from an image file; DPI-aware page sizing
+- `ImageToDocumentFromStream(r, opts...) (*Document, error)` — creates a single-page PDF from an image reader
+- `ImageToDocumentOptions` struct — PageWidth, PageHeight, MarginLeft, MarginRight, MarginTop, MarginBottom
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent

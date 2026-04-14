@@ -34,6 +34,8 @@ merged.Save("merged.pdf")
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
+- **Add images** — place JPEG or PNG images onto existing pages with precise positioning via PDF rectangles
+- **Image to PDF** — convert standalone images to single-page PDFs with DPI-aware sizing, configurable page dimensions and margins
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
@@ -221,6 +223,43 @@ for _, infos := range allInfos {
 ```
 
 Images are output as JPEG (passthrough for DCTDecode streams) or PNG (everything else). Supported color spaces: DeviceRGB, DeviceGray, DeviceCMYK (converted to RGB), Indexed (palette expansion), and ICCBased. Soft masks are applied as PNG alpha channels.
+
+### Adding Images
+
+```go
+doc, _ := pdf.Open("input.pdf")
+page, _ := doc.Page(1)
+
+// Add a JPEG image at position (100, 600) with size 200x150
+rect := pdf.Rectangle{LLX: 100, LLY: 600, URX: 300, URY: 750}
+page.AddImage("logo.jpg", rect)
+
+// Add from stream
+f, _ := os.Open("photo.png")
+page.AddImageFromStream(f, pdf.Rectangle{LLX: 50, LLY: 50, URX: 250, URY: 250})
+f.Close()
+
+doc.Save("output.pdf")
+```
+
+### Image to PDF
+
+```go
+// Convert an image to a single-page PDF (DPI-aware page sizing)
+doc, _ := pdf.ImageToDocument("photo.jpg")
+doc.Save("photo.pdf")
+
+// With explicit A4 page size and margins
+doc, _ = pdf.ImageToDocument("logo.png", pdf.ImageToDocumentOptions{
+    PageWidth:  595, // A4
+    PageHeight: 842,
+    MarginLeft: 72,  // 1 inch margins
+    MarginRight: 72,
+    MarginTop:  72,
+    MarginBottom: 72,
+})
+doc.Save("logo_a4.pdf")
+```
 
 ### Document API
 
