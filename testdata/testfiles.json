@@ -98,5 +98,9 @@
     ["Penguins.jpg"],
     ["Penguins.png"],
     ["aspose-logo.png"]
+  ],
+
+  "TestOptimizeImagesRoundTrip": [
+    ["PdfWithImages.pdf"]
   ]
 }
