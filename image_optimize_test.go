@@ -383,3 +383,15 @@ func TestOptimizeImagesSharedXObject(t *testing.T) {
 		t.Errorf("count = %d, want 1 (shared XObject optimized once)", count)
 	}
 }
+
+func TestOptimizeImagesInvalidQuality(t *testing.T) {
+	doc := createDocWithImage()
+	_, err := doc.OptimizeImages(OptimizeImageOptions{JPEGQuality: 101})
+	if err == nil {
+		t.Fatal("expected error for JPEGQuality=101")
+	}
+	_, err = doc.OptimizeImages(OptimizeImageOptions{JPEGQuality: -1})
+	if err == nil {
+		t.Fatal("expected error for JPEGQuality=-1")
+	}
+}
