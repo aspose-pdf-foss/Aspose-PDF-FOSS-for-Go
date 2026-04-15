@@ -1,8 +1,12 @@
 package asposepdf
 
 import (
+	"bytes"
+	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
+	"math"
 )
 
 // downscaleImage resizes img to newWidth x newHeight using bilinear interpolation.
@@ -106,4 +110,186 @@ func rawPixelsToImage(data []byte, width, height int, colorSpace string) image.I
 	default:
 		return nil
 	}
+}
+
+// OptimizeImageOptions controls image optimization behavior.
+type OptimizeImageOptions struct {
+	MaxDPI           float64 // images above this DPI are downscaled; 0 = no downscaling
+	JPEGQuality      int     // JPEG quality 1-100; 0 = default (75)
+	ConvertPNGToJPEG bool    // convert opaque PNG (no alpha) to JPEG
+}
+
+// OptimizeImages optimizes all images in the document to reduce file size.
+// Returns the number of images optimized.
+func (d *Document) OptimizeImages(opts OptimizeImageOptions) (int, error) {
+	if opts.JPEGQuality != 0 && (opts.JPEGQuality < 1 || opts.JPEGQuality > 100) {
+		return 0, fmt.Errorf("optimize images: JPEGQuality must be 1-100, got %d", opts.JPEGQuality)
+	}
+	quality := opts.JPEGQuality
+	if quality == 0 {
+		quality = 75
+	}
+
+	processed := make(map[int]bool)
+	count := 0
+
+	for _, p := range d.Pages() {
+		infos, err := p.ImageInfos()
+		if err != nil {
+			continue
+		}
+		for i := range infos {
+			info := &infos[i]
+			if info.Inline || info.stream == nil {
+				continue
+			}
+
+			// Get object ID from formVal to track shared XObjects.
+			ref, ok := info.formVal.(pdfRef)
+			if !ok {
+				continue
+			}
+			if processed[ref.Num] {
+				continue
+			}
+			processed[ref.Num] = true
+
+			if optimizeImage(info, opts, quality) {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+func optimizeImage(info *ImageInfo, opts OptimizeImageOptions, quality int) bool {
+	stream := info.stream
+
+	// Compute effective DPI.
+	displayWidth := info.PageWidth  // in points
+	displayHeight := info.PageHeight
+	if displayWidth <= 0 || displayHeight <= 0 {
+		return false // no CTM info, skip
+	}
+
+	imageDPIX := float64(info.Width) / (displayWidth / 72.0)
+	imageDPIY := float64(info.Height) / (displayHeight / 72.0)
+	imageDPI := math.Max(imageDPIX, imageDPIY)
+
+	filter := primaryFilter(stream.Dict)
+	isJPEG := filter == "/DCTDecode"
+	isPNG := !isJPEG // Decoded=true with no DCTDecode filter
+	_, hasSMask := stream.Dict["/SMask"]
+
+	needsDownscale := opts.MaxDPI > 0 && imageDPI > opts.MaxDPI
+	needsPNGToJPEG := opts.ConvertPNGToJPEG && isPNG && !hasSMask
+
+	if !needsDownscale && !needsPNGToJPEG {
+		return false
+	}
+	// JPEG that doesn't need downscaling: skip (avoid lossy re-encode).
+	if isJPEG && !needsDownscale {
+		return false
+	}
+
+	// Decode pixels.
+	var img image.Image
+	if isJPEG {
+		decoded, err := jpeg.Decode(bytes.NewReader(stream.Data))
+		if err != nil {
+			return false // skip corrupt
+		}
+		img = decoded
+	} else {
+		// PNG-stored: raw pixel bytes.
+		csName := "/DeviceRGB"
+		switch info.ColorSpace {
+		case ColorSpaceDeviceGray:
+			csName = "/DeviceGray"
+		case ColorSpaceDeviceRGB:
+			csName = "/DeviceRGB"
+		default:
+			return false // unsupported color space
+		}
+		img = rawPixelsToImage(stream.Data, info.Width, info.Height, csName)
+		if img == nil {
+			return false
+		}
+	}
+
+	// Downscale if needed.
+	newWidth := info.Width
+	newHeight := info.Height
+	if needsDownscale {
+		newWidth = int(math.Round(displayWidth / 72.0 * opts.MaxDPI))
+		newHeight = int(math.Round(displayHeight / 72.0 * opts.MaxDPI))
+		if newWidth < 1 {
+			newWidth = 1
+		}
+		if newHeight < 1 {
+			newHeight = 1
+		}
+		img = downscaleImage(img, newWidth, newHeight)
+	}
+
+	// Encode back.
+	if isJPEG || needsPNGToJPEG {
+		// Encode to JPEG.
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+			return false
+		}
+		stream.Data = buf.Bytes()
+		stream.Dict["/Filter"] = pdfName("/DCTDecode")
+		stream.Decoded = false
+		delete(stream.Dict, "/SMask")
+	} else {
+		// Keep as PNG: extract raw pixels back.
+		bounds := img.Bounds()
+		w := bounds.Dx()
+		h := bounds.Dy()
+		csName := "/DeviceRGB"
+		if info.ColorSpace == ColorSpaceDeviceGray {
+			csName = "/DeviceGray"
+		}
+		stream.Data = imageToRawPixels(img, w, h, csName)
+		stream.Decoded = true
+		delete(stream.Dict, "/Filter")
+	}
+
+	// Update dict.
+	stream.Dict["/Width"] = newWidth
+	stream.Dict["/Height"] = newHeight
+	stream.Dict["/BitsPerComponent"] = 8
+	delete(stream.Dict, "/DecodeParms")
+
+	return true
+}
+
+// imageToRawPixels extracts raw pixel bytes from an image.Image.
+func imageToRawPixels(img image.Image, width, height int, colorSpace string) []byte {
+	bounds := img.Bounds()
+	if colorSpace == "/DeviceGray" {
+		data := make([]byte, width*height)
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+				gray := (r + g + b) / 3
+				data[y*width+x] = byte(gray >> 8)
+			}
+		}
+		return data
+	}
+	// RGB
+	data := make([]byte, width*height*3)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+			off := (y*width + x) * 3
+			data[off] = byte(r >> 8)
+			data[off+1] = byte(g >> 8)
+			data[off+2] = byte(b >> 8)
+		}
+	}
+	return data
 }
