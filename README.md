@@ -39,6 +39,7 @@ merged.Save("merged.pdf")
 - **Replace images** — swap image data on existing pages while preserving position and size
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
+- **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
@@ -296,6 +297,19 @@ infos[0].Remove()
 removed := doc.RemoveUnusedObjects()
 fmt.Printf("removed %d unused objects\n", removed)
 doc.Save("output.pdf") // smaller file
+```
+
+### Optimizing Images
+
+```go
+doc, _ := pdf.Open("large.pdf")
+optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
+    MaxDPI:           150,
+    JPEGQuality:      75,
+    ConvertPNGToJPEG: true,
+})
+fmt.Printf("optimized %d images\n", optimized)
+doc.Save("smaller.pdf")
 ```
 
 ### Document API

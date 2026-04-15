@@ -83,6 +83,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `ImageToDocumentFromStream(r, opts...) (*Document, error)` — creates a single-page PDF from an image reader
 - `ImageToDocumentOptions` struct — PageWidth, PageHeight, MarginLeft, MarginRight, MarginTop, MarginBottom
 - `(*Document).RemoveUnusedObjects() int` — removes objects not reachable from any page; returns count of removed objects
+- `OptimizeImageOptions` struct — MaxDPI, JPEGQuality, ConvertPNGToJPEG
+- `(*Document).OptimizeImages(opts) (int, error)` — optimizes images to reduce file size; downscales above MaxDPI, converts opaque PNG to JPEG
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
