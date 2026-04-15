@@ -224,6 +224,54 @@ func collectDictDeps(objects map[int]*pdfObject, d pdfDict, deps map[int]*pdfObj
 
 var reRefDoc = regexp.MustCompile(`\b(\d+)\s+\d+\s+R\b`)
 
+// collectReachableIDs returns the set of object IDs reachable from the given root objects.
+// Used by RemoveUnusedObjects to identify orphaned objects.
+func collectReachableIDs(objects map[int]*pdfObject, roots []*pdfObject) map[int]bool {
+	visited := make(map[int]bool)
+	for _, root := range roots {
+		visited[root.Num] = true
+		markReachable(objects, root.Value, visited)
+	}
+	return visited
+}
+
+func markReachable(objects map[int]*pdfObject, v pdfValue, visited map[int]bool) {
+	switch val := v.(type) {
+	case pdfRef:
+		if visited[val.Num] {
+			return
+		}
+		obj, ok := objects[val.Num]
+		if !ok {
+			return
+		}
+		visited[val.Num] = true
+		markReachable(objects, obj.Value, visited)
+	case pdfDict:
+		for _, dv := range val {
+			markReachable(objects, dv, visited)
+		}
+	case pdfArray:
+		for _, av := range val {
+			markReachable(objects, av, visited)
+		}
+	case *pdfStream:
+		for _, dv := range val.Dict {
+			markReachable(objects, dv, visited)
+		}
+		// Scan stream bytes for inline references (e.g. content streams).
+		for _, m := range reRefDoc.FindAllSubmatch(val.Data, -1) {
+			n := toIntBytes(m[1])
+			if n > 0 && !visited[n] {
+				if obj, ok := objects[n]; ok {
+					visited[n] = true
+					markReachable(objects, obj.Value, visited)
+				}
+			}
+		}
+	}
+}
+
 // rewriteRefs returns a deep copy of v with all pdfRef IDs translated through idMap.
 // Objects whose IDs are not in idMap are left as-is.
 func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {
