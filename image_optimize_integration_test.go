@@ -23,6 +23,9 @@ func TestOptimizeImagesRoundTrip(t *testing.T) {
 		t.Fatalf("OptimizeImages: %v", err)
 	}
 	t.Logf("optimized %d images", count)
+	if count == 0 {
+		t.Error("expected at least 1 image optimized")
+	}
 
 	outDir := filepath.Join("result_files", "TestOptimizeImagesRoundTrip")
 	os.MkdirAll(outDir, 0o755)
