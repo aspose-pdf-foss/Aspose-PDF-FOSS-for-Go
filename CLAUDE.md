@@ -85,6 +85,10 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).RemoveUnusedObjects() int` — removes objects not reachable from any page; returns count of removed objects
 - `OptimizeImageOptions` struct — MaxDPI, JPEGQuality, ConvertPNGToJPEG
 - `(*Document).OptimizeImages(opts) (int, error)` — optimizes images to reduce file size; downscales above MaxDPI, converts opaque PNG to JPEG
+- `PageFormat` struct — Width, Height in points; predefined: `PageFormatA3`, `PageFormatA4`, `PageFormatLetter`, `PageFormatLegal`
+- `(PageFormat).Landscape()` — returns the format with width and height swapped
+- `NewDocument(width, height) *Document` — creates a single-page blank document with given dimensions
+- `NewDocumentFromFormat(format) *Document` — creates a single-page blank document from a predefined page format
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent

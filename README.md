@@ -40,6 +40,7 @@ merged.Save("merged.pdf")
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
+- **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
@@ -310,6 +311,22 @@ optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
 })
 fmt.Printf("optimized %d images\n", optimized)
 doc.Save("smaller.pdf")
+```
+
+### Creating Blank Documents
+
+```go
+// From explicit dimensions (in points, 1/72 inch)
+doc := pdf.NewDocument(595, 842)
+doc.Save("blank.pdf")
+
+// From predefined format
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+doc.Save("a4.pdf")
+
+// Landscape orientation
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4.Landscape())
+doc.Save("a4_landscape.pdf")
 ```
 
 ### Document API
