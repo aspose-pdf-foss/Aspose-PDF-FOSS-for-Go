@@ -59,9 +59,9 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).ExtractText() (string, error)` — returns the text content of a page in visual reading order; unknown font characters become U+FFFD
 - `(*Page).ExtractTextWithLayout() ([]TextLine, error)` — returns structured text lines in visual reading order with coordinates and font info
 - `PageSize` struct — Width, Height in points (1/72 inch)
-- `TextColor` struct — R, G, B float64 (values in [0,1])
+- `Color` struct — R, G, B, A float64 (values in [0, 1])
 - `TextLine` struct — Text, Y, Fragments []TextFragment
-- `TextFragment` struct — Text, X, Y, Width, FontName, FontSize, Height, Bold, Italic, CharSpacing, Color TextColor, IsSubscript, IsSuperscript
+- `TextFragment` struct — Text, X, Y, Width, FontName, FontSize, Height, Bold, Italic, CharSpacing, Color Color, IsSubscript, IsSuperscript
 - `(*Page).ExtractImages() ([]Image, error)` — returns all images found on the page
 - `(*Document).ExtractImages() ([][]Image, error)` — returns images for all pages (one slice per page)
 - `Image` struct — Data, Format, Width, Height, BPC, ColorSpace, X, Y, PageWidth, PageHeight, Inline
@@ -93,6 +93,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).AddBlankPageFromFormat(format) error` — appends a blank page from a page format
 - `(*Document).InsertBlankPage(position, width, height) error` — inserts a blank page at a 1-based position
 - `(*Document).InsertBlankPageFromFormat(position, format) error` — inserts a blank page from a page format at a position
+- `Font` — standard 14 PDF font constants: `FontHelvetica`, `FontHelveticaBold`, `FontHelveticaOblique`, `FontHelveticaBoldOblique`, `FontTimesRoman`, `FontTimesBold`, `FontTimesItalic`, `FontTimesBoldItalic`, `FontCourier`, `FontCourierBold`, `FontCourierOblique`, `FontCourierBoldOblique`, `FontSymbol`, `FontZapfDingbats`
+- `HAlign` — `HAlignLeft`, `HAlignCenter`, `HAlignRight`
+- `VAlign` — `VAlignTop`, `VAlignMiddle`, `VAlignBottom`
+- `TextStyle` struct — Font, Size, Color, Background, HAlign, VAlign, LineSpacing, Underline, Strikethrough
+- `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, and optional underline/strikethrough
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent

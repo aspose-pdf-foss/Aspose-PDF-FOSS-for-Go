@@ -42,6 +42,7 @@ merged.Save("merged.pdf")
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
+- **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, and strikethrough
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 
 ## API Reference
@@ -340,6 +341,40 @@ doc.AddBlankPageFromFormat(pdf.PageFormatA4)
 
 // Insert a landscape Letter page at position 2
 doc.InsertBlankPageFromFormat(2, pdf.PageFormatLetter.Landscape())
+
+doc.Save("output.pdf")
+```
+
+### Adding Text
+
+```go
+doc, _ := pdf.Open("input.pdf")
+page, _ := doc.Page(1)
+
+// Define a reusable text style
+title := pdf.TextStyle{
+    Font:   pdf.FontHelveticaBold,
+    Size:   24,
+    Color:  &pdf.Color{R: 0, G: 0, B: 0.8, A: 1},
+    HAlign: pdf.HAlignCenter,
+}
+
+// Draw text inside a rectangle (word wrap + clipping)
+page.AddText("Hello, PDF!", title, pdf.Rectangle{
+    LLX: 50, LLY: 700, URX: 545, URY: 750,
+})
+
+// Highlighted text with background
+bg := pdf.Color{R: 1, G: 1, B: 0, A: 0.5}
+note := pdf.TextStyle{
+    Font:       pdf.FontCourier,
+    Size:       10,
+    Background: &bg,
+    Underline:  true,
+}
+page.AddText("Important note", note, pdf.Rectangle{
+    LLX: 50, LLY: 650, URX: 300, URY: 690,
+})
 
 doc.Save("output.pdf")
 ```
