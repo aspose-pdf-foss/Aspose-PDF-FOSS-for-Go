@@ -406,6 +406,25 @@ func (p *Page) ensureExtGState(alpha float64) (string, error) {
 		resources["/ExtGState"] = gsDict
 	}
 
+	// Check if an ExtGState with the same /ca already exists.
+	for name, val := range gsDict {
+		ref, ok := val.(pdfRef)
+		if !ok {
+			continue
+		}
+		obj := p.doc.objects[ref.Num]
+		if obj == nil {
+			continue
+		}
+		dict, ok := obj.Value.(pdfDict)
+		if !ok {
+			continue
+		}
+		if ca, err := toFloat(dict["/ca"]); err == nil && ca == alpha {
+			return name, nil
+		}
+	}
+
 	gsObjDict := pdfDict{
 		"/ca": alpha,
 	}
