@@ -6,13 +6,6 @@ import (
 	"strings"
 )
 
-// TextColor represents an RGB color with values in [0, 1].
-type TextColor struct {
-	R float64
-	G float64
-	B float64
-}
-
 // TextFragment represents a contiguous run of text with uniform font.
 type TextFragment struct {
 	Text        string
@@ -25,7 +18,7 @@ type TextFragment struct {
 	Bold        bool
 	Italic      bool
 	CharSpacing  float64   // character spacing (Tc operator) in text space units
-	Color        TextColor // fill color
+	Color        Color // fill color
 	IsSubscript  bool      // Y is below the line baseline
 	IsSuperscript bool     // Y is above the line baseline
 }
@@ -131,7 +124,7 @@ func assembleLine(frags []textFragment) TextLine {
 			Bold:        f.bold,
 			Italic:      f.italic,
 			CharSpacing: f.charSpacing,
-			Color:       TextColor{R: f.colorR, G: f.colorG, B: f.colorB},
+			Color:       Color{R: f.colorR, G: f.colorG, B: f.colorB, A: 1},
 		}
 		// Detect sub/superscript: smaller font with Y offset from baseline.
 		if f.fontSize < maxFontSize*0.85 {
