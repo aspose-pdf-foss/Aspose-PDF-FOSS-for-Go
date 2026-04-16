@@ -274,7 +274,7 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 		ascent := 0.8 * fontSize
 		y := startY - float64(i)*lineHeight - ascent
 
-		if i == 0 {
+		if len(linePositions) == 0 {
 			buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x), formatFloat(y)))
 		} else {
 			prevX := linePositions[len(linePositions)-1].x
