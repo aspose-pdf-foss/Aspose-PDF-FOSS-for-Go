@@ -98,6 +98,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `VAlign` — `VAlignTop`, `VAlignMiddle`, `VAlignBottom`
 - `TextStyle` struct — Font, Size, Color, Background, HAlign, VAlign, LineSpacing, Underline, Strikethrough, Rotation, Behind
 - `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, optional underline/strikethrough, rotation, and behind-content mode
+- `(*Document).AddTextWatermark(text, style, pageNums...) error` — applies a text watermark to all or selected pages using full-page rectangle from MediaBox
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
