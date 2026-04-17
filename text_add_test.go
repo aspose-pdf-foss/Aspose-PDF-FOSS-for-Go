@@ -289,3 +289,35 @@ func TestAddTextClipping(t *testing.T) {
 		t.Error("content stream missing Q (restore state)")
 	}
 }
+
+func TestAddTextRotation(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	style := TextStyle{Rotation: 45}
+	err := page.AddText("Rotated", style, Rectangle{LLX: 100, LLY: 500, URX: 200, URY: 600})
+	if err != nil {
+		t.Fatalf("AddText rotation: %v", err)
+	}
+	data, _ := page.contentStreams()
+	content := string(data)
+	if !strings.Contains(content, "cm") {
+		t.Error("content stream missing cm operator for rotation")
+	}
+	if !strings.Contains(content, "(Rotated) Tj") {
+		t.Error("content stream missing text")
+	}
+}
+
+func TestAddTextRotationZero(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.AddText("NoRotation", TextStyle{}, Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 750})
+	if err != nil {
+		t.Fatalf("AddText: %v", err)
+	}
+	data, _ := page.contentStreams()
+	content := string(data)
+	if strings.Contains(content, "cm") {
+		t.Error("content stream should not contain cm operator when Rotation is 0")
+	}
+}

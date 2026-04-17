@@ -2,6 +2,7 @@ package asposepdf
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -218,10 +219,31 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	// Build content stream operators.
 	var buf strings.Builder
 
-	// Save state + clipping path.
+	// Coordinate offsets: when rotated, all positions are relative to pivot (0,0).
+	// When not rotated, positions are absolute.
+	ox := 0.0 // offset X to subtract from all coordinates
+	oy := 0.0 // offset Y to subtract from all coordinates
+
+	// Save state + optional rotation transform.
 	buf.WriteString("\nq\n")
+
+	if style.Rotation != 0 {
+		// Translate origin to pivot point (LLX, LLY), then rotate.
+		buf.WriteString(fmt.Sprintf("1 0 0 1 %s %s cm\n",
+			formatFloat(rect.LLX), formatFloat(rect.LLY)))
+		rad := style.Rotation * math.Pi / 180.0
+		cos := math.Cos(rad)
+		sin := math.Sin(rad)
+		buf.WriteString(fmt.Sprintf("%s %s %s %s 0 0 cm\n",
+			formatFloat(cos), formatFloat(sin), formatFloat(-sin), formatFloat(cos)))
+		// All subsequent coordinates are relative to pivot.
+		ox = rect.LLX
+		oy = rect.LLY
+	}
+
+	// Clipping path.
 	buf.WriteString(fmt.Sprintf("%s %s %s %s re W n\n",
-		formatFloat(rect.LLX), formatFloat(rect.LLY),
+		formatFloat(rect.LLX-ox), formatFloat(rect.LLY-oy),
 		formatFloat(rectWidth), formatFloat(rectHeight)))
 
 	// Background fill.
@@ -232,7 +254,7 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 		buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(style.Background.R), formatFloat(style.Background.G), formatFloat(style.Background.B)))
 		buf.WriteString(fmt.Sprintf("%s %s %s %s re f\n",
-			formatFloat(rect.LLX), formatFloat(rect.LLY),
+			formatFloat(rect.LLX-ox), formatFloat(rect.LLY-oy),
 			formatFloat(rectWidth), formatFloat(rectHeight)))
 	}
 
@@ -274,16 +296,20 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 		ascent := 0.8 * fontSize
 		y := startY - float64(i)*lineHeight - ascent
 
+		// Apply coordinate offset for rotation.
+		adjX := x - ox
+		adjY := y - oy
+
 		if len(linePositions) == 0 {
-			buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x), formatFloat(y)))
+			buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(adjX), formatFloat(adjY)))
 		} else {
 			prevX := linePositions[len(linePositions)-1].x
 			prevY := linePositions[len(linePositions)-1].y
-			buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x-prevX), formatFloat(y-prevY)))
+			buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(adjX-prevX), formatFloat(adjY-prevY)))
 		}
 
 		buf.WriteString(fmt.Sprintf("(%s) Tj\n", escapeStringPDF(line)))
-		linePositions = append(linePositions, linePos{x: x, y: y, width: lineWidth})
+		linePositions = append(linePositions, linePos{x: adjX, y: adjY, width: lineWidth})
 	}
 
 	buf.WriteString("ET\n")
