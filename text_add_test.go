@@ -360,3 +360,78 @@ func TestAddTextBehindAndRotation(t *testing.T) {
 		t.Error("watermark block missing cm operator for rotation")
 	}
 }
+
+func TestAddTextWatermarkAllPages(t *testing.T) {
+	doc := NewDocument(595, 842)
+	doc.AddBlankPage(595, 842)
+	doc.AddBlankPage(595, 842)
+
+	err := doc.AddTextWatermark("DRAFT", TextStyle{
+		Font:     FontHelveticaBold,
+		Size:     48,
+		Rotation: 45,
+		Behind:   true,
+	})
+	if err != nil {
+		t.Fatalf("AddTextWatermark: %v", err)
+	}
+
+	for i := 0; i < doc.PageCount(); i++ {
+		page, _ := doc.Page(i + 1)
+		data, _ := page.contentStreams()
+		content := string(data)
+		if !strings.Contains(content, "(DRAFT) Tj") {
+			t.Errorf("page %d missing watermark text", i+1)
+		}
+	}
+}
+
+func TestAddTextWatermarkSelectedPages(t *testing.T) {
+	doc := NewDocument(595, 842)
+	doc.AddBlankPage(595, 842)
+	doc.AddBlankPage(595, 842)
+
+	err := doc.AddTextWatermark("SECRET", TextStyle{
+		Font: FontHelvetica,
+		Size: 36,
+	}, 1, 3)
+	if err != nil {
+		t.Fatalf("AddTextWatermark: %v", err)
+	}
+
+	for _, n := range []int{1, 3} {
+		page, _ := doc.Page(n)
+		data, _ := page.contentStreams()
+		if !strings.Contains(string(data), "(SECRET) Tj") {
+			t.Errorf("page %d should have watermark", n)
+		}
+	}
+
+	page2, _ := doc.Page(2)
+	data2, _ := page2.contentStreams()
+	if strings.Contains(string(data2), "(SECRET) Tj") {
+		t.Error("page 2 should not have watermark")
+	}
+}
+
+func TestAddTextWatermarkInvalidPage(t *testing.T) {
+	doc := NewDocument(595, 842)
+
+	err := doc.AddTextWatermark("TEST", TextStyle{}, 0)
+	if err == nil {
+		t.Error("expected error for page 0")
+	}
+
+	err = doc.AddTextWatermark("TEST", TextStyle{}, 2)
+	if err == nil {
+		t.Error("expected error for page > PageCount")
+	}
+}
+
+func TestAddTextWatermarkEmpty(t *testing.T) {
+	doc := NewDocument(595, 842)
+	err := doc.AddTextWatermark("", TextStyle{})
+	if err != nil {
+		t.Fatalf("expected nil for empty text, got: %v", err)
+	}
+}

@@ -349,6 +349,32 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	return p.appendToContentStream([]byte(buf.String()))
 }
 
+// AddTextWatermark adds a text watermark to selected pages of the document.
+// If no page numbers are given, the watermark is applied to all pages.
+// Page numbers are 1-based. The watermark covers the full page area (MediaBox).
+// The caller controls all styling via TextStyle (rotation, behind, color, etc.).
+func (d *Document) AddTextWatermark(text string, style TextStyle, pageNums ...int) error {
+	if text == "" {
+		return nil
+	}
+	indices, err := resolvePageIndices(len(d.pages), pageNums)
+	if err != nil {
+		return fmt.Errorf("add text watermark: %w", err)
+	}
+	for _, i := range indices {
+		page := &Page{doc: d, index: i}
+		size, err := page.Size()
+		if err != nil {
+			return fmt.Errorf("add text watermark: page %d: %w", i+1, err)
+		}
+		rect := Rectangle{LLX: 0, LLY: 0, URX: size.Width, URY: size.Height}
+		if err := page.AddText(text, style, rect); err != nil {
+			return fmt.Errorf("add text watermark: page %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
 // prependToContentStream inserts data before the existing page content.
 func (p *Page) prependToContentStream(data []byte) error {
 	existing, err := p.contentStreams()
