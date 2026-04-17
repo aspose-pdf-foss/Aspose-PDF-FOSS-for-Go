@@ -321,3 +321,42 @@ func TestAddTextRotationZero(t *testing.T) {
 		t.Error("content stream should not contain cm operator when Rotation is 0")
 	}
 }
+
+func TestAddTextBehindAndRotation(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	// Add foreground text first.
+	err := page.AddText("Foreground", TextStyle{}, Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 750})
+	if err != nil {
+		t.Fatalf("AddText foreground: %v", err)
+	}
+
+	// Add rotated text behind.
+	err = page.AddText("Watermark", TextStyle{
+		Rotation: 45,
+		Behind:   true,
+	}, Rectangle{LLX: 100, LLY: 300, URX: 500, URY: 700})
+	if err != nil {
+		t.Fatalf("AddText behind+rotation: %v", err)
+	}
+
+	data, _ := page.contentStreams()
+	content := string(data)
+
+	// Watermark should appear before foreground.
+	wmIdx := strings.Index(content, "(Watermark) Tj")
+	fgIdx := strings.Index(content, "(Foreground) Tj")
+	if wmIdx < 0 || fgIdx < 0 {
+		t.Fatalf("missing text operators; content:\n%s", content)
+	}
+	if wmIdx > fgIdx {
+		t.Errorf("watermark should appear before foreground; wm at %d, fg at %d", wmIdx, fgIdx)
+	}
+
+	// Watermark block should contain cm operators.
+	wmBlock := content[:fgIdx]
+	if !strings.Contains(wmBlock, "cm") {
+		t.Error("watermark block missing cm operator for rotation")
+	}
+}
