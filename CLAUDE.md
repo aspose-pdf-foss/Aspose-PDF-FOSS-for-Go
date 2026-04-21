@@ -93,7 +93,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).AddBlankPageFromFormat(format) error` — appends a blank page from a page format
 - `(*Document).InsertBlankPage(position, width, height) error` — inserts a blank page at a 1-based position
 - `(*Document).InsertBlankPageFromFormat(position, format) error` — inserts a blank page from a page format at a position
-- `Font` — standard 14 PDF font constants: `FontHelvetica`, `FontHelveticaBold`, `FontHelveticaOblique`, `FontHelveticaBoldOblique`, `FontTimesRoman`, `FontTimesBold`, `FontTimesItalic`, `FontTimesBoldItalic`, `FontCourier`, `FontCourierBold`, `FontCourierOblique`, `FontCourierBoldOblique`, `FontSymbol`, `FontZapfDingbats`
+- `Font` — interface implemented by standard 14 fonts and embedded TTF fonts; has `BaseFont()` and `IsEmbedded()` methods
+- Standard 14 PDF fonts as package-level `Font` vars: `FontHelvetica`, `FontHelveticaBold`, `FontHelveticaOblique`, `FontHelveticaBoldOblique`, `FontTimesRoman`, `FontTimesBold`, `FontTimesItalic`, `FontTimesBoldItalic`, `FontCourier`, `FontCourierBold`, `FontCourierOblique`, `FontCourierBoldOblique`, `FontSymbol`, `FontZapfDingbats`
+- `FindFont(name) (Font, error)` — returns a standard 14 `Font` by PostScript name (case-insensitive); error for unknown names
+- `(*Document).LoadFont(path) (Font, error)` — reads a TTF file, embeds it into the document, returns a `Font` usable in `TextStyle.Font`
+- `(*Document).LoadFontFromStream(r) (Font, error)` — like `LoadFont` but reads from an `io.Reader`
 - `HAlign` — `HAlignLeft`, `HAlignCenter`, `HAlignRight`
 - `VAlign` — `VAlignTop`, `VAlignMiddle`, `VAlignBottom`
 - `TextStyle` struct — Font, Size, Color, Background, HAlign, VAlign, LineSpacing, Underline, Strikethrough, Rotation, Behind

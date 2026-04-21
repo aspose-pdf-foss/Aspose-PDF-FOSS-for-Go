@@ -244,3 +244,65 @@ func TestAddTextWatermarkRoundTrip(t *testing.T) {
 		t.Errorf("page 2 missing original content: %q", texts[1])
 	}
 }
+
+func TestAddTextEmbeddedFontRoundTrip(t *testing.T) {
+	doc := asposepdf.NewDocumentFromFormat(asposepdf.PageFormatA4)
+
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatalf("LoadFont: %v", err)
+	}
+
+	page, _ := doc.Page(1)
+	err = page.AddText("Привет, мир!", asposepdf.TextStyle{
+		Font: font,
+		Size: 18,
+	}, asposepdf.Rectangle{LLX: 50, LLY: 750, URX: 545, URY: 800})
+	if err != nil {
+		t.Fatalf("AddText cyrillic: %v", err)
+	}
+	err = page.AddText("Γειά σου κόσμε!", asposepdf.TextStyle{
+		Font: font,
+		Size: 18,
+	}, asposepdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750})
+	if err != nil {
+		t.Fatalf("AddText greek: %v", err)
+	}
+
+	outDir := filepath.Join("result_files", "TestAddTextEmbeddedFontRoundTrip")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(outDir, "output.pdf")
+	if err := doc.Save(outPath); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	report, err := asposepdf.Validate(outPath)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if !report.Valid {
+		for _, issue := range report.Issues {
+			t.Errorf("validation issue: [%s] %s", issue.Code, issue.Message)
+		}
+	}
+
+	reopened, err := asposepdf.Open(outPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	texts, err := reopened.ExtractText()
+	if err != nil {
+		t.Fatalf("extract text: %v", err)
+	}
+	if len(texts) < 1 {
+		t.Fatalf("no pages extracted")
+	}
+	if !strings.Contains(texts[0], "Привет") {
+		t.Errorf("extracted text missing Cyrillic: %q", texts[0])
+	}
+	if !strings.Contains(texts[0], "κόσμε") {
+		t.Errorf("extracted text missing Greek: %q", texts[0])
+	}
+}
