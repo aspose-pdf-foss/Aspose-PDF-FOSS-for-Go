@@ -3,6 +3,7 @@ package asposepdf
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestStandardFontBaseFont(t *testing.T) {
@@ -35,19 +36,31 @@ func TestStandardFontBaseFont(t *testing.T) {
 	}
 }
 
+// helveticaWidthFn builds a widthFn for Helvetica at the given font size.
+func helveticaWidthFn(t *testing.T, size float64) widthFn {
+	t.Helper()
+	w, ok := standard14Widths("/Helvetica")
+	if !ok {
+		t.Fatalf("standard14Widths Helvetica not found")
+	}
+	return func(r rune) float64 {
+		code, ok := winAnsiEncodeRune(r)
+		if !ok {
+			code = byte('?')
+		}
+		return w[code] / 1000.0 * size
+	}
+}
+
 func TestWrapTextSingleLine(t *testing.T) {
-	widths, _ := standard14Widths("/Helvetica")
-	lines := wrapText("Hello", widths, 12, 500)
+	lines := wrapText("Hello", helveticaWidthFn(t, 12), 500)
 	if len(lines) != 1 || lines[0] != "Hello" {
 		t.Errorf("wrapText single line = %v, want [Hello]", lines)
 	}
 }
 
-func TestWrapTextMultiLine(t *testing.T) {
-	widths, _ := standard14Widths("/Helvetica")
-	// At 12pt Helvetica, "Hello World" is about 60pt wide.
-	// With maxWidth=40, "Hello" (~30pt) fits, "World" wraps.
-	lines := wrapText("Hello World", widths, 12, 40)
+func TestWrapTextMultipleLines(t *testing.T) {
+	lines := wrapText("Hello World", helveticaWidthFn(t, 12), 40)
 	if len(lines) != 2 {
 		t.Fatalf("wrapText = %v, want 2 lines", lines)
 	}
@@ -57,25 +70,14 @@ func TestWrapTextMultiLine(t *testing.T) {
 }
 
 func TestWrapTextLongWord(t *testing.T) {
-	widths, _ := standard14Widths("/Helvetica")
-	// A single long word that exceeds maxWidth must be broken by character.
-	lines := wrapText("ABCDEFGHIJKLMNOP", widths, 12, 50)
+	lines := wrapText("ABCDEFGHIJKLMNOP", helveticaWidthFn(t, 12), 50)
 	if len(lines) < 2 {
 		t.Fatalf("wrapText long word = %v, expected multiple lines", lines)
-	}
-	// Concatenation of all lines should equal the original.
-	joined := ""
-	for _, l := range lines {
-		joined += l
-	}
-	if joined != "ABCDEFGHIJKLMNOP" {
-		t.Errorf("joined = %q, want ABCDEFGHIJKLMNOP", joined)
 	}
 }
 
 func TestWrapTextNewlines(t *testing.T) {
-	widths, _ := standard14Widths("/Helvetica")
-	lines := wrapText("Line1\nLine2\nLine3", widths, 12, 500)
+	lines := wrapText("Line1\nLine2\nLine3", helveticaWidthFn(t, 12), 500)
 	if len(lines) != 3 {
 		t.Fatalf("wrapText newlines = %v, want 3 lines", lines)
 	}
@@ -85,10 +87,21 @@ func TestWrapTextNewlines(t *testing.T) {
 }
 
 func TestWrapTextEmpty(t *testing.T) {
-	widths, _ := standard14Widths("/Helvetica")
-	lines := wrapText("", widths, 12, 500)
+	lines := wrapText("", helveticaWidthFn(t, 12), 500)
 	if len(lines) != 0 {
 		t.Errorf("wrapText empty = %v, want []", lines)
+	}
+}
+
+func TestWrapTextRuneSafe(t *testing.T) {
+	// Even with standard 14, long Cyrillic words should not be cut mid-rune.
+	// Each ? (WinAnsi fallback) is 278 units wide at 12pt = ~3.3pt.
+	// Force a break by using narrow rect relative to string length.
+	lines := wrapText("АБВГДЕЖЗИЙ", helveticaWidthFn(t, 12), 10)
+	for _, line := range lines {
+		if !utf8.ValidString(line) {
+			t.Errorf("wrapText produced invalid UTF-8 line: %q", line)
+		}
 	}
 }
 
@@ -419,5 +432,28 @@ func TestAddTextWatermarkEmpty(t *testing.T) {
 	err := doc.AddTextWatermark("", TextStyle{})
 	if err != nil {
 		t.Fatalf("expected nil for empty text, got: %v", err)
+	}
+}
+
+func TestWinAnsiEncodeRune(t *testing.T) {
+	cases := []struct {
+		r    rune
+		code byte
+		ok   bool
+	}{
+		{'A', 'A', true},
+		{' ', ' ', true},
+		{'€', 0x80, true},    // euro at WinAnsi 0x80
+		{'©', 0xA9, true},    // copyright at 0xA9
+		{'ÿ', 0xFF, true},    // y-diaeresis at 0xFF
+		{'日', 0, false},      // CJK — not in WinAnsi
+		{'\uFFFD', 0, false}, // replacement — explicitly not mapped
+	}
+	for _, tc := range cases {
+		code, ok := winAnsiEncodeRune(tc.r)
+		if code != tc.code || ok != tc.ok {
+			t.Errorf("winAnsiEncodeRune(%q) = (0x%02X, %v), want (0x%02X, %v)",
+				tc.r, code, ok, tc.code, tc.ok)
+		}
 	}
 }

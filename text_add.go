@@ -6,10 +6,13 @@ import (
 	"strings"
 )
 
+// widthFn returns advance width in points for a single rune.
+type widthFn func(r rune) float64
+
 // wrapText splits text into lines that fit within maxWidth points.
-// It breaks at spaces; words longer than maxWidth are broken by character.
+// It breaks at spaces; words longer than maxWidth are broken on rune boundaries.
 // Explicit newlines in the input force a line break.
-func wrapText(text string, widths [256]float64, fontSize, maxWidth float64) []string {
+func wrapText(text string, width widthFn, maxWidth float64) []string {
 	if text == "" {
 		return nil
 	}
@@ -32,27 +35,25 @@ func wrapText(text string, widths [256]float64, fontSize, maxWidth float64) []st
 		var lineWidth float64
 
 		for _, word := range words {
-			wordWidth := measureString(word, widths, fontSize)
+			wordWidth := measureString(word, width)
 
 			if lineWidth == 0 {
-				// First word on line.
 				if wordWidth <= maxWidth {
 					line = word
 					lineWidth = wordWidth
 				} else {
-					// Word too long — break by character.
-					broken := breakWord(word, widths, fontSize, maxWidth)
+					broken := breakWord(word, width, maxWidth)
 					for i, part := range broken {
 						if i < len(broken)-1 {
 							result = append(result, part)
 						} else {
 							line = part
-							lineWidth = measureString(part, widths, fontSize)
+							lineWidth = measureString(part, width)
 						}
 					}
 				}
 			} else {
-				spaceWidth := widths[' '] / 1000.0 * fontSize
+				spaceWidth := width(' ')
 				if lineWidth+spaceWidth+wordWidth <= maxWidth {
 					line += " " + word
 					lineWidth += spaceWidth + wordWidth
@@ -62,13 +63,13 @@ func wrapText(text string, widths [256]float64, fontSize, maxWidth float64) []st
 						line = word
 						lineWidth = wordWidth
 					} else {
-						broken := breakWord(word, widths, fontSize, maxWidth)
+						broken := breakWord(word, width, maxWidth)
 						for i, part := range broken {
 							if i < len(broken)-1 {
 								result = append(result, part)
 							} else {
 								line = part
-								lineWidth = measureString(part, widths, fontSize)
+								lineWidth = measureString(part, width)
 							}
 						}
 					}
@@ -84,30 +85,32 @@ func wrapText(text string, widths [256]float64, fontSize, maxWidth float64) []st
 }
 
 // measureString returns the width of a string in points.
-func measureString(s string, widths [256]float64, fontSize float64) float64 {
+func measureString(s string, width widthFn) float64 {
 	var w float64
-	for i := 0; i < len(s); i++ {
-		w += widths[s[i]] / 1000.0 * fontSize
+	for _, r := range s {
+		w += width(r)
 	}
 	return w
 }
 
 // breakWord breaks a single word into parts that each fit within maxWidth.
-func breakWord(word string, widths [256]float64, fontSize, maxWidth float64) []string {
+// Splits on rune boundaries so multi-byte UTF-8 is never cut mid-sequence.
+func breakWord(word string, width widthFn, maxWidth float64) []string {
 	var parts []string
-	start := 0
+	var buf strings.Builder
 	var w float64
-	for i := 0; i < len(word); i++ {
-		cw := widths[word[i]] / 1000.0 * fontSize
-		if w+cw > maxWidth && i > start {
-			parts = append(parts, word[start:i])
-			start = i
+	for _, r := range word {
+		cw := width(r)
+		if w+cw > maxWidth && buf.Len() > 0 {
+			parts = append(parts, buf.String())
+			buf.Reset()
 			w = 0
 		}
+		buf.WriteRune(r)
 		w += cw
 	}
-	if start < len(word) {
-		parts = append(parts, word[start:])
+	if buf.Len() > 0 {
+		parts = append(parts, buf.String())
 	}
 	return parts
 }
@@ -174,7 +177,14 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	// Word wrap.
 	rectWidth := rect.URX - rect.LLX
 	rectHeight := rect.URY - rect.LLY
-	lines := wrapText(text, widths, fontSize, rectWidth)
+	width := func(r rune) float64 {
+		code, ok := winAnsiEncodeRune(r)
+		if !ok {
+			code = byte('?')
+		}
+		return widths[code] / 1000.0 * fontSize
+	}
+	lines := wrapText(text, width, rectWidth)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -280,7 +290,7 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 		if line == "" {
 			continue
 		}
-		lineWidth := measureString(line, widths, fontSize)
+		lineWidth := measureString(line, width)
 
 		// Horizontal alignment.
 		var x float64

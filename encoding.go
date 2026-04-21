@@ -1,5 +1,7 @@
 package asposepdf
 
+import "sync"
+
 // applyDifferences overlays /Differences entries onto a base encoding.
 // diffs is a pdfArray of the form: code₁ /name₁ /name₂ … code₂ /name₃ …
 // Each integer starts a run at that code; each name maps glyphToRune[name].
@@ -520,4 +522,28 @@ var glyphToRune = map[string]rune{
 	"y": 'y', "yacute": '\u00FD', "ydieresis": '\u00FF', "yen": '\u00A5',
 	"z": 'z', "zacute": '\u017A', "zcaron": '\u017E', "zdotaccent": '\u017C',
 	"zero": '0', "zeta": '\u03B6',
+}
+
+var (
+	winAnsiReverseOnce sync.Once
+	winAnsiReverse     map[rune]byte
+)
+
+// winAnsiEncodeRune returns the WinAnsi byte code for the given rune.
+// Returns (0, false) if the rune is not representable in WinAnsiEncoding.
+func winAnsiEncodeRune(r rune) (byte, bool) {
+	winAnsiReverseOnce.Do(func() {
+		winAnsiReverse = make(map[rune]byte, 256)
+		for code, ch := range winAnsiEncoding {
+			if ch == '\uFFFD' {
+				continue
+			}
+			// First occurrence wins (WinAnsi has no duplicates anyway).
+			if _, exists := winAnsiReverse[ch]; !exists {
+				winAnsiReverse[ch] = byte(code)
+			}
+		}
+	})
+	c, ok := winAnsiReverse[r]
+	return c, ok
 }
