@@ -2,6 +2,8 @@ package asposepdf
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 )
 
@@ -66,4 +68,49 @@ func FindFont(name string) (Font, error) {
 		return f, nil
 	}
 	return nil, fmt.Errorf("find font: unknown standard font %q", name)
+}
+
+// embeddedFont is a TTF loaded into a specific Document.
+type embeddedFont struct {
+	doc          *Document
+	ttf          *ttfFont
+	baseFont     string // PostScript name cache
+	fontObjectID int    // ID of the Type0 font dict in doc.objects; 0 until Task 12.
+	resourceName string // stable /Fn resource name per page; populated on first use.
+}
+
+func (e *embeddedFont) BaseFont() string { return e.baseFont }
+func (e *embeddedFont) IsEmbedded() bool { return true }
+
+// LoadFont reads a TTF file, parses it, embeds it into the document, and returns
+// a Font that can be used in TextStyle.Font.
+func (d *Document) LoadFont(path string) (Font, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("load font: %w", err)
+	}
+	return d.loadFontFromBytes(data)
+}
+
+// LoadFontFromStream is like LoadFont but reads from an io.Reader.
+func (d *Document) LoadFontFromStream(r io.Reader) (Font, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("load font: read stream: %w", err)
+	}
+	return d.loadFontFromBytes(data)
+}
+
+func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
+	ttf, err := parseTTF(data)
+	if err != nil {
+		return nil, fmt.Errorf("load font: %w", err)
+	}
+	ef := &embeddedFont{
+		doc:      d,
+		ttf:      ttf,
+		baseFont: ttf.postScriptName,
+	}
+	// PDF object embedding is wired in Task 12.
+	return ef, nil
 }

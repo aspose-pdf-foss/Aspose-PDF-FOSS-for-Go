@@ -56,3 +56,36 @@ func TestFindFontUnknown(t *testing.T) {
 		t.Errorf("error message = %q, expected to contain \"unknown\"", err.Error())
 	}
 }
+
+func TestLoadFont_DejaVu(t *testing.T) {
+	doc := NewDocument(595, 842)
+	f, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatalf("LoadFont: %v", err)
+	}
+	if f.BaseFont() != "DejaVuSans" {
+		t.Errorf("BaseFont() = %q, want DejaVuSans", f.BaseFont())
+	}
+	if !f.IsEmbedded() {
+		t.Error("IsEmbedded() = false, want true")
+	}
+}
+
+func TestLoadFont_MissingFile(t *testing.T) {
+	doc := NewDocument(595, 842)
+	_, err := doc.LoadFont("testdata/does_not_exist.ttf")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !strings.Contains(err.Error(), "load font") {
+		t.Errorf("error = %q, want to contain 'load font'", err.Error())
+	}
+}
+
+func TestLoadFontFromStream_NotTTF(t *testing.T) {
+	doc := NewDocument(595, 842)
+	_, err := doc.LoadFontFromStream(strings.NewReader("not a font"))
+	if err == nil {
+		t.Fatal("expected error for non-TTF stream")
+	}
+}
