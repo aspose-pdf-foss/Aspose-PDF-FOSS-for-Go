@@ -81,8 +81,18 @@ func parseTTF(data []byte) (*ttfFont, error) {
 
 	f := &ttfFont{data: data}
 
-	// Per-table parsers are added in subsequent tasks. The skeleton returns
-	// a font with only data populated; full parsing is wired in Tasks 6–9.
+	if err := parseHead(f, tables); err != nil {
+		return nil, err
+	}
+	if err := parseHhea(f, tables); err != nil {
+		return nil, err
+	}
+	if err := parseMaxp(f, tables); err != nil {
+		return nil, err
+	}
+	if err := parseHmtx(f, tables); err != nil {
+		return nil, err
+	}
 
 	return f, nil
 }
@@ -98,4 +108,66 @@ func tableSlice(data []byte, tables map[string]tableRecord, tag string) []byte {
 		return nil
 	}
 	return data[t.offset:end]
+}
+
+func parseHead(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "head")
+	if len(b) < 54 {
+		return fmt.Errorf("parse ttf head: too small")
+	}
+	f.unitsPerEm = binary.BigEndian.Uint16(b[18:20])
+	f.xMin = int16(binary.BigEndian.Uint16(b[36:38]))
+	f.yMin = int16(binary.BigEndian.Uint16(b[38:40]))
+	f.xMax = int16(binary.BigEndian.Uint16(b[40:42]))
+	f.yMax = int16(binary.BigEndian.Uint16(b[42:44]))
+	return nil
+}
+
+func parseHhea(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "hhea")
+	if len(b) < 36 {
+		return fmt.Errorf("parse ttf hhea: too small")
+	}
+	f.ascent = int16(binary.BigEndian.Uint16(b[4:6]))
+	f.descent = int16(binary.BigEndian.Uint16(b[6:8]))
+	f.numOfLongHorMetrics = binary.BigEndian.Uint16(b[34:36])
+	return nil
+}
+
+func parseMaxp(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "maxp")
+	if len(b) < 6 {
+		return fmt.Errorf("parse ttf maxp: too small")
+	}
+	f.numGlyphs = binary.BigEndian.Uint16(b[4:6])
+	return nil
+}
+
+func parseHmtx(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "hmtx")
+	if f.numGlyphs == 0 {
+		return fmt.Errorf("parse ttf hmtx: numGlyphs is zero")
+	}
+	if f.numOfLongHorMetrics == 0 {
+		return fmt.Errorf("parse ttf hmtx: numOfLongHorMetrics is zero")
+	}
+	// The hmtx table has numOfLongHorMetrics 4-byte records (advanceWidth uint16, lsb int16),
+	// followed by (numGlyphs - numOfLongHorMetrics) 2-byte records (lsb only); the missing
+	// advanceWidth inherits the advanceWidth of the last long record.
+	if len(b) < int(f.numOfLongHorMetrics)*4 {
+		return fmt.Errorf("parse ttf hmtx: too small")
+	}
+	widths := make([]uint16, f.numGlyphs)
+	var lastAdvance uint16
+	for i := uint16(0); i < f.numOfLongHorMetrics; i++ {
+		off := int(i) * 4
+		w := binary.BigEndian.Uint16(b[off : off+2])
+		widths[i] = w
+		lastAdvance = w
+	}
+	for i := f.numOfLongHorMetrics; i < f.numGlyphs; i++ {
+		widths[i] = lastAdvance
+	}
+	f.glyphWidths = widths
+	return nil
 }
