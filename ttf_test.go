@@ -97,3 +97,61 @@ func TestParseTTF_Hmtx(t *testing.T) {
 		t.Error("glyphWidths[0] (.notdef) is zero — likely parse error")
 	}
 }
+
+func TestParseTTF_CmapLatin(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := f.glyphID('A'); g == 0 {
+		t.Error("glyphID('A') = 0, want non-zero")
+	}
+	if g := f.glyphID(' '); g == 0 {
+		t.Error("glyphID(' ') = 0, want non-zero")
+	}
+}
+
+func TestParseTTF_CmapCyrillic(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := f.glyphID('Я'); g == 0 {
+		t.Error("glyphID('Я') = 0, want non-zero (DejaVu covers Cyrillic)")
+	}
+	if g := f.glyphID('ж'); g == 0 {
+		t.Error("glyphID('ж') = 0, want non-zero")
+	}
+}
+
+func TestParseTTF_CmapMissing(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// DejaVuSans does not cover CJK.
+	if g := f.glyphID('日'); g != 0 {
+		t.Errorf("glyphID('日') = %d, want 0 (CJK not in DejaVuSans)", g)
+	}
+}
+
+func TestParseTTF_AdvanceKnown(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gid := f.glyphID('A')
+	if gid == 0 {
+		t.Fatal("glyphID('A') = 0")
+	}
+	advA := f.glyphWidths[gid]
+	if advA == 0 {
+		t.Errorf("advance for 'A' = 0")
+	}
+	// In DejaVuSans 'A' is wider than ' '.
+	gidSp := f.glyphID(' ')
+	if f.glyphWidths[gidSp] >= advA {
+		t.Errorf("' ' advance (%d) >= 'A' advance (%d), unexpected for DejaVuSans",
+			f.glyphWidths[gidSp], advA)
+	}
+}

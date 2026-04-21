@@ -93,6 +93,9 @@ func parseTTF(data []byte) (*ttfFont, error) {
 	if err := parseHmtx(f, tables); err != nil {
 		return nil, err
 	}
+	if err := parseCmap(f, tables); err != nil {
+		return nil, err
+	}
 
 	return f, nil
 }
@@ -173,4 +176,159 @@ func parseHmtx(f *ttfFont, tables map[string]tableRecord) error {
 	}
 	f.glyphWidths = widths
 	return nil
+}
+
+func parseCmap(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "cmap")
+	if len(b) < 4 {
+		return fmt.Errorf("parse ttf cmap: too small")
+	}
+	numSubtables := int(binary.BigEndian.Uint16(b[2:4]))
+	if len(b) < 4+numSubtables*8 {
+		return fmt.Errorf("parse ttf cmap: truncated subtable index")
+	}
+
+	// Rank candidates: prefer format 12 (full Unicode) > format 4 (BMP only);
+	// within a format, prefer Unicode platform (0) > Microsoft platform (3).
+	type cand struct {
+		priority int
+		format   uint16
+		offset   uint32
+	}
+	var best *cand
+
+	for i := 0; i < numSubtables; i++ {
+		off := 4 + i*8
+		platformID := binary.BigEndian.Uint16(b[off : off+2])
+		encodingID := binary.BigEndian.Uint16(b[off+2 : off+4])
+		subOffset := binary.BigEndian.Uint32(b[off+4 : off+8])
+		if int(subOffset)+4 > len(b) {
+			continue
+		}
+		format := binary.BigEndian.Uint16(b[subOffset : subOffset+2])
+
+		// Skip subtables we can't parse.
+		if format != 4 && format != 12 {
+			continue
+		}
+
+		var pri int
+		switch {
+		case format == 12 && platformID == 0:
+			pri = 1000
+		case format == 12 && platformID == 3 && encodingID == 10:
+			pri = 900
+		case format == 4 && platformID == 0:
+			pri = 500
+		case format == 4 && platformID == 3 && encodingID == 1:
+			pri = 400
+		default:
+			continue
+		}
+		if best == nil || pri > best.priority {
+			c := cand{priority: pri, format: format, offset: subOffset}
+			best = &c
+		}
+	}
+	if best == nil {
+		return fmt.Errorf("parse ttf cmap: no supported subtable (need format 4 or 12)")
+	}
+
+	m := make(map[rune]uint16)
+	switch best.format {
+	case 4:
+		if err := parseCmapFormat4(b[best.offset:], m); err != nil {
+			return fmt.Errorf("parse ttf cmap format 4: %w", err)
+		}
+	case 12:
+		if err := parseCmapFormat12(b[best.offset:], m); err != nil {
+			return fmt.Errorf("parse ttf cmap format 12: %w", err)
+		}
+	}
+	f.runeToGlyph = m
+	return nil
+}
+
+// parseCmapFormat4 handles segmented BMP coverage (Unicode code points <= U+FFFF).
+func parseCmapFormat4(b []byte, m map[rune]uint16) error {
+	if len(b) < 14 {
+		return fmt.Errorf("too small")
+	}
+	segCountX2 := int(binary.BigEndian.Uint16(b[6:8]))
+	segCount := segCountX2 / 2
+	if segCount == 0 {
+		return nil
+	}
+	// Layout after the 14-byte header:
+	//   endCode[segCount] (uint16)
+	//   reservedPad uint16
+	//   startCode[segCount] uint16
+	//   idDelta[segCount] int16
+	//   idRangeOffset[segCount] uint16
+	//   glyphIdArray[...] uint16 (remainder)
+	needed := 14 + 8*segCount + 2
+	if len(b) < needed {
+		return fmt.Errorf("truncated")
+	}
+	endOff := 14
+	startOff := endOff + 2*segCount + 2 // skip endCode + reservedPad
+	deltaOff := startOff + 2*segCount
+	rangeOff := deltaOff + 2*segCount
+
+	for i := 0; i < segCount; i++ {
+		endCode := binary.BigEndian.Uint16(b[endOff+2*i : endOff+2*i+2])
+		startCode := binary.BigEndian.Uint16(b[startOff+2*i : startOff+2*i+2])
+		idDelta := int16(binary.BigEndian.Uint16(b[deltaOff+2*i : deltaOff+2*i+2]))
+		idRangeOffsetPos := rangeOff + 2*i
+		idRangeOffset := binary.BigEndian.Uint16(b[idRangeOffsetPos : idRangeOffsetPos+2])
+
+		for c := uint32(startCode); c <= uint32(endCode); c++ {
+			var gid uint16
+			if idRangeOffset == 0 {
+				gid = uint16(int32(c) + int32(idDelta))
+			} else {
+				off := int(idRangeOffsetPos) + int(idRangeOffset) + int(c-uint32(startCode))*2
+				if off+2 > len(b) {
+					continue
+				}
+				val := binary.BigEndian.Uint16(b[off : off+2])
+				if val != 0 {
+					gid = uint16(int32(val) + int32(idDelta))
+				}
+			}
+			if gid != 0 && c <= 0x10FFFF {
+				m[rune(c)] = gid
+			}
+		}
+	}
+	return nil
+}
+
+// parseCmapFormat12 handles segmented coverage including supplementary planes.
+func parseCmapFormat12(b []byte, m map[rune]uint16) error {
+	if len(b) < 16 {
+		return fmt.Errorf("too small")
+	}
+	numGroups := binary.BigEndian.Uint32(b[12:16])
+	if len(b) < 16+int(numGroups)*12 {
+		return fmt.Errorf("truncated")
+	}
+	for i := uint32(0); i < numGroups; i++ {
+		off := 16 + int(i)*12
+		startChar := binary.BigEndian.Uint32(b[off : off+4])
+		endChar := binary.BigEndian.Uint32(b[off+4 : off+8])
+		startGlyphID := binary.BigEndian.Uint32(b[off+8 : off+12])
+		for c := startChar; c <= endChar && c <= 0x10FFFF; c++ {
+			gid := startGlyphID + (c - startChar)
+			if gid < 0x10000 {
+				m[rune(c)] = uint16(gid)
+			}
+		}
+	}
+	return nil
+}
+
+// glyphID returns the glyph index for r, or 0 (.notdef) if unmapped.
+func (f *ttfFont) glyphID(r rune) uint16 {
+	return f.runeToGlyph[r]
 }
