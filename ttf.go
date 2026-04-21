@@ -15,8 +15,8 @@ type ttfFont struct {
 	xMax, yMax int16
 
 	// From hhea.
-	ascent, descent        int16
-	numOfLongHorMetrics    uint16
+	ascent, descent     int16
+	numOfLongHorMetrics uint16
 
 	// From maxp.
 	numGlyphs uint16

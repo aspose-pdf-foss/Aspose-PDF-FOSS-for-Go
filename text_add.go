@@ -519,9 +519,11 @@ func (p *Page) ensureStandardFontResource(pdfFontName string) (string, error) {
 }
 
 // ensureEmbeddedFontResource registers an already-embedded font (created by LoadFont)
-// in the page's /Resources /Font dict and returns the resource name. Caches the name
-// on the embeddedFont for reuse across pages.
+// in the page's /Resources /Font dict and returns the resource name.
 func (p *Page) ensureEmbeddedFontResource(ef *embeddedFont) (string, error) {
+	if ef.doc != p.doc {
+		return "", fmt.Errorf("add text: font was loaded into a different document")
+	}
 	pageDict := p.pageDict()
 	if pageDict == nil {
 		return "", fmt.Errorf("add text: page has no dict")
@@ -538,7 +540,6 @@ func (p *Page) ensureEmbeddedFontResource(ef *embeddedFont) (string, error) {
 		resources["/Font"] = fontDict
 	}
 
-	// Check whether this embedded font is already in the page's Font dict.
 	for name, val := range fontDict {
 		if ref, ok := val.(pdfRef); ok && ref.Num == ef.fontObjectID {
 			return name, nil
@@ -546,7 +547,6 @@ func (p *Page) ensureEmbeddedFontResource(ef *embeddedFont) (string, error) {
 	}
 	name := nextFontName(fontDict)
 	fontDict[name] = pdfRef{Num: ef.fontObjectID}
-	ef.resourceName = name
 	return name, nil
 }
 

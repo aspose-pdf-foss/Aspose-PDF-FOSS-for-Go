@@ -75,15 +75,16 @@ type embeddedFont struct {
 	doc          *Document
 	ttf          *ttfFont
 	baseFont     string // PostScript name cache
-	fontObjectID int    // ID of the Type0 font dict in doc.objects; 0 until Task 12.
-	resourceName string // stable /Fn resource name per page; populated on first use.
+	fontObjectID int    // ID of the Type0 font dict in doc.objects
 }
 
 func (e *embeddedFont) BaseFont() string { return e.baseFont }
 func (e *embeddedFont) IsEmbedded() bool { return true }
 
 // LoadFont reads a TTF file, parses it, embeds it into the document, and returns
-// a Font that can be used in TextStyle.Font.
+// a Font that can be used in TextStyle.Font. The full TTF is embedded without
+// subsetting, so large fonts increase output size. The returned Font is bound
+// to this document and must not be used with pages from other documents.
 func (d *Document) LoadFont(path string) (Font, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

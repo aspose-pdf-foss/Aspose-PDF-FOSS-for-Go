@@ -527,3 +527,21 @@ func TestAddTextNilFontDefaultsToHelvetica(t *testing.T) {
 func TestAddTextUnsupportedFontType(t *testing.T) {
 	t.Skip("skipped: cannot implement Font externally in package-internal tests without access to unexported methods")
 }
+
+func TestAddTextRejectsCrossDocumentFont(t *testing.T) {
+	docA := NewDocument(595, 842)
+	font, err := docA.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	docB := NewDocument(595, 842)
+	page, _ := docB.Page(1)
+	err = page.AddText("Привет", TextStyle{Font: font, Size: 12},
+		Rectangle{LLX: 50, LLY: 750, URX: 545, URY: 800})
+	if err == nil {
+		t.Fatal("expected error when using font from another document")
+	}
+	if !strings.Contains(err.Error(), "different document") {
+		t.Errorf("error = %q, want to mention 'different document'", err.Error())
+	}
+}
