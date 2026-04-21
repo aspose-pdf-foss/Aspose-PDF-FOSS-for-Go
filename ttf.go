@@ -151,6 +151,9 @@ func parseHmtx(f *ttfFont, tables map[string]tableRecord) error {
 	if f.numOfLongHorMetrics == 0 {
 		return fmt.Errorf("parse ttf hmtx: numOfLongHorMetrics is zero")
 	}
+	if f.numOfLongHorMetrics > f.numGlyphs {
+		return fmt.Errorf("parse ttf hmtx: numOfLongHorMetrics (%d) exceeds numGlyphs (%d)", f.numOfLongHorMetrics, f.numGlyphs)
+	}
 	// The hmtx table has numOfLongHorMetrics 4-byte records (advanceWidth uint16, lsb int16),
 	// followed by (numGlyphs - numOfLongHorMetrics) 2-byte records (lsb only); the missing
 	// advanceWidth inherits the advanceWidth of the last long record.
