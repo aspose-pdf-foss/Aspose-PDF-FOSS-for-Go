@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,52 @@ func TestBuildFontDescriptor(t *testing.T) {
 	flags, _ := desc["/Flags"].(int)
 	if flags&0x4 == 0 {
 		t.Errorf("/Flags = %d, Symbolic bit not set", flags)
+	}
+}
+
+func TestBuildWArray(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arr := buildWArray(f)
+	// Round-trip through the existing parseCIDWidthArray.
+	widths := make(map[uint16]float64)
+	parseCIDWidthArray(arr, widths)
+
+	// 'A' has a known non-default width.
+	gidA := f.glyphID('A')
+	want := float64(f.glyphWidths[gidA]) * 1000.0 / float64(f.unitsPerEm)
+	got := widths[gidA]
+	// Default width 500 is skipped from /W, so if advance scaled equals 500 it's absent.
+	if got == 0 && want != 500 {
+		t.Errorf("/W round-trip for gid %d: got 0, want %g", gidA, want)
+	}
+	if got != 0 {
+		// Round to nearest int because packing stores ints.
+		if int(got) != int(want) && int(got) != int(want+0.5) {
+			t.Errorf("/W width for gid %d = %g, want %g", gidA, got, want)
+		}
+	}
+}
+
+func TestBuildToUnicodeCMap(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := buildToUnicodeCMap(f)
+	content := string(stream.Data)
+	if !strings.Contains(content, "beginbfchar") {
+		t.Error("CMap missing beginbfchar block")
+	}
+	if !strings.Contains(content, "begincmap") || !strings.Contains(content, "endcmap") {
+		t.Error("CMap missing begincmap/endcmap")
+	}
+	// Round-trip: reuse the existing parseCMap reader.
+	decoded := parseCMap(stream.Data)
+	gidA := f.glyphID('A')
+	if r, ok := decoded[gidA]; !ok || r != 'A' {
+		t.Errorf("CMap[gid(A)] = (%q, %v), want ('A', true)", r, ok)
 	}
 }
