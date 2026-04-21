@@ -179,6 +179,42 @@ func buildToUnicodeCMap(f *ttfFont) *pdfStream {
 	}
 }
 
+// embedFont adds all required PDF objects for the embedded TTF to doc.objects
+// and returns the object ID of the Type0 font dict.
+func embedFont(d *Document, f *ttfFont) int {
+	fontFile2ID := d.addObject(buildFontFile2Stream(f))
+	descriptor := buildFontDescriptor(f, fontFile2ID)
+	descriptorID := d.addObject(descriptor)
+
+	cidDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/CIDFontType2"),
+		"/BaseFont": pdfName("/" + f.postScriptName),
+		"/CIDSystemInfo": pdfDict{
+			"/Registry":   "Adobe",
+			"/Ordering":   "Identity",
+			"/Supplement": 0,
+		},
+		"/FontDescriptor": pdfRef{Num: descriptorID},
+		"/CIDToGIDMap":    pdfName("/Identity"),
+		"/W":              buildWArray(f),
+		"/DW":             defaultCIDWidth,
+	}
+	cidID := d.addObject(cidDict)
+
+	tuID := d.addObject(buildToUnicodeCMap(f))
+
+	type0 := pdfDict{
+		"/Type":            pdfName("/Font"),
+		"/Subtype":         pdfName("/Type0"),
+		"/BaseFont":        pdfName("/" + f.postScriptName),
+		"/Encoding":        pdfName("/Identity-H"),
+		"/DescendantFonts": pdfArray{pdfRef{Num: cidID}},
+		"/ToUnicode":       pdfRef{Num: tuID},
+	}
+	return d.addObject(type0)
+}
+
 // runeToUTF16BEHex renders r as big-endian UTF-16 in uppercase hex, with
 // surrogate pairs for supplementary characters (> U+FFFF).
 func runeToUTF16BEHex(r rune) string {

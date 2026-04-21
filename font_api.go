@@ -106,11 +106,12 @@ func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load font: %w", err)
 	}
+	fontID := embedFont(d, ttf)
 	ef := &embeddedFont{
-		doc:      d,
-		ttf:      ttf,
-		baseFont: ttf.postScriptName,
+		doc:          d,
+		ttf:          ttf,
+		baseFont:     ttf.postScriptName,
+		fontObjectID: fontID,
 	}
-	// PDF object embedding is wired in Task 12.
 	return ef, nil
 }

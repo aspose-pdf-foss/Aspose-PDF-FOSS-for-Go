@@ -109,3 +109,53 @@ func TestBuildToUnicodeCMap(t *testing.T) {
 		t.Errorf("CMap[gid(A)] = (%q, %v), want ('A', true)", r, ok)
 	}
 }
+
+func TestLoadFontCreatesFiveObjects(t *testing.T) {
+	doc := NewDocument(595, 842)
+	beforeCount := len(doc.objects)
+
+	f, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterCount := len(doc.objects)
+
+	if afterCount-beforeCount < 5 {
+		t.Errorf("LoadFont added %d objects, want >= 5 (Type0, CIDFontType2, FontDescriptor, FontFile2, ToUnicode)",
+			afterCount-beforeCount)
+	}
+
+	ef, ok := f.(*embeddedFont)
+	if !ok {
+		t.Fatalf("LoadFont returned %T, want *embeddedFont", f)
+	}
+	if ef.fontObjectID == 0 {
+		t.Error("fontObjectID not set")
+	}
+
+	// Walk: Type0 -> DescendantFonts[0] -> CIDFontType2 -> FontDescriptor -> FontFile2
+	type0 := doc.objects[ef.fontObjectID].Value.(pdfDict)
+	if type0["/Subtype"] != pdfName("/Type0") {
+		t.Errorf("Type0 /Subtype = %v", type0["/Subtype"])
+	}
+	if type0["/Encoding"] != pdfName("/Identity-H") {
+		t.Errorf("Type0 /Encoding = %v, want /Identity-H", type0["/Encoding"])
+	}
+	desc := type0["/DescendantFonts"].(pdfArray)
+	if len(desc) != 1 {
+		t.Fatalf("DescendantFonts length = %d, want 1", len(desc))
+	}
+	cidRef := desc[0].(pdfRef)
+	cid := doc.objects[cidRef.Num].Value.(pdfDict)
+	if cid["/Subtype"] != pdfName("/CIDFontType2") {
+		t.Errorf("CIDFont /Subtype = %v", cid["/Subtype"])
+	}
+	if cid["/CIDToGIDMap"] != pdfName("/Identity") {
+		t.Errorf("CIDToGIDMap = %v, want /Identity", cid["/CIDToGIDMap"])
+	}
+
+	tuRef := type0["/ToUnicode"].(pdfRef)
+	if _, ok := doc.objects[tuRef.Num].Value.(*pdfStream); !ok {
+		t.Error("ToUnicode is not a stream")
+	}
+}
