@@ -96,6 +96,15 @@ func parseTTF(data []byte) (*ttfFont, error) {
 	if err := parseCmap(f, tables); err != nil {
 		return nil, err
 	}
+	if err := parseOS2(f, tables); err != nil {
+		return nil, err
+	}
+	if err := parsePost(f, tables); err != nil {
+		return nil, err
+	}
+	if err := parseName(f, tables); err != nil {
+		return nil, err
+	}
 
 	return f, nil
 }
@@ -331,4 +340,128 @@ func parseCmapFormat12(b []byte, m map[rune]uint16) error {
 // glyphID returns the glyph index for r, or 0 (.notdef) if unmapped.
 func (f *ttfFont) glyphID(r rune) uint16 {
 	return f.runeToGlyph[r]
+}
+
+func parseOS2(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "OS/2")
+	if len(b) < 78 {
+		return fmt.Errorf("parse ttf OS/2: too small")
+	}
+	f.weight = binary.BigEndian.Uint16(b[4:6])
+	fsSelection := binary.BigEndian.Uint16(b[62:64])
+	f.flagsItalic = fsSelection&0x01 != 0
+	f.flagsBold = fsSelection&0x20 != 0
+	// sCapHeight is at offset 88 in OS/2 version 2+. Version 0/1 may omit it.
+	if len(b) >= 90 {
+		f.capHeight = int16(binary.BigEndian.Uint16(b[88:90]))
+	}
+	return nil
+}
+
+func parsePost(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "post")
+	if len(b) < 32 {
+		return fmt.Errorf("parse ttf post: too small")
+	}
+	// italicAngle is a Fixed (signed 16.16 fraction) at offset 4.
+	raw := int32(binary.BigEndian.Uint32(b[4:8]))
+	f.italicAngle = float64(raw) / 65536.0
+	// isFixedPitch is a uint32 at offset 12.
+	f.isFixedPitch = binary.BigEndian.Uint32(b[12:16]) != 0
+	return nil
+}
+
+// parseName extracts the PostScript name (nameID 6). Falls back to Full Name
+// (nameID 4) with spaces replaced by dashes if nameID 6 is absent.
+func parseName(f *ttfFont, tables map[string]tableRecord) error {
+	b := tableSlice(f.data, tables, "name")
+	if len(b) < 6 {
+		return fmt.Errorf("parse ttf name: too small")
+	}
+	count := int(binary.BigEndian.Uint16(b[2:4]))
+	storageOffset := int(binary.BigEndian.Uint16(b[4:6]))
+	if len(b) < 6+count*12 {
+		return fmt.Errorf("parse ttf name: truncated record array")
+	}
+
+	var psName, fullName string
+	for i := 0; i < count; i++ {
+		rec := b[6+i*12:]
+		platformID := binary.BigEndian.Uint16(rec[0:2])
+		encodingID := binary.BigEndian.Uint16(rec[2:4])
+		nameID := binary.BigEndian.Uint16(rec[6:8])
+		length := int(binary.BigEndian.Uint16(rec[8:10]))
+		offset := int(binary.BigEndian.Uint16(rec[10:12]))
+
+		if nameID != 6 && nameID != 4 {
+			continue
+		}
+		start := storageOffset + offset
+		end := start + length
+		if end > len(b) {
+			continue
+		}
+		raw := b[start:end]
+
+		var decoded string
+		switch {
+		case platformID == 3 && encodingID == 1: // Microsoft Unicode BMP (UTF-16BE)
+			decoded = decodeUTF16BE(raw)
+		case platformID == 0: // Unicode (UTF-16BE)
+			decoded = decodeUTF16BE(raw)
+		case platformID == 1 && encodingID == 0: // Mac Roman (ASCII-safe subset)
+			decoded = string(raw)
+		default:
+			continue
+		}
+
+		if nameID == 6 && psName == "" {
+			psName = decoded
+		}
+		if nameID == 4 && fullName == "" {
+			fullName = decoded
+		}
+	}
+
+	if psName == "" && fullName == "" {
+		return fmt.Errorf("parse ttf name: no PostScript name or Full Name found")
+	}
+	if psName == "" {
+		// Fallback: replace spaces with dashes in Full Name.
+		psName = ""
+		for _, r := range fullName {
+			if r == ' ' {
+				psName += "-"
+			} else {
+				psName += string(r)
+			}
+		}
+	}
+	f.postScriptName = psName
+	return nil
+}
+
+// decodeUTF16BE decodes a UTF-16BE byte sequence to a Go string.
+// Invalid bytes yield U+FFFD.
+func decodeUTF16BE(b []byte) string {
+	if len(b)%2 != 0 {
+		// Trim trailing odd byte.
+		b = b[:len(b)-1]
+	}
+	runes := make([]rune, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		u := uint32(b[i])<<8 | uint32(b[i+1])
+		// Surrogate pair handling.
+		if u >= 0xD800 && u <= 0xDBFF && i+3 < len(b) {
+			low := uint32(b[i+2])<<8 | uint32(b[i+3])
+			if low >= 0xDC00 && low <= 0xDFFF {
+				cp := 0x10000 + ((u - 0xD800) << 10) + (low - 0xDC00)
+				runes = append(runes, rune(cp))
+				i += 2
+				continue
+			}
+		}
+		runes = append(runes, rune(u))
+	}
+	return string(runes)
 }

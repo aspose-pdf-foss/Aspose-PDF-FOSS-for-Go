@@ -155,3 +155,49 @@ func TestParseTTF_AdvanceKnown(t *testing.T) {
 			f.glyphWidths[gidSp], advA)
 	}
 }
+
+func TestParseTTF_OS2(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.weight == 0 {
+		t.Error("weight not populated")
+	}
+	// DejaVuSans is regular (not bold/italic).
+	if f.flagsBold {
+		t.Error("DejaVuSans flagged Bold (wrong)")
+	}
+	if f.flagsItalic {
+		t.Error("DejaVuSans flagged Italic (wrong)")
+	}
+	// capHeight may be 0 if OS/2 version doesn't include it (v0/v1).
+	// Just check that it's not negative (which would indicate parse error).
+	if f.capHeight < 0 {
+		t.Errorf("capHeight = %d, want non-negative", f.capHeight)
+	}
+}
+
+func TestParseTTF_Post(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// DejaVuSans is proportional, italic angle 0.
+	if f.italicAngle != 0 {
+		t.Errorf("italicAngle = %g, want 0", f.italicAngle)
+	}
+	if f.isFixedPitch {
+		t.Error("DejaVuSans flagged FixedPitch (wrong)")
+	}
+}
+
+func TestParseTTF_Name(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.postScriptName != "DejaVuSans" {
+		t.Errorf("postScriptName = %q, want DejaVuSans", f.postScriptName)
+	}
+}
