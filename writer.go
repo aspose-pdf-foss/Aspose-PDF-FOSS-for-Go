@@ -193,6 +193,12 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			buf.WriteString(escapeLiteral(val))
 			buf.WriteString(")")
 		}
+	case pdfHexString:
+		if encFn != nil {
+			writeHexBytes(buf, encFn([]byte(val)))
+		} else {
+			writeHexBytes(buf, []byte(val))
+		}
 	case pdfRef:
 		buf.WriteString(strconv.Itoa(remapFn(val.Num)))
 		buf.WriteByte(' ')
@@ -289,14 +295,19 @@ func escapeLiteral(s string) string {
 }
 
 // buildEncryptDict builds the /Encrypt dictionary for standard RC4-128 security.
+// /O and /U are raw 32-byte binary values emitted as hex strings to avoid
+// literal-string parsing ambiguities (embedded NULs, etc.).
 func buildEncryptDict(s *encryptState) pdfDict {
 	return pdfDict{
 		"/Filter": pdfName("/Standard"),
 		"/V":      2,
 		"/R":      3,
 		"/Length": 128,
-		"/P":      int(encryptPermissions),
-		"/O":      string(s.ownerEntry),
-		"/U":      string(s.userEntry),
+		// /P is a 32-bit bitfield. Emit as unsigned so it reads as a positive
+		// integer (e.g. 4294967292 for grant-all), matching Adobe/pypdf
+		// convention and avoiding signed-int interop pitfalls.
+		"/P": encryptPermissionsUnsigned(),
+		"/O":      pdfHexString(s.ownerEntry),
+		"/U":      pdfHexString(s.userEntry),
 	}
 }

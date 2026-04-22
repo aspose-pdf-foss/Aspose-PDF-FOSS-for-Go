@@ -22,6 +22,13 @@ type pdfDirectRef struct {
 // pdfName is a PDF name object like /Name.
 type pdfName string
 
+// pdfHexString is a byte sequence that writeValue always emits as a PDF hex
+// string (<…>), regardless of whether an encryption function is active.
+// Used for /O and /U in the /Encrypt dictionary, where the value is raw
+// binary (including embedded NULs) and literal-string encoding is a known
+// interop trap.
+type pdfHexString []byte
+
 // pdfDict is a PDF dictionary.
 type pdfDict map[string]pdfValue
 

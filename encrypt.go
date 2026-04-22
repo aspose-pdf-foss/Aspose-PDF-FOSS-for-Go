@@ -24,6 +24,13 @@ var passwordPadBytes = [32]byte{
 // PDF spec: bits 1-2 reserved 0, all permission bits set = -4 (0xFFFFFFFC).
 const encryptPermissions int32 = -4
 
+// encryptPermissionsUnsigned returns /P as an unsigned 32-bit integer cast to int.
+// Matches the Adobe/pypdf convention of writing /P as a positive decimal.
+func encryptPermissionsUnsigned() int {
+	v := encryptPermissions // non-const, so the cast is allowed
+	return int(uint32(v))
+}
+
 // encryptConfig holds the password settings for encrypting a document.
 type encryptConfig struct {
 	userPassword  string
@@ -63,10 +70,12 @@ func newEncryptState(cfg *encryptConfig) (*encryptState, error) {
 }
 
 // padPassword pads or truncates s to exactly 32 bytes using the PDF spec padding string.
+// Per ISO 32000-1 Algorithm 2 step (a): append bytes from the BEGINNING of the
+// padding string until the result is 32 bytes long.
 func padPassword(s string) []byte {
 	out := make([]byte, 32)
 	n := copy(out, s)
-	copy(out[n:], passwordPadBytes[n:])
+	copy(out[n:], passwordPadBytes[:])
 	return out
 }
 
@@ -118,7 +127,11 @@ func computeUserEntry(encKey, fileID []byte) []byte {
 	for i := 1; i <= 19; i++ {
 		applyRC4(result, xorKey(encKey, byte(i)))
 	}
-	return append(result, make([]byte, 16)...) // pad to 32 bytes
+	// Algorithm 5 step 7: "append 16 bytes of arbitrary padding". The spec says
+	// only the first 16 bytes are checked, but in practice Adobe and poppler
+	// reject /U entries that are not padded with the first 16 bytes of the
+	// password padding constant. Matching that convention maximises interop.
+	return append(result, passwordPadBytes[:16]...)
 }
 
 // encryptBytes encrypts (or decrypts — RC4 is symmetric) data for the given object number.
