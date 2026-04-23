@@ -165,6 +165,15 @@ func (d *Document) RemoveUnusedObjects() int {
 // userPassword is required to open; ownerPassword controls permissions.
 // If ownerPassword is empty, it defaults to userPassword.
 //
+// Password encoding: The password bytes are passed unchanged to the PDF
+// Standard Security Handler (RC4-128, V=2 R=3). For ASCII passwords this
+// matches both the PDF specification and every major PDF viewer. For
+// non-ASCII passwords the raw UTF-8 bytes are used, which is compatible
+// with pypdf 6.x and Adobe Acrobat DC but may not be accepted by strictly
+// legacy PDFDocEncoding-only viewers (e.g. Adobe Reader 9 and older).
+// For international passwords with guaranteed interop, AES-256 (R=6) is
+// the only complete solution — not yet supported by this library.
+//
 // Example:
 //
 //	doc.SetPassword("secret", "")

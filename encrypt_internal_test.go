@@ -88,6 +88,37 @@ func TestComputeUserEntryReferenceVector(t *testing.T) {
 	}
 }
 
+// TestNonASCIIPasswordMatchesPyPDF pins the encoding of non-ASCII passwords.
+// padPassword currently passes raw UTF-8 bytes through, which matches the
+// behavior of pypdf 6.x and modern Adobe Acrobat. If we ever silently switch
+// to PDFDocEncoding or another transcoding, the Cyrillic password "пароль"
+// would encode to different bytes and this test would fail — surfacing a
+// breaking change in password semantics that would otherwise be invisible
+// to ASCII-only test suites.
+//
+// Vector source: pypdf.PdfWriter.encrypt(user_password="пароль",
+// algorithm="RC4-128", permissions_flag=-4). /O, /U, /ID read directly
+// from the resulting file's /Encrypt dict and /ID.
+func TestNonASCIIPasswordMatchesPyPDF(t *testing.T) {
+	fileID := hexDecode(t, "e8b53c4162a2da07c50cc77f77f017af")
+	oEntry := hexDecode(t, "477b07103319bc9bbb9d4be32a0bb5311ec33b8b606cd3a8c5f4c3e726c9f61c")
+	wantU := hexDecode(t, "3d24e11b71f977b0b15b1af2895e645f28bf4e5e4e758a4164004e56fffa0108")
+	const password = "пароль"
+
+	key := computeEncKey(password, oEntry, encryptPermissions, fileID)
+	gotU := computeUserEntry(key, fileID)
+
+	if !bytes.Equal(gotU, wantU) {
+		t.Errorf("computeUserEntry mismatch\ngot:  %x\nwant: %x", gotU, wantU)
+	}
+	if !verifyUserPassword(password, oEntry, wantU, fileID) {
+		t.Error("verifyUserPassword rejected the correct Cyrillic password")
+	}
+	if verifyUserPassword("parol", oEntry, wantU, fileID) {
+		t.Error("verifyUserPassword accepted a Latin transliteration instead of UTF-8 bytes")
+	}
+}
+
 // TestEncryptPasswordVerification tests the cryptographic round-trip:
 // passwords that were used to produce /O and /U can be verified against them.
 func TestEncryptPasswordVerification(t *testing.T) {
