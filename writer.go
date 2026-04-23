@@ -82,10 +82,25 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	offsets[pagesObjID] = int64(buf.Len())
 	writePageTreeNode(&buf, pagesObjID, d.pages, remapFn)
 
-	// Write /Catalog.
+	// Write /Catalog. Preserve every field from the original catalog
+	// (/Outlines, /AcroForm, /Names, /PageLabels, /Metadata, etc.) so
+	// a Save+Reopen roundtrip is lossless. /Pages is replaced with the
+	// writer-built node; other refs are remapped by writeValue.
 	offsets[catalogObjID] = int64(buf.Len())
-	fmt.Fprintf(&buf, "%d 0 obj\n<<\n/Type /Catalog\n/Pages %d 0 R\n>>\nendobj\n",
-		catalogObjID, pagesObjID)
+	catOut := make(pdfDict, len(d.catalog)+2)
+	for k, v := range d.catalog {
+		if k == "/Pages" {
+			continue
+		}
+		catOut[k] = v
+	}
+	catOut["/Type"] = pdfName("/Catalog")
+	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
+	var catalogEncFn func([]byte) []byte
+	if encState != nil {
+		catalogEncFn = func(b []byte) []byte { return encState.encryptBytes(catalogObjID, b) }
+	}
+	writeObject(&buf, catalogObjID, pdfValue(catOut), remapFn, catalogEncFn)
 
 	// Write /Info if present.
 	if infoObjID != 0 {
