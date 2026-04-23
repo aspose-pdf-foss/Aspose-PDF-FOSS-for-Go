@@ -74,16 +74,16 @@ func TestComputeUserEntryReferenceVector(t *testing.T) {
 	wantU := hexDecode(t, "20d82f78cf48b212ae3b4c732d19b38228bf4e5e4e758a4164004e56fffa0108")
 	const password = "secret"
 
-	key := computeEncKey(password, oEntry, encryptPermissions, fileID)
+	key := computeEncKey(password, oEntry, encryptPermissionsAllowAll, fileID)
 	gotU := computeUserEntry(key, fileID)
 
 	if !bytes.Equal(gotU, wantU) {
 		t.Errorf("computeUserEntry mismatch\ngot:  %x\nwant: %x", gotU, wantU)
 	}
-	if !verifyUserPassword(password, oEntry, wantU, fileID) {
+	if !verifyUserPassword(password, oEntry, wantU, fileID, encryptPermissionsAllowAll) {
 		t.Error("verifyUserPassword rejected the correct password for the reference vector")
 	}
-	if verifyUserPassword("wrong", oEntry, wantU, fileID) {
+	if verifyUserPassword("wrong", oEntry, wantU, fileID, encryptPermissionsAllowAll) {
 		t.Error("verifyUserPassword accepted a wrong password for the reference vector")
 	}
 }
@@ -105,16 +105,16 @@ func TestNonASCIIPasswordMatchesPyPDF(t *testing.T) {
 	wantU := hexDecode(t, "3d24e11b71f977b0b15b1af2895e645f28bf4e5e4e758a4164004e56fffa0108")
 	const password = "пароль"
 
-	key := computeEncKey(password, oEntry, encryptPermissions, fileID)
+	key := computeEncKey(password, oEntry, encryptPermissionsAllowAll, fileID)
 	gotU := computeUserEntry(key, fileID)
 
 	if !bytes.Equal(gotU, wantU) {
 		t.Errorf("computeUserEntry mismatch\ngot:  %x\nwant: %x", gotU, wantU)
 	}
-	if !verifyUserPassword(password, oEntry, wantU, fileID) {
+	if !verifyUserPassword(password, oEntry, wantU, fileID, encryptPermissionsAllowAll) {
 		t.Error("verifyUserPassword rejected the correct Cyrillic password")
 	}
-	if verifyUserPassword("parol", oEntry, wantU, fileID) {
+	if verifyUserPassword("parol", oEntry, wantU, fileID, encryptPermissionsAllowAll) {
 		t.Error("verifyUserPassword accepted a Latin transliteration instead of UTF-8 bytes")
 	}
 }
@@ -125,16 +125,16 @@ func TestEncryptPasswordVerification(t *testing.T) {
 	fileID := []byte("0123456789abcdef") // fixed 16-byte ID for determinism
 
 	oEntry := computeOwnerEntry("user", "owner")
-	key := computeEncKey("user", oEntry, encryptPermissions, fileID)
+	key := computeEncKey("user", oEntry, encryptPermissionsAllowAll, fileID)
 	uEntry := computeUserEntry(key, fileID)
 
-	if !verifyUserPassword("user", oEntry, uEntry, fileID) {
+	if !verifyUserPassword("user", oEntry, uEntry, fileID, encryptPermissionsAllowAll) {
 		t.Error("correct user password not verified")
 	}
-	if verifyUserPassword("wrong", oEntry, uEntry, fileID) {
+	if verifyUserPassword("wrong", oEntry, uEntry, fileID, encryptPermissionsAllowAll) {
 		t.Error("wrong password incorrectly verified")
 	}
-	if verifyUserPassword("owner", oEntry, uEntry, fileID) {
+	if verifyUserPassword("owner", oEntry, uEntry, fileID, encryptPermissionsAllowAll) {
 		t.Error("owner password should not satisfy user verification")
 	}
 }
@@ -144,10 +144,10 @@ func TestEncryptSameUserOwner(t *testing.T) {
 	fileID := []byte("fedcba9876543210")
 
 	oEntry := computeOwnerEntry("secret", "secret") // ownerPwd == userPwd
-	key := computeEncKey("secret", oEntry, encryptPermissions, fileID)
+	key := computeEncKey("secret", oEntry, encryptPermissionsAllowAll, fileID)
 	uEntry := computeUserEntry(key, fileID)
 
-	if !verifyUserPassword("secret", oEntry, uEntry, fileID) {
+	if !verifyUserPassword("secret", oEntry, uEntry, fileID, encryptPermissionsAllowAll) {
 		t.Error("correct password not verified when user == owner")
 	}
 }

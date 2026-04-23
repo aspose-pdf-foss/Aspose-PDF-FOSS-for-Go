@@ -321,8 +321,8 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		// /P is a 32-bit bitfield. Emit as unsigned so it reads as a positive
 		// integer (e.g. 4294967292 for grant-all), matching Adobe/pypdf
 		// convention and avoiding signed-int interop pitfalls.
-		"/P": encryptPermissionsUnsigned(),
-		"/O":      pdfHexString(s.ownerEntry),
-		"/U":      pdfHexString(s.userEntry),
+		"/P": int(uint32(s.permissions)),
+		"/O": pdfHexString(s.ownerEntry),
+		"/U": pdfHexString(s.userEntry),
 	}
 }

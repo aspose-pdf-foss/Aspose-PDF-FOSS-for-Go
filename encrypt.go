@@ -20,29 +20,94 @@ var passwordPadBytes = [32]byte{
 	0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 }
 
-// encryptPermissions grants all user operations (print, copy, modify, annotations).
-// PDF spec: bits 1-2 reserved 0, all permission bits set = -4 (0xFFFFFFFC).
-const encryptPermissions int32 = -4
+// encryptPermissionsAllowAll grants every operation. Per ISO 32000-1
+// Table 22: bits 1-2 reserved 0, bits 3-12 all permissions set, bits
+// 7-8/13-32 reserved set = 0xFFFFFFFC (signed -4).
+const encryptPermissionsAllowAll int32 = -4
 
-// encryptPermissionsUnsigned returns /P as an unsigned 32-bit integer cast to int.
-// Matches the Adobe/pypdf convention of writing /P as a positive decimal.
-func encryptPermissionsUnsigned() int {
-	v := encryptPermissions // non-const, so the cast is allowed
-	return int(uint32(v))
+// Permissions controls what a viewer allows on an encrypted PDF. The zero
+// value denies every operation. Permissions only take effect when the
+// document is also encrypted (SetPassword); viewers enforce the bits —
+// the library itself is not a DRM enforcer.
+//
+// Per ISO 32000-1 §7.6.3.2 Table 22, bit meanings for R=3/R=4:
+//
+//	AllowPrint         — bit 3  (low-resolution print)
+//	AllowModify        — bit 4  (modify page contents)
+//	AllowCopy          — bit 5  (copy text / extract graphics)
+//	AllowAnnotations   — bit 6  (add/modify text annotations)
+//	AllowFormFill      — bit 9  (fill in existing form fields)
+//	AllowAccessibility — bit 10 (extract text/graphics for accessibility)
+//	AllowAssembly      — bit 11 (insert/rotate/delete pages)
+//	AllowPrintHighRes  — bit 12 (print in high resolution)
+type Permissions struct {
+	AllowPrint         bool
+	AllowModify        bool
+	AllowCopy          bool
+	AllowAnnotations   bool
+	AllowFormFill      bool
+	AllowAccessibility bool
+	AllowAssembly      bool
+	AllowPrintHighRes  bool
 }
 
-// encryptConfig holds the password settings for encrypting a document.
+// toPDFBits returns the /P value encoded per ISO 32000-1 Table 22 with
+// the Adobe convention: reserved bits 1-2 cleared, reserved bits 7-8 and
+// 13-32 set high (shall-be-1 per spec for R>=3).
+func (p Permissions) toPDFBits() int32 {
+	// Reserved-high baseline: bits 7-8 (0x00C0) + bits 13-32 (0xFFFFF000).
+	bits := uint32(0xFFFFF0C0)
+	if p.AllowPrint {
+		bits |= 1 << 2 // bit 3
+	}
+	if p.AllowModify {
+		bits |= 1 << 3 // bit 4
+	}
+	if p.AllowCopy {
+		bits |= 1 << 4 // bit 5
+	}
+	if p.AllowAnnotations {
+		bits |= 1 << 5 // bit 6
+	}
+	if p.AllowFormFill {
+		bits |= 1 << 8 // bit 9
+	}
+	if p.AllowAccessibility {
+		bits |= 1 << 9 // bit 10
+	}
+	if p.AllowAssembly {
+		bits |= 1 << 10 // bit 11
+	}
+	if p.AllowPrintHighRes {
+		bits |= 1 << 11 // bit 12
+	}
+	return int32(bits)
+}
+
+// encryptConfig holds password and permission settings for encrypting a document.
 type encryptConfig struct {
-	userPassword  string
-	ownerPassword string // if empty, treated the same as userPassword
+	userPassword   string
+	ownerPassword  string // if empty, treated the same as userPassword
+	permissions    int32  // /P value; used if hasPermissions is true
+	hasPermissions bool   // false → fall back to encryptPermissionsAllowAll
+}
+
+// effectivePermissions returns the /P value to use, honoring an explicit
+// SetPermissions call or falling back to the all-allow default.
+func (c *encryptConfig) effectivePermissions() int32 {
+	if c.hasPermissions {
+		return c.permissions
+	}
+	return encryptPermissionsAllowAll
 }
 
 // encryptState holds the computed values needed to encrypt a single PDF write.
 type encryptState struct {
-	key        []byte // 16-byte document encryption key
-	fileID     []byte // 16-byte random file identifier
-	ownerEntry []byte // 32-byte /O value for the /Encrypt dict
-	userEntry  []byte // 32-byte /U value for the /Encrypt dict
+	key         []byte // 16-byte document encryption key
+	fileID      []byte // 16-byte random file identifier
+	ownerEntry  []byte // 32-byte /O value for the /Encrypt dict
+	userEntry   []byte // 32-byte /U value for the /Encrypt dict
+	permissions int32  // /P value propagated to /Encrypt dict
 }
 
 // newEncryptState derives all encryption parameters from cfg.
@@ -57,15 +122,17 @@ func newEncryptState(cfg *encryptConfig) (*encryptState, error) {
 		ownerPwd = cfg.userPassword
 	}
 
+	perms := cfg.effectivePermissions()
 	oEntry := computeOwnerEntry(cfg.userPassword, ownerPwd)
-	key := computeEncKey(cfg.userPassword, oEntry, encryptPermissions, fileID)
+	key := computeEncKey(cfg.userPassword, oEntry, perms, fileID)
 	uEntry := computeUserEntry(key, fileID)
 
 	return &encryptState{
-		key:        key,
-		fileID:     fileID,
-		ownerEntry: oEntry,
-		userEntry:  uEntry,
+		key:         key,
+		fileID:      fileID,
+		ownerEntry:  oEntry,
+		userEntry:   uEntry,
+		permissions: perms,
 	}, nil
 }
 
@@ -174,8 +241,10 @@ func xorKey(key []byte, x byte) []byte {
 
 // verifyUserPassword returns true if password matches the encryption parameters.
 // It recomputes /U and compares the first 16 bytes (per PDF spec for R=3).
-func verifyUserPassword(password string, ownerEntry, storedU, fileID []byte) bool {
-	key := computeEncKey(password, ownerEntry, encryptPermissions, fileID)
+// permissions must be the /P value read from the /Encrypt dict of the file
+// being verified — the derivation is /P-dependent.
+func verifyUserPassword(password string, ownerEntry, storedU, fileID []byte, permissions int32) bool {
+	key := computeEncKey(password, ownerEntry, permissions, fileID)
 	computed := computeUserEntry(key, fileID)
 	if len(computed) < 16 || len(storedU) < 16 {
 		return false

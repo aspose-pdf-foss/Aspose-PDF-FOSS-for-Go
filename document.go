@@ -179,10 +179,30 @@ func (d *Document) RemoveUnusedObjects() int {
 //	doc.SetPassword("secret", "")
 //	doc.Save("encrypted.pdf")
 func (d *Document) SetPassword(userPassword, ownerPassword string) {
-	d.encrypt = &encryptConfig{
-		userPassword:  userPassword,
-		ownerPassword: ownerPassword,
+	if d.encrypt == nil {
+		d.encrypt = &encryptConfig{}
 	}
+	d.encrypt.userPassword = userPassword
+	d.encrypt.ownerPassword = ownerPassword
+}
+
+// SetPermissions configures what operations a viewer allows on the
+// encrypted document (printing, copying, modifying, etc.). Permissions
+// only take effect if the document is also encrypted — call SetPassword
+// to set the user and owner passwords. If SetPermissions is never called,
+// all operations are allowed by default, matching the historical behavior.
+//
+// Example:
+//
+//	doc.SetPassword("secret", "owner-secret")
+//	doc.SetPermissions(asposepdf.Permissions{AllowPrint: true, AllowCopy: true})
+//	doc.Save("restricted.pdf")
+func (d *Document) SetPermissions(p Permissions) {
+	if d.encrypt == nil {
+		d.encrypt = &encryptConfig{}
+	}
+	d.encrypt.permissions = p.toPDFBits()
+	d.encrypt.hasPermissions = true
 }
 
 // WriteTo writes the document to w. It implements io.WriterTo.
