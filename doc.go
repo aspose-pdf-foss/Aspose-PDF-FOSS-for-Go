@@ -52,13 +52,24 @@ func resolvePageTree(objects map[int]*pdfObject, catalog pdfDict) ([]*pdfObject,
 		return nil, fmt.Errorf("catalog missing /Pages")
 	}
 	var result []*pdfObject
-	if err := walkPageTree(objects, pagesVal, nil, &result); err != nil {
+	if err := walkPageTree(objects, pagesVal, inheritedPageAttrs{}, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inheritedResources pdfValue, result *[]*pdfObject) error {
+// inheritedPageAttrs tracks the inheritable page attributes per
+// ISO 32000-1 §7.7.3.4 Table 30. Values propagate down the /Pages tree and
+// are copied onto each leaf /Page dict so the page is self-sufficient once
+// Open strips the intermediate /Pages nodes from d.objects.
+type inheritedPageAttrs struct {
+	resources pdfValue
+	mediaBox  pdfValue
+	cropBox   pdfValue
+	rotate    pdfValue
+}
+
+func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inherited inheritedPageAttrs, result *[]*pdfObject) error {
 	ref, ok := nodeVal.(pdfRef)
 	if !ok {
 		return fmt.Errorf("page tree node is not a ref: %T", nodeVal)
@@ -72,9 +83,20 @@ func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inheritedResourc
 		return fmt.Errorf("page tree object %d is not a dict", ref.Num)
 	}
 
-	// Track inherited /Resources (same pattern as /MediaBox inheritance).
-	if res, ok := nodeDict["/Resources"]; ok {
-		inheritedResources = res
+	// Any attribute present on this node overrides the value inherited from
+	// ancestors for this subtree. Siblings are unaffected because inherited
+	// is passed by value.
+	if v, ok := nodeDict["/Resources"]; ok {
+		inherited.resources = v
+	}
+	if v, ok := nodeDict["/MediaBox"]; ok {
+		inherited.mediaBox = v
+	}
+	if v, ok := nodeDict["/CropBox"]; ok {
+		inherited.cropBox = v
+	}
+	if v, ok := nodeDict["/Rotate"]; ok {
+		inherited.rotate = v
 	}
 
 	switch dictGetName(nodeDict, "/Type") {
@@ -88,21 +110,31 @@ func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inheritedResourc
 			return fmt.Errorf("/Kids is not an array")
 		}
 		for _, kid := range arr {
-			if err := walkPageTree(objects, kid, inheritedResources, result); err != nil {
+			if err := walkPageTree(objects, kid, inherited, result); err != nil {
 				return err
 			}
 		}
 	case "/Page", "": // empty /Type is tolerated for compatibility with some malformed PDFs
-		// Inherit /Resources if not present on page itself.
-		if _, hasRes := nodeDict["/Resources"]; !hasRes && inheritedResources != nil {
-			nodeDict["/Resources"] = inheritedResources
-		}
+		setIfMissing(nodeDict, "/Resources", inherited.resources)
+		setIfMissing(nodeDict, "/MediaBox", inherited.mediaBox)
+		setIfMissing(nodeDict, "/CropBox", inherited.cropBox)
+		setIfMissing(nodeDict, "/Rotate", inherited.rotate)
 		*result = append(*result, obj)
 	default:
 		return fmt.Errorf("unknown page tree node type: %s at object %d",
 			dictGetName(nodeDict, "/Type"), ref.Num)
 	}
 	return nil
+}
+
+func setIfMissing(d pdfDict, key string, v pdfValue) {
+	if v == nil {
+		return
+	}
+	if _, has := d[key]; has {
+		return
+	}
+	d[key] = v
 }
 
 // extractInfo reads the /Info dictionary from the trailer, resolving the reference.
