@@ -304,6 +304,53 @@ func markReachable(objects map[int]*pdfObject, v pdfValue, visited map[int]bool)
 	}
 }
 
+// cloneObjects returns a new objects map with every *pdfObject deep-copied.
+// Dicts, arrays, streams, and byte-slice strings are recursively duplicated;
+// mutations on the returned map do not affect the input and vice versa.
+// Used by Split and Extract so that the returned documents are independent
+// of the parent, as their API contracts claim.
+func cloneObjects(in map[int]*pdfObject) map[int]*pdfObject {
+	out := make(map[int]*pdfObject, len(in))
+	for id, obj := range in {
+		out[id] = &pdfObject{
+			Num:   obj.Num,
+			Gen:   obj.Gen,
+			Value: deepCopyValue(obj.Value),
+		}
+	}
+	return out
+}
+
+// deepCopyValue recursively copies v so the result shares no mutable state
+// with the original. Immutable kinds (int, float, bool, pdfName, pdfRef,
+// pdfNull, string) are returned unchanged.
+func deepCopyValue(v pdfValue) pdfValue {
+	switch val := v.(type) {
+	case pdfDict:
+		out := make(pdfDict, len(val))
+		for k, vv := range val {
+			out[k] = deepCopyValue(vv)
+		}
+		return out
+	case pdfArray:
+		out := make(pdfArray, len(val))
+		for i, vv := range val {
+			out[i] = deepCopyValue(vv)
+		}
+		return out
+	case *pdfStream:
+		nd := make(pdfDict, len(val.Dict))
+		for k, dv := range val.Dict {
+			nd[k] = deepCopyValue(dv)
+		}
+		data := append([]byte(nil), val.Data...)
+		return &pdfStream{Dict: nd, Data: data, Decoded: val.Decoded}
+	case pdfHexString:
+		return append(pdfHexString(nil), val...)
+	}
+	return v
+}
+
 // rewriteRefs returns a deep copy of v with all pdfRef IDs translated through idMap.
 // Objects whose IDs are not in idMap are left as-is.
 func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {

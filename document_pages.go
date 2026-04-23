@@ -91,10 +91,10 @@ func (d *Document) Split() ([]*Document, error) {
 	}
 	result := make([]*Document, len(d.pages))
 	for i, page := range d.pages {
-		deps := collectPageDeps(d.objects, page)
+		deps := cloneObjects(collectPageDeps(d.objects, page))
 		result[i] = &Document{
 			objects: deps,
-			pages:   []*pdfObject{page},
+			pages:   []*pdfObject{deps[page.Num]},
 			nextID:  maxObjectID(deps) + 1,
 		}
 	}
@@ -120,16 +120,22 @@ func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 		}
 		selected = append(selected, d.pages[from-1:to]...)
 	}
-	// Collect deps for all selected pages.
+	// Collect deps for all selected pages, then deep-copy so that mutating
+	// the returned document does not leak into the parent and vice versa.
 	merged := make(map[int]*pdfObject)
 	for _, page := range selected {
 		for id, obj := range collectPageDeps(d.objects, page) {
 			merged[id] = obj
 		}
 	}
+	merged = cloneObjects(merged)
+	clonedPages := make([]*pdfObject, len(selected))
+	for i, p := range selected {
+		clonedPages[i] = merged[p.Num]
+	}
 	return &Document{
 		objects: merged,
-		pages:   selected,
+		pages:   clonedPages,
 		nextID:  maxObjectID(merged) + 1,
 	}, nil
 }
