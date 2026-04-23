@@ -184,8 +184,14 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	case standardFont:
 		pdfFontName := "/" + f.name
 		widths, _ := standard14Widths(pdfFontName)
+		// Symbol and ZapfDingbats use their built-in encodings (widths and
+		// byte codes share the same native positions). Everything else uses
+		// WinAnsi, which matches the /Encoding we set on the font resource.
+		encodeRune := func(r rune) (byte, bool) {
+			return encodeRuneForStandardFont(pdfFontName, r)
+		}
 		width = func(r rune) float64 {
-			code, ok := winAnsiEncodeRune(r)
+			code, ok := encodeRune(r)
 			if !ok {
 				code = byte('?')
 			}
@@ -195,7 +201,7 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 			var b strings.Builder
 			b.WriteByte('(')
 			for _, r := range s {
-				code, ok := winAnsiEncodeRune(r)
+				code, ok := encodeRune(r)
 				if !ok {
 					code = byte('?')
 				}

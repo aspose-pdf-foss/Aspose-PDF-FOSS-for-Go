@@ -547,3 +547,62 @@ func winAnsiEncodeRune(r rune) (byte, bool) {
 	c, ok := winAnsiReverse[r]
 	return c, ok
 }
+
+var (
+	symbolReverseOnce sync.Once
+	symbolReverse     map[rune]byte
+
+	zapfDingbatsReverseOnce sync.Once
+	zapfDingbatsReverse     map[rune]byte
+)
+
+// symbolEncodeRune returns the Symbol-font byte code for the given rune.
+// Returns (0, false) if the rune is not representable in symbolEncoding.
+func symbolEncodeRune(r rune) (byte, bool) {
+	symbolReverseOnce.Do(func() {
+		symbolReverse = buildReverseEncoding(symbolEncoding)
+	})
+	c, ok := symbolReverse[r]
+	return c, ok
+}
+
+// zapfDingbatsEncodeRune returns the ZapfDingbats byte code for the given rune.
+// Returns (0, false) if the rune is not representable in zapfDingbatsEncoding.
+func zapfDingbatsEncodeRune(r rune) (byte, bool) {
+	zapfDingbatsReverseOnce.Do(func() {
+		zapfDingbatsReverse = buildReverseEncoding(zapfDingbatsEncoding)
+	})
+	c, ok := zapfDingbatsReverse[r]
+	return c, ok
+}
+
+// buildReverseEncoding inverts a 256-slot encoding table into a rune→byte
+// map. U+FFFD slots (marker for undefined codes) are skipped; the lowest
+// code wins on duplicates.
+func buildReverseEncoding(enc [256]rune) map[rune]byte {
+	rev := make(map[rune]byte, 256)
+	for code, ch := range enc {
+		if ch == '�' {
+			continue
+		}
+		if _, exists := rev[ch]; !exists {
+			rev[ch] = byte(code)
+		}
+	}
+	return rev
+}
+
+// encodeRuneForStandardFont dispatches rune→byte encoding to the right
+// table for a Standard 14 PDF font. Symbol and ZapfDingbats use their
+// built-in encodings; every other Standard 14 font uses WinAnsi, which
+// AddText pins via /Encoding /WinAnsiEncoding on the font resource.
+func encodeRuneForStandardFont(pdfFontName string, r rune) (byte, bool) {
+	switch pdfFontName {
+	case "/Symbol":
+		return symbolEncodeRune(r)
+	case "/ZapfDingbats":
+		return zapfDingbatsEncodeRune(r)
+	default:
+		return winAnsiEncodeRune(r)
+	}
+}
