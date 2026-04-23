@@ -16,10 +16,10 @@ for i, p := range pages {
     p.Save(fmt.Sprintf("page%03d.pdf", i+1))
 }
 
-// Merge multiple PDFs into one
+// Merge multiple PDFs into one (Append mutates doc in place)
 doc2, _ := pdf.Open("file2.pdf")
-merged := doc.Append(doc2)
-merged.Save("merged.pdf")
+doc.Append(doc2)
+doc.Save("merged.pdf")
 ```
 
 ## Features
@@ -48,7 +48,7 @@ merged.Save("merged.pdf")
 
 ## API Reference
 
-All `*Document` methods return a new `*Document`; the receiver is never modified.
+`*Document` methods mutate the receiver in place. `Split` and `Extract` return fresh, fully-independent documents; all other operations (rotation, reorder, metadata, passwords, etc.) modify the document they are called on.
 
 ### Opening documents
 
@@ -109,7 +109,7 @@ meta, _ := doc.Metadata()
 fmt.Println(meta.Title, meta.Author, meta.CreationDate)
 
 // Write (full replacement — unset fields are omitted from the PDF)
-doc = doc.SetMetadata(pdf.Metadata{
+doc.SetMetadata(pdf.Metadata{
     Title:  "My Document",
     Author: "Jane Smith",
     Custom: map[string]string{"Department": "Legal"},
@@ -119,10 +119,10 @@ doc.Save("output.pdf")
 // Update a single field: read → modify → write
 meta, _ = doc.Metadata()
 meta.Title = "Updated Title"
-doc = doc.SetMetadata(meta)
+doc.SetMetadata(meta)
 
 // Strip all metadata
-doc = doc.ClearMetadata()
+doc.ClearMetadata()
 doc.Save("clean.pdf")
 ```
 
@@ -425,30 +425,30 @@ doc, err := pdf.Open("input.pdf")
 fmt.Println(doc.PageCount())   // total pages
 fmt.Println(doc.Metadata())    // Info dictionary
 
-// Rotate pages (returns new Document; rotation accumulates)
-doc, err = doc.Rotate(pdf.Rotate90, 1, 2)
-doc, err = doc.Rotate(pdf.Rotate90, 1, 2) // page 1 and 2 are now at 180°
+// Rotate pages (mutates in place; rotation accumulates)
+err = doc.Rotate(pdf.Rotate90, 1, 2)
+err = doc.Rotate(pdf.Rotate90, 1, 2) // pages 1 and 2 are now at 180°
 
 // Set absolute rotation (replaces existing rotation)
-doc, err = doc.SetRotation(pdf.Rotate90, 1) // page 1 is now exactly 90°
-doc, err = doc.SetRotation(pdf.Rotate0)     // reset all pages to 0°
+err = doc.SetRotation(pdf.Rotate90, 1) // page 1 is now exactly 90°
+err = doc.SetRotation(pdf.Rotate0)     // reset all pages to 0°
 
 // Reorder pages (pages may be repeated or omitted)
-doc, err = doc.Reorder([]int{3, 1, 2})
+err = doc.Reorder([]int{3, 1, 2})
 
-// Append pages from one or more documents
+// Append pages from one or more documents (mutates receiver)
 doc2, _ := pdf.Open("part2.pdf")
 doc3, _ := pdf.Open("part3.pdf")
-doc = doc.Append(doc2, doc3)
+doc.Append(doc2, doc3)
 
-// Split into individual page documents
+// Split into individual page documents (fresh independent Documents)
 pages, err := doc.Split()
 
-// Extract page ranges to a new Document
+// Extract page ranges to a new independent Document
 sub, err := doc.Extract(pdf.PageRange{From: 1, To: 3})
 
 // Password-protect on save
-doc = doc.SetPassword("userpass", "ownerpass")
+doc.SetPassword("userpass", "ownerpass")
 
 // Save to file or writer
 err = doc.Save("output.pdf")
