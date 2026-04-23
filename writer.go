@@ -85,14 +85,15 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	// Write /Catalog. Preserve every field from the original catalog
 	// (/Outlines, /AcroForm, /Names, /PageLabels, /Metadata, etc.) so
 	// a Save+Reopen roundtrip is lossless. /Pages is replaced with the
-	// writer-built node; other refs are remapped by writeValue.
+	// writer-built node; other refs are remapped by writeValue. Deep-copy
+	// so that building the output catalog never aliases d.catalog.
 	offsets[catalogObjID] = int64(buf.Len())
 	catOut := make(pdfDict, len(d.catalog)+2)
 	for k, v := range d.catalog {
 		if k == "/Pages" {
 			continue
 		}
-		catOut[k] = v
+		catOut[k] = deepCopyValue(v)
 	}
 	catOut["/Type"] = pdfName("/Catalog")
 	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
