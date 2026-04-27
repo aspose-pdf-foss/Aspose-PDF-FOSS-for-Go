@@ -26,6 +26,16 @@
   "TestOpenEncryptedReturnsError":  [["4pages.pdf"]],
   "TestEncryptPreservesPageCount":  [["4pages.pdf"]],
 
+  "TestEncryptDecryptRoundTripFiles": [
+    ["4pages.pdf"],
+    ["Binder1.pdf"],
+    ["PdfWithLinks.pdf"],
+    ["PdfWithTable.pdf"],
+    ["alfa.pdf"],
+    ["marketing.pdf"]
+  ],
+  "TestEditInPlaceEncrypted": [["alfa.pdf"]],
+
   "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
   "TestDocumentMetadataFields":        [["4pages.pdf"]],
   "TestDocumentMetadata":              [["4pages.pdf"]],

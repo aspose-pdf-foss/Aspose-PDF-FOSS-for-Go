@@ -166,6 +166,22 @@ doc.SetEncryption(pdf.EncryptionOptions{
     Permissions:   &pdf.Permissions{AllowPrint: true, AllowCopy: true},
 })
 doc.Save("restricted.pdf")
+
+// Reading permissions from an encrypted file (works after OpenWithPassword)
+doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
+perms, ok := doc.Permissions()
+if ok {
+    fmt.Printf("can print: %v, can copy: %v\n", perms.AllowPrint, perms.AllowCopy)
+}
+
+// Edit-in-place: OpenWithPassword preserves the password, so a plain Save
+// re-encrypts with the same password. To produce a plaintext copy, call
+// RemoveEncryption explicitly before Save.
+doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
+doc.AddTextWatermark("APPROVED", pdf.TextStyle{Size: 48})
+doc.Save("restricted_signed.pdf")          // still encrypted
+doc.RemoveEncryption()
+doc.Save("decrypted_copy.pdf")             // plaintext
 ```
 
 `Permissions` fields map to ISO 32000-1 §7.6.3.2 Table 22 bits 3, 4, 5, 6, 9, 10, 11, 12. The library encodes them with the Adobe convention (reserved bits 7-8 and 13-32 set high). Permissions are enforced by PDF viewers — the library itself is not a DRM mechanism.

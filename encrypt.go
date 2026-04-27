@@ -51,6 +51,23 @@ type Permissions struct {
 	AllowPrintHighRes  bool
 }
 
+// permissionsFromPDFBits is the inverse of toPDFBits: decode the /P value
+// back into a Permissions struct. Reserved bits are ignored — only the
+// eight boolean permission bits are extracted.
+func permissionsFromPDFBits(bits int32) Permissions {
+	u := uint32(bits)
+	return Permissions{
+		AllowPrint:         u&(1<<2) != 0,
+		AllowModify:        u&(1<<3) != 0,
+		AllowCopy:          u&(1<<4) != 0,
+		AllowAnnotations:   u&(1<<5) != 0,
+		AllowFormFill:      u&(1<<8) != 0,
+		AllowAccessibility: u&(1<<9) != 0,
+		AllowAssembly:      u&(1<<10) != 0,
+		AllowPrintHighRes:  u&(1<<11) != 0,
+	}
+}
+
 // toPDFBits returns the /P value encoded per ISO 32000-1 Table 22 with
 // the Adobe convention: reserved bits 1-2 cleared, reserved bits 7-8 and
 // 13-32 set high (shall-be-1 per spec for R>=3).

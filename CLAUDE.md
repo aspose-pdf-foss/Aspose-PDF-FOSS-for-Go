@@ -40,6 +40,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).SetPassword(userPassword, ownerPassword)` — configures encryption; applied on Save/WriteTo
 - `(*Document).SetPermissions(p Permissions)` — configures viewer-enforced permissions (print, copy, modify, etc.) for encrypted documents; applied on Save/WriteTo
 - `(*Document).SetEncryption(opts EncryptionOptions)` — unified options-pattern API that replaces any prior encryption configuration (passwords + permissions) in one call
+- `(*Document).Permissions() (Permissions, bool)` — returns the viewer permissions configured on the document; bool indicates whether the document is encrypted at all
+- `(*Document).RemoveEncryption()` — clears any configured passwords and permissions so the next Save produces a plaintext PDF
 - `(*Document).WriteTo(w) (int64, error)` — writes the document to an `io.Writer` (implements `io.WriterTo`)
 - `(*Document).Save(outputPath) error` — writes the document to a file
 - `(*Document).Metadata() (Metadata, error)` — returns Info metadata read from live in-memory state

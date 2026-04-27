@@ -83,6 +83,10 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 
 	raw := newRawDocument(data, xref, trailer)
 
+	// pendingEncrypt is set when the file was opened with a password so
+	// that the resulting Document re-encrypts on Save by default.
+	var pendingEncrypt *encryptConfig
+
 	if encVal, ok := trailer["/Encrypt"]; ok {
 		if password == nil {
 			return nil, ErrEncrypted
@@ -107,6 +111,17 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		}
 		raw.encState = state
 		raw.encryptObjNum = encRef.Num
+		// Preserve the encryption settings on the Document so a subsequent
+		// Save re-encrypts with the same effective password and /P instead
+		// of silently producing a plaintext file. The supplied password is
+		// stored as both user and owner so the empty-owner-falls-back-to-
+		// user rule applies symmetrically on re-save.
+		pendingEncrypt = &encryptConfig{
+			userPassword:   *password,
+			ownerPassword:  *password,
+			permissions:    state.permissions,
+			hasPermissions: true,
+		}
 	}
 
 	objects, err := parseAllObjectsFrom(raw)
@@ -147,6 +162,7 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		catalog: catalog,
 		info:    extractInfo(objects, trailer),
 		nextID:  maxObjectID(objects) + 1,
+		encrypt: pendingEncrypt,
 	}, nil
 }
 
@@ -265,6 +281,34 @@ func (d *Document) SetPermissions(p Permissions) {
 	}
 	d.encrypt.permissions = p.toPDFBits()
 	d.encrypt.hasPermissions = true
+}
+
+// Permissions returns the viewer-permission settings currently configured
+// on this document, plus a boolean indicating whether the document is
+// configured for encryption at all. For a document opened via
+// OpenWithPassword, the permissions reflect the /P value read from the
+// original file. Returns the zero Permissions and false for unencrypted
+// documents.
+func (d *Document) Permissions() (Permissions, bool) {
+	if d.encrypt == nil {
+		return Permissions{}, false
+	}
+	bits := d.encrypt.effectivePermissions()
+	return permissionsFromPDFBits(bits), true
+}
+
+// RemoveEncryption clears any previously configured encryption (passwords
+// and permissions) so the next Save produces a plaintext PDF. This is the
+// way to "decrypt" an encrypted file via the public API: open with a
+// password, call RemoveEncryption, save.
+//
+// Example:
+//
+//	doc, _ := asposepdf.OpenWithPassword("locked.pdf", "secret")
+//	doc.RemoveEncryption()
+//	doc.Save("plain.pdf")
+func (d *Document) RemoveEncryption() {
+	d.encrypt = nil
 }
 
 // SetEncryption configures every encryption-related setting at once from
