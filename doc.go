@@ -20,18 +20,27 @@ func toIntBytes(raw []byte) int {
 // corresponding object, decoding streams eagerly. Returns a map of objNum → *pdfObject.
 // trailer is required to initialise the rawDocument used for object-stream parsing.
 func parseAllObjects(data []byte, xref *xrefTable, trailer pdfDict) (map[int]*pdfObject, error) {
-	// Re-use the rawDocument parsing logic (private to validate.go) to handle
-	// object streams (PDF 1.5+ compressed objects). Both files are in the same package.
-	raw := &rawDocument{
-		data:      data,
-		xref:      xref,
-		trailer:   trailer,
-		cache:     make(map[int]*pdfObject),
+	raw := newRawDocument(data, xref, trailer)
+	return parseAllObjectsFrom(raw)
+}
+
+// newRawDocument constructs a rawDocument with empty caches.
+func newRawDocument(data []byte, xref *xrefTable, trailer pdfDict) *rawDocument {
+	return &rawDocument{
+		data:       data,
+		xref:       xref,
+		trailer:    trailer,
+		cache:      make(map[int]*pdfObject),
 		objStreams: make(map[int][]*pdfObject),
 	}
+}
 
-	objects := make(map[int]*pdfObject, len(xref.entries))
-	for num, entry := range xref.entries {
+// parseAllObjectsFrom walks the xref and resolves every non-free object,
+// returning the populated objects map. Decryption (if enabled on raw) is
+// applied per-object inside raw.getObject.
+func parseAllObjectsFrom(raw *rawDocument) (map[int]*pdfObject, error) {
+	objects := make(map[int]*pdfObject, len(raw.xref.entries))
+	for num, entry := range raw.xref.entries {
 		if entry.Free {
 			continue
 		}

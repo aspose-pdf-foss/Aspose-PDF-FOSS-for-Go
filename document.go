@@ -30,12 +30,43 @@ func Open(path string) (*Document, error) {
 	return OpenStream(bytes.NewReader(data))
 }
 
-// OpenStream reads a PDF from r and returns a Document.
+// OpenStream reads a PDF from r and returns a Document. Returns
+// ErrEncrypted if the input is password-protected; in that case retry
+// with OpenStreamWithPassword.
 //
 // Example:
 //
 //	doc, err := asposepdf.OpenStream(file)
 func OpenStream(r io.Reader) (*Document, error) {
+	return openStreamCore(r, nil)
+}
+
+// OpenWithPassword opens a password-protected PDF file. Use Open for
+// unencrypted files. The password is tried as both user and owner
+// password; either unlocks the document for editing.
+//
+// Example:
+//
+//	doc, err := asposepdf.OpenWithPassword("locked.pdf", "secret")
+func OpenWithPassword(path, password string) (*Document, error) {
+	data, err := readFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("open PDF: %w", err)
+	}
+	return OpenStreamWithPassword(bytes.NewReader(data), password)
+}
+
+// OpenStreamWithPassword reads a password-protected PDF from r. Plain
+// (unencrypted) PDFs are also accepted — the password is silently
+// ignored — so this method is a safe drop-in for code that doesn't know
+// up front whether the input is encrypted.
+func OpenStreamWithPassword(r io.Reader, password string) (*Document, error) {
+	return openStreamCore(r, &password)
+}
+
+// openStreamCore is the shared implementation. password == nil means "no
+// password supplied"; an encrypted file then returns ErrEncrypted.
+func openStreamCore(r io.Reader, password *string) (*Document, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("read PDF: %w", err)
@@ -49,13 +80,44 @@ func OpenStream(r io.Reader) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse PDF: %w", err)
 	}
-	if _, ok := trailer["/Encrypt"]; ok {
-		return nil, fmt.Errorf("parse PDF: encrypted PDF is not supported")
+
+	raw := newRawDocument(data, xref, trailer)
+
+	if encVal, ok := trailer["/Encrypt"]; ok {
+		if password == nil {
+			return nil, ErrEncrypted
+		}
+		encRef, ok := encVal.(pdfRef)
+		if !ok {
+			return nil, fmt.Errorf("parse PDF: /Encrypt is not an indirect ref")
+		}
+		// The /Encrypt object itself is never encrypted, so we can fetch
+		// it via getObject before configuring decryption on raw.
+		encObj, err := raw.getObject(encRef.Num)
+		if err != nil {
+			return nil, fmt.Errorf("parse PDF: read /Encrypt: %w", err)
+		}
+		encDict, ok := encObj.Value.(pdfDict)
+		if !ok {
+			return nil, fmt.Errorf("parse PDF: /Encrypt is not a dict")
+		}
+		state, err := buildDecryptState(encDict, trailer, *password)
+		if err != nil {
+			return nil, fmt.Errorf("parse PDF: %w", err)
+		}
+		raw.encState = state
+		raw.encryptObjNum = encRef.Num
 	}
 
-	objects, err := parseAllObjects(data, xref, trailer)
+	objects, err := parseAllObjectsFrom(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse PDF: %w", err)
+	}
+
+	// /Encrypt object — drop it from the working set; the writer rebuilds
+	// /Encrypt from d.encrypt on save (or omits it for plain saves).
+	if raw.encState != nil {
+		delete(objects, raw.encryptObjNum)
 	}
 
 	catalog, err := extractCatalog(objects, trailer)

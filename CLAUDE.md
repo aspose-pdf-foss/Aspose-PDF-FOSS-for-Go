@@ -25,8 +25,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 ### Public API
 
 **`document.go`** — mutable Document API; operations mutate the receiver in place
-- `Open(path)` — opens a PDF file and returns a `*Document`
-- `OpenStream(r io.Reader)` — opens a PDF from an `io.Reader` and returns a `*Document`
+- `Open(path)` — opens a PDF file and returns a `*Document`; returns `ErrEncrypted` if the file is password-protected
+- `OpenStream(r io.Reader)` — opens a PDF from an `io.Reader` and returns a `*Document`; returns `ErrEncrypted` if the file is password-protected
+- `OpenWithPassword(path, password)` — opens an encrypted PDF, trying the password as both user and owner password; works on plain PDFs too
+- `OpenStreamWithPassword(r io.Reader, password)` — same as `OpenWithPassword` but reads from any `io.Reader`
+- `ErrEncrypted` — sentinel error returned by `Open`/`OpenStream` when the file is encrypted; check via `errors.Is(err, asposepdf.ErrEncrypted)`
 - `(*Document).PageCount()` — current page count
 - `(*Document).Pages()` — returns `[]*Page` live views of all pages
 - `(*Document).Page(n)` — returns a `*Page` live view of page n (1-based)
@@ -118,8 +121,10 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).ClearMetadata()` — removes the Info dictionary; applied on Save/WriteTo
 - `Metadata` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Custom map[string]string
 
-**`encrypt.go`**
+**`encrypt.go` / `decrypt.go`**
 - `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — writes a password-protected PDF using RC4-128 (PDF 1.4 Standard Security Handler, revision 3)
+- `ErrEncrypted` — sentinel error from `Open`/`OpenStream` on encrypted input
+- Decryption pipeline: `OpenWithPassword`/`OpenStreamWithPassword` parse `/Encrypt`, verify password against `/U` (user) or recover via `/O` (owner) using PDF Algorithm 7 reverse, derive document key, then decrypt every parsed object except `/Encrypt` itself in `rawDocument.getObject`. Stream `/Filter` chains are re-applied after RC4 decryption per PDF spec ordering (encrypt-after-filter)
 - `Permissions` struct — eight bool flags (AllowPrint, AllowModify, AllowCopy, AllowAnnotations, AllowFormFill, AllowAccessibility, AllowAssembly, AllowPrintHighRes); zero value denies everything. Adobe-convention bit packing per ISO 32000-1 §7.6.3.2 Table 22 with reserved bits 7-8 and 13-32 set high
 - `EncryptionOptions` struct — unified encryption configuration: UserPassword, OwnerPassword (empty → defaults to UserPassword), Permissions *Permissions (nil → grant all). Consumed by `(*Document).SetEncryption`
 

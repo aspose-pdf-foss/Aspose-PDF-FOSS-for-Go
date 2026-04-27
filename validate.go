@@ -280,14 +280,19 @@ func openDocumentFromBytes(data []byte) (*rawDocument, error) {
 	}, nil
 }
 
-// rawDocument is a parsed PDF used internally by Validate.
-// It is distinct from the public Document type.
+// rawDocument is a parsed PDF used internally by Validate and the
+// password-aware Open path. It is distinct from the public Document type.
 type rawDocument struct {
 	data      []byte
 	xref      *xrefTable
 	trailer   pdfDict
 	cache     map[int]*pdfObject
 	objStreams map[int][]*pdfObject
+	// Decryption (set up by the password-aware Open path before any
+	// non-/Encrypt object is fetched). When non-nil, getObject decrypts
+	// every parsed object except the one at encryptObjNum.
+	encState      *encryptState
+	encryptObjNum int
 }
 
 func (d *rawDocument) getObject(num int) (*pdfObject, error) {
@@ -304,9 +309,15 @@ func (d *rawDocument) getObject(num int) (*pdfObject, error) {
 	var obj *pdfObject
 	var err error
 	if entry.Compressed {
+		// Compressed (inside an ObjStm). The outer stream is decrypted
+		// when getObject(streamObjNum) recurses below; inner objects are
+		// not separately encrypted per ISO 32000-1 §7.5.7.
 		obj, err = d.getFromObjStream(entry.StreamObjNum, num)
 	} else {
 		obj, err = parseIndirectObject(d.data, entry.Offset)
+		if err == nil && d.encState != nil && num != d.encryptObjNum {
+			decryptObject(obj, d.encState)
+		}
 	}
 	if err != nil {
 		return nil, err
