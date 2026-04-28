@@ -260,9 +260,11 @@ func (f *Form) NeedAppearances() bool {
 // On a Document with no /AcroForm dict, calling this with true creates
 // a new /AcroForm dict in the catalog so the flag is preserved on Save.
 func (f *Form) SetNeedAppearances(v bool) {
-	f.ensureRoot()
 	if v {
-		f.root["/NeedAppearances"] = true
+		f.ensureRoot()
+		if f.root != nil {
+			f.root["/NeedAppearances"] = true
+		}
 	} else if f.root != nil {
 		delete(f.root, "/NeedAppearances")
 	}

@@ -312,3 +312,15 @@ func TestFormManualNeedAppearancesToggle(t *testing.T) {
 		t.Error("after SetNeedAppearances(false), getter still returned true")
 	}
 }
+
+func TestSetNeedAppearancesFalseOnBlankDocDoesNotCreateAcroForm(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	doc.Form().SetNeedAppearances(false)
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("/AcroForm")) {
+		t.Error("blank document grew an /AcroForm dict after SetNeedAppearances(false)")
+	}
+}
