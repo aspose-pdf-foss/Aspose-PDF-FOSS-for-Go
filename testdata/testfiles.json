@@ -43,6 +43,8 @@
   "TestTextBoxFieldRoundTrip":        [["PdfWithAcroForm.pdf"]],
   "TestCheckboxFieldRead":            [["PdfWithAcroForm.pdf"]],
   "TestCheckboxFieldRoundTrip":       [["PdfWithAcroForm.pdf"]],
+  "TestRadioButtonFieldRead":         [["PdfWithAcroForm.pdf"]],
+  "TestRadioButtonFieldRoundTrip":    [["PdfWithAcroForm.pdf"]],
 
   "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
   "TestDocumentMetadataFields":        [["4pages.pdf"]],

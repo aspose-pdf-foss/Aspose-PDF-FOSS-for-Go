@@ -154,3 +154,53 @@ func TestCheckboxFieldRoundTrip(t *testing.T) {
 		t.Error("after SetChecked(false) + reopen, Checked() still true")
 	}
 }
+
+func TestRadioButtonFieldRead(t *testing.T) {
+	doc, _ := pdf.Open(testFile(t))
+	rb := doc.Form().Field("radiobuttonField").(*pdf.RadioButtonField)
+	opts := rb.Options()
+	if len(opts) == 0 {
+		t.Fatal("radiobuttonField has zero options")
+	}
+	selectedCount := 0
+	for _, o := range opts {
+		if o.Selected() {
+			selectedCount++
+		}
+	}
+	if selectedCount != 1 {
+		t.Errorf("expected exactly one selected option, got %d", selectedCount)
+	}
+}
+
+func TestRadioButtonFieldRoundTrip(t *testing.T) {
+	src := testFile(t)
+	doc, _ := pdf.Open(src)
+	rb := doc.Form().Field("radiobuttonField").(*pdf.RadioButtonField)
+	opts := rb.Options()
+	if len(opts) < 2 {
+		t.Skip("need at least 2 options for round-trip")
+	}
+	target := 1
+	if opts[1].Selected() {
+		target = 0
+	}
+	opts[target].SetSelected(true)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	rb2 := doc2.Form().Field("radiobuttonField").(*pdf.RadioButtonField)
+	opts2 := rb2.Options()
+	if !opts2[target].Selected() {
+		t.Errorf("after SetSelected(true) + reopen, option %d not selected", target)
+	}
+	for i, o := range opts2 {
+		if i == target {
+			continue
+		}
+		if o.Selected() {
+			t.Errorf("after SetSelected(true) + reopen, sibling option %d also selected", i)
+		}
+	}
+}

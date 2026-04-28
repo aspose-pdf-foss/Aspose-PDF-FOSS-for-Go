@@ -193,8 +193,105 @@ func (f *CheckboxField) checkedExportName() string {
 // RadioButtonField is a group of mutually exclusive options.
 type RadioButtonField struct{ fieldBase }
 
-func (f *RadioButtonField) Value() string           { return dictGetString(f.node.dict, "/V") }
-func (f *RadioButtonField) SetValue(s string) error { return notYetImpl("RadioButtonField.SetValue") }
+func (f *RadioButtonField) Value() string {
+	return dictGetString(f.node.dict, "/V")
+}
+
+// SetValue takes the export name of the option to select. Empty string
+// clears the selection (writes /Off). Any other unknown value returns
+// an error.
+func (f *RadioButtonField) SetValue(s string) error {
+	if s == "" {
+		f.node.dict["/V"] = pdfName("/Off")
+		for _, w := range f.node.widgets {
+			w["/AS"] = pdfName("/Off")
+		}
+		noteFormMutated(f.node)
+		return nil
+	}
+	for _, opt := range f.Options() {
+		if opt.Name() == s {
+			opt.SetSelected(true)
+			return nil
+		}
+	}
+	return fmt.Errorf("RadioButtonField.SetValue(%q): no such option", s)
+}
+
+// Options returns one RadioButtonOptionField per widget in the group.
+func (f *RadioButtonField) Options() []*RadioButtonOptionField {
+	out := make([]*RadioButtonOptionField, 0, len(f.node.widgets))
+	for _, w := range f.node.widgets {
+		out = append(out, &RadioButtonOptionField{
+			parent: f,
+			widget: w,
+		})
+	}
+	return out
+}
+
+// RadioButtonOptionField is one of the option widgets inside a
+// RadioButtonField. Mirrors the C# nested type pattern.
+type RadioButtonOptionField struct {
+	parent *RadioButtonField
+	widget pdfDict
+}
+
+// Name returns the option's export value (its /AS state when selected,
+// equivalently its non-/Off key in the widget's /AP/N dict).
+func (o *RadioButtonOptionField) Name() string {
+	ap, ok := o.widget["/AP"].(pdfDict)
+	if ok {
+		n, ok := ap["/N"].(pdfDict)
+		if ok {
+			for k := range n {
+				if k != "/Off" {
+					return k[1:]
+				}
+			}
+		}
+	}
+	if as, ok := o.widget["/AS"].(pdfName); ok && as != "/Off" {
+		return string(as)[1:]
+	}
+	return ""
+}
+
+// Selected reports whether this option is the currently selected one.
+func (o *RadioButtonOptionField) Selected() bool {
+	parentV := dictGetString(o.parent.node.dict, "/V")
+	want := "/" + o.Name()
+	return parentV == want
+}
+
+// SetSelected(true) selects this option and clears all siblings.
+// SetSelected(false) clears the selection if this option is currently
+// selected; siblings are unaffected.
+func (o *RadioButtonOptionField) SetSelected(v bool) {
+	if v {
+		name := pdfName("/" + o.Name())
+		o.parent.node.dict["/V"] = name
+		for _, w := range o.parent.node.widgets {
+			if w["/AP"] != nil {
+				ap, _ := w["/AP"].(pdfDict)
+				n, _ := ap["/N"].(pdfDict)
+				if _, ok := n[string(name)]; ok {
+					w["/AS"] = name
+				} else {
+					w["/AS"] = pdfName("/Off")
+				}
+			} else {
+				w["/AS"] = pdfName("/Off")
+			}
+		}
+	} else if o.Selected() {
+		o.parent.node.dict["/V"] = pdfName("/Off")
+		for _, w := range o.parent.node.widgets {
+			w["/AS"] = pdfName("/Off")
+		}
+	}
+	noteFormMutated(o.parent.node)
+}
 
 // ComboBoxField is a single-select dropdown choice field.
 type ComboBoxField struct{ fieldBase }
