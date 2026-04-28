@@ -280,3 +280,35 @@ func TestListBoxFieldRoundTrip(t *testing.T) {
 		t.Error("after SetSelected + reopen, Selected() returned empty")
 	}
 }
+
+func TestFormSetValueAutoNeedAppearances(t *testing.T) {
+	src := testFile(t)
+	doc, _ := pdf.Open(src)
+	tf := doc.Form().Field("textField").(*pdf.TextBoxField)
+	tf.SetValue("triggers needappearances")
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	if !bytes.Contains(buf.Bytes(), []byte("/NeedAppearances")) {
+		t.Error("/NeedAppearances not present in saved bytes after SetValue")
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("/NeedAppearances true")) {
+		t.Error("/NeedAppearances not set to true after SetValue")
+	}
+}
+
+func TestFormManualNeedAppearancesToggle(t *testing.T) {
+	src := testFile(t)
+	doc, _ := pdf.Open(src)
+	if !doc.Form().NeedAppearances() {
+		// Original file may or may not have it; flip from current state.
+		doc.Form().SetNeedAppearances(true)
+		if !doc.Form().NeedAppearances() {
+			t.Error("after SetNeedAppearances(true), getter still returned false")
+		}
+	}
+	doc.Form().SetNeedAppearances(false)
+	if doc.Form().NeedAppearances() {
+		t.Error("after SetNeedAppearances(false), getter still returned true")
+	}
+}

@@ -18,6 +18,7 @@ type Form struct {
 // attributes (/FT, /Ff, /V, /DV, /DA), and references to its widget
 // kids (or itself if the field is also its own widget).
 type fieldNode struct {
+	form     *Form
 	dict     pdfDict
 	fullName string
 	ft       string    // resolved /FT
@@ -38,7 +39,7 @@ func (d *Document) Form() *Form {
 		return form
 	}
 	form.root = root
-	form.leaves = walkAcroForm(d.objects, root)
+	form.leaves = walkAcroForm(form, d.objects, root)
 	// Build canonical Field instances once so Field(), Fields(), and
 	// HasField() all share the same pointers. SetValue in later tasks
 	// mutates node.dict in place, so callers must see the same instance.
@@ -90,7 +91,7 @@ type Field interface {
 // walkAcroForm walks /AcroForm/Fields recursively, returning the flat
 // list of leaf fields with FullName, /FT and /Ff resolved through
 // inheritance per ISO 32000-1 §12.7.3.1.
-func walkAcroForm(objects map[int]*pdfObject, root pdfDict) []*fieldNode {
+func walkAcroForm(form *Form, objects map[int]*pdfObject, root pdfDict) []*fieldNode {
 	fieldsVal, ok := root["/Fields"]
 	if !ok {
 		return nil
@@ -105,12 +106,12 @@ func walkAcroForm(objects map[int]*pdfObject, root pdfDict) []*fieldNode {
 		if !ok {
 			continue
 		}
-		walkField(objects, dict, "", "", 0, &out)
+		walkField(form, objects, dict, "", "", 0, &out)
 	}
 	return out
 }
 
-func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT string, parentFF int, out *[]*fieldNode) {
+func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName, parentFT string, parentFF int, out *[]*fieldNode) {
 	tName := dictGetString(dict, "/T")
 	fullName := tName
 	if parentName != "" && tName != "" {
@@ -131,12 +132,12 @@ func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT st
 	kidsVal, hasKids := dict["/Kids"]
 	if !hasKids {
 		// Leaf without kids — the field itself is also its widget.
-		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: []pdfDict{dict}})
+		*out = append(*out, &fieldNode{form: form, dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: []pdfDict{dict}})
 		return
 	}
 	arr, ok := kidsVal.(pdfArray)
 	if !ok {
-		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff})
+		*out = append(*out, &fieldNode{form: form, dict: dict, fullName: fullName, ft: ft, ff: ff})
 		return
 	}
 
@@ -156,7 +157,7 @@ func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT st
 	}
 	if !hasSubFields {
 		// All kids are pure widgets — this is still a leaf field.
-		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: widgets})
+		*out = append(*out, &fieldNode{form: form, dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: widgets})
 		return
 	}
 	// Recurse into sub-fields.
@@ -165,7 +166,7 @@ func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT st
 		if !ok {
 			continue
 		}
-		walkField(objects, k, fullName, ft, ff, out)
+		walkField(form, objects, k, fullName, ft, ff, out)
 	}
 }
 
@@ -234,10 +235,62 @@ func isASCII(s string) bool {
 
 // noteFormMutated is invoked from every field-value setter. It sets
 // /AcroForm/NeedAppearances=true so viewers regenerate the cached /AP
-// stream on display. The flag is implemented in Task 8; here we leave a
-// stub that the later task wires up.
+// stream on display.
 func noteFormMutated(n *fieldNode) {
-	// Task 8 fills this in.
+	if n != nil && n.form != nil {
+		n.form.noteFormMutatedInForm()
+	}
+}
+
+// NeedAppearances reports whether /AcroForm/NeedAppearances is true,
+// which tells viewers to regenerate cached /AP appearance streams when
+// displaying form fields.
+func (f *Form) NeedAppearances() bool {
+	if f.root == nil {
+		return false
+	}
+	v, ok := f.root["/NeedAppearances"].(bool)
+	return ok && v
+}
+
+// SetNeedAppearances toggles /AcroForm/NeedAppearances. Any value-
+// changing call (SetValue, SetChecked, SetSelected) auto-sets this to
+// true; an explicit call here is needed only to disable the flag.
+//
+// On a Document with no /AcroForm dict, calling this with true creates
+// a new /AcroForm dict in the catalog so the flag is preserved on Save.
+func (f *Form) SetNeedAppearances(v bool) {
+	f.ensureRoot()
+	if v {
+		f.root["/NeedAppearances"] = true
+	} else if f.root != nil {
+		delete(f.root, "/NeedAppearances")
+	}
+}
+
+// ensureRoot lazily creates an /AcroForm dict on the document catalog
+// if absent. Called from setters that need a place to store flags.
+func (f *Form) ensureRoot() {
+	if f.root != nil {
+		return
+	}
+	if f.doc.catalog == nil {
+		return
+	}
+	root := pdfDict{"/Fields": pdfArray{}}
+	f.doc.catalog["/AcroForm"] = root
+	f.root = root
+}
+
+// noteFormMutatedInForm sets /NeedAppearances=true on the form's root.
+// Different name from the package-level noteFormMutated to avoid name
+// collision; the package-level function remains as the call site for
+// concrete-type setters.
+func (f *Form) noteFormMutatedInForm() {
+	f.ensureRoot()
+	if f.root != nil {
+		f.root["/NeedAppearances"] = true
+	}
 }
 
 func fieldFromNode(n *fieldNode) Field {
