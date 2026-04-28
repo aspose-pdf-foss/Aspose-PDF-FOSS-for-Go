@@ -36,8 +36,9 @@
   ],
   "TestEditInPlaceEncrypted": [["alfa.pdf"]],
 
-  "TestFormFieldsCount":   [["PdfWithAcroForm.pdf"]],
-  "TestFormFieldsTypes":   [["PdfWithAcroForm.pdf"]],
+  "TestFormFieldsCount":              [["PdfWithAcroForm.pdf"]],
+  "TestFormFieldsTypes":              [["PdfWithAcroForm.pdf"]],
+  "TestFormFieldAndFieldsSameInstance": [["PdfWithAcroForm.pdf"]],
 
   "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
   "TestDocumentMetadataFields":        [["4pages.pdf"]],

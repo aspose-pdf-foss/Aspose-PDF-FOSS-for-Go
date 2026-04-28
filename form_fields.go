@@ -137,32 +137,3 @@ func notYetImpl(name string) error {
 	return fmt.Errorf("%s: not yet implemented", name)
 }
 
-// dictGetString returns the value of key from d as a string.
-// It handles both plain string values and pdfName values (e.g. /V on a checkbox).
-func dictGetString(d pdfDict, key string) string {
-	switch v := d[key].(type) {
-	case string:
-		return v
-	case pdfName:
-		return string(v)
-	}
-	return ""
-}
-
-// resolveRefDict resolves an indirect reference (or returns the value
-// directly if already a dict) to a pdfDict. Returns false on type
-// mismatch or unresolvable ref.
-func resolveRefDict(objects map[int]*pdfObject, v pdfValue) (pdfDict, bool) {
-	switch x := v.(type) {
-	case pdfDict:
-		return x, true
-	case pdfRef:
-		obj, ok := objects[x.Num]
-		if !ok {
-			return nil, false
-		}
-		d, ok := obj.Value.(pdfDict)
-		return d, ok
-	}
-	return nil, false
-}

@@ -6,10 +6,11 @@ package asposepdf
 // pdfDict; SetValue mutates in place and the next Save writes the new
 // state.
 type Form struct {
-	doc    *Document
-	root   pdfDict // resolved /AcroForm dict; nil if document has none
-	leaves []*fieldNode
-	cache  map[string]Field
+	doc        *Document
+	root       pdfDict // resolved /AcroForm dict; nil if document has none
+	leaves     []*fieldNode
+	cache      map[string]Field
+	fieldsList []Field
 }
 
 // fieldNode is the internal flat representation of a leaf form field.
@@ -32,12 +33,25 @@ func (d *Document) Form() *Form {
 	if d.catalog == nil {
 		return form
 	}
-	root, ok := resolveRefDict(d.objects, d.catalog["/AcroForm"])
+	root, ok := resolveRefToDict(d.objects, d.catalog["/AcroForm"])
 	if !ok {
 		return form
 	}
 	form.root = root
 	form.leaves = walkAcroForm(d.objects, root)
+	// Build canonical Field instances once so Field(), Fields(), and
+	// HasField() all share the same pointers. SetValue in later tasks
+	// mutates node.dict in place, so callers must see the same instance.
+	form.cache = make(map[string]Field, len(form.leaves))
+	form.fieldsList = make([]Field, 0, len(form.leaves))
+	for _, n := range form.leaves {
+		f := fieldFromNode(n)
+		if f == nil {
+			continue
+		}
+		form.fieldsList = append(form.fieldsList, f)
+		form.cache[n.fullName] = f
+	}
 	return form
 }
 
@@ -45,39 +59,19 @@ func (d *Document) Form() *Form {
 // hierarchy is resolved internally; callers see only the leaves whose
 // FullName carries the dotted path.
 func (f *Form) Fields() []Field {
-	out := make([]Field, 0, len(f.leaves))
-	for _, n := range f.leaves {
-		field := fieldFromNode(n)
-		if field != nil {
-			out = append(out, field)
-		}
-	}
-	return out
+	return f.fieldsList
 }
 
 // Field returns the leaf field by FullName, or nil if no such field
 // exists. Mirrors the C# `doc.Form["name"]` indexer pattern.
 func (f *Form) Field(name string) Field {
-	if f.cache == nil && len(f.leaves) > 0 {
-		f.cache = make(map[string]Field, len(f.leaves))
-		for _, n := range f.leaves {
-			field := fieldFromNode(n)
-			if field != nil {
-				f.cache[n.fullName] = field
-			}
-		}
-	}
 	return f.cache[name]
 }
 
 // HasField reports whether a leaf field with the given FullName exists.
 func (f *Form) HasField(name string) bool {
-	for _, n := range f.leaves {
-		if n.fullName == name {
-			return true
-		}
-	}
-	return false
+	_, ok := f.cache[name]
+	return ok
 }
 
 // Field is the common interface implemented by every concrete form
@@ -107,7 +101,7 @@ func walkAcroForm(objects map[int]*pdfObject, root pdfDict) []*fieldNode {
 	}
 	var out []*fieldNode
 	for _, item := range arr {
-		dict, ok := resolveRefDict(objects, item)
+		dict, ok := resolveRefToDict(objects, item)
 		if !ok {
 			continue
 		}
@@ -150,7 +144,7 @@ func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT st
 	var widgets []pdfDict
 	hasSubFields := false
 	for _, item := range arr {
-		k, ok := resolveRefDict(objects, item)
+		k, ok := resolveRefToDict(objects, item)
 		if !ok {
 			continue
 		}
@@ -167,7 +161,7 @@ func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT st
 	}
 	// Recurse into sub-fields.
 	for _, item := range arr {
-		k, ok := resolveRefDict(objects, item)
+		k, ok := resolveRefToDict(objects, item)
 		if !ok {
 			continue
 		}

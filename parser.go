@@ -509,6 +509,18 @@ func dictGetName(d pdfDict, key string) string {
 	return ""
 }
 
+// dictGetString returns the string value of key from d.
+// Handles plain string values and pdfName values (e.g. /V on a checkbox or radio field).
+func dictGetString(d pdfDict, key string) string {
+	switch v := d[key].(type) {
+	case string:
+		return v
+	case pdfName:
+		return string(v)
+	}
+	return ""
+}
+
 func dictGetInt(d pdfDict, key string) int {
 	switch n := d[key].(type) {
 	case int:

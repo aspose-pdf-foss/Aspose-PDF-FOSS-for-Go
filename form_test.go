@@ -47,6 +47,21 @@ func TestFormFieldsTypes(t *testing.T) {
 	}
 }
 
+func TestFormFieldAndFieldsSameInstance(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	form := doc.Form()
+	fields := form.Fields()
+	for _, f := range fields {
+		got := form.Field(f.FullName())
+		if got != f {
+			t.Errorf("Field(%q) returned different instance than Fields()", f.FullName())
+		}
+	}
+}
+
 func TestDocumentFormNonNilOnPlainPDF(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	form := doc.Form()
