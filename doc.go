@@ -356,6 +356,9 @@ func deepCopyValue(v pdfValue) pdfValue {
 		return &pdfStream{Dict: nd, Data: data, Decoded: val.Decoded}
 	case pdfHexString:
 		return append(pdfHexString(nil), val...)
+	case pdfRef, pdfDirectRef, pdfName, pdfNull, int, float64, bool:
+		// Value-typed kinds: returning by value is already a copy.
+		return v
 	}
 	return v
 }

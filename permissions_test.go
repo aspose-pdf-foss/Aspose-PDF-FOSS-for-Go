@@ -2,6 +2,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 )
 
@@ -100,20 +101,19 @@ func TestSetPermissionsPropagatesToSavedFile(t *testing.T) {
 		t.Fatalf("WriteTo: %v", err)
 	}
 
-	// Parse the saved bytes and pull /P from /Encrypt. Use low-level helpers
-	// to avoid OpenStream (which currently rejects encrypted input).
+	// Parse the saved bytes and pull /P from /Encrypt directly via byte
+	// scan: the public OpenStream rejects encrypted input here, so we
+	// stay below the API surface.
 	pIdx := bytes.Index(buf.Bytes(), []byte("/P "))
 	if pIdx < 0 {
 		t.Fatalf("/P not found in saved bytes")
 	}
-	// Read digits after "/P " — could be 1-10 digits, signed.
 	rest := buf.Bytes()[pIdx+3:]
 	end := 0
 	for end < len(rest) && (rest[end] == '-' || (rest[end] >= '0' && rest[end] <= '9')) {
 		end++
 	}
-	var pVal int
-	_, err := parseIntBytes(rest[:end], &pVal)
+	pVal, err := strconv.Atoi(string(rest[:end]))
 	if err != nil {
 		t.Fatalf("parse /P value %q: %v", rest[:end], err)
 	}
@@ -140,21 +140,3 @@ func TestSetPasswordWithoutSetPermissionsDefaultsAllowAll(t *testing.T) {
 	}
 }
 
-// parseIntBytes is a tiny shim used by the P-value test.
-func parseIntBytes(b []byte, out *int) (int, error) {
-	neg := false
-	i := 0
-	if len(b) > 0 && b[0] == '-' {
-		neg = true
-		i = 1
-	}
-	v := 0
-	for ; i < len(b); i++ {
-		v = v*10 + int(b[i]-'0')
-	}
-	if neg {
-		v = -v
-	}
-	*out = v
-	return len(b), nil
-}
