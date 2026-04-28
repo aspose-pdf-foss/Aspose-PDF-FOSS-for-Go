@@ -129,3 +129,28 @@ func TestTextBoxFieldRoundTrip(t *testing.T) {
 		t.Errorf("after roundtrip Value() = %q, want %q", got, newValue)
 	}
 }
+
+func TestCheckboxFieldRead(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	cb := doc.Form().Field("checkboxField").(*pdf.CheckboxField)
+	if !cb.Checked() {
+		t.Error("checkboxField.Checked() = false; PdfWithAcroForm.pdf has it checked (/V /Yes)")
+	}
+}
+
+func TestCheckboxFieldRoundTrip(t *testing.T) {
+	src := testFile(t)
+	doc, _ := pdf.Open(src)
+	cb := doc.Form().Field("checkboxField").(*pdf.CheckboxField)
+	cb.SetChecked(false)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	cb2 := doc2.Form().Field("checkboxField").(*pdf.CheckboxField)
+	if cb2.Checked() {
+		t.Error("after SetChecked(false) + reopen, Checked() still true")
+	}
+}

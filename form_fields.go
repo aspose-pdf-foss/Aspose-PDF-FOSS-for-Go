@@ -126,8 +126,69 @@ func (f *TextBoxField) IsPassword() bool {
 // CheckboxField is a checkbox with on/off state.
 type CheckboxField struct{ fieldBase }
 
-func (f *CheckboxField) Value() string           { return dictGetString(f.node.dict, "/V") }
-func (f *CheckboxField) SetValue(s string) error { return notYetImpl("CheckboxField.SetValue") }
+func (f *CheckboxField) Value() string {
+	return dictGetString(f.node.dict, "/V")
+}
+
+func (f *CheckboxField) SetValue(s string) error {
+	switch s {
+	case "true", "True", "TRUE", "yes", "Yes", "YES", "on", "On", "ON":
+		f.SetChecked(true)
+		return nil
+	case "false", "False", "FALSE", "no", "No", "NO", "off", "Off", "OFF":
+		f.SetChecked(false)
+		return nil
+	}
+	return fmt.Errorf("CheckboxField.SetValue(%q): expected boolean string", s)
+}
+
+func (f *CheckboxField) Checked() bool {
+	v := dictGetString(f.node.dict, "/V")
+	return v != "" && v != "/Off" && v != "Off"
+}
+
+// SetChecked sets the checkbox state. The "checked" /V is the kid widget's
+// /AS export value (typically /Yes); the "unchecked" /V is /Off.
+func (f *CheckboxField) SetChecked(v bool) {
+	onName := f.checkedExportName()
+	if v {
+		f.node.dict["/V"] = pdfName("/" + onName)
+		// Also set /AS on the widget(s) so viewers without
+		// /NeedAppearances still draw the right state.
+		for _, w := range f.node.widgets {
+			w["/AS"] = pdfName("/" + onName)
+		}
+	} else {
+		f.node.dict["/V"] = pdfName("/Off")
+		for _, w := range f.node.widgets {
+			w["/AS"] = pdfName("/Off")
+		}
+	}
+	noteFormMutated(f.node)
+}
+
+// checkedExportName returns the export value used for the "on" state of
+// this checkbox. By convention this is "Yes"; the precise value lives
+// in the widget's /AP/N dict alongside "Off". Reading /AP/N's keys
+// gives the actual export name. Fall back to "Yes" if /AP/N is missing.
+func (f *CheckboxField) checkedExportName() string {
+	for _, w := range f.node.widgets {
+		ap, ok := w["/AP"].(pdfDict)
+		if !ok {
+			continue
+		}
+		n, ok := ap["/N"].(pdfDict)
+		if !ok {
+			continue
+		}
+		for k := range n {
+			if k != "/Off" {
+				return k[1:] // strip leading slash from /Yes etc.
+			}
+		}
+	}
+	return "Yes"
+}
 
 // RadioButtonField is a group of mutually exclusive options.
 type RadioButtonField struct{ fieldBase }

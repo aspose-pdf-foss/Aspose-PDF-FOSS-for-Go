@@ -41,6 +41,8 @@
   "TestFormFieldAndFieldsSameInstance": [["PdfWithAcroForm.pdf"]],
   "TestTextBoxFieldRead":             [["PdfWithAcroForm.pdf"]],
   "TestTextBoxFieldRoundTrip":        [["PdfWithAcroForm.pdf"]],
+  "TestCheckboxFieldRead":            [["PdfWithAcroForm.pdf"]],
+  "TestCheckboxFieldRoundTrip":       [["PdfWithAcroForm.pdf"]],
 
   "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
   "TestDocumentMetadataFields":        [["4pages.pdf"]],
