@@ -9,6 +9,7 @@ type Form struct {
 	doc    *Document
 	root   pdfDict // resolved /AcroForm dict; nil if document has none
 	leaves []*fieldNode
+	cache  map[string]Field
 }
 
 // fieldNode is the internal flat representation of a leaf form field.
@@ -18,8 +19,8 @@ type Form struct {
 type fieldNode struct {
 	dict     pdfDict
 	fullName string
-	ft       string  // resolved /FT
-	ff       int     // resolved /Ff
+	ft       string    // resolved /FT
+	ff       int       // resolved /Ff
 	widgets  []pdfDict
 }
 
@@ -27,24 +28,55 @@ type fieldNode struct {
 // without /AcroForm, an empty Form is returned (Fields() is empty,
 // Field(name) returns nil, HasField returns false).
 func (d *Document) Form() *Form {
-	return &Form{doc: d}
+	form := &Form{doc: d}
+	if d.catalog == nil {
+		return form
+	}
+	root, ok := resolveRefDict(d.objects, d.catalog["/AcroForm"])
+	if !ok {
+		return form
+	}
+	form.root = root
+	form.leaves = walkAcroForm(d.objects, root)
+	return form
 }
 
 // Fields returns all leaf form fields as a flat slice. Field tree
 // hierarchy is resolved internally; callers see only the leaves whose
 // FullName carries the dotted path.
 func (f *Form) Fields() []Field {
-	return nil
+	out := make([]Field, 0, len(f.leaves))
+	for _, n := range f.leaves {
+		field := fieldFromNode(n)
+		if field != nil {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 // Field returns the leaf field by FullName, or nil if no such field
 // exists. Mirrors the C# `doc.Form["name"]` indexer pattern.
 func (f *Form) Field(name string) Field {
-	return nil
+	if f.cache == nil && len(f.leaves) > 0 {
+		f.cache = make(map[string]Field, len(f.leaves))
+		for _, n := range f.leaves {
+			field := fieldFromNode(n)
+			if field != nil {
+				f.cache[n.fullName] = field
+			}
+		}
+	}
+	return f.cache[name]
 }
 
 // HasField reports whether a leaf field with the given FullName exists.
 func (f *Form) HasField(name string) bool {
+	for _, n := range f.leaves {
+		if n.fullName == name {
+			return true
+		}
+	}
 	return false
 }
 
@@ -59,4 +91,108 @@ type Field interface {
 	IsRequired() bool
 	PageIndex() int
 	Rect() Rectangle
+}
+
+// walkAcroForm walks /AcroForm/Fields recursively, returning the flat
+// list of leaf fields with FullName, /FT and /Ff resolved through
+// inheritance per ISO 32000-1 §12.7.3.1.
+func walkAcroForm(objects map[int]*pdfObject, root pdfDict) []*fieldNode {
+	fieldsVal, ok := root["/Fields"]
+	if !ok {
+		return nil
+	}
+	arr, ok := fieldsVal.(pdfArray)
+	if !ok {
+		return nil
+	}
+	var out []*fieldNode
+	for _, item := range arr {
+		dict, ok := resolveRefDict(objects, item)
+		if !ok {
+			continue
+		}
+		walkField(objects, dict, "", "", 0, &out)
+	}
+	return out
+}
+
+func walkField(objects map[int]*pdfObject, dict pdfDict, parentName, parentFT string, parentFF int, out *[]*fieldNode) {
+	tName := dictGetString(dict, "/T")
+	fullName := tName
+	if parentName != "" && tName != "" {
+		fullName = parentName + "." + tName
+	} else if parentName != "" {
+		fullName = parentName
+	}
+
+	ft := parentFT
+	if v, ok := dict["/FT"].(pdfName); ok {
+		ft = string(v)
+	}
+	ff := parentFF
+	if v, ok := dict["/Ff"]; ok {
+		ff = toInt(v)
+	}
+
+	kidsVal, hasKids := dict["/Kids"]
+	if !hasKids {
+		// Leaf without kids — the field itself is also its widget.
+		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: []pdfDict{dict}})
+		return
+	}
+	arr, ok := kidsVal.(pdfArray)
+	if !ok {
+		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff})
+		return
+	}
+
+	// Kids may be sub-fields (have /T) or pure widgets (no /T, /Subtype=/Widget).
+	var widgets []pdfDict
+	hasSubFields := false
+	for _, item := range arr {
+		k, ok := resolveRefDict(objects, item)
+		if !ok {
+			continue
+		}
+		if _, hasT := k["/T"]; hasT {
+			hasSubFields = true
+			break
+		}
+		widgets = append(widgets, k)
+	}
+	if !hasSubFields {
+		// All kids are pure widgets — this is still a leaf field.
+		*out = append(*out, &fieldNode{dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: widgets})
+		return
+	}
+	// Recurse into sub-fields.
+	for _, item := range arr {
+		k, ok := resolveRefDict(objects, item)
+		if !ok {
+			continue
+		}
+		walkField(objects, k, fullName, ft, ff, out)
+	}
+}
+
+func fieldFromNode(n *fieldNode) Field {
+	switch n.ft {
+	case "/Tx":
+		return &TextBoxField{fieldBase{node: n}}
+	case "/Btn":
+		switch {
+		case n.ff&fieldFlagPushbutton != 0:
+			return &ButtonField{fieldBase{node: n}}
+		case n.ff&fieldFlagRadio != 0:
+			return &RadioButtonField{fieldBase{node: n}}
+		default:
+			return &CheckboxField{fieldBase{node: n}}
+		}
+	case "/Ch":
+		if n.ff&fieldFlagCombo != 0 {
+			return &ComboBoxField{fieldBase{node: n}}
+		}
+		return &ListBoxField{fieldBase{node: n}}
+	}
+	return nil
 }

@@ -6,6 +6,47 @@ import (
 	pdf "github.com/aspose/pdf-for-go"
 )
 
+func TestFormFieldsCount(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	got := len(doc.Form().Fields())
+	if got != 6 {
+		t.Errorf("Fields() returned %d entries, want 6 (PdfWithAcroForm.pdf has 6 leaf fields)", got)
+	}
+}
+
+func TestFormFieldsTypes(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	wantByName := map[string]pdf.FormFieldType{
+		"textField":        pdf.FormFieldTypeText,
+		"checkboxField":    pdf.FormFieldTypeCheckbox,
+		"radiobuttonField": pdf.FormFieldTypeRadioButton,
+		"listboxField":     pdf.FormFieldTypeListBox,
+		"comboboxField":    pdf.FormFieldTypeComboBox,
+		"buttonField":      pdf.FormFieldTypePushButton,
+	}
+	for _, f := range doc.Form().Fields() {
+		want, ok := wantByName[f.FullName()]
+		if !ok {
+			t.Errorf("unexpected field FullName %q", f.FullName())
+			continue
+		}
+		got := pdf.FieldType(f)
+		if got != want {
+			t.Errorf("field %q: type = %v, want %v", f.FullName(), got, want)
+		}
+		delete(wantByName, f.FullName())
+	}
+	for name := range wantByName {
+		t.Errorf("missing expected field: %q", name)
+	}
+}
+
 func TestDocumentFormNonNilOnPlainPDF(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	form := doc.Form()
