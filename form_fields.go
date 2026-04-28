@@ -379,8 +379,104 @@ func readChoiceOptions(v pdfValue) []ChoiceOption {
 // ListBoxField is a single- or multi-select list choice field.
 type ListBoxField struct{ fieldBase }
 
-func (f *ListBoxField) Value() string           { return dictGetString(f.node.dict, "/V") }
-func (f *ListBoxField) SetValue(s string) error { return notYetImpl("ListBoxField.SetValue") }
+func (f *ListBoxField) Value() string {
+	return decodeFormString(f.node.dict["/V"])
+}
+
+func (f *ListBoxField) SetValue(s string) error {
+	for i, opt := range f.Options() {
+		if opt.Value == s || (opt.Export != "" && opt.Export == s) {
+			return f.SetSelected(i)
+		}
+	}
+	return fmt.Errorf("ListBoxField.SetValue(%q): no matching option", s)
+}
+
+func (f *ListBoxField) Options() []ChoiceOption {
+	return readChoiceOptions(f.node.dict["/Opt"])
+}
+
+func (f *ListBoxField) MultiSelect() bool {
+	return f.node.ff&fieldFlagMultiSelect != 0
+}
+
+// Selected returns the indices of currently selected options. Single-
+// select listboxes return at most one element.
+func (f *ListBoxField) Selected() []int {
+	v := f.node.dict["/V"]
+	values := f.collectStringValues(v)
+	if len(values) == 0 {
+		return nil
+	}
+	opts := f.Options()
+	var indices []int
+	for _, val := range values {
+		for i, opt := range opts {
+			if opt.Value == val || opt.Export == val {
+				indices = append(indices, i)
+				break
+			}
+		}
+	}
+	return indices
+}
+
+// collectStringValues unpacks /V which may be either a single string
+// (single-select) or an array of strings (multi-select).
+func (f *ListBoxField) collectStringValues(v pdfValue) []string {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case string:
+		return []string{decodeFormString(x)}
+	case pdfArray:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			out = append(out, decodeFormString(item))
+		}
+		return out
+	}
+	return nil
+}
+
+// SetSelected replaces the selected indices. Variadic arguments allow
+// SetSelected() (clear), SetSelected(0) (single), SetSelected(0, 1)
+// (multi). Multi-selection on a single-select listbox returns an error.
+func (f *ListBoxField) SetSelected(indices ...int) error {
+	opts := f.Options()
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(opts) {
+			return fmt.Errorf("ListBoxField.SetSelected: index %d out of range [0,%d)", idx, len(opts))
+		}
+	}
+	if len(indices) > 1 && !f.MultiSelect() {
+		return fmt.Errorf("ListBoxField.SetSelected: %d indices given but field is not MultiSelect", len(indices))
+	}
+	switch len(indices) {
+	case 0:
+		delete(f.node.dict, "/V")
+	case 1:
+		opt := opts[indices[0]]
+		value := opt.Value
+		if opt.Export != "" {
+			value = opt.Export
+		}
+		f.node.dict["/V"] = encodeFormString(value)
+	default:
+		arr := make(pdfArray, 0, len(indices))
+		for _, idx := range indices {
+			opt := opts[idx]
+			v := opt.Value
+			if opt.Export != "" {
+				v = opt.Export
+			}
+			arr = append(arr, encodeFormString(v))
+		}
+		f.node.dict["/V"] = arr
+	}
+	noteFormMutated(f.node)
+	return nil
+}
 
 // ButtonField is a push button — action only, no value semantics.
 type ButtonField struct{ fieldBase }

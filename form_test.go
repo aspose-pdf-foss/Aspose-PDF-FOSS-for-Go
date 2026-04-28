@@ -241,3 +241,42 @@ func TestComboBoxFieldRoundTrip(t *testing.T) {
 		t.Errorf("after roundtrip Selected() = %d, want %d", cb2.Selected(), target)
 	}
 }
+
+func TestListBoxFieldRead(t *testing.T) {
+	doc, _ := pdf.Open(testFile(t))
+	lb := doc.Form().Field("listboxField").(*pdf.ListBoxField)
+	opts := lb.Options()
+	if len(opts) == 0 {
+		t.Fatal("listboxField has zero options")
+	}
+	sel := lb.Selected()
+	for _, idx := range sel {
+		if idx < 0 || idx >= len(opts) {
+			t.Errorf("Selected() index %d out of range [0,%d)", idx, len(opts))
+		}
+	}
+}
+
+func TestListBoxFieldRoundTrip(t *testing.T) {
+	src := testFile(t)
+	doc, _ := pdf.Open(src)
+	lb := doc.Form().Field("listboxField").(*pdf.ListBoxField)
+	opts := lb.Options()
+	if len(opts) < 2 {
+		t.Skip("need at least 2 options")
+	}
+	if err := lb.SetSelected(0, 1); err != nil {
+		// Single-select listboxes reject multi-set; fall back to single.
+		if err := lb.SetSelected(1); err != nil {
+			t.Fatalf("SetSelected single-arg: %v", err)
+		}
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	lb2 := doc2.Form().Field("listboxField").(*pdf.ListBoxField)
+	got := lb2.Selected()
+	if len(got) == 0 {
+		t.Error("after SetSelected + reopen, Selected() returned empty")
+	}
+}
