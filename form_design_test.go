@@ -255,3 +255,56 @@ func TestFormAddRadioGroupDuplicateExportError(t *testing.T) {
 		t.Error("duplicate export should error")
 	}
 }
+
+func TestFormRemoveFieldSimple(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, "x"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !doc.Form().RemoveField("x") {
+		t.Fatal("RemoveField returned false on existing field")
+	}
+	if doc.Form().HasField("x") {
+		t.Error("HasField('x') still true after RemoveField")
+	}
+}
+
+func TestFormRemoveFieldNotFound(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if doc.Form().RemoveField("ghost") {
+		t.Error("RemoveField returned true for nonexistent field")
+	}
+}
+
+func TestFormRemoveFieldRadioCascade(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatalf("AddBlankPage: %v", err)
+	}
+	items := []pdf.RadioItem{
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "a"},
+		{PageNum: 2, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "b"},
+	}
+	if _, err := doc.Form().AddRadioGroup("rg", items); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !doc.Form().RemoveField("rg") {
+		t.Fatal("Remove failed")
+	}
+	if doc.Form().HasField("rg") {
+		t.Error("HasField still true after Remove")
+	}
+
+	// Verify save+reopen still consistent.
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if doc2.Form().HasField("rg") {
+		t.Error("HasField returned true after Remove + roundtrip")
+	}
+}

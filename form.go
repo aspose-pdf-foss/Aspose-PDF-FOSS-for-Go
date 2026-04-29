@@ -725,6 +725,109 @@ func choiceOptionsToPDFArray(options []ChoiceOption) pdfArray {
 	return arr
 }
 
+// RemoveField removes the named field (and all its widget annotations)
+// from /AcroForm/Fields and from each affected page's /Annots. The
+// underlying pdfObjects are deleted from the document's object map.
+// Returns true if the field was found and removed; false otherwise.
+//
+// For combined-pattern fields (TextField, Checkbox, ComboBox, ListBox,
+// PushButton), the single dict is both the field and its widget: it is
+// removed from /Fields and from the owning page's /Annots.
+//
+// For radio groups, the parent dict is removed from /Fields, and each
+// widget kid is removed from its respective page's /Annots.
+//
+// After removal, any *Field handles previously returned for this field
+// are dangling and must not be used.
+func (f *Form) RemoveField(name string) bool {
+	if f.cache == nil {
+		return false
+	}
+	if _, ok := f.cache[name]; !ok {
+		return false
+	}
+
+	// Find the internal node matching the name.
+	var target *fieldNode
+	for _, n := range f.leaves {
+		if n.fullName == name {
+			target = n
+			break
+		}
+	}
+	if target == nil {
+		return false
+	}
+
+	// Build a single-pass index: dict pointer → object ID.
+	// pdfDict is a map (reference type); the pointer of its underlying
+	// hmap is unique per allocation, so it serves as a stable identity key.
+	type dictKey = string // fmt.Sprintf("%p", dict)
+	dictToID := make(map[dictKey]int, len(f.doc.objects))
+	for id, obj := range f.doc.objects {
+		if d, ok := obj.Value.(pdfDict); ok {
+			dictToID[fmt.Sprintf("%p", d)] = id
+		}
+	}
+
+	// Collect IDs to delete: parent/field dict + every widget dict.
+	idsToRemove := map[int]bool{}
+	if id, ok := dictToID[fmt.Sprintf("%p", target.dict)]; ok {
+		idsToRemove[id] = true
+	}
+	for _, w := range target.widgets {
+		// For combined-pattern fields, w == target.dict, so this is a
+		// no-op duplicate insert — that's fine.
+		if w != nil {
+			if id, ok := dictToID[fmt.Sprintf("%p", w)]; ok {
+				idsToRemove[id] = true
+			}
+		}
+	}
+
+	// Splice removed refs out of /AcroForm/Fields.
+	if arr, ok := f.root["/Fields"].(pdfArray); ok {
+		newArr := make(pdfArray, 0, len(arr))
+		for _, item := range arr {
+			if ref, ok := item.(pdfRef); ok && idsToRemove[ref.Num] {
+				continue
+			}
+			newArr = append(newArr, item)
+		}
+		f.root["/Fields"] = newArr
+	}
+
+	// Splice removed refs out of every page's /Annots.
+	for _, p := range f.doc.pages {
+		pageDict, _ := p.Value.(pdfDict)
+		if pageDict == nil {
+			continue
+		}
+		annots, _ := pageDict["/Annots"].(pdfArray)
+		if len(annots) == 0 {
+			continue
+		}
+		newAnnots := make(pdfArray, 0, len(annots))
+		for _, a := range annots {
+			if ref, ok := a.(pdfRef); ok && idsToRemove[ref.Num] {
+				continue
+			}
+			newAnnots = append(newAnnots, a)
+		}
+		pageDict["/Annots"] = newAnnots
+	}
+
+	// Delete the objects from the document.
+	for id := range idsToRemove {
+		delete(f.doc.objects, id)
+	}
+
+	// Rebuild the cache and mark the form dirty.
+	f.rebuildFieldCache()
+	f.noteFormMutatedInForm()
+	return true
+}
+
 func fieldFromNode(n *fieldNode) Field {
 	switch n.ft {
 	case "/Tx":
