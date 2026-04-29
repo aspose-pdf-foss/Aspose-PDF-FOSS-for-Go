@@ -35,3 +35,22 @@ func TestFormAddTextFieldRoundTrip(t *testing.T) {
 		t.Errorf("Value() = %q, want %q", got, "Jane Doe")
 	}
 }
+
+func TestFormAddCheckboxRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	cb, err := doc.Form().AddCheckbox(1, pdf.Rectangle{LLX: 50, LLY: 650, URX: 70, URY: 670}, "subscribe")
+	if err != nil {
+		t.Fatalf("AddCheckbox: %v", err)
+	}
+	cb.SetChecked(true)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	cb2 := doc2.Form().Field("subscribe").(*pdf.CheckboxField)
+	if !cb2.Checked() {
+		t.Error("checkbox not checked after roundtrip")
+	}
+}

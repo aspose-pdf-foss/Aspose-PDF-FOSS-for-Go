@@ -433,6 +433,80 @@ func rectToPDFArray(r Rectangle) pdfArray {
 	return pdfArray{r.LLX, r.LLY, r.URX, r.URY}
 }
 
+// AddCheckbox creates a checkbox widget on pageNum with the given rectangle
+// and field name. Default state is unchecked (/V = /Off). The widget's
+// /AP/N has two appearance states: "/Yes" (export name for checked) and
+// "/Off". Callers can call SetChecked(true) on the returned handle to flip
+// state and ensure /V and /AS are in sync.
+//
+// Errors on duplicate name, invalid pageNum, or empty name.
+func (f *Form) AddCheckbox(pageNum int, rect Rectangle, name string) (*CheckboxField, error) {
+	if err := f.validateNewField(pageNum, name); err != nil {
+		return nil, err
+	}
+	page, err := f.doc.Page(pageNum)
+	if err != nil {
+		return nil, err
+	}
+	helvName, err := f.ensureFontHelv()
+	if err != nil {
+		return nil, err
+	}
+
+	// Empty placeholder XObject refs for /Off and /Yes states. Viewers
+	// regenerate visible appearances when /NeedAppearances=true.
+	apN := pdfDict{
+		"/Off": placeholderXObjectRef(f.doc),
+		"/Yes": placeholderXObjectRef(f.doc),
+	}
+
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Widget"),
+		"/FT":      pdfName("/Btn"),
+		"/T":       name,
+		"/V":       pdfName("/Off"),
+		"/AS":      pdfName("/Off"),
+		"/DA":      "0 g /" + helvName + " 12 Tf",
+		"/Rect":    rectToPDFArray(rect),
+		"/P":       pdfRef{Num: page.pageObj().Num},
+		"/AP":      pdfDict{"/N": apN},
+	}
+
+	objID := f.doc.nextID
+	f.doc.nextID++
+	f.doc.objects[objID] = &pdfObject{Num: objID, Value: dict}
+	ref := pdfRef{Num: objID}
+
+	f.appendToFields(ref)
+	appendWidgetToPage(page.pageObj(), ref)
+	f.rebuildFieldCache()
+	f.noteFormMutatedInForm()
+
+	return f.cache[name].(*CheckboxField), nil
+}
+
+// placeholderXObjectRef creates an empty Form XObject and returns its
+// reference. Used for widget /AP/N placeholder entries — viewers
+// regenerate the actual visual at display time when /NeedAppearances
+// is true.
+func placeholderXObjectRef(doc *Document) pdfRef {
+	stream := &pdfStream{
+		Dict: pdfDict{
+			"/Type":      pdfName("/XObject"),
+			"/Subtype":   pdfName("/Form"),
+			"/BBox":      pdfArray{0, 0, 0, 0},
+			"/Resources": pdfDict{},
+		},
+		Data:    []byte{},
+		Decoded: true,
+	}
+	id := doc.nextID
+	doc.nextID++
+	doc.objects[id] = &pdfObject{Num: id, Value: stream}
+	return pdfRef{Num: id}
+}
+
 func fieldFromNode(n *fieldNode) Field {
 	switch n.ft {
 	case "/Tx":
