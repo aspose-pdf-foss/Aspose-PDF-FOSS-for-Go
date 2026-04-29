@@ -556,55 +556,46 @@ var errPushButtonHasNoValue = fmt.Errorf("push button field has no value")
 // arbitrary user-typed text instead of restricting to /Opt entries.
 func (f *ComboBoxField) SetEditable(v bool) { setFlag(f.node, fieldFlagEdit, v) }
 
-// AddOption appends a ChoiceOption to /Opt.
-func (f *ComboBoxField) AddOption(o ChoiceOption) {
-	arr := f.node.dict["/Opt"]
-	pdfArr, _ := arr.(pdfArray)
-	pdfArr = append(pdfArr, choiceOptionToPDFValue(o))
-	f.node.dict["/Opt"] = pdfArr
-	if f.node.form != nil {
-		f.node.form.noteFormMutatedInForm()
+// addChoiceOption appends an option to /Opt on the given field node.
+func addChoiceOption(node *fieldNode, o ChoiceOption) {
+	arr, _ := node.dict["/Opt"].(pdfArray)
+	arr = append(arr, choiceOptionToPDFValue(o))
+	node.dict["/Opt"] = arr
+	if node.form != nil {
+		node.form.noteFormMutatedInForm()
 	}
 }
 
-// RemoveOption removes the option at index. Errors on out-of-range.
-func (f *ComboBoxField) RemoveOption(index int) error {
-	pdfArr, _ := f.node.dict["/Opt"].(pdfArray)
-	if index < 0 || index >= len(pdfArr) {
-		return fmt.Errorf("ComboBoxField.RemoveOption(%d): out of range [0,%d)", index, len(pdfArr))
+// removeChoiceOption removes the option at index. Errors on out-of-range.
+func removeChoiceOption(typeName string, node *fieldNode, index int) error {
+	arr, _ := node.dict["/Opt"].(pdfArray)
+	if index < 0 || index >= len(arr) {
+		return fmt.Errorf("%s.RemoveOption(%d): out of range [0,%d)", typeName, index, len(arr))
 	}
-	f.node.dict["/Opt"] = append(pdfArr[:index], pdfArr[index+1:]...)
-	if f.node.form != nil {
-		f.node.form.noteFormMutatedInForm()
+	node.dict["/Opt"] = append(arr[:index], arr[index+1:]...)
+	if node.form != nil {
+		node.form.noteFormMutatedInForm()
 	}
 	return nil
+}
+
+// AddOption appends a ChoiceOption to /Opt.
+func (f *ComboBoxField) AddOption(o ChoiceOption) { addChoiceOption(f.node, o) }
+
+// RemoveOption removes the option at index. Errors on out-of-range.
+func (f *ComboBoxField) RemoveOption(index int) error {
+	return removeChoiceOption("ComboBoxField", f.node, index)
 }
 
 // SetMultiSelect toggles bit 22 (/Ff MultiSelect) on a ListBoxField.
 func (f *ListBoxField) SetMultiSelect(v bool) { setFlag(f.node, fieldFlagMultiSelect, v) }
 
 // AddOption appends a ChoiceOption to /Opt.
-func (f *ListBoxField) AddOption(o ChoiceOption) {
-	arr := f.node.dict["/Opt"]
-	pdfArr, _ := arr.(pdfArray)
-	pdfArr = append(pdfArr, choiceOptionToPDFValue(o))
-	f.node.dict["/Opt"] = pdfArr
-	if f.node.form != nil {
-		f.node.form.noteFormMutatedInForm()
-	}
-}
+func (f *ListBoxField) AddOption(o ChoiceOption) { addChoiceOption(f.node, o) }
 
 // RemoveOption removes the option at index. Errors on out-of-range.
 func (f *ListBoxField) RemoveOption(index int) error {
-	pdfArr, _ := f.node.dict["/Opt"].(pdfArray)
-	if index < 0 || index >= len(pdfArr) {
-		return fmt.Errorf("ListBoxField.RemoveOption(%d): out of range [0,%d)", index, len(pdfArr))
-	}
-	f.node.dict["/Opt"] = append(pdfArr[:index], pdfArr[index+1:]...)
-	if f.node.form != nil {
-		f.node.form.noteFormMutatedInForm()
-	}
-	return nil
+	return removeChoiceOption("ListBoxField", f.node, index)
 }
 
 // choiceOptionToPDFValue is the per-option converter. Mirrors what

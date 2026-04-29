@@ -502,3 +502,78 @@ func TestFormBuildFromScratchIntegration(t *testing.T) {
 		t.Error("submit not PushButton type")
 	}
 }
+
+func TestCheckboxFieldSetReadOnlyRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	cb, _ := doc.Form().AddCheckbox(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 70, URY: 720}, "x")
+	cb.SetReadOnly(true)
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	cb2 := doc2.Form().Field("x").(*pdf.CheckboxField)
+	if !cb2.IsReadOnly() {
+		t.Error("CheckboxField IsReadOnly = false after SetReadOnly(true) + roundtrip")
+	}
+}
+
+func TestComboBoxFieldSetRequiredRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	cb, _ := doc.Form().AddComboBox(1, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 625}, "x", []pdf.ChoiceOption{{Value: "a"}})
+	cb.SetRequired(true)
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	cb2 := doc2.Form().Field("x").(*pdf.ComboBoxField)
+	if !cb2.IsRequired() {
+		t.Error("ComboBoxField IsRequired = false after SetRequired(true) + roundtrip")
+	}
+}
+
+func TestListBoxFieldAddRemoveOptionRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	lb, _ := doc.Form().AddListBox(1, pdf.Rectangle{LLX: 50, LLY: 500, URX: 250, URY: 580}, "x", []pdf.ChoiceOption{{Value: "a"}, {Value: "b"}})
+	lb.AddOption(pdf.ChoiceOption{Value: "c"})
+	if err := lb.RemoveOption(0); err != nil {
+		t.Fatalf("RemoveOption: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	lb2 := doc2.Form().Field("x").(*pdf.ListBoxField)
+	opts := lb2.Options()
+	if len(opts) != 2 || opts[0].Value != "b" || opts[1].Value != "c" {
+		t.Errorf("Options after Add+Remove+roundtrip = %v, want [{b} {c}]", opts)
+	}
+}
+
+func TestFormRemoveFieldDeletesObject(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, "x"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !doc.Form().RemoveField("x") {
+		t.Fatal("Remove failed")
+	}
+	if len(doc.Form().Fields()) != 0 {
+		t.Errorf("Fields() count = %d after Remove, want 0", len(doc.Form().Fields()))
+	}
+	// Re-add same name should succeed (no leftover state blocking it).
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 660, URX: 545, URY: 690}, "x"); err != nil {
+		t.Errorf("re-Add after Remove failed: %v", err)
+	}
+}

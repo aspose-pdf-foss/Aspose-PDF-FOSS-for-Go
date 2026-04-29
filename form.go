@@ -448,10 +448,6 @@ func (f *Form) AddCheckbox(pageNum int, rect Rectangle, name string) (*CheckboxF
 	if err != nil {
 		return nil, err
 	}
-	helvName, err := f.ensureFontHelv()
-	if err != nil {
-		return nil, err
-	}
 
 	// Empty placeholder XObject refs for /Off and /Yes states. Viewers
 	// regenerate visible appearances when /NeedAppearances=true.
@@ -467,7 +463,6 @@ func (f *Form) AddCheckbox(pageNum int, rect Rectangle, name string) (*CheckboxF
 		"/T":       name,
 		"/V":       pdfName("/Off"),
 		"/AS":      pdfName("/Off"),
-		"/DA":      "0 g /" + helvName + " 12 Tf",
 		"/Rect":    rectToPDFArray(rect),
 		"/P":       pdfRef{Num: page.pageObj().Num},
 		"/AP":      pdfDict{"/N": apN},
@@ -570,6 +565,7 @@ func (f *Form) AddListBox(pageNum int, rect Rectangle, name string, options []Ch
 		"/Subtype": pdfName("/Widget"),
 		"/FT":      pdfName("/Ch"),
 		"/T":       name,
+		"/V":       "",
 		// /Ff is 0 — neither Combo (bit 18) nor MultiSelect (bit 22) set.
 		"/Opt":  choiceOptionsToPDFArray(options),
 		"/DA":   "0 g /" + helvName + " 12 Tf",
@@ -601,10 +597,6 @@ func (f *Form) AddPushButton(pageNum int, rect Rectangle, name string, caption s
 	if err != nil {
 		return nil, err
 	}
-	helvName, err := f.ensureFontHelv()
-	if err != nil {
-		return nil, err
-	}
 
 	dict := pdfDict{
 		"/Type":    pdfName("/Annot"),
@@ -612,7 +604,6 @@ func (f *Form) AddPushButton(pageNum int, rect Rectangle, name string, caption s
 		"/FT":      pdfName("/Btn"),
 		"/T":       name,
 		"/Ff":      fieldFlagPushbutton,
-		"/DA":      "0 g /" + helvName + " 12 Tf",
 		"/Rect":    rectToPDFArray(rect),
 		"/P":       pdfRef{Num: page.pageObj().Num},
 		"/MK":      pdfDict{"/CA": caption},
