@@ -366,7 +366,35 @@ func asciiHexDecode(data []byte) ([]byte, error) {
 	return hex.DecodeString(s)
 }
 
+// validateASCII85 checks that every byte in data belongs to the ASCII85
+// alphabet (ISO 32000-1 §7.4.3). Valid bytes are:
+//   - '!' (0x21) … 'u' (0x75) — data alphabet
+//   - 'z' (0x7A)              — shorthand for four zero bytes
+//   - '~' (0x7E)              — start of end-of-data marker (~>)
+//   - whitespace / NUL        — silently ignored per spec
+//
+// Any other byte signals that data is not valid ASCII85 (e.g. encrypted
+// stream bytes) and causes an error so the decoder returns Decoded=false.
+func validateASCII85(data []byte) error {
+	for i, b := range data {
+		switch {
+		case b >= '!' && b <= 'u':
+			// data alphabet — ok
+		case b == 'z' || b == '~':
+			// shorthand zero group or terminator — ok
+		case b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' || b == '\v' || b == 0:
+			// whitespace / NUL — ignored per spec
+		default:
+			return fmt.Errorf("ascii85: invalid byte 0x%02x at offset %d", b, i)
+		}
+	}
+	return nil
+}
+
 func ascii85Decode(data []byte) ([]byte, error) {
+	if err := validateASCII85(data); err != nil {
+		return nil, err
+	}
 	// Find end marker ~>
 	end := bytes.Index(data, []byte("~>"))
 	if end >= 0 {
