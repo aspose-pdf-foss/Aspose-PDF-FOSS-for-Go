@@ -48,9 +48,44 @@ func TestFormAddCheckboxRoundTrip(t *testing.T) {
 	if _, err := doc.WriteTo(&buf); err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
-	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
 	cb2 := doc2.Form().Field("subscribe").(*pdf.CheckboxField)
 	if !cb2.Checked() {
 		t.Error("checkbox not checked after roundtrip")
+	}
+}
+
+func TestFormAddComboBoxRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	options := []pdf.ChoiceOption{
+		{Value: "USA"},
+		{Value: "Canada"},
+		{Value: "Mexico"},
+	}
+	cb, err := doc.Form().AddComboBox(1, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 625}, "country", options)
+	if err != nil {
+		t.Fatalf("AddComboBox: %v", err)
+	}
+	if err := cb.SetSelected(1); err != nil {
+		t.Fatalf("SetSelected: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	cb2 := doc2.Form().Field("country").(*pdf.ComboBoxField)
+	if got := len(cb2.Options()); got != 3 {
+		t.Errorf("Options count = %d, want 3", got)
+	}
+	if got := cb2.Selected(); got != 1 {
+		t.Errorf("Selected = %d, want 1", got)
 	}
 }

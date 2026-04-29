@@ -507,6 +507,64 @@ func placeholderXObjectRef(doc *Document) pdfRef {
 	return pdfRef{Num: id}
 }
 
+// AddComboBox creates a single-select dropdown choice field. The
+// caller can pre-populate options or pass an empty slice and call
+// AddOption later. Field is non-editable by default; SetEditable(true)
+// flips bit 19.
+func (f *Form) AddComboBox(pageNum int, rect Rectangle, name string, options []ChoiceOption) (*ComboBoxField, error) {
+	if err := f.validateNewField(pageNum, name); err != nil {
+		return nil, err
+	}
+	page, err := f.doc.Page(pageNum)
+	if err != nil {
+		return nil, err
+	}
+	helvName, err := f.ensureFontHelv()
+	if err != nil {
+		return nil, err
+	}
+
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Widget"),
+		"/FT":      pdfName("/Ch"),
+		"/T":       name,
+		"/V":       "",
+		"/Ff":      fieldFlagCombo, // distinguishes ComboBox from ListBox
+		"/Opt":     choiceOptionsToPDFArray(options),
+		"/DA":      "0 g /" + helvName + " 12 Tf",
+		"/Rect":    rectToPDFArray(rect),
+		"/P":       pdfRef{Num: page.pageObj().Num},
+	}
+
+	objID := f.doc.nextID
+	f.doc.nextID++
+	f.doc.objects[objID] = &pdfObject{Num: objID, Value: dict}
+	ref := pdfRef{Num: objID}
+
+	f.appendToFields(ref)
+	appendWidgetToPage(page.pageObj(), ref)
+	f.rebuildFieldCache()
+	f.noteFormMutatedInForm()
+
+	return f.cache[name].(*ComboBoxField), nil
+}
+
+// choiceOptionsToPDFArray converts a slice of ChoiceOption to a /Opt
+// array. Each element is either a single string (Value-only) or a
+// two-element array [Export, Value] when Export is non-empty.
+func choiceOptionsToPDFArray(options []ChoiceOption) pdfArray {
+	arr := make(pdfArray, 0, len(options))
+	for _, o := range options {
+		if o.Export != "" {
+			arr = append(arr, pdfArray{o.Export, o.Value})
+		} else {
+			arr = append(arr, o.Value)
+		}
+	}
+	return arr
+}
+
 func fieldFromNode(n *fieldNode) Field {
 	switch n.ft {
 	case "/Tx":
