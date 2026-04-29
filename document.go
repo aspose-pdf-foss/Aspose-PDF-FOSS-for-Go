@@ -9,12 +9,13 @@ import (
 
 // Document is a PDF document. Operations directly mutate the receiver.
 type Document struct {
-	objects map[int]*pdfObject // all PDF objects by ID
-	pages   []*pdfObject       // ordered /Page objects
-	catalog pdfDict            // /Catalog dict
-	info    pdfDict            // /Info dict; nil = no metadata
-	encrypt *encryptConfig     // nil = no encryption
-	nextID  int                // next available object ID
+	objects   map[int]*pdfObject // all PDF objects by ID
+	pages     []*pdfObject       // ordered /Page objects
+	catalog   pdfDict            // /Catalog dict
+	info      pdfDict            // /Info dict; nil = no metadata
+	encrypt   *encryptConfig     // nil = no encryption
+	preserved *encryptState      // captured verbatim at OpenWithPassword time; nil after any explicit mutation
+	nextID    int                // next available object ID
 }
 
 // Open opens a PDF file and returns a Document.
@@ -45,15 +46,13 @@ func OpenStream(r io.Reader) (*Document, error) {
 // unencrypted files. The password is tried as both user and owner
 // password; either unlocks the document for editing.
 //
-// Edit-in-place caveat: the supplied password is preserved on the
-// returned Document so a subsequent Save re-encrypts automatically.
-// Both user and owner password slots get set to the supplied value, so
-// the original two-password split is NOT preserved across Save: a file
-// originally locked with user="U" and owner="O", reopened with "O" and
-// re-saved, will have user=owner="O" — the original "U" no longer
-// works. To preserve a split, call SetPassword after open with both
-// known passwords; to drop encryption, call RemoveEncryption before
-// Save.
+// Edit-in-place: the original /O, /U, /P, and /ID bytes from the file
+// are preserved on the returned Document so a subsequent Save reuses them
+// verbatim — BOTH the original user and owner passwords continue to work
+// after re-save, and permissions are preserved bit-for-bit.  If you call
+// SetPassword, SetPermissions, SetEncryption, or RemoveEncryption after
+// open, the preserved state is discarded and the document is re-encrypted
+// from the new configuration.
 //
 // Example:
 //
@@ -71,8 +70,7 @@ func OpenWithPassword(path, password string) (*Document, error) {
 // ignored — so this method is a safe drop-in for code that doesn't know
 // up front whether the input is encrypted.
 //
-// See OpenWithPassword for the edit-in-place password-preservation
-// caveat (both user and owner slots are set to the supplied password).
+// See OpenWithPassword for the edit-in-place preservation semantics.
 func OpenStreamWithPassword(r io.Reader, password string) (*Document, error) {
 	return openStreamCore(r, &password)
 }
@@ -99,6 +97,7 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 	// pendingEncrypt is set when the file was opened with a password so
 	// that the resulting Document re-encrypts on Save by default.
 	var pendingEncrypt *encryptConfig
+	var pendingPreserved *encryptState
 
 	if encVal, ok := trailer["/Encrypt"]; ok {
 		if password == nil {
@@ -124,11 +123,16 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		}
 		raw.encState = state
 		raw.encryptObjNum = encRef.Num
-		// Preserve the encryption settings on the Document so a subsequent
-		// Save re-encrypts with the same effective password and /P instead
-		// of silently producing a plaintext file. The supplied password is
-		// stored as both user and owner so the empty-owner-falls-back-to-
-		// user rule applies symmetrically on re-save.
+		// Capture the parsed encryptState verbatim so re-Save can reuse the
+		// original /O, /U, /P, and /ID bytes without re-deriving from a single
+		// password.  Both original passwords (user and owner) continue to work
+		// because neither hash has changed.
+		pendingPreserved = state
+		// Also build a minimal encryptConfig so that callers who immediately
+		// query Permissions() get a correct answer, and so the encrypt!=nil
+		// sentinel works. The supplied password is stored as both slots —
+		// it's only consulted if the user explicitly calls SetPassword et al.
+		// and thereby clears pendingPreserved.
 		pendingEncrypt = &encryptConfig{
 			userPassword:   *password,
 			ownerPassword:  *password,
@@ -170,12 +174,13 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 	}
 
 	return &Document{
-		objects: objects,
-		pages:   pages,
-		catalog: catalog,
-		info:    extractInfo(objects, trailer),
-		nextID:  maxObjectID(objects) + 1,
-		encrypt: pendingEncrypt,
+		objects:   objects,
+		pages:     pages,
+		catalog:   catalog,
+		info:      extractInfo(objects, trailer),
+		nextID:    maxObjectID(objects) + 1,
+		encrypt:   pendingEncrypt,
+		preserved: pendingPreserved,
 	}, nil
 }
 
@@ -270,6 +275,7 @@ func (d *Document) RemoveUnusedObjects() int {
 //	doc.SetPassword("secret", "")
 //	doc.Save("encrypted.pdf")
 func (d *Document) SetPassword(userPassword, ownerPassword string) {
+	d.preserved = nil // explicit mutation overrides preserved state
 	if d.encrypt == nil {
 		d.encrypt = &encryptConfig{}
 	}
@@ -289,6 +295,7 @@ func (d *Document) SetPassword(userPassword, ownerPassword string) {
 //	doc.SetPermissions(asposepdf.Permissions{AllowPrint: true, AllowCopy: true})
 //	doc.Save("restricted.pdf")
 func (d *Document) SetPermissions(p Permissions) {
+	d.preserved = nil // explicit mutation overrides preserved state
 	if d.encrypt == nil {
 		d.encrypt = &encryptConfig{}
 	}
@@ -321,6 +328,7 @@ func (d *Document) Permissions() (Permissions, bool) {
 //	doc.RemoveEncryption()
 //	doc.Save("plain.pdf")
 func (d *Document) RemoveEncryption() {
+	d.preserved = nil // explicit mutation overrides preserved state
 	d.encrypt = nil
 }
 
@@ -341,6 +349,7 @@ func (d *Document) RemoveEncryption() {
 //	})
 //	doc.Save("restricted.pdf")
 func (d *Document) SetEncryption(opts EncryptionOptions) {
+	d.preserved = nil // explicit mutation overrides preserved state
 	cfg := &encryptConfig{
 		userPassword:  opts.UserPassword,
 		ownerPassword: opts.OwnerPassword,

@@ -241,6 +241,89 @@ func TestRemoveEncryption(t *testing.T) {
 	}
 }
 
+// TestEditInPlacePreservesOriginalPasswords verifies that opening an
+// encrypted file with one password and re-saving (without any explicit
+// SetPassword/SetEncryption call) keeps BOTH original passwords working.
+// This covers the case where user != owner password.
+func TestEditInPlacePreservesOriginalPasswords(t *testing.T) {
+	// Build a file encrypted with TWO distinct passwords.
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	_ = page.AddText("two-password test", pdf.TextStyle{Size: 12},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750})
+	doc.SetPassword("USER-pw", "OWNER-pw")
+
+	var buf1 bytes.Buffer
+	if _, err := doc.WriteTo(&buf1); err != nil {
+		t.Fatalf("first WriteTo: %v", err)
+	}
+
+	// Open with OWNER password (admin scenario), edit, re-save.
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf1.Bytes()), "OWNER-pw")
+	if err != nil {
+		t.Fatalf("OpenStreamWithPassword(owner): %v", err)
+	}
+	if err := doc2.AddTextWatermark("EDITED", pdf.TextStyle{
+		Font: pdf.FontHelveticaBold, Size: 24,
+	}); err != nil {
+		t.Fatalf("AddTextWatermark: %v", err)
+	}
+
+	var buf2 bytes.Buffer
+	if _, err := doc2.WriteTo(&buf2); err != nil {
+		t.Fatalf("second WriteTo: %v", err)
+	}
+
+	// Critical: BOTH original passwords must still work on the saved file.
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf2.Bytes()), "USER-pw"); err != nil {
+		t.Errorf("after edit-in-place re-save with owner pw, original USER pw rejected: %v", err)
+	}
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf2.Bytes()), "OWNER-pw"); err != nil {
+		t.Errorf("after edit-in-place re-save with owner pw, original OWNER pw rejected: %v", err)
+	}
+}
+
+// TestExplicitSetPasswordOverridesPreservation verifies that calling
+// SetPassword after OpenWithPassword drops the preserved state so that
+// old passwords no longer work and the new password does.
+func TestExplicitSetPasswordOverridesPreservation(t *testing.T) {
+	// Build with two passwords, open with one, then explicitly SetPassword to a new one.
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	_ = page.AddText("override test", pdf.TextStyle{Size: 12},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750})
+	doc.SetPassword("USER-pw", "OWNER-pw")
+
+	var buf1 bytes.Buffer
+	if _, err := doc.WriteTo(&buf1); err != nil {
+		t.Fatalf("first WriteTo: %v", err)
+	}
+
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf1.Bytes()), "OWNER-pw")
+	if err != nil {
+		t.Fatalf("OpenStreamWithPassword: %v", err)
+	}
+	// Explicit override — should discard preserved state.
+	doc2.SetPassword("NEW-pw", "")
+
+	var buf2 bytes.Buffer
+	if _, err := doc2.WriteTo(&buf2); err != nil {
+		t.Fatalf("second WriteTo: %v", err)
+	}
+
+	// Old passwords must NOT work.
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf2.Bytes()), "USER-pw"); err == nil {
+		t.Error("USER-pw should no longer work after SetPassword override")
+	}
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf2.Bytes()), "OWNER-pw"); err == nil {
+		t.Error("OWNER-pw should no longer work after SetPassword override")
+	}
+	// New password must work.
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf2.Bytes()), "NEW-pw"); err != nil {
+		t.Errorf("NEW-pw after SetPassword override should work: %v", err)
+	}
+}
+
 // assertPagesEqual reports per-page mismatches between two extracted-text
 // page slices, with concise diffs.
 func assertPagesEqual(t *testing.T, got, want []string) {

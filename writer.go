@@ -12,7 +12,11 @@ import (
 // buildDocumentPDF serializes d to a PDF byte slice.
 func buildDocumentPDF(d *Document) ([]byte, error) {
 	var encState *encryptState
-	if d.encrypt != nil {
+	if d.preserved != nil {
+		// Reuse the original /O, /U, /P, /ID bytes verbatim so that BOTH the
+		// original user and owner passwords survive edit-in-place re-save.
+		encState = d.preserved
+	} else if d.encrypt != nil {
 		var err error
 		encState, err = newEncryptState(d.encrypt)
 		if err != nil {
