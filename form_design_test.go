@@ -145,3 +145,65 @@ func TestFormAddPushButtonRoundTrip(t *testing.T) {
 		t.Error("after roundtrip, type is not PushButton")
 	}
 }
+
+func TestFormAddRadioGroupSinglePage(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	items := []pdf.RadioItem{
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "basic"},
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 370, URX: 70, URY: 390}, Export: "premium"},
+	}
+	rb, err := doc.Form().AddRadioGroup("plan", items)
+	if err != nil {
+		t.Fatalf("AddRadioGroup: %v", err)
+	}
+	rb.Options()[0].SetSelected(true)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	rb2 := doc2.Form().Field("plan").(*pdf.RadioButtonField)
+	opts := rb2.Options()
+	if len(opts) != 2 {
+		t.Fatalf("Options count = %d, want 2", len(opts))
+	}
+	if !opts[0].Selected() {
+		t.Error("opt 0 should be selected")
+	}
+	if opts[1].Selected() {
+		t.Error("opt 1 should not be selected")
+	}
+}
+
+func TestFormAddRadioGroupCrossPage(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatalf("AddBlankPage: %v", err)
+	}
+	items := []pdf.RadioItem{
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "page1opt"},
+		{PageNum: 2, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "page2opt"},
+	}
+	rb, err := doc.Form().AddRadioGroup("xpage", items)
+	if err != nil {
+		t.Fatalf("AddRadioGroup cross-page: %v", err)
+	}
+	rb.Options()[1].SetSelected(true)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	rb2 := doc2.Form().Field("xpage").(*pdf.RadioButtonField)
+	if !rb2.Options()[1].Selected() {
+		t.Error("opt 1 should be selected after cross-page roundtrip")
+	}
+}

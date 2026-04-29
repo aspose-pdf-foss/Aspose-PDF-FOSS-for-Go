@@ -24,6 +24,15 @@ func widgetOnStateName(w pdfDict) string {
 	return ""
 }
 
+// RadioItem describes one widget inside a radio group. PageNum is
+// 1-based; Export is the unique export value for this option (becomes
+// the /AS state name when selected).
+type RadioItem struct {
+	PageNum int
+	Rect    Rectangle
+	Export  string
+}
+
 // FormFieldType identifies the kind of form field. Returned by FieldType().
 type FormFieldType int
 

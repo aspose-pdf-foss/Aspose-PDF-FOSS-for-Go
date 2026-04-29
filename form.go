@@ -631,6 +631,85 @@ func (f *Form) AddPushButton(pageNum int, rect Rectangle, name string, caption s
 	return f.cache[name].(*ButtonField), nil
 }
 
+// AddRadioGroup creates a radio-button parent field plus one widget per
+// item. Items may live on different pages. Export values must be
+// unique within the group.
+func (f *Form) AddRadioGroup(name string, items []RadioItem) (*RadioButtonField, error) {
+	if name == "" {
+		return nil, fmt.Errorf("form field name is empty")
+	}
+	if f.HasField(name) {
+		return nil, fmt.Errorf("field with name %q already exists", name)
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("radio group %q has no items", name)
+	}
+	seen := map[string]bool{}
+	for i, it := range items {
+		if it.Export == "" {
+			return nil, fmt.Errorf("radio item %d: empty Export", i)
+		}
+		if seen[it.Export] {
+			return nil, fmt.Errorf("radio item %d: duplicate Export %q", i, it.Export)
+		}
+		seen[it.Export] = true
+		if it.PageNum < 1 || it.PageNum > f.doc.PageCount() {
+			return nil, fmt.Errorf("radio item %d: pageNum %d out of range", i, it.PageNum)
+		}
+	}
+
+	// Allocate parent first.
+	parentDict := pdfDict{
+		"/FT":   pdfName("/Btn"),
+		"/Ff":   fieldFlagRadio,
+		"/T":    name,
+		"/V":    pdfName("/Off"),
+		"/Kids": pdfArray{},
+	}
+	parentID := f.doc.nextID
+	f.doc.nextID++
+	f.doc.objects[parentID] = &pdfObject{Num: parentID, Value: parentDict}
+	parentRef := pdfRef{Num: parentID}
+
+	for _, it := range items {
+		page, err := f.doc.Page(it.PageNum)
+		if err != nil {
+			return nil, err
+		}
+		apN := pdfDict{
+			"/Off":          placeholderXObjectRef(f.doc),
+			"/" + it.Export: placeholderXObjectRef(f.doc),
+		}
+		widgetDict := pdfDict{
+			"/Type":    pdfName("/Annot"),
+			"/Subtype": pdfName("/Widget"),
+			"/Parent":  parentRef,
+			"/Rect":    rectToPDFArray(it.Rect),
+			"/P":       pdfRef{Num: page.pageObj().Num},
+			"/AS":      pdfName("/Off"),
+			"/AP":      pdfDict{"/N": apN},
+		}
+		widgetID := f.doc.nextID
+		f.doc.nextID++
+		f.doc.objects[widgetID] = &pdfObject{Num: widgetID, Value: widgetDict}
+		widgetRef := pdfRef{Num: widgetID}
+
+		// Append widget ref to parent's /Kids.
+		kids, _ := parentDict["/Kids"].(pdfArray)
+		kids = append(kids, widgetRef)
+		parentDict["/Kids"] = kids
+
+		// Append widget ref to its page's /Annots.
+		appendWidgetToPage(page.pageObj(), widgetRef)
+	}
+
+	f.appendToFields(parentRef)
+	f.rebuildFieldCache()
+	f.noteFormMutatedInForm()
+
+	return f.cache[name].(*RadioButtonField), nil
+}
+
 // choiceOptionsToPDFArray converts a slice of ChoiceOption to a /Opt
 // array. Each element is either a single string (Value-only) or a
 // two-element array [Export, Value] when Export is non-empty.
