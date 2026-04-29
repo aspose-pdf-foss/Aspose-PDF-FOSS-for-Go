@@ -207,3 +207,51 @@ func TestFormAddRadioGroupCrossPage(t *testing.T) {
 		t.Error("opt 1 should be selected after cross-page roundtrip")
 	}
 }
+
+func TestFormAddDuplicateNameReturnsError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, "x"); err != nil {
+		t.Fatalf("first AddTextField: %v", err)
+	}
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 660, URX: 545, URY: 690}, "x"); err == nil {
+		t.Error("second AddTextField with same name should return error")
+	}
+	if _, err := doc.Form().AddCheckbox(1, pdf.Rectangle{LLX: 50, LLY: 620, URX: 70, URY: 640}, "x"); err == nil {
+		t.Error("AddCheckbox with same name as existing TextField should return error")
+	}
+}
+
+func TestFormAddInvalidPageNumError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddTextField(0, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, "x"); err == nil {
+		t.Error("pageNum=0 should error")
+	}
+	if _, err := doc.Form().AddTextField(2, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, "y"); err == nil {
+		t.Error("pageNum=2 on single-page doc should error")
+	}
+}
+
+func TestFormAddEmptyNameError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}, ""); err == nil {
+		t.Error("empty name should error")
+	}
+}
+
+func TestFormAddRadioGroupEmptyItemsError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if _, err := doc.Form().AddRadioGroup("rg", nil); err == nil {
+		t.Error("empty items should error")
+	}
+}
+
+func TestFormAddRadioGroupDuplicateExportError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	items := []pdf.RadioItem{
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 400, URX: 70, URY: 420}, Export: "a"},
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 370, URX: 70, URY: 390}, Export: "a"},
+	}
+	if _, err := doc.Form().AddRadioGroup("rg", items); err == nil {
+		t.Error("duplicate export should error")
+	}
+}
