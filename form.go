@@ -590,6 +590,47 @@ func (f *Form) AddListBox(pageNum int, rect Rectangle, name string, options []Ch
 	return f.cache[name].(*ListBoxField), nil
 }
 
+// AddPushButton creates a non-toggling button. The caption is stored in
+// /MK/CA and rendered by viewers as the button label. Push buttons have
+// no value semantics — Value() returns "", SetValue returns an error.
+func (f *Form) AddPushButton(pageNum int, rect Rectangle, name string, caption string) (*ButtonField, error) {
+	if err := f.validateNewField(pageNum, name); err != nil {
+		return nil, err
+	}
+	page, err := f.doc.Page(pageNum)
+	if err != nil {
+		return nil, err
+	}
+	helvName, err := f.ensureFontHelv()
+	if err != nil {
+		return nil, err
+	}
+
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Widget"),
+		"/FT":      pdfName("/Btn"),
+		"/T":       name,
+		"/Ff":      fieldFlagPushbutton,
+		"/DA":      "0 g /" + helvName + " 12 Tf",
+		"/Rect":    rectToPDFArray(rect),
+		"/P":       pdfRef{Num: page.pageObj().Num},
+		"/MK":      pdfDict{"/CA": caption},
+	}
+
+	objID := f.doc.nextID
+	f.doc.nextID++
+	f.doc.objects[objID] = &pdfObject{Num: objID, Value: dict}
+	ref := pdfRef{Num: objID}
+
+	f.appendToFields(ref)
+	appendWidgetToPage(page.pageObj(), ref)
+	f.rebuildFieldCache()
+	f.noteFormMutatedInForm()
+
+	return f.cache[name].(*ButtonField), nil
+}
+
 // choiceOptionsToPDFArray converts a slice of ChoiceOption to a /Opt
 // array. Each element is either a single string (Value-only) or a
 // two-element array [Export, Value] when Export is non-empty.

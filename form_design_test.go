@@ -122,3 +122,26 @@ func TestFormAddListBoxRoundTrip(t *testing.T) {
 		t.Errorf("Selected = %v, want [0]", sel)
 	}
 }
+
+func TestFormAddPushButtonRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	bt, err := doc.Form().AddPushButton(1, pdf.Rectangle{LLX: 50, LLY: 450, URX: 200, URY: 480}, "submit", "Submit")
+	if err != nil {
+		t.Fatalf("AddPushButton: %v", err)
+	}
+	if bt == nil {
+		t.Fatal("nil returned")
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if pdf.FieldType(doc2.Form().Field("submit")) != pdf.FormFieldTypePushButton {
+		t.Error("after roundtrip, type is not PushButton")
+	}
+}
