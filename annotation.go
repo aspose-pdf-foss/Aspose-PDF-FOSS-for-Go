@@ -1,5 +1,7 @@
 package asposepdf
 
+import "fmt"
+
 // AnnotationType identifies the kind of annotation. Returned by
 // Annotation.AnnotationType() so callers can switch on type without a
 // type-assertion ladder.
@@ -70,6 +72,99 @@ func (c *AnnotationCollection) Count() int {
 func (c *AnnotationCollection) All() []Annotation {
 	c.ensureBuilt()
 	return c.items
+}
+
+// Add attaches an annotation to this page. Errors if the annotation is
+// already attached to a different page; idempotent same-page Add returns
+// nil. Panics on nil annotation (programmer error).
+func (c *AnnotationCollection) Add(a Annotation) error {
+	if a == nil {
+		panic("Annotations.Add: nil annotation")
+	}
+	c.ensureBuilt()
+	base := a.annotationBaseRef()
+	if base.objID != 0 {
+		if base.attachedPage == c.page.pageObj() {
+			return nil // idempotent same-page
+		}
+		return fmt.Errorf("annotation already attached to page %d; Delete from that page first", c.attachedPageIndex(base))
+	}
+	// First-time attach.
+	base.dict["/P"] = pdfRef{Num: c.page.pageObj().Num}
+	objID := c.page.doc.nextID
+	c.page.doc.nextID++
+	c.page.doc.objects[objID] = &pdfObject{Num: objID, Value: base.dict}
+	base.objID = objID
+	base.attachedPage = c.page.pageObj()
+	base.doc = c.page.doc
+
+	// Append to page's /Annots array.
+	pageDict, _ := c.page.pageObj().Value.(pdfDict)
+	annots, _ := pageDict["/Annots"].(pdfArray)
+	annots = append(annots, pdfRef{Num: objID})
+	pageDict["/Annots"] = annots
+
+	// Update local items so subsequent Count/All/At reflect the new state.
+	c.items = append(c.items, a)
+	return nil
+}
+
+// At returns the annotation at the given index. Panics if out of range.
+func (c *AnnotationCollection) At(index int) Annotation {
+	c.ensureBuilt()
+	return c.items[index]
+}
+
+// Delete removes the annotation from this page. Returns true if found,
+// false otherwise. After Delete the annotation handle is dangling.
+func (c *AnnotationCollection) Delete(a Annotation) bool {
+	if a == nil {
+		return false
+	}
+	c.ensureBuilt()
+	base := a.annotationBaseRef()
+	if base.objID == 0 || base.attachedPage != c.page.pageObj() {
+		return false
+	}
+	// Splice out of /Annots.
+	pageDict, _ := c.page.pageObj().Value.(pdfDict)
+	if pageDict == nil {
+		return false
+	}
+	annots, _ := pageDict["/Annots"].(pdfArray)
+	newArr := make(pdfArray, 0, len(annots))
+	for _, item := range annots {
+		if ref, ok := item.(pdfRef); ok && ref.Num == base.objID {
+			continue
+		}
+		newArr = append(newArr, item)
+	}
+	pageDict["/Annots"] = newArr
+	delete(c.page.doc.objects, base.objID)
+	// Update local items.
+	for i, it := range c.items {
+		if it == a {
+			c.items = append(c.items[:i], c.items[i+1:]...)
+			break
+		}
+	}
+	base.objID = 0
+	base.attachedPage = nil
+	return true
+}
+
+// attachedPageIndex returns the 1-based index of the page an annotation
+// is currently attached to (used in error messages).
+func (c *AnnotationCollection) attachedPageIndex(base *annotationBase) int {
+	if base.attachedPage == nil {
+		return 0
+	}
+	for i, p := range c.page.doc.pages {
+		if p.Num == base.attachedPage.Num {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // ensureBuilt populates c.items lazily on first access.
@@ -252,6 +347,8 @@ func parseAnnotation(base annotationBase) Annotation {
 	switch subtype {
 	case "/Widget":
 		return &WidgetAnnotation{annotationBase: base}
+	case "/Link":
+		return &LinkAnnotation{annotationBase: base}
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
