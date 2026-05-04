@@ -254,27 +254,39 @@ func TestLinkAnnotationReadFromExistingPDF(t *testing.T) {
 }
 
 func TestLinkAnnotationNamedAction(t *testing.T) {
-	doc := pdf.NewDocument(595, 842)
-	page, _ := doc.Page(1)
-	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
-	link.SetAction(pdf.NewNamedAction(pdf.NamedActionPrint))
-	if err := page.Annotations().Add(link); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	var buf bytes.Buffer
-	doc.WriteTo(&buf)
-	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
-	if err != nil {
-		t.Fatalf("OpenStream: %v", err)
-	}
-	page2, _ := doc2.Page(1)
-	link2 := page2.Annotations().At(0).(*pdf.LinkAnnotation)
-	na, ok := link2.Action().(*pdf.NamedAction)
-	if !ok {
-		t.Fatalf("type = %T, want *pdf.NamedAction", link2.Action())
-	}
-	if na.Name() != pdf.NamedActionPrint {
-		t.Errorf("Name = %v, want NamedActionPrint", na.Name())
+	for _, tc := range []struct {
+		name string
+		val  pdf.NamedActionType
+	}{
+		{"FirstPage", pdf.NamedActionFirstPage},
+		{"LastPage", pdf.NamedActionLastPage},
+		{"NextPage", pdf.NamedActionNextPage},
+		{"PrevPage", pdf.NamedActionPrevPage},
+		{"Print", pdf.NamedActionPrint},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := pdf.NewDocument(595, 842)
+			page, _ := doc.Page(1)
+			link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+			link.SetAction(pdf.NewNamedAction(tc.val))
+			if err := page.Annotations().Add(link); err != nil {
+				t.Fatalf("Add: %v", err)
+			}
+			var buf bytes.Buffer
+			doc.WriteTo(&buf)
+			doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+			if err != nil {
+				t.Fatalf("OpenStream: %v", err)
+			}
+			page2, _ := doc2.Page(1)
+			link2 := page2.Annotations().At(0).(*pdf.LinkAnnotation)
+			na, ok := link2.Action().(*pdf.NamedAction)
+			if !ok {
+				t.Fatalf("type = %T, want *pdf.NamedAction", link2.Action())
+			}
+			if na.Name() != tc.val {
+				t.Errorf("Name = %v, want %v", na.Name(), tc.val)
+			}
+		})
 	}
 }

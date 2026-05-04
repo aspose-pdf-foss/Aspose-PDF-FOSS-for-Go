@@ -153,44 +153,43 @@ func (a *NamedAction) ActionType() ActionType    { return ActionTypeNamed }
 func (a *NamedAction) Name() NamedActionType     { return a.name }
 func (a *NamedAction) SetName(n NamedActionType) { a.name = n }
 
-func (a *NamedAction) encode() pdfDict {
-	return pdfDict{
-		"/Type": pdfName("/Action"),
-		"/S":    pdfName("/Named"),
-		"/N":    pdfName(namedActionToPDF(a.name)),
-	}
+// namedActionNames is the canonical NamedActionType ↔ /N name mapping.
+// Both encode and parse paths key off this single map so adding a new
+// command requires updating exactly one place.
+var namedActionNames = map[NamedActionType]pdfName{
+	NamedActionFirstPage: "/FirstPage",
+	NamedActionLastPage:  "/LastPage",
+	NamedActionNextPage:  "/NextPage",
+	NamedActionPrevPage:  "/PrevPage",
+	NamedActionPrint:     "/Print",
 }
 
-func namedActionToPDF(n NamedActionType) string {
-	switch n {
-	case NamedActionFirstPage:
-		return "/FirstPage"
-	case NamedActionLastPage:
-		return "/LastPage"
-	case NamedActionNextPage:
-		return "/NextPage"
-	case NamedActionPrevPage:
-		return "/PrevPage"
-	case NamedActionPrint:
-		return "/Print"
-	}
-	return ""
+func namedActionToPDF(n NamedActionType) pdfName {
+	return namedActionNames[n]
 }
 
 func pdfNameToNamedAction(s pdfName) NamedActionType {
-	switch s {
-	case "/FirstPage":
-		return NamedActionFirstPage
-	case "/LastPage":
-		return NamedActionLastPage
-	case "/NextPage":
-		return NamedActionNextPage
-	case "/PrevPage":
-		return NamedActionPrevPage
-	case "/Print":
-		return NamedActionPrint
+	for n, name := range namedActionNames {
+		if name == s {
+			return n
+		}
 	}
 	return NamedActionUnknown
+}
+
+func (a *NamedAction) encode() pdfDict {
+	// Guard against NamedActionUnknown / non-standard names: emit a
+	// safe default so the resulting PDF stays well-formed. Callers
+	// should not normally encode an Unknown action.
+	n := namedActionToPDF(a.name)
+	if n == "" {
+		n = "/FirstPage"
+	}
+	return pdfDict{
+		"/Type": pdfName("/Action"),
+		"/S":    pdfName("/Named"),
+		"/N":    n,
+	}
 }
 
 // NewNamedAction builds a /Named action.
