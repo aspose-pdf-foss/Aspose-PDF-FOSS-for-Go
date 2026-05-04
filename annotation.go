@@ -30,8 +30,7 @@ type Annotation interface {
 	SetContents(s string)
 	PageIndex() int
 
-	// internal accessor — implementers embed annotationBase which exposes
-	// this. Not part of the public surface.
+	// seals the interface — external packages cannot implement Annotation directly.
 	annotationBaseRef() *annotationBase
 }
 
@@ -65,9 +64,9 @@ func (c *AnnotationCollection) Count() int {
 	return len(c.items)
 }
 
-// All returns the page's annotations as a slice. The returned slice
-// shares pointer identity with At() / Field-by-name lookups so mutating
-// a value through one accessor is visible through the others.
+// All returns the page's annotations as a slice. Each Annotation in the
+// slice is a live handle: mutations write through to the underlying
+// pdfDict and are visible to callers holding the same handle.
 func (c *AnnotationCollection) All() []Annotation {
 	c.ensureBuilt()
 	return c.items
