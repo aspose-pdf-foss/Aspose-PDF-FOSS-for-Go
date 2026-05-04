@@ -28,8 +28,9 @@ type PageSize struct {
 // Page is a live view of a single page within a Document.
 // It reflects the current state of the document, including any mutations.
 type Page struct {
-	doc   *Document
-	index int // 0-based index in doc.pages
+	doc         *Document
+	index       int // 0-based index in doc.pages
+	annotations *AnnotationCollection
 }
 
 // Number returns the 1-based page number within the document.
@@ -40,6 +41,15 @@ func (p *Page) Number() int {
 // pageObj returns the underlying pdfObject for this page.
 func (p *Page) pageObj() *pdfObject {
 	return p.doc.pages[p.index]
+}
+
+// Annotations returns the page's annotation collection. Always non-nil;
+// for a page with no /Annots array, the collection is empty.
+func (p *Page) Annotations() *AnnotationCollection {
+	if p.annotations == nil {
+		p.annotations = &AnnotationCollection{page: p}
+	}
+	return p.annotations
 }
 
 // pageDict returns the page's dictionary, or nil if not a dict.
