@@ -24,6 +24,10 @@ func TestPageAnnotationsWalkExistingPDF(t *testing.T) {
 		if _, ok := a.(*pdf.WidgetAnnotation); !ok {
 			t.Errorf("annotation[%d]: concrete type = %T, want *pdf.WidgetAnnotation", i, a)
 		}
+		// Wired-accessor smoke check: every form widget has a /Rect.
+		if r := a.Rect(); r.LLX == 0 && r.LLY == 0 && r.URX == 0 && r.URY == 0 {
+			t.Errorf("annotation[%d]: Rect = empty, expected non-zero on form widget", i)
+		}
 	}
 }
 

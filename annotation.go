@@ -91,6 +91,16 @@ type WidgetAnnotation struct {
 
 func (a *WidgetAnnotation) AnnotationType() AnnotationType { return AnnotationTypeWidget }
 
+// GenericAnnotation is the catch-all surface for /Subtype values this
+// release does not yet model (Stamp, FreeText, Ink, etc.). It exposes
+// only the base Annotation accessors — callers can detect it via
+// AnnotationType() == AnnotationTypeUnknown.
+type GenericAnnotation struct {
+	annotationBase
+}
+
+func (a *GenericAnnotation) AnnotationType() AnnotationType { return AnnotationTypeUnknown }
+
 // Rect returns the annotation rectangle. Empty Rectangle if /Rect is
 // missing or malformed.
 func (b *annotationBase) Rect() Rectangle {
@@ -157,6 +167,8 @@ func (b *annotationBase) Title() string {
 	return decodeFormString(b.dict["/T"])
 }
 
+// SetTitle writes /T (the annotation author / reviewer name); empty
+// string removes the entry.
 func (b *annotationBase) SetTitle(s string) {
 	if s == "" {
 		delete(b.dict, "/T")
@@ -170,6 +182,8 @@ func (b *annotationBase) Contents() string {
 	return decodeFormString(b.dict["/Contents"])
 }
 
+// SetContents writes /Contents (the annotation body text); empty string
+// removes the entry.
 func (b *annotationBase) SetContents(s string) {
 	if s == "" {
 		delete(b.dict, "/Contents")
@@ -200,8 +214,8 @@ func (c *AnnotationCollection) walkAnnotations() {
 	if pageDict == nil {
 		return
 	}
-	arr, ok2 := resolveRefToArray(c.page.doc.objects, pageDict["/Annots"])
-	if !ok2 || len(arr) == 0 {
+	arr, ok := resolveRefToArray(c.page.doc.objects, pageDict["/Annots"])
+	if !ok || len(arr) == 0 {
 		return
 	}
 	for _, item := range arr {
@@ -239,7 +253,5 @@ func parseAnnotation(base annotationBase) Annotation {
 	case "/Widget":
 		return &WidgetAnnotation{annotationBase: base}
 	}
-	// Unknown / not-yet-supported subtype: treat as a generic widget
-	// (read-only base properties, no specialized accessors).
-	return &WidgetAnnotation{annotationBase: base}
+	return &GenericAnnotation{annotationBase: base}
 }
