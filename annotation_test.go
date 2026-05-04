@@ -83,4 +83,11 @@ func TestAnnotationCollectionAddLinkRoundTrip(t *testing.T) {
 	if got.Title() != "reviewer" {
 		t.Errorf("Title = %q, want \"reviewer\"", got.Title())
 	}
+	if got.Contents() != "note" {
+		t.Errorf("Contents = %q, want \"note\"", got.Contents())
+	}
+	r := got.Rect()
+	if r.LLX != 50 || r.LLY != 700 || r.URX != 200 || r.URY != 720 {
+		t.Errorf("Rect = %+v, want {50 700 200 720}", r)
+	}
 }

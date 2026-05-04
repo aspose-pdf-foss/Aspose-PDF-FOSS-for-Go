@@ -98,11 +98,8 @@ func (c *AnnotationCollection) Add(a Annotation) error {
 	base.attachedPage = c.page.pageObj()
 	base.doc = c.page.doc
 
-	// Append to page's /Annots array.
-	pageDict, _ := c.page.pageObj().Value.(pdfDict)
-	annots, _ := pageDict["/Annots"].(pdfArray)
-	annots = append(annots, pdfRef{Num: objID})
-	pageDict["/Annots"] = annots
+	// Append to page's /Annots array (preserves indirect-ref form if used).
+	appendAnnotToPage(c.page.doc.objects, c.page.pageObj(), pdfRef{Num: objID})
 
 	// Update local items so subsequent Count/All/At reflect the new state.
 	c.items = append(c.items, a)
@@ -116,7 +113,9 @@ func (c *AnnotationCollection) At(index int) Annotation {
 }
 
 // Delete removes the annotation from this page. Returns true if found,
-// false otherwise. After Delete the annotation handle is dangling.
+// false otherwise. The annotation handle becomes dangling after Delete:
+// mutations through it write to an unlinked dict that is no longer
+// reachable from the document and are silently dropped on next Save.
 func (c *AnnotationCollection) Delete(a Annotation) bool {
 	if a == nil {
 		return false
@@ -126,20 +125,8 @@ func (c *AnnotationCollection) Delete(a Annotation) bool {
 	if base.objID == 0 || base.attachedPage != c.page.pageObj() {
 		return false
 	}
-	// Splice out of /Annots.
-	pageDict, _ := c.page.pageObj().Value.(pdfDict)
-	if pageDict == nil {
-		return false
-	}
-	annots, _ := pageDict["/Annots"].(pdfArray)
-	newArr := make(pdfArray, 0, len(annots))
-	for _, item := range annots {
-		if ref, ok := item.(pdfRef); ok && ref.Num == base.objID {
-			continue
-		}
-		newArr = append(newArr, item)
-	}
-	pageDict["/Annots"] = newArr
+	// Splice out of /Annots (preserves indirect-ref form if used).
+	removeAnnotFromPage(c.page.doc.objects, c.page.pageObj(), base.objID)
 	delete(c.page.doc.objects, base.objID)
 	// Update local items.
 	for i, it := range c.items {
@@ -351,4 +338,60 @@ func parseAnnotation(base annotationBase) Annotation {
 		return &LinkAnnotation{annotationBase: base}
 	}
 	return &GenericAnnotation{annotationBase: base}
+}
+
+// appendAnnotToPage appends annotRef to the page's /Annots array,
+// preserving the original storage form: if /Annots is an indirect
+// reference, the referenced array object is mutated in place; if it is
+// an inline array, the inline array is replaced with the appended copy;
+// if it is absent, an inline single-element array is created.
+func appendAnnotToPage(objects map[int]*pdfObject, pageObj *pdfObject, annotRef pdfRef) {
+	pageDict, ok := pageObj.Value.(pdfDict)
+	if !ok {
+		return
+	}
+	switch v := pageDict["/Annots"].(type) {
+	case pdfRef:
+		if obj, ok := objects[v.Num]; ok {
+			if arr, ok := obj.Value.(pdfArray); ok {
+				obj.Value = append(arr, annotRef)
+				return
+			}
+		}
+		pageDict["/Annots"] = pdfArray{annotRef}
+	case pdfArray:
+		pageDict["/Annots"] = append(v, annotRef)
+	default:
+		pageDict["/Annots"] = pdfArray{annotRef}
+	}
+}
+
+// removeAnnotFromPage splices annotRef out of the page's /Annots array,
+// preserving the original storage form. If the ref is not found the
+// page state is unchanged.
+func removeAnnotFromPage(objects map[int]*pdfObject, pageObj *pdfObject, annotObjID int) {
+	pageDict, ok := pageObj.Value.(pdfDict)
+	if !ok {
+		return
+	}
+	splice := func(arr pdfArray) pdfArray {
+		out := make(pdfArray, 0, len(arr))
+		for _, item := range arr {
+			if r, ok := item.(pdfRef); ok && r.Num == annotObjID {
+				continue
+			}
+			out = append(out, item)
+		}
+		return out
+	}
+	switch v := pageDict["/Annots"].(type) {
+	case pdfRef:
+		if obj, ok := objects[v.Num]; ok {
+			if arr, ok := obj.Value.(pdfArray); ok {
+				obj.Value = splice(arr)
+			}
+		}
+	case pdfArray:
+		pageDict["/Annots"] = splice(v)
+	}
 }

@@ -335,7 +335,7 @@ func (f *Form) AddTextField(pageNum int, rect Rectangle, name string) (*TextBoxF
 	ref := pdfRef{Num: objID}
 
 	f.appendToFields(ref)
-	appendWidgetToPage(page.pageObj(), ref)
+	appendAnnotToPage(f.doc.objects, page.pageObj(), ref)
 
 	f.rebuildFieldCache()
 	f.noteFormMutatedInForm()
@@ -364,18 +364,6 @@ func (f *Form) appendToFields(ref pdfRef) {
 	arr, _ := f.root["/Fields"].(pdfArray)
 	arr = append(arr, ref)
 	f.root["/Fields"] = arr
-}
-
-// appendWidgetToPage appends a widget ref to a page's /Annots, creating
-// the array if absent.
-func appendWidgetToPage(pageObj *pdfObject, widgetRef pdfRef) {
-	pageDict, _ := pageObj.Value.(pdfDict)
-	if pageDict == nil {
-		return
-	}
-	arr, _ := pageDict["/Annots"].(pdfArray)
-	arr = append(arr, widgetRef)
-	pageDict["/Annots"] = arr
 }
 
 // rebuildFieldCache regenerates Form.fieldsList and Form.cache from the
@@ -474,7 +462,7 @@ func (f *Form) AddCheckbox(pageNum int, rect Rectangle, name string) (*CheckboxF
 	ref := pdfRef{Num: objID}
 
 	f.appendToFields(ref)
-	appendWidgetToPage(page.pageObj(), ref)
+	appendAnnotToPage(f.doc.objects, page.pageObj(), ref)
 	f.rebuildFieldCache()
 	f.noteFormMutatedInForm()
 
@@ -538,7 +526,7 @@ func (f *Form) AddComboBox(pageNum int, rect Rectangle, name string, options []C
 	ref := pdfRef{Num: objID}
 
 	f.appendToFields(ref)
-	appendWidgetToPage(page.pageObj(), ref)
+	appendAnnotToPage(f.doc.objects, page.pageObj(), ref)
 	f.rebuildFieldCache()
 	f.noteFormMutatedInForm()
 
@@ -579,7 +567,7 @@ func (f *Form) AddListBox(pageNum int, rect Rectangle, name string, options []Ch
 	ref := pdfRef{Num: objID}
 
 	f.appendToFields(ref)
-	appendWidgetToPage(page.pageObj(), ref)
+	appendAnnotToPage(f.doc.objects, page.pageObj(), ref)
 	f.rebuildFieldCache()
 	f.noteFormMutatedInForm()
 
@@ -615,7 +603,7 @@ func (f *Form) AddPushButton(pageNum int, rect Rectangle, name string, caption s
 	ref := pdfRef{Num: objID}
 
 	f.appendToFields(ref)
-	appendWidgetToPage(page.pageObj(), ref)
+	appendAnnotToPage(f.doc.objects, page.pageObj(), ref)
 	f.rebuildFieldCache()
 	f.noteFormMutatedInForm()
 
@@ -691,7 +679,7 @@ func (f *Form) AddRadioGroup(name string, items []RadioItem) (*RadioButtonField,
 		parentDict["/Kids"] = kids
 
 		// Append widget ref to its page's /Annots.
-		appendWidgetToPage(page.pageObj(), widgetRef)
+		appendAnnotToPage(f.doc.objects, page.pageObj(), widgetRef)
 	}
 
 	f.appendToFields(parentRef)
