@@ -142,5 +142,7 @@
 
   "TestAddBlankPageRoundTrip": [
     ["PdfWithImages.pdf"]
-  ]
+  ],
+
+  "TestPageAnnotationsWalkExistingPDF": [["PdfWithAcroForm.pdf"]]
 }

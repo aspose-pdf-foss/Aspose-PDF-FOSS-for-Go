@@ -6,6 +6,27 @@ import (
 	pdf "github.com/aspose/pdf-for-go"
 )
 
+func TestPageAnnotationsWalkExistingPDF(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, _ := doc.Page(1)
+	ac := page.Annotations()
+	if ac.Count() == 0 {
+		t.Fatal("expected non-zero annotations on PdfWithAcroForm.pdf (form widgets)")
+	}
+	// Every annotation here is a form widget — verify type detection.
+	for i, a := range ac.All() {
+		if a.AnnotationType() != pdf.AnnotationTypeWidget {
+			t.Errorf("annotation[%d]: type = %v, want AnnotationTypeWidget (form widget)", i, a.AnnotationType())
+		}
+		if _, ok := a.(*pdf.WidgetAnnotation); !ok {
+			t.Errorf("annotation[%d]: concrete type = %T, want *pdf.WidgetAnnotation", i, a)
+		}
+	}
+}
+
 func TestPageAnnotationsNonNilOnPlainDoc(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, err := doc.Page(1)

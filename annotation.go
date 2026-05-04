@@ -72,12 +72,174 @@ func (c *AnnotationCollection) All() []Annotation {
 	return c.items
 }
 
-// ensureBuilt populates c.items lazily on first access. For now this is
-// a no-op; Task 2 fills it in.
+// ensureBuilt populates c.items lazily on first access.
 func (c *AnnotationCollection) ensureBuilt() {
 	if c.built {
 		return
 	}
 	c.built = true
-	// Task 2 walks page /Annots here.
+	c.walkAnnotations()
+}
+
+// WidgetAnnotation is the read-only view of a form widget annotation
+// surfaced through AnnotationCollection. Form fields continue to be
+// mutated via the Form API — a WidgetAnnotation only exposes the base
+// Annotation surface (Rect, Color, Title, Contents, PageIndex).
+type WidgetAnnotation struct {
+	annotationBase
+}
+
+func (a *WidgetAnnotation) AnnotationType() AnnotationType { return AnnotationTypeWidget }
+
+// Rect returns the annotation rectangle. Empty Rectangle if /Rect is
+// missing or malformed.
+func (b *annotationBase) Rect() Rectangle {
+	arr, ok := b.dict["/Rect"].(pdfArray)
+	if !ok || len(arr) != 4 {
+		return Rectangle{}
+	}
+	llx, _ := toFloat(arr[0])
+	lly, _ := toFloat(arr[1])
+	urx, _ := toFloat(arr[2])
+	ury, _ := toFloat(arr[3])
+	return Rectangle{LLX: llx, LLY: lly, URX: urx, URY: ury}
+}
+
+// SetRect writes the annotation rectangle.
+func (b *annotationBase) SetRect(r Rectangle) {
+	b.dict["/Rect"] = pdfArray{r.LLX, r.LLY, r.URX, r.URY}
+}
+
+// Color returns the /C array as an RGB Color. Returns nil if /C is
+// absent.
+func (b *annotationBase) Color() *Color {
+	arr, ok := b.dict["/C"].(pdfArray)
+	if !ok {
+		return nil
+	}
+	switch len(arr) {
+	case 1:
+		g, _ := toFloat(arr[0])
+		return &Color{R: g, G: g, B: g, A: 1}
+	case 3:
+		r, _ := toFloat(arr[0])
+		g, _ := toFloat(arr[1])
+		bl, _ := toFloat(arr[2])
+		return &Color{R: r, G: g, B: bl, A: 1}
+	case 4:
+		// CMYK — convert to a rough RGB approximation. Most annotation
+		// software writes RGB; CMYK is rare for /C.
+		c, _ := toFloat(arr[0])
+		m, _ := toFloat(arr[1])
+		y, _ := toFloat(arr[2])
+		k, _ := toFloat(arr[3])
+		return &Color{
+			R: (1 - c) * (1 - k),
+			G: (1 - m) * (1 - k),
+			B: (1 - y) * (1 - k),
+			A: 1,
+		}
+	}
+	return nil
+}
+
+// SetColor writes /C as an RGB array; nil removes the entry.
+func (b *annotationBase) SetColor(c *Color) {
+	if c == nil {
+		delete(b.dict, "/C")
+		return
+	}
+	b.dict["/C"] = pdfArray{c.R, c.G, c.B}
+}
+
+// Title returns /T (the annotation author / reviewer name).
+func (b *annotationBase) Title() string {
+	return decodeFormString(b.dict["/T"])
+}
+
+func (b *annotationBase) SetTitle(s string) {
+	if s == "" {
+		delete(b.dict, "/T")
+		return
+	}
+	b.dict["/T"] = encodeFormString(s)
+}
+
+// Contents returns /Contents (the annotation body text).
+func (b *annotationBase) Contents() string {
+	return decodeFormString(b.dict["/Contents"])
+}
+
+func (b *annotationBase) SetContents(s string) {
+	if s == "" {
+		delete(b.dict, "/Contents")
+		return
+	}
+	b.dict["/Contents"] = encodeFormString(s)
+}
+
+// PageIndex returns the 1-based index of the page this annotation lives
+// on. 0 if the annotation is not yet attached or its /P doesn't resolve.
+func (b *annotationBase) PageIndex() int {
+	if b.attachedPage == nil {
+		return 0
+	}
+	for i, p := range b.doc.pages {
+		if p.Num == b.attachedPage.Num {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// walkAnnotations builds the AnnotationCollection.items slice from the
+// page's /Annots array. Each ref is dispatched by /Subtype to the right
+// concrete type.
+func (c *AnnotationCollection) walkAnnotations() {
+	pageDict, _ := c.page.pageObj().Value.(pdfDict)
+	if pageDict == nil {
+		return
+	}
+	arr, ok2 := resolveRefToArray(c.page.doc.objects, pageDict["/Annots"])
+	if !ok2 || len(arr) == 0 {
+		return
+	}
+	for _, item := range arr {
+		ref, ok := item.(pdfRef)
+		if !ok {
+			continue
+		}
+		obj, ok := c.page.doc.objects[ref.Num]
+		if !ok {
+			continue
+		}
+		dict, ok := obj.Value.(pdfDict)
+		if !ok {
+			continue
+		}
+		base := annotationBase{
+			dict:         dict,
+			doc:          c.page.doc,
+			page:         c.page,
+			attachedPage: c.page.pageObj(),
+			objID:        ref.Num,
+		}
+		annot := parseAnnotation(base)
+		if annot != nil {
+			c.items = append(c.items, annot)
+		}
+	}
+}
+
+// parseAnnotation builds the right concrete type for the given dict.
+// Future subepics extend this dispatch.
+func parseAnnotation(base annotationBase) Annotation {
+	subtype, _ := base.dict["/Subtype"].(pdfName)
+	switch subtype {
+	case "/Widget":
+		return &WidgetAnnotation{annotationBase: base}
+	}
+	// Unknown / not-yet-supported subtype: treat as a generic widget
+	// (read-only base properties, no specialized accessors).
+	return &WidgetAnnotation{annotationBase: base}
 }
