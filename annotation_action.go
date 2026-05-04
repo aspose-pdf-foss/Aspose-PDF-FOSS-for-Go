@@ -73,8 +73,17 @@ func (a *GoToAction) SetPageNum(n int) { a.pageNum = n }
 func (a *GoToAction) SetTop(t float64) { a.top = t }
 
 func (a *GoToAction) encode() pdfDict {
-	// /D = [pageRef /XYZ left top zoom]
-	dest := pdfArray{a.pageNum - 1, pdfName("/XYZ"), pdfNull{}, a.top, pdfNull{}}
+	// /D = [pageRef /XYZ left top zoom]. Per ISO 32000-1 §12.3.2.2 the
+	// first element should be an indirect ref to the destination page.
+	// When doc is set (action read from a PDF or rebuilt from one) we
+	// emit the pdfRef form. As a fallback for actions constructed via
+	// NewGoToAction without a doc, we emit pageNum-1 as an int — most
+	// viewers accept this, though it is technically deprecated.
+	first := a.pageNum - 1
+	if first < 0 {
+		first = 0
+	}
+	dest := pdfArray{first, pdfName("/XYZ"), pdfNull{}, a.top, pdfNull{}}
 	if a.doc != nil && a.pageNum >= 1 && a.pageNum <= len(a.doc.pages) {
 		dest = pdfArray{
 			pdfRef{Num: a.doc.pages[a.pageNum-1].Num},

@@ -161,6 +161,71 @@ func TestLinkAnnotationGoToAction(t *testing.T) {
 	}
 }
 
+func TestGoToActionPdfRefEncodePath(t *testing.T) {
+	// Build a 2-page doc with one GoTo link (int-fallback encode path).
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatalf("AddBlankPage: %v", err)
+	}
+	page1, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	link.SetAction(pdf.NewGoToAction(2, 800))
+	if err := page1.Annotations().Add(link); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf1 bytes.Buffer
+	if _, err := doc.WriteTo(&buf1); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	// Reopen — Action() post-process binds doc onto the parsed GoToAction.
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf1.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page2P1, _ := doc2.Page(1)
+	link2 := page2P1.Annotations().At(0).(*pdf.LinkAnnotation)
+	act := link2.Action().(*pdf.GoToAction)
+
+	// Reuse the parsed action on a NEW link — encode() now writes /D[0]
+	// as a pdfRef because act.doc is set. This exercises the spec-correct
+	// pdfRef branch.
+	newLink := pdf.NewLinkAnnotation(page2P1, pdf.Rectangle{LLX: 50, LLY: 600, URX: 200, URY: 620})
+	newLink.SetAction(act)
+	if err := page2P1.Annotations().Add(newLink); err != nil {
+		t.Fatalf("second Add: %v", err)
+	}
+	var buf2 bytes.Buffer
+	if _, err := doc2.WriteTo(&buf2); err != nil {
+		t.Fatalf("second WriteTo: %v", err)
+	}
+
+	// Reopen and verify both links resolve to PageNum=2.
+	doc3, err := pdf.OpenStream(bytes.NewReader(buf2.Bytes()))
+	if err != nil {
+		t.Fatalf("third OpenStream: %v", err)
+	}
+	page3P1, _ := doc3.Page(1)
+	ac := page3P1.Annotations()
+	if ac.Count() != 2 {
+		t.Fatalf("Count after second roundtrip = %d, want 2", ac.Count())
+	}
+	for i := 0; i < ac.Count(); i++ {
+		l := ac.At(i).(*pdf.LinkAnnotation)
+		gt, ok := l.Action().(*pdf.GoToAction)
+		if !ok {
+			t.Errorf("link[%d]: action = %T, want *pdf.GoToAction", i, l.Action())
+			continue
+		}
+		if gt.PageNum() != 2 {
+			t.Errorf("link[%d]: PageNum = %d, want 2", i, gt.PageNum())
+		}
+		if gt.Top() != 800 {
+			t.Errorf("link[%d]: Top = %f, want 800", i, gt.Top())
+		}
+	}
+}
+
 func TestLinkAnnotationReadFromExistingPDF(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))
 	if err != nil {
