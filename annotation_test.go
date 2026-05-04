@@ -124,3 +124,30 @@ func TestLinkAnnotationGoToURIAction(t *testing.T) {
 		t.Errorf("URI = %q, want %q", uri.URI(), "https://example.com/path")
 	}
 }
+
+func TestLinkAnnotationReadFromExistingPDF(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, _ := doc.Page(1)
+	ac := page.Annotations()
+	if ac.Count() == 0 {
+		t.Fatal("expected non-zero annotations on PdfWithLinks.pdf")
+	}
+	// Confirm at least one link's Action() resolves through an indirect /A.
+	gotAnyAction := false
+	for _, a := range ac.All() {
+		link, ok := a.(*pdf.LinkAnnotation)
+		if !ok {
+			continue
+		}
+		if link.Action() != nil {
+			gotAnyAction = true
+			break
+		}
+	}
+	if !gotAnyAction {
+		t.Fatal("no LinkAnnotation has a non-nil Action() — indirect /A resolution broken")
+	}
+}

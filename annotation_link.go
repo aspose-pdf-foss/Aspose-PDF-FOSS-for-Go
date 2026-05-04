@@ -12,11 +12,11 @@ func (a *LinkAnnotation) AnnotationType() AnnotationType { return AnnotationType
 // Action returns the action attached to this link, or nil if no /A is
 // present or the action type is unsupported.
 func (a *LinkAnnotation) Action() Action {
-	d, ok := a.dict["/A"].(pdfDict)
+	v, ok := a.dict["/A"]
 	if !ok {
 		return nil
 	}
-	return parseAction(d)
+	return parseAction(a.doc.objects, v)
 }
 
 // SetAction writes the /A entry. nil clears /A.

@@ -49,9 +49,14 @@ func (a *GoToURIAction) encode() pdfDict {
 // usually not what callers want.
 func NewGoToURIAction(uri string) *GoToURIAction { return &GoToURIAction{uri: uri} }
 
-// parseAction reads an /A dict and returns the matching concrete action
-// type. Returns nil for unsupported subtypes (e.g. /Launch, /GoToR).
-func parseAction(d pdfDict) Action {
+// parseAction reads a /A value (inline dict or indirect ref) and
+// returns the matching concrete action type. Returns nil for
+// unsupported subtypes (e.g. /Launch, /GoToR) or unresolvable values.
+func parseAction(objects map[int]*pdfObject, v pdfValue) Action {
+	d, ok := resolveRefToDict(objects, v)
+	if !ok {
+		return nil
+	}
 	s, _ := d["/S"].(pdfName)
 	switch s {
 	case "/URI":

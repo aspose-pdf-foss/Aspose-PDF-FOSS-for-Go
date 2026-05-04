@@ -144,5 +144,6 @@
     ["PdfWithImages.pdf"]
   ],
 
-  "TestPageAnnotationsWalkExistingPDF": [["PdfWithAcroForm.pdf"]]
+  "TestPageAnnotationsWalkExistingPDF":        [["PdfWithAcroForm.pdf"]],
+  "TestLinkAnnotationReadFromExistingPDF":     [["PdfWithLinks.pdf"]]
 }
