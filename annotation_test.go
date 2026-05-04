@@ -125,6 +125,42 @@ func TestLinkAnnotationGoToURIAction(t *testing.T) {
 	}
 }
 
+func TestLinkAnnotationGoToAction(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatalf("AddBlankPage: %v", err)
+	}
+	page1, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	link.SetAction(pdf.NewGoToAction(2, 800))
+	if err := page1.Annotations().Add(link); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page2, _ := doc2.Page(1)
+	link2 := page2.Annotations().At(0).(*pdf.LinkAnnotation)
+	act := link2.Action()
+	if act == nil {
+		t.Fatal("Action() = nil")
+	}
+	gt, ok := act.(*pdf.GoToAction)
+	if !ok {
+		t.Fatalf("concrete = %T, want *pdf.GoToAction", act)
+	}
+	if gt.PageNum() != 2 {
+		t.Errorf("PageNum = %d, want 2", gt.PageNum())
+	}
+	if gt.Top() != 800 {
+		t.Errorf("Top = %f, want 800", gt.Top())
+	}
+}
+
 func TestLinkAnnotationReadFromExistingPDF(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))
 	if err != nil {
