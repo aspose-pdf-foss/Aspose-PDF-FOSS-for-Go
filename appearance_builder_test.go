@@ -1,7 +1,6 @@
 package asposepdf
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -161,16 +160,18 @@ func TestBuilderClosePath(t *testing.T) {
 }
 
 func TestBuilderEllipse(t *testing.T) {
-	// Ellipse emits m + 4 c operators.
+	// Exact golden bytes for a unit circle of radius 25 centered at (50, 50).
+	// The control points use kappa ≈ 0.5522847498... → 25 × kappa ≈ 13.807119
+	// (rounds to 6 decimals); the diagonally-opposite ordinate is 50 - 13.807119 = 36.192881.
 	b := newAppearanceBuilder()
 	b.Ellipse(50, 50, 25, 25)
-	out := string(b.Bytes())
-	// Verify shape: should start with a moveTo and contain four curveTo's.
-	if !strings.Contains(out, " m\n") {
-		t.Errorf("Ellipse missing m operator: %q", out)
-	}
-	cCount := strings.Count(out, " c\n")
-	if cCount != 4 {
-		t.Errorf("Ellipse should emit 4 c operators, got %d in %q", cCount, out)
+	want := "75 50 m\n" +
+		"75 63.807119 63.807119 75 50 75 c\n" +
+		"36.192881 75 25 63.807119 25 50 c\n" +
+		"25 36.192881 36.192881 25 50 25 c\n" +
+		"63.807119 25 75 36.192881 75 50 c\n" +
+		"h\n"
+	if got := string(b.Bytes()); got != want {
+		t.Errorf("Ellipse(50,50,25,25):\n got: %q\nwant: %q", got, want)
 	}
 }

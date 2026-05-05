@@ -208,7 +208,9 @@ func (ab *appearanceBuilder) ClosePath() {
 const kappa = 0.5522847498307933
 
 // Ellipse adds a closed elliptic subpath centered at (cx, cy) with
-// semi-axes rx and ry, approximated by 4 cubic Beziers.
+// semi-axes rx and ry, approximated by 4 cubic Beziers and an explicit
+// h operator so the subpath is marked closed (matters for stroke joins
+// at the seam point per ISO 32000-1 §8.5.2.1).
 func (ab *appearanceBuilder) Ellipse(cx, cy, rx, ry float64) {
 	dx := rx * kappa
 	dy := ry * kappa
@@ -218,4 +220,5 @@ func (ab *appearanceBuilder) Ellipse(cx, cy, rx, ry float64) {
 	ab.CurveTo(cx-dx, cy+ry, cx-rx, cy+dy, cx-rx, cy)     // top → left
 	ab.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry)     // left → bottom
 	ab.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy)     // bottom → right
+	ab.ClosePath()
 }
