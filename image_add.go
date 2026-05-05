@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"strings"
 )
 
 // createImageXObject builds a pdfStream for the image.
@@ -337,12 +336,6 @@ func nextXObjectName(xobjDict pdfDict) string {
 	}
 }
 
-func formatFloat(f float64) string {
-	s := strconv.FormatFloat(f, 'f', 4, 64)
-	s = strings.TrimRight(s, "0")
-	s = strings.TrimRight(s, ".")
-	return s
-}
 
 func (p *Page) appendToContentStream(data []byte) error {
 	existing, err := p.contentStreams()
