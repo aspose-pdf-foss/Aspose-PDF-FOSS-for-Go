@@ -296,6 +296,66 @@ func parseSubmitFormAction(d pdfDict) *SubmitFormAction {
 	return a
 }
 
+// ResetFormAction resets named form fields to their /DV defaults.
+type ResetFormAction struct {
+	fields []string
+}
+
+func (a *ResetFormAction) ActionType() ActionType { return ActionTypeResetForm }
+
+// FieldNames returns a copy of the field-name list. The returned slice
+// is owned by the caller; mutating it does not affect the action.
+func (a *ResetFormAction) FieldNames() []string {
+	out := make([]string, len(a.fields))
+	copy(out, a.fields)
+	return out
+}
+
+// SetFieldNames replaces the field-name list. The slice is copied; the
+// caller may safely mutate f after this returns.
+func (a *ResetFormAction) SetFieldNames(f []string) {
+	a.fields = make([]string, len(f))
+	copy(a.fields, f)
+}
+
+func (a *ResetFormAction) encode() pdfDict {
+	d := pdfDict{
+		"/Type": pdfName("/Action"),
+		"/S":    pdfName("/ResetForm"),
+	}
+	if len(a.fields) > 0 {
+		arr := make(pdfArray, 0, len(a.fields))
+		for _, f := range a.fields {
+			arr = append(arr, f)
+		}
+		d["/Fields"] = arr
+	}
+	return d
+}
+
+// NewResetFormAction builds a /ResetForm action targeting the given
+// field names. Empty fields means "reset all fields" per spec. The
+// fields slice is copied; the caller may safely mutate it after this
+// returns.
+func NewResetFormAction(fields []string) *ResetFormAction {
+	a := &ResetFormAction{}
+	a.fields = make([]string, len(fields))
+	copy(a.fields, fields)
+	return a
+}
+
+func parseResetFormAction(d pdfDict) *ResetFormAction {
+	a := &ResetFormAction{}
+	if arr, ok := d["/Fields"].(pdfArray); ok {
+		for _, item := range arr {
+			if s, ok := item.(string); ok {
+				a.fields = append(a.fields, decodeFormString(s))
+			}
+		}
+	}
+	return a
+}
+
 // parseAction returns the matching concrete action type for a resolved
 // /A dict. Caller resolves indirect refs before calling. Returns nil
 // for unsupported subtypes (e.g. /Launch, /GoToR).
@@ -312,6 +372,8 @@ func parseAction(d pdfDict) Action {
 		return &NamedAction{name: pdfNameToNamedAction(n)}
 	case "/SubmitForm":
 		return parseSubmitFormAction(d)
+	case "/ResetForm":
+		return parseResetFormAction(d)
 	}
 	return nil
 }
