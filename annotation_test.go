@@ -557,3 +557,50 @@ func TestHighlightAnnotationRoundTrip(t *testing.T) {
 		t.Errorf("QuadPoint mismatch: %+v", qp[0])
 	}
 }
+
+func TestAnnotationCollectionDeleteAt(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	page.Annotations().Add(link)
+	if err := page.Annotations().DeleteAt(0); err != nil {
+		t.Fatalf("DeleteAt(0): %v", err)
+	}
+	if page.Annotations().Count() != 0 {
+		t.Errorf("Count after DeleteAt = %d, want 0", page.Annotations().Count())
+	}
+	if err := page.Annotations().DeleteAt(0); err == nil {
+		t.Error("DeleteAt on empty collection should return error")
+	}
+}
+
+func TestAnnotationCollectionIdempotentAdd(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	if err := page.Annotations().Add(link); err != nil {
+		t.Fatalf("first Add: %v", err)
+	}
+	if err := page.Annotations().Add(link); err != nil {
+		t.Errorf("second Add same page should be no-op success, got: %v", err)
+	}
+	if page.Annotations().Count() != 1 {
+		t.Errorf("Count after redundant Add = %d, want 1", page.Annotations().Count())
+	}
+}
+
+func TestAnnotationCollectionReattachError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatalf("AddBlankPage: %v", err)
+	}
+	page1, _ := doc.Page(1)
+	page2, _ := doc.Page(2)
+	link := pdf.NewLinkAnnotation(page1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	if err := page1.Annotations().Add(link); err != nil {
+		t.Fatalf("Add to page 1: %v", err)
+	}
+	if err := page2.Annotations().Add(link); err == nil {
+		t.Error("Add to page 2 should error — already attached to page 1")
+	}
+}

@@ -140,6 +140,21 @@ func (c *AnnotationCollection) Delete(a Annotation) bool {
 	return true
 }
 
+// DeleteAt removes the annotation at the given index. Errors on
+// out-of-range index. The annotation handle becomes dangling after
+// DeleteAt — see Delete for the dangling-handle semantics.
+func (c *AnnotationCollection) DeleteAt(index int) error {
+	c.ensureBuilt()
+	if index < 0 || index >= len(c.items) {
+		return fmt.Errorf("AnnotationCollection.DeleteAt(%d): out of range [0,%d)", index, len(c.items))
+	}
+	a := c.items[index]
+	if !c.Delete(a) {
+		return fmt.Errorf("AnnotationCollection.DeleteAt(%d): underlying delete failed", index)
+	}
+	return nil
+}
+
 // attachedPageIndex returns the 1-based index of the page an annotation
 // is currently attached to (used in error messages).
 func (c *AnnotationCollection) attachedPageIndex(base *annotationBase) int {
