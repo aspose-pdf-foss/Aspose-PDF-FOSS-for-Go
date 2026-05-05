@@ -145,6 +145,7 @@
   ],
 
   "TestPageAnnotationsWalkExistingPDF":        [["PdfWithAcroForm.pdf"]],
+  "TestAnnotationsCoexistWithForm":            [["PdfWithAcroForm.pdf"]],
   "TestLinkAnnotationReadFromExistingPDF":     [["PdfWithLinks.pdf"]],
   "TestPdfWithLinksReadAllActions":            [["PdfWithLinks.pdf"]]
 }

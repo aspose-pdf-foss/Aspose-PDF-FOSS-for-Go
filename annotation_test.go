@@ -640,3 +640,58 @@ func TestAnnotationCollectionReattachError(t *testing.T) {
 		t.Error("Add to page 2 should error — already attached to page 1")
 	}
 }
+
+func TestAnnotationsCoexistWithForm(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, _ := doc.Page(1)
+
+	// Form API still works.
+	if doc.Form().HasField("textField") == false {
+		t.Fatal("textField missing — Form parsing broke")
+	}
+
+	// Annotations() returns existing form widgets as WidgetAnnotation.
+	widgetCount := 0
+	for _, a := range page.Annotations().All() {
+		if a.AnnotationType() == pdf.AnnotationTypeWidget {
+			widgetCount++
+		}
+	}
+	if widgetCount == 0 {
+		t.Fatal("expected at least one WidgetAnnotation")
+	}
+
+	// Add a new LinkAnnotation; ensure the form continues to roundtrip.
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 50, URX: 200, URY: 70})
+	link.SetAction(pdf.NewGoToURIAction("https://example.com"))
+	if err := page.Annotations().Add(link); err != nil {
+		t.Fatalf("Add link: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	if doc2.Form().HasField("textField") == false {
+		t.Error("textField missing after annotations + roundtrip")
+	}
+	// The new link should be there too.
+	page2, _ := doc2.Page(1)
+	hasLink := false
+	for _, a := range page2.Annotations().All() {
+		if a.AnnotationType() == pdf.AnnotationTypeLink {
+			hasLink = true
+			break
+		}
+	}
+	if !hasLink {
+		t.Error("LinkAnnotation lost after roundtrip with form widgets")
+	}
+}
