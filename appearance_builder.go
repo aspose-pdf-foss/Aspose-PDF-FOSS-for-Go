@@ -152,3 +152,70 @@ func (ab *appearanceBuilder) SetFillGray(g float64) {
 	ab.buf.WriteString(formatFloat(g))
 	ab.buf.WriteString(" g\n")
 }
+
+// MoveTo begins a new subpath at (x, y) (m operator).
+func (ab *appearanceBuilder) MoveTo(x, y float64) {
+	ab.buf.WriteString(formatFloat(x))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y))
+	ab.buf.WriteString(" m\n")
+}
+
+// LineTo appends a straight line segment to (x, y) (l operator).
+func (ab *appearanceBuilder) LineTo(x, y float64) {
+	ab.buf.WriteString(formatFloat(x))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y))
+	ab.buf.WriteString(" l\n")
+}
+
+// CurveTo appends a cubic Bezier curve from the current point through
+// control points (x1, y1) and (x2, y2) to endpoint (x3, y3) (c operator).
+func (ab *appearanceBuilder) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
+	ab.buf.WriteString(formatFloat(x1))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y1))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(x2))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y2))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(x3))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y3))
+	ab.buf.WriteString(" c\n")
+}
+
+// Rect adds a closed rectangular subpath (re operator).
+func (ab *appearanceBuilder) Rect(x, y, w, h float64) {
+	ab.buf.WriteString(formatFloat(x))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(w))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(h))
+	ab.buf.WriteString(" re\n")
+}
+
+// ClosePath closes the current subpath (h operator).
+func (ab *appearanceBuilder) ClosePath() {
+	ab.buf.WriteString("h\n")
+}
+
+// kappa is the standard control-point distance ratio for approximating
+// a quarter-circle with a cubic Bezier. (4/3) * (sqrt(2) - 1).
+const kappa = 0.5522847498307933
+
+// Ellipse adds a closed elliptic subpath centered at (cx, cy) with
+// semi-axes rx and ry, approximated by 4 cubic Beziers.
+func (ab *appearanceBuilder) Ellipse(cx, cy, rx, ry float64) {
+	dx := rx * kappa
+	dy := ry * kappa
+	// Start at right edge, going counter-clockwise.
+	ab.MoveTo(cx+rx, cy)
+	ab.CurveTo(cx+rx, cy+dy, cx+dx, cy+ry, cx, cy+ry)     // right → top
+	ab.CurveTo(cx-dx, cy+ry, cx-rx, cy+dy, cx-rx, cy)     // top → left
+	ab.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry)     // left → bottom
+	ab.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy)     // bottom → right
+}

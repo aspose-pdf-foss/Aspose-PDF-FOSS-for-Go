@@ -1,6 +1,9 @@
 package asposepdf
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuilderPushPopState(t *testing.T) {
 	b := newAppearanceBuilder()
@@ -114,5 +117,60 @@ func TestBuilderSetFillGray(t *testing.T) {
 	b.SetFillGray(0.75)
 	if got := string(b.Bytes()); got != "0.75 g\n" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderMoveTo(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.MoveTo(10, 20)
+	if got := string(b.Bytes()); got != "10 20 m\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderLineTo(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.LineTo(30, 40)
+	if got := string(b.Bytes()); got != "30 40 l\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderCurveTo(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.CurveTo(1, 2, 3, 4, 5, 6)
+	if got := string(b.Bytes()); got != "1 2 3 4 5 6 c\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderRect(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.Rect(0, 0, 100, 50)
+	if got := string(b.Bytes()); got != "0 0 100 50 re\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderClosePath(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.ClosePath()
+	if got := string(b.Bytes()); got != "h\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBuilderEllipse(t *testing.T) {
+	// Ellipse emits m + 4 c operators.
+	b := newAppearanceBuilder()
+	b.Ellipse(50, 50, 25, 25)
+	out := string(b.Bytes())
+	// Verify shape: should start with a moveTo and contain four curveTo's.
+	if !strings.Contains(out, " m\n") {
+		t.Errorf("Ellipse missing m operator: %q", out)
+	}
+	cCount := strings.Count(out, " c\n")
+	if cCount != 4 {
+		t.Errorf("Ellipse should emit 4 c operators, got %d in %q", cCount, out)
 	}
 }
