@@ -111,6 +111,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, optional underline/strikethrough, rotation, and behind-content mode
 - `(*Document).AddTextWatermark(text, style, pageNums...) error` — applies a text watermark to all or selected pages using full-page rectangle from MediaBox
 - `(*Document).Form() *Form` — returns the document's AcroForm (always non-nil; empty form for documents without /AcroForm)
+- `(*Page).Annotations() *AnnotationCollection` — returns the page's annotation collection (always non-nil; empty for pages with no /Annots)
 
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
@@ -143,6 +144,20 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Form).RemoveField(name) bool` — removes field plus all its widgets from /AcroForm/Fields and per-page /Annots
 - Per-type structural mutators: `SetReadOnly`, `SetRequired` on every type; `TextBoxField.{SetMaxLen,SetMultiline,SetPassword}`; `ComboBoxField.{SetEditable,AddOption,RemoveOption}`; `ListBoxField.{SetMultiSelect,AddOption,RemoveOption}`
 - `RadioItem` struct — `PageNum`, `Rect`, `Export` for cross-page radio groups
+
+**`annotation.go` / `annotation_action.go` / `annotation_link.go` / `annotation_markup.go`**
+- `Annotation` interface — `AnnotationType()`, `Rect()/SetRect()`, `Color()/SetColor()`, `Title()/SetTitle()`, `Contents()/SetContents()`, `PageIndex()`
+- `AnnotationType` enum — `AnnotationTypeUnknown`, `AnnotationTypeLink`, `AnnotationTypeHighlight`, `AnnotationTypeUnderline`, `AnnotationTypeStrikeOut`, `AnnotationTypeSquiggly`, `AnnotationTypeWidget`
+- Concrete types: `LinkAnnotation`, `HighlightAnnotation`, `UnderlineAnnotation`, `StrikeOutAnnotation`, `SquigglyAnnotation`, `WidgetAnnotation` (existing form fields, read-only via this surface), `GenericAnnotation` (catch-all for unsupported subtypes)
+- `AnnotationCollection` — `Add(a) error`, `At(i) Annotation`, `Delete(a) bool`, `DeleteAt(i) error`, `Count() int`, `All() []Annotation`. Add panics on nil; idempotent same-page; errors on cross-page re-attach
+- Constructors: `NewLinkAnnotation(page, rect)`, `NewHighlightAnnotation(page, rect)`, `NewUnderlineAnnotation(page, rect)`, `NewStrikeOutAnnotation(page, rect)`, `NewSquigglyAnnotation(page, rect)`
+- `LinkAnnotation.Action() Action`, `LinkAnnotation.SetAction(act Action)` — nil clears /A
+- `Action` interface — `ActionType()`; concrete types: `GoToURIAction`, `GoToAction`, `NamedAction`, `SubmitFormAction`, `ResetFormAction`, `JavaScriptAction` (parse-only)
+- Action constructors: `NewGoToURIAction(uri)`, `NewGoToAction(pageNum, top)`, `NewNamedAction(name)`, `NewSubmitFormAction(url, fields, flags)`, `NewResetFormAction(fields)`. JavaScript actions are read-only — there is no `NewJavaScriptAction`
+- `ActionType` enum — `ActionTypeUnknown`, `ActionTypeGoToURI`, `ActionTypeGoTo`, `ActionTypeNamed`, `ActionTypeSubmitForm`, `ActionTypeResetForm`, `ActionTypeJavaScript`
+- `NamedActionType` enum — `NamedActionFirstPage`, `NamedActionLastPage`, `NamedActionNextPage`, `NamedActionPrevPage`, `NamedActionPrint`
+- `SubmitFormFlags` bitfield per ISO 32000-1 Table 237 (`SubmitIncludeNoValueFields`, `SubmitExportFormat`, `SubmitGetMethod`, ...)
+- `QuadPoint` struct — `X1 Y1 X2 Y2 X3 Y3 X4 Y4` floats per ISO 32000-1 §12.5.6.10 (UL/UR/LL/LR corners). Used by `SetQuadPoints`/`QuadPoints` on the four markup types
 
 **`validate.go`**
 - `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
