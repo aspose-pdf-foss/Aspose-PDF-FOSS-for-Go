@@ -292,6 +292,36 @@ func TestLinkAnnotationSubmitFormAction(t *testing.T) {
 	}
 }
 
+func TestSubmitFormActionEmptyFieldsAndFlags(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	link.SetAction(pdf.NewSubmitFormAction("https://example.com/all", nil, 0))
+	if err := page.Annotations().Add(link); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page2, _ := doc2.Page(1)
+	sf, ok := page2.Annotations().At(0).(*pdf.LinkAnnotation).Action().(*pdf.SubmitFormAction)
+	if !ok {
+		t.Fatal("not a SubmitFormAction")
+	}
+	if sf.URL() != "https://example.com/all" {
+		t.Errorf("URL = %q", sf.URL())
+	}
+	if got := sf.FieldNames(); len(got) != 0 {
+		t.Errorf("FieldNames = %v, want empty", got)
+	}
+	if sf.Flags() != 0 {
+		t.Errorf("Flags = %d, want 0", sf.Flags())
+	}
+}
+
 func TestLinkAnnotationNamedAction(t *testing.T) {
 	for _, tc := range []struct {
 		name string

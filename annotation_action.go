@@ -225,17 +225,32 @@ type SubmitFormAction struct {
 
 func (a *SubmitFormAction) ActionType() ActionType     { return ActionTypeSubmitForm }
 func (a *SubmitFormAction) URL() string                { return a.url }
-func (a *SubmitFormAction) FieldNames() []string       { return a.fields }
 func (a *SubmitFormAction) Flags() SubmitFormFlags     { return a.flags }
 func (a *SubmitFormAction) SetURL(u string)            { a.url = u }
-func (a *SubmitFormAction) SetFieldNames(f []string)   { a.fields = f }
 func (a *SubmitFormAction) SetFlags(f SubmitFormFlags) { a.flags = f }
+
+// FieldNames returns a copy of the field-name list. The returned slice
+// is owned by the caller; mutating it does not affect the action.
+func (a *SubmitFormAction) FieldNames() []string {
+	out := make([]string, len(a.fields))
+	copy(out, a.fields)
+	return out
+}
+
+// SetFieldNames replaces the field-name list. The slice is copied; the
+// caller may safely mutate f after this returns.
+func (a *SubmitFormAction) SetFieldNames(f []string) {
+	a.fields = make([]string, len(f))
+	copy(a.fields, f)
+}
 
 func (a *SubmitFormAction) encode() pdfDict {
 	d := pdfDict{
 		"/Type": pdfName("/Action"),
 		"/S":    pdfName("/SubmitForm"),
-		"/F":    pdfDict{"/FS": pdfName("/URL"), "/F": a.url},
+		// /F is written as a filespec dict per ISO 32000-1 Table 236;
+		// parseSubmitFormAction also accepts the legacy string form.
+		"/F": pdfDict{"/FS": pdfName("/URL"), "/F": a.url},
 	}
 	if len(a.fields) > 0 {
 		arr := make(pdfArray, 0, len(a.fields))
@@ -250,9 +265,13 @@ func (a *SubmitFormAction) encode() pdfDict {
 	return d
 }
 
-// NewSubmitFormAction builds a /SubmitForm action.
+// NewSubmitFormAction builds a /SubmitForm action. The fields slice is
+// copied; the caller may safely mutate it after this returns.
 func NewSubmitFormAction(url string, fields []string, flags SubmitFormFlags) *SubmitFormAction {
-	return &SubmitFormAction{url: url, fields: fields, flags: flags}
+	a := &SubmitFormAction{url: url, flags: flags}
+	a.fields = make([]string, len(fields))
+	copy(a.fields, fields)
+	return a
 }
 
 func parseSubmitFormAction(d pdfDict) *SubmitFormAction {
