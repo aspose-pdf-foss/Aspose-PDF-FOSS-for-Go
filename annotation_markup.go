@@ -56,6 +56,91 @@ func newMarkupBase(callerName string, page *Page, rect Rectangle, subtype pdfNam
 	return annotationBase{dict: dict, doc: page.doc, page: page}
 }
 
+// UnderlineAnnotation draws a horizontal line under text.
+type UnderlineAnnotation struct {
+	annotationBase
+}
+
+func (a *UnderlineAnnotation) AnnotationType() AnnotationType { return AnnotationTypeUnderline }
+
+// QuadPoints returns the array of quads describing the underlined region.
+// Returns nil if /QuadPoints is absent or its array length is not a
+// multiple of 8 (malformed).
+func (a *UnderlineAnnotation) QuadPoints() []QuadPoint {
+	return readQuadPoints(a.dict["/QuadPoints"])
+}
+
+// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
+func (a *UnderlineAnnotation) SetQuadPoints(qp []QuadPoint) {
+	if len(qp) == 0 {
+		delete(a.dict, "/QuadPoints")
+		return
+	}
+	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
+}
+
+// NewUnderlineAnnotation builds an unbound underline annotation.
+func NewUnderlineAnnotation(page *Page, rect Rectangle) *UnderlineAnnotation {
+	return &UnderlineAnnotation{annotationBase: newMarkupBase("NewUnderlineAnnotation", page, rect, "/Underline")}
+}
+
+// StrikeOutAnnotation draws a horizontal line through text.
+type StrikeOutAnnotation struct {
+	annotationBase
+}
+
+func (a *StrikeOutAnnotation) AnnotationType() AnnotationType { return AnnotationTypeStrikeOut }
+
+// QuadPoints returns the array of quads describing the strike-out region.
+// Returns nil if /QuadPoints is absent or its array length is not a
+// multiple of 8 (malformed).
+func (a *StrikeOutAnnotation) QuadPoints() []QuadPoint {
+	return readQuadPoints(a.dict["/QuadPoints"])
+}
+
+// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
+func (a *StrikeOutAnnotation) SetQuadPoints(qp []QuadPoint) {
+	if len(qp) == 0 {
+		delete(a.dict, "/QuadPoints")
+		return
+	}
+	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
+}
+
+// NewStrikeOutAnnotation builds an unbound strike-out annotation.
+func NewStrikeOutAnnotation(page *Page, rect Rectangle) *StrikeOutAnnotation {
+	return &StrikeOutAnnotation{annotationBase: newMarkupBase("NewStrikeOutAnnotation", page, rect, "/StrikeOut")}
+}
+
+// SquigglyAnnotation draws a wavy underline under text (typically used
+// for spell-check style hints).
+type SquigglyAnnotation struct {
+	annotationBase
+}
+
+func (a *SquigglyAnnotation) AnnotationType() AnnotationType { return AnnotationTypeSquiggly }
+
+// QuadPoints returns the array of quads describing the squiggly region.
+// Returns nil if /QuadPoints is absent or its array length is not a
+// multiple of 8 (malformed).
+func (a *SquigglyAnnotation) QuadPoints() []QuadPoint {
+	return readQuadPoints(a.dict["/QuadPoints"])
+}
+
+// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
+func (a *SquigglyAnnotation) SetQuadPoints(qp []QuadPoint) {
+	if len(qp) == 0 {
+		delete(a.dict, "/QuadPoints")
+		return
+	}
+	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
+}
+
+// NewSquigglyAnnotation builds an unbound squiggly-underline annotation.
+func NewSquigglyAnnotation(page *Page, rect Rectangle) *SquigglyAnnotation {
+	return &SquigglyAnnotation{annotationBase: newMarkupBase("NewSquigglyAnnotation", page, rect, "/Squiggly")}
+}
+
 func readQuadPoints(v pdfValue) []QuadPoint {
 	arr, ok := v.(pdfArray)
 	if !ok || len(arr)%8 != 0 {

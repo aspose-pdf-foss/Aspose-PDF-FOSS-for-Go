@@ -338,6 +338,12 @@ func parseAnnotation(base annotationBase) Annotation {
 		return &LinkAnnotation{annotationBase: base}
 	case "/Highlight":
 		return &HighlightAnnotation{annotationBase: base}
+	case "/Underline":
+		return &UnderlineAnnotation{annotationBase: base}
+	case "/StrikeOut":
+		return &StrikeOutAnnotation{annotationBase: base}
+	case "/Squiggly":
+		return &SquigglyAnnotation{annotationBase: base}
 	}
 	return &GenericAnnotation{annotationBase: base}
 }

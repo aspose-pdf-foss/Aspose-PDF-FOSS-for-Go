@@ -460,6 +460,51 @@ func TestResetFormActionAllFields(t *testing.T) {
 	}
 }
 
+func TestUnderlineAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	a := pdf.NewUnderlineAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
+	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
+	page.Annotations().Add(a)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Pages()[0].Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeUnderline {
+		t.Errorf("type = %v, want AnnotationTypeUnderline", got.AnnotationType())
+	}
+}
+
+func TestStrikeOutAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	a := pdf.NewStrikeOutAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
+	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
+	page.Annotations().Add(a)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Pages()[0].Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeStrikeOut {
+		t.Errorf("type = %v, want AnnotationTypeStrikeOut", got.AnnotationType())
+	}
+}
+
+func TestSquigglyAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	a := pdf.NewSquigglyAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
+	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
+	page.Annotations().Add(a)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Pages()[0].Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeSquiggly {
+		t.Errorf("type = %v, want AnnotationTypeSquiggly", got.AnnotationType())
+	}
+}
+
 func TestHighlightAnnotationRoundTrip(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
