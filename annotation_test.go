@@ -459,3 +459,41 @@ func TestResetFormActionAllFields(t *testing.T) {
 		t.Errorf("FieldNames = %v, want empty (reset-all semantics)", got)
 	}
 }
+
+func TestHighlightAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	hl := pdf.NewHighlightAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
+	hl.SetColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
+	hl.SetTitle("Reviewer")
+	hl.SetContents("Important")
+	hl.SetQuadPoints([]pdf.QuadPoint{
+		{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600},
+	})
+	if err := page.Annotations().Add(hl); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page2, _ := doc2.Page(1)
+	got := page2.Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeHighlight {
+		t.Errorf("type = %v, want AnnotationTypeHighlight", got.AnnotationType())
+	}
+	hl2 := got.(*pdf.HighlightAnnotation)
+	if hl2.Title() != "Reviewer" {
+		t.Errorf("Title = %q", hl2.Title())
+	}
+	qp := hl2.QuadPoints()
+	if len(qp) != 1 {
+		t.Fatalf("QuadPoints len = %d, want 1", len(qp))
+	}
+	if qp[0].X1 != 50 || qp[0].Y4 != 600 {
+		t.Errorf("QuadPoint mismatch: %+v", qp[0])
+	}
+}
