@@ -465,7 +465,9 @@ func TestUnderlineAnnotationRoundTrip(t *testing.T) {
 	page, _ := doc.Page(1)
 	a := pdf.NewUnderlineAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
 	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
-	page.Annotations().Add(a)
+	if err := page.Annotations().Add(a); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	var buf bytes.Buffer
 	doc.WriteTo(&buf)
 	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -480,7 +482,9 @@ func TestStrikeOutAnnotationRoundTrip(t *testing.T) {
 	page, _ := doc.Page(1)
 	a := pdf.NewStrikeOutAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
 	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
-	page.Annotations().Add(a)
+	if err := page.Annotations().Add(a); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	var buf bytes.Buffer
 	doc.WriteTo(&buf)
 	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -495,7 +499,9 @@ func TestSquigglyAnnotationRoundTrip(t *testing.T) {
 	page, _ := doc.Page(1)
 	a := pdf.NewSquigglyAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
 	a.SetQuadPoints([]pdf.QuadPoint{{X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600}})
-	page.Annotations().Add(a)
+	if err := page.Annotations().Add(a); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	var buf bytes.Buffer
 	doc.WriteTo(&buf)
 	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
