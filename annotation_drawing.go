@@ -396,27 +396,11 @@ func (a *LineAnnotation) recomputeRect() {
 	start := a.Start()
 	end := a.End()
 	pad := 9 * a.BorderWidth()
-	llx := minF(start.X, end.X) - pad
-	lly := minF(start.Y, end.Y) - pad
-	urx := maxF(start.X, end.X) + pad
-	ury := maxF(start.Y, end.Y) + pad
+	llx := min(start.X, end.X) - pad
+	lly := min(start.Y, end.Y) - pad
+	urx := max(start.X, end.X) + pad
+	ury := max(start.Y, end.Y) + pad
 	a.dict["/Rect"] = pdfArray{llx, lly, urx, ury}
-}
-
-// minF returns the smaller of a and b.
-func minF(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// maxF returns the larger of a and b.
-func maxF(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // regenerateAP rebuilds /AP/N from the annotation's current properties.
