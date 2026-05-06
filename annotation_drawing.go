@@ -92,6 +92,21 @@ func (a *SquareAnnotation) SetBorderWidth(w float64) {
 	a.regenerateAP()
 }
 
+// SetRect overrides annotationBase.SetRect to regenerate /AP/N after
+// the rectangle changes (the appearance stream's BBox is derived from
+// /Rect).
+func (a *SquareAnnotation) SetRect(r Rectangle) {
+	a.annotationBase.SetRect(r)
+	a.regenerateAP()
+}
+
+// SetColor overrides annotationBase.SetColor to regenerate /AP/N after
+// the stroke color changes.
+func (a *SquareAnnotation) SetColor(c *Color) {
+	a.annotationBase.SetColor(c)
+	a.regenerateAP()
+}
+
 // regenerateAP rebuilds /AP/N from the annotation's current properties.
 func (a *SquareAnnotation) regenerateAP() {
 	setAppearanceN(&a.annotationBase, generateSquareAppearance(a))

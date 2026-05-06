@@ -90,3 +90,31 @@ func TestSquareAnnotationSolidStroke(t *testing.T) {
 		t.Errorf("BorderWidth = %v, want 2", w)
 	}
 }
+
+func TestSquareAnnotationSetterRegenerateOrder(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sq := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err := page.Annotations().Add(sq); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// Set Color and Rect AFTER Add. Both must propagate to /AP/N.
+	sq.SetColor(&pdf.Color{R: 0, G: 0, B: 1, A: 1})
+	sq.SetRect(pdf.Rectangle{LLX: 50, LLY: 50, URX: 250, URY: 200})
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	sq2 := doc2.Pages()[0].Annotations().At(0).(*pdf.SquareAnnotation)
+	if c := sq2.Color(); c == nil || c.B != 1 {
+		t.Errorf("Color after roundtrip = %v, want blue", c)
+	}
+	r := sq2.Rect()
+	if r.LLX != 50 || r.URY != 200 {
+		t.Errorf("Rect after roundtrip = %+v, want LLX=50 URY=200", r)
+	}
+}
