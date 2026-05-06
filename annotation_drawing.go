@@ -33,3 +33,72 @@ const (
 	LineEndingRClosedArrow // ClosedArrow rotated 180°
 	LineEndingSlash
 )
+
+// SquareAnnotation draws a rectangular annotation with stroked border
+// and optional interior fill. Renders natively from /AP/N — Solid,
+// Dashed, Beveled, Inset, and Underline border styles supported.
+type SquareAnnotation struct {
+	annotationBase
+}
+
+func (a *SquareAnnotation) AnnotationType() AnnotationType { return AnnotationTypeSquare }
+
+// NewSquareAnnotation builds an unbound square annotation. Page must be
+// non-nil. The annotation is not added to the document until
+// page.Annotations().Add(square) succeeds.
+func NewSquareAnnotation(page *Page, rect Rectangle) *SquareAnnotation {
+	if page == nil {
+		panic("NewSquareAnnotation: nil page")
+	}
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Square"),
+		"/Rect":    pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY},
+	}
+	a := &SquareAnnotation{annotationBase: annotationBase{
+		dict: dict,
+		doc:  page.doc,
+		page: page,
+	}}
+	a.regenerateAP()
+	return a
+}
+
+// BorderWidth returns the stroke line width. Reads /BS/W (preferred) or
+// /Border[2] (legacy fallback). Defaults to 1 if neither is present.
+func (a *SquareAnnotation) BorderWidth() float64 {
+	if bs, ok := a.dict["/BS"].(pdfDict); ok {
+		if w, err := toFloat(bs["/W"]); err == nil {
+			return w
+		}
+	}
+	if border, ok := a.dict["/Border"].(pdfArray); ok && len(border) >= 3 {
+		if w, err := toFloat(border[2]); err == nil {
+			return w
+		}
+	}
+	return 1
+}
+
+// SetBorderWidth writes /BS/W and clears any legacy /Border array.
+func (a *SquareAnnotation) SetBorderWidth(w float64) {
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		bs = pdfDict{}
+	}
+	bs["/W"] = w
+	a.dict["/BS"] = bs
+	delete(a.dict, "/Border")
+	a.regenerateAP()
+}
+
+// regenerateAP rebuilds /AP/N from the annotation's current properties.
+func (a *SquareAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateSquareAppearance(a))
+}
+
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+// Useful when the underlying dict was mutated directly (bypassing setters).
+func (a *SquareAnnotation) RegenerateAppearance() {
+	a.regenerateAP()
+}

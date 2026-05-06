@@ -20,6 +20,31 @@ func makeFormXObject(content []byte, bbox Rectangle) *pdfStream {
 	}
 }
 
+// generateSquareAppearance produces /AP/N for a Square annotation.
+// This phase supports the Solid border style only — Dashed/Beveled/
+// Inset/Underline are added in subsequent tasks.
+func generateSquareAppearance(a *SquareAnnotation) *pdfStream {
+	rect := a.Rect()
+	width := rect.URX - rect.LLX
+	height := rect.URY - rect.LLY
+
+	bw := a.BorderWidth()
+
+	b := newAppearanceBuilder()
+	b.PushState()
+	b.SetLineWidth(bw)
+	if c := a.Color(); c != nil {
+		b.SetStrokeColorRGB(*c)
+	}
+	// Inset rectangle by half line width so the stroke stays inside /BBox.
+	inset := bw / 2
+	b.Rect(inset, inset, width-bw, height-bw)
+	b.Stroke()
+	b.PopState()
+
+	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
+}
+
 // setAppearanceN replaces /AP/N on the annotation. If /AP/N already
 // references an XObject in doc.objects, that object is mutated in place
 // (no new objID allocated, no orphans). Otherwise a fresh XObject is

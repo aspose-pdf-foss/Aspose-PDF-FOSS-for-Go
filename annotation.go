@@ -15,6 +15,7 @@ const (
 	AnnotationTypeStrikeOut
 	AnnotationTypeSquiggly
 	AnnotationTypeWidget
+	AnnotationTypeSquare
 )
 
 // Annotation is the common interface implemented by every concrete
@@ -356,6 +357,8 @@ func parseAnnotation(base annotationBase) Annotation {
 		return &StrikeOutAnnotation{annotationBase: base}
 	case "/Squiggly":
 		return &SquigglyAnnotation{annotationBase: base}
+	case "/Square":
+		return &SquareAnnotation{annotationBase: base}
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
