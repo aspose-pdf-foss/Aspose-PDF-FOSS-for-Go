@@ -21,14 +21,15 @@ func makeFormXObject(content []byte, bbox Rectangle) *pdfStream {
 }
 
 // generateSquareAppearance produces /AP/N for a Square annotation.
-// This phase supports the Solid border style only — Dashed/Beveled/
-// Inset/Underline are added in subsequent tasks.
+// Supports Solid and Dashed border styles; Beveled/Inset/Underline
+// are added in subsequent tasks.
 func generateSquareAppearance(a *SquareAnnotation) *pdfStream {
 	rect := a.Rect()
 	width := rect.URX - rect.LLX
 	height := rect.URY - rect.LLY
 
 	bw := a.BorderWidth()
+	style := a.BorderStyle()
 
 	b := newAppearanceBuilder()
 	b.PushState()
@@ -36,7 +37,13 @@ func generateSquareAppearance(a *SquareAnnotation) *pdfStream {
 	if c := a.Color(); c != nil {
 		b.SetStrokeColorRGB(*c)
 	}
-	// Inset rectangle by half line width so the stroke stays inside /BBox.
+	if style == BorderDashed {
+		dp := a.DashPattern()
+		if len(dp) == 0 {
+			dp = []float64{3, 3}
+		}
+		b.SetDashPattern(dp, 0)
+	}
 	inset := bw / 2
 	b.Rect(inset, inset, width-bw, height-bw)
 	b.Stroke()

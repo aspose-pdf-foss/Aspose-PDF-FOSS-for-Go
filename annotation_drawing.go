@@ -117,3 +117,89 @@ func (a *SquareAnnotation) regenerateAP() {
 func (a *SquareAnnotation) RegenerateAppearance() {
 	a.regenerateAP()
 }
+
+// BorderStyle returns the /BS/S style. Defaults to BorderSolid if absent.
+func (a *SquareAnnotation) BorderStyle() BorderStyle {
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		return BorderSolid
+	}
+	switch n, _ := bs["/S"].(pdfName); n {
+	case "/D":
+		return BorderDashed
+	case "/B":
+		return BorderBeveled
+	case "/I":
+		return BorderInset
+	case "/U":
+		return BorderUnderline
+	}
+	return BorderSolid
+}
+
+// SetBorderStyle writes /BS/S using the PDF spec name codes.
+func (a *SquareAnnotation) SetBorderStyle(s BorderStyle) {
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		bs = pdfDict{}
+	}
+	bs["/S"] = borderStyleName(s)
+	a.dict["/BS"] = bs
+	delete(a.dict, "/Border")
+	a.regenerateAP()
+}
+
+// DashPattern returns a defensive copy of /BS/D (dash array). Returns
+// nil if /BS/D is absent or empty.
+func (a *SquareAnnotation) DashPattern() []float64 {
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		return nil
+	}
+	arr, _ := bs["/D"].(pdfArray)
+	if len(arr) == 0 {
+		return nil
+	}
+	out := make([]float64, 0, len(arr))
+	for _, v := range arr {
+		f, _ := toFloat(v)
+		out = append(out, f)
+	}
+	return out
+}
+
+// SetDashPattern writes /BS/D. The slice is copied; the caller may
+// safely mutate p after this returns.
+func (a *SquareAnnotation) SetDashPattern(p []float64) {
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		bs = pdfDict{}
+	}
+	if len(p) == 0 {
+		delete(bs, "/D")
+	} else {
+		arr := make(pdfArray, 0, len(p))
+		for _, v := range p {
+			arr = append(arr, v)
+		}
+		bs["/D"] = arr
+	}
+	a.dict["/BS"] = bs
+	delete(a.dict, "/Border")
+	a.regenerateAP()
+}
+
+// borderStyleName maps a BorderStyle to its PDF name code per Table 168.
+func borderStyleName(s BorderStyle) pdfName {
+	switch s {
+	case BorderDashed:
+		return "/D"
+	case BorderBeveled:
+		return "/B"
+	case BorderInset:
+		return "/I"
+	case BorderUnderline:
+		return "/U"
+	}
+	return "/S"
+}
