@@ -255,6 +255,34 @@ func TestSquareAnnotationNoXObjectLeak(t *testing.T) {
 	}
 }
 
+func TestLineAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ln := pdf.NewLineAnnotation(page, pdf.Point{X: 100, Y: 700}, pdf.Point{X: 300, Y: 600})
+	ln.SetColor(&pdf.Color{R: 0, G: 0, B: 1, A: 1})
+	ln.SetBorderWidth(2)
+	if err := page.Annotations().Add(ln); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Pages()[0].Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeLine {
+		t.Errorf("type = %v, want AnnotationTypeLine", got.AnnotationType())
+	}
+	ln2 := got.(*pdf.LineAnnotation)
+	if s := ln2.Start(); s.X != 100 || s.Y != 700 {
+		t.Errorf("Start = %+v, want {100 700}", s)
+	}
+	if e := ln2.End(); e.X != 300 || e.Y != 600 {
+		t.Errorf("End = %+v, want {300 600}", e)
+	}
+	if w := ln2.BorderWidth(); w != 2 {
+		t.Errorf("BorderWidth = %v, want 2", w)
+	}
+}
+
 func TestCircleAnnotationRoundTrip(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)

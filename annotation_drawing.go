@@ -305,6 +305,130 @@ func (a *CircleAnnotation) RegenerateAppearance() {
 	a.regenerateAP()
 }
 
+// LineAnnotation draws a straight line between two points, with
+// optional line endings on each end (arrows, circles, etc. — added in
+// Task 14). The /Rect entry is auto-computed from the endpoints +
+// padding for line endings.
+type LineAnnotation struct {
+	drawingAnnotationBase
+}
+
+func (a *LineAnnotation) AnnotationType() AnnotationType { return AnnotationTypeLine }
+
+// NewLineAnnotation builds an unbound line annotation. Page must be
+// non-nil. The /Rect is auto-computed as the bounding box of the line
+// plus padding equal to 9 × BorderWidth (Acrobat convention) on each
+// side.
+func NewLineAnnotation(page *Page, start, end Point) *LineAnnotation {
+	if page == nil {
+		panic("NewLineAnnotation: nil page")
+	}
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Line"),
+		"/L":       pdfArray{start.X, start.Y, end.X, end.Y},
+	}
+	a := &LineAnnotation{drawingAnnotationBase: drawingAnnotationBase{
+		annotationBase: annotationBase{
+			dict: dict,
+			doc:  page.doc,
+			page: page,
+		},
+	}}
+	a.regenerate = a.regenerateAP
+	a.recomputeRect()
+	a.regenerateAP()
+	return a
+}
+
+// Start returns the line's start point.
+func (a *LineAnnotation) Start() Point {
+	arr, ok := a.dict["/L"].(pdfArray)
+	if !ok || len(arr) < 4 {
+		return Point{}
+	}
+	x, _ := toFloat(arr[0])
+	y, _ := toFloat(arr[1])
+	return Point{X: x, Y: y}
+}
+
+// End returns the line's end point.
+func (a *LineAnnotation) End() Point {
+	arr, ok := a.dict["/L"].(pdfArray)
+	if !ok || len(arr) < 4 {
+		return Point{}
+	}
+	x, _ := toFloat(arr[2])
+	y, _ := toFloat(arr[3])
+	return Point{X: x, Y: y}
+}
+
+// SetStart updates the line's start point and recomputes /Rect.
+func (a *LineAnnotation) SetStart(p Point) {
+	end := a.End()
+	a.dict["/L"] = pdfArray{p.X, p.Y, end.X, end.Y}
+	a.recomputeRect()
+	a.regenerateAP()
+}
+
+// SetEnd updates the line's end point and recomputes /Rect.
+func (a *LineAnnotation) SetEnd(p Point) {
+	start := a.Start()
+	a.dict["/L"] = pdfArray{start.X, start.Y, p.X, p.Y}
+	a.recomputeRect()
+	a.regenerateAP()
+}
+
+// SetBorderWidth overrides drawingAnnotationBase.SetBorderWidth to also
+// recompute /Rect (line ending padding scales with BorderWidth).
+func (a *LineAnnotation) SetBorderWidth(w float64) {
+	a.drawingAnnotationBase.SetBorderWidth(w)
+	a.recomputeRect()
+	// drawingAnnotationBase.SetBorderWidth already called regenerate,
+	// but /Rect changed after that. Regenerate once more so /BBox is
+	// in sync.
+	a.regenerateAP()
+}
+
+// recomputeRect updates /Rect to the bounding box of the line plus
+// padding equal to 9 × BorderWidth (Acrobat convention) on each side.
+func (a *LineAnnotation) recomputeRect() {
+	start := a.Start()
+	end := a.End()
+	pad := 9 * a.BorderWidth()
+	llx := minF(start.X, end.X) - pad
+	lly := minF(start.Y, end.Y) - pad
+	urx := maxF(start.X, end.X) + pad
+	ury := maxF(start.Y, end.Y) + pad
+	a.dict["/Rect"] = pdfArray{llx, lly, urx, ury}
+}
+
+// minF returns the smaller of a and b.
+func minF(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maxF returns the larger of a and b.
+func maxF(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// regenerateAP rebuilds /AP/N from the annotation's current properties.
+func (a *LineAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateLineAppearance(a))
+}
+
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *LineAnnotation) RegenerateAppearance() {
+	a.regenerateAP()
+}
+
 // borderStyleName maps a BorderStyle to its PDF name code per Table 168.
 func borderStyleName(s BorderStyle) pdfName {
 	switch s {

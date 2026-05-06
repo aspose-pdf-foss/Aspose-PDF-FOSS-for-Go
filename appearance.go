@@ -293,6 +293,46 @@ func drawBeveledEllipseBorder(b *appearanceBuilder, cx, cy, rx, ry, bw float64, 
 	b.PopState()
 }
 
+// generateLineAppearance produces /AP/N for a Line annotation. This
+// phase covers the line geometry only — line endings are added in
+// Task 14 after the drawLineEnding helper lands in Task 13.
+func generateLineAppearance(a *LineAnnotation) *pdfStream {
+	rect := a.Rect()
+	width := rect.URX - rect.LLX
+	height := rect.URY - rect.LLY
+
+	start := a.Start()
+	end := a.End()
+	bw := a.BorderWidth()
+	style := a.BorderStyle()
+
+	// Translate page-space endpoints to local /BBox-space.
+	sx := start.X - rect.LLX
+	sy := start.Y - rect.LLY
+	ex := end.X - rect.LLX
+	ey := end.Y - rect.LLY
+
+	b := newAppearanceBuilder()
+	b.PushState()
+	b.SetLineWidth(bw)
+	if c := a.Color(); c != nil {
+		b.SetStrokeColorRGB(*c)
+	}
+	if style == BorderDashed {
+		dp := a.DashPattern()
+		if len(dp) == 0 {
+			dp = []float64{3, 3}
+		}
+		b.SetDashPattern(dp, 0)
+	}
+	b.MoveTo(sx, sy)
+	b.LineTo(ex, ey)
+	b.Stroke()
+	b.PopState()
+
+	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
+}
+
 // setAppearanceN replaces /AP/N on the annotation. If /AP/N already
 // references an XObject in doc.objects, that object is mutated in place
 // (no new objID allocated, no orphans). Otherwise a fresh XObject is
