@@ -34,45 +34,31 @@ const (
 	LineEndingSlash
 )
 
-// SquareAnnotation draws a rectangular annotation with stroked border
-// and optional interior fill. Renders natively from /AP/N — Solid,
-// Dashed, Beveled, Inset, and Underline border styles supported.
-type SquareAnnotation struct {
+// drawingAnnotationBase is the shared embedded base for the four
+// geometric drawing annotation types (Square/Circle/Line/Ink). It
+// provides the BorderStyle/DashPattern/BorderWidth accessors and the
+// regen-aware SetRect/SetColor overrides — all of which are identical
+// across the four drawing types.
+//
+// Concrete types embed drawingAnnotationBase and set the regenerate
+// field in their constructor to a closure that calls the type-specific
+// generator (e.g. setAppearanceN(&a.annotationBase, generateSquareAppearance(a))).
+// Setters on this base call regenerate() after mutating the dict, so
+// /AP/N stays in sync without per-type accessor duplication.
+type drawingAnnotationBase struct {
 	annotationBase
-}
-
-func (a *SquareAnnotation) AnnotationType() AnnotationType { return AnnotationTypeSquare }
-
-// NewSquareAnnotation builds an unbound square annotation. Page must be
-// non-nil. The annotation is not added to the document until
-// page.Annotations().Add(square) succeeds.
-func NewSquareAnnotation(page *Page, rect Rectangle) *SquareAnnotation {
-	if page == nil {
-		panic("NewSquareAnnotation: nil page")
-	}
-	dict := pdfDict{
-		"/Type":    pdfName("/Annot"),
-		"/Subtype": pdfName("/Square"),
-		"/Rect":    pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY},
-	}
-	a := &SquareAnnotation{annotationBase: annotationBase{
-		dict: dict,
-		doc:  page.doc,
-		page: page,
-	}}
-	a.regenerateAP()
-	return a
+	regenerate func()
 }
 
 // BorderWidth returns the stroke line width. Reads /BS/W (preferred) or
 // /Border[2] (legacy fallback). Defaults to 1 if neither is present.
-func (a *SquareAnnotation) BorderWidth() float64 {
-	if bs, ok := a.dict["/BS"].(pdfDict); ok {
+func (d *drawingAnnotationBase) BorderWidth() float64 {
+	if bs, ok := d.dict["/BS"].(pdfDict); ok {
 		if w, err := toFloat(bs["/W"]); err == nil {
 			return w
 		}
 	}
-	if border, ok := a.dict["/Border"].(pdfArray); ok && len(border) >= 3 {
+	if border, ok := d.dict["/Border"].(pdfArray); ok && len(border) >= 3 {
 		if w, err := toFloat(border[2]); err == nil {
 			return w
 		}
@@ -81,46 +67,22 @@ func (a *SquareAnnotation) BorderWidth() float64 {
 }
 
 // SetBorderWidth writes /BS/W and clears any legacy /Border array.
-func (a *SquareAnnotation) SetBorderWidth(w float64) {
-	bs, _ := a.dict["/BS"].(pdfDict)
+func (d *drawingAnnotationBase) SetBorderWidth(w float64) {
+	bs, _ := d.dict["/BS"].(pdfDict)
 	if bs == nil {
 		bs = pdfDict{}
 	}
 	bs["/W"] = w
-	a.dict["/BS"] = bs
-	delete(a.dict, "/Border")
-	a.regenerateAP()
-}
-
-// SetRect overrides annotationBase.SetRect to regenerate /AP/N after
-// the rectangle changes (the appearance stream's BBox is derived from
-// /Rect).
-func (a *SquareAnnotation) SetRect(r Rectangle) {
-	a.annotationBase.SetRect(r)
-	a.regenerateAP()
-}
-
-// SetColor overrides annotationBase.SetColor to regenerate /AP/N after
-// the stroke color changes.
-func (a *SquareAnnotation) SetColor(c *Color) {
-	a.annotationBase.SetColor(c)
-	a.regenerateAP()
-}
-
-// regenerateAP rebuilds /AP/N from the annotation's current properties.
-func (a *SquareAnnotation) regenerateAP() {
-	setAppearanceN(&a.annotationBase, generateSquareAppearance(a))
-}
-
-// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
-// Useful when the underlying dict was mutated directly (bypassing setters).
-func (a *SquareAnnotation) RegenerateAppearance() {
-	a.regenerateAP()
+	d.dict["/BS"] = bs
+	delete(d.dict, "/Border")
+	if d.regenerate != nil {
+		d.regenerate()
+	}
 }
 
 // BorderStyle returns the /BS/S style. Defaults to BorderSolid if absent.
-func (a *SquareAnnotation) BorderStyle() BorderStyle {
-	bs, _ := a.dict["/BS"].(pdfDict)
+func (d *drawingAnnotationBase) BorderStyle() BorderStyle {
+	bs, _ := d.dict["/BS"].(pdfDict)
 	if bs == nil {
 		return BorderSolid
 	}
@@ -138,21 +100,23 @@ func (a *SquareAnnotation) BorderStyle() BorderStyle {
 }
 
 // SetBorderStyle writes /BS/S using the PDF spec name codes.
-func (a *SquareAnnotation) SetBorderStyle(s BorderStyle) {
-	bs, _ := a.dict["/BS"].(pdfDict)
+func (d *drawingAnnotationBase) SetBorderStyle(s BorderStyle) {
+	bs, _ := d.dict["/BS"].(pdfDict)
 	if bs == nil {
 		bs = pdfDict{}
 	}
 	bs["/S"] = borderStyleName(s)
-	a.dict["/BS"] = bs
-	delete(a.dict, "/Border")
-	a.regenerateAP()
+	d.dict["/BS"] = bs
+	delete(d.dict, "/Border")
+	if d.regenerate != nil {
+		d.regenerate()
+	}
 }
 
 // DashPattern returns a defensive copy of /BS/D (dash array). Returns
 // nil if /BS/D is absent or empty.
-func (a *SquareAnnotation) DashPattern() []float64 {
-	bs, _ := a.dict["/BS"].(pdfDict)
+func (d *drawingAnnotationBase) DashPattern() []float64 {
+	bs, _ := d.dict["/BS"].(pdfDict)
 	if bs == nil {
 		return nil
 	}
@@ -170,8 +134,8 @@ func (a *SquareAnnotation) DashPattern() []float64 {
 
 // SetDashPattern writes /BS/D. The slice is copied; the caller may
 // safely mutate p after this returns.
-func (a *SquareAnnotation) SetDashPattern(p []float64) {
-	bs, _ := a.dict["/BS"].(pdfDict)
+func (d *drawingAnnotationBase) SetDashPattern(p []float64) {
+	bs, _ := d.dict["/BS"].(pdfDict)
 	if bs == nil {
 		bs = pdfDict{}
 	}
@@ -184,9 +148,63 @@ func (a *SquareAnnotation) SetDashPattern(p []float64) {
 		}
 		bs["/D"] = arr
 	}
-	a.dict["/BS"] = bs
-	delete(a.dict, "/Border")
+	d.dict["/BS"] = bs
+	delete(d.dict, "/Border")
+	if d.regenerate != nil {
+		d.regenerate()
+	}
+}
+
+// SetRect overrides annotationBase.SetRect to regenerate /AP/N after
+// the rectangle changes (the appearance stream's BBox is derived from
+// /Rect).
+func (d *drawingAnnotationBase) SetRect(r Rectangle) {
+	d.annotationBase.SetRect(r)
+	if d.regenerate != nil {
+		d.regenerate()
+	}
+}
+
+// SetColor overrides annotationBase.SetColor to regenerate /AP/N after
+// the stroke color changes.
+func (d *drawingAnnotationBase) SetColor(c *Color) {
+	d.annotationBase.SetColor(c)
+	if d.regenerate != nil {
+		d.regenerate()
+	}
+}
+
+// SquareAnnotation draws a rectangular annotation with stroked border
+// and optional interior fill. Renders natively from /AP/N — Solid,
+// Dashed, Beveled, Inset, and Underline border styles supported.
+type SquareAnnotation struct {
+	drawingAnnotationBase
+}
+
+func (a *SquareAnnotation) AnnotationType() AnnotationType { return AnnotationTypeSquare }
+
+// NewSquareAnnotation builds an unbound square annotation. Page must be
+// non-nil. The annotation is not added to the document until
+// page.Annotations().Add(square) succeeds.
+func NewSquareAnnotation(page *Page, rect Rectangle) *SquareAnnotation {
+	if page == nil {
+		panic("NewSquareAnnotation: nil page")
+	}
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Square"),
+		"/Rect":    pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY},
+	}
+	a := &SquareAnnotation{drawingAnnotationBase: drawingAnnotationBase{
+		annotationBase: annotationBase{
+			dict: dict,
+			doc:  page.doc,
+			page: page,
+		},
+	}}
+	a.regenerate = a.regenerateAP
 	a.regenerateAP()
+	return a
 }
 
 // InteriorColor returns the /IC fill color, or nil if absent.
@@ -208,6 +226,17 @@ func (a *SquareAnnotation) SetInteriorColor(c *Color) {
 	} else {
 		a.dict["/IC"] = pdfArray{c.R, c.G, c.B}
 	}
+	a.regenerateAP()
+}
+
+// regenerateAP rebuilds /AP/N from the annotation's current properties.
+func (a *SquareAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateSquareAppearance(a))
+}
+
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+// Useful when the underlying dict was mutated directly (bypassing setters).
+func (a *SquareAnnotation) RegenerateAppearance() {
 	a.regenerateAP()
 }
 

@@ -358,7 +358,9 @@ func parseAnnotation(base annotationBase) Annotation {
 	case "/Squiggly":
 		return &SquigglyAnnotation{annotationBase: base}
 	case "/Square":
-		return &SquareAnnotation{annotationBase: base}
+		sq := &SquareAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
+		sq.regenerate = sq.regenerateAP
+		return sq
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
