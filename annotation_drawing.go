@@ -113,23 +113,31 @@ func (d *drawingAnnotationBase) SetBorderStyle(s BorderStyle) {
 	}
 }
 
-// DashPattern returns a defensive copy of /BS/D (dash array). Returns
-// nil if /BS/D is absent or empty.
+// DashPattern returns a defensive copy of the dash array. Reads /BS/D
+// (preferred) or falls back to the legacy /Border[3] entry per ISO
+// 32000-1 §12.5.4. Returns nil if neither is present.
 func (d *drawingAnnotationBase) DashPattern() []float64 {
-	bs, _ := d.dict["/BS"].(pdfDict)
-	if bs == nil {
-		return nil
+	if bs, ok := d.dict["/BS"].(pdfDict); ok {
+		if arr, ok := bs["/D"].(pdfArray); ok && len(arr) > 0 {
+			out := make([]float64, 0, len(arr))
+			for _, v := range arr {
+				f, _ := toFloat(v)
+				out = append(out, f)
+			}
+			return out
+		}
 	}
-	arr, _ := bs["/D"].(pdfArray)
-	if len(arr) == 0 {
-		return nil
+	if border, ok := d.dict["/Border"].(pdfArray); ok && len(border) >= 4 {
+		if arr, ok := border[3].(pdfArray); ok && len(arr) > 0 {
+			out := make([]float64, 0, len(arr))
+			for _, v := range arr {
+				f, _ := toFloat(v)
+				out = append(out, f)
+			}
+			return out
+		}
 	}
-	out := make([]float64, 0, len(arr))
-	for _, v := range arr {
-		f, _ := toFloat(v)
-		out = append(out, f)
-	}
-	return out
+	return nil
 }
 
 // SetDashPattern writes /BS/D. The slice is copied; the caller may
@@ -379,14 +387,19 @@ func (a *LineAnnotation) SetEnd(p Point) {
 	a.regenerateAP()
 }
 
-// SetBorderWidth overrides drawingAnnotationBase.SetBorderWidth to also
-// recompute /Rect (line ending padding scales with BorderWidth).
+// SetBorderWidth overrides drawingAnnotationBase.SetBorderWidth so /Rect
+// (which depends on BorderWidth via line-ending padding) is recomputed
+// before /AP/N regenerates — ensuring the appearance stream's /BBox
+// matches the new bounds in a single pass.
 func (a *LineAnnotation) SetBorderWidth(w float64) {
-	a.drawingAnnotationBase.SetBorderWidth(w)
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		bs = pdfDict{}
+	}
+	bs["/W"] = w
+	a.dict["/BS"] = bs
+	delete(a.dict, "/Border")
 	a.recomputeRect()
-	// drawingAnnotationBase.SetBorderWidth already called regenerate,
-	// but /Rect changed after that. Regenerate once more so /BBox is
-	// in sync.
 	a.regenerateAP()
 }
 
@@ -622,10 +635,17 @@ func (a *InkAnnotation) AddStroke(stroke []Point) {
 	a.SetStrokes(current)
 }
 
-// SetBorderWidth overrides drawingAnnotationBase.SetBorderWidth to also
-// recompute /Rect (padding scales with BorderWidth).
+// SetBorderWidth overrides drawingAnnotationBase.SetBorderWidth so /Rect
+// (whose padding scales with BorderWidth) is recomputed before /AP/N
+// regenerates — single-pass /BBox sync.
 func (a *InkAnnotation) SetBorderWidth(w float64) {
-	a.drawingAnnotationBase.SetBorderWidth(w)
+	bs, _ := a.dict["/BS"].(pdfDict)
+	if bs == nil {
+		bs = pdfDict{}
+	}
+	bs["/W"] = w
+	a.dict["/BS"] = bs
+	delete(a.dict, "/Border")
 	a.recomputeRect()
 	a.regenerateAP()
 }

@@ -237,9 +237,12 @@ func generateCircleAppearance(a *CircleAnnotation) *pdfStream {
 	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 }
 
-// drawBeveledEllipseBorder emits a two-pass beveled (or inset) border on
-// an ellipse. Top + left semicircles get the light color; bottom + right
-// get the dark color. Optional /IC fill is rendered first.
+// drawBeveledEllipseBorder emits a two-pass beveled (or inset) border
+// on an ellipse. The upper half of the ring is filled with the light
+// color and the lower half with the dark color, producing a "pillow"
+// effect — a simpler convention than the rect bevel because a circle
+// has no top-left vs bottom-right corners. Optional /IC fill is
+// rendered first.
 func drawBeveledEllipseBorder(b *appearanceBuilder, cx, cy, rx, ry, bw float64, baseColor *Color, inverted bool, fill *Color) {
 	if fill != nil {
 		b.PushState()
@@ -266,7 +269,7 @@ func drawBeveledEllipseBorder(b *appearanceBuilder, cx, cy, rx, ry, bw float64, 
 	innerDx := innerRx * kappa
 	innerDy := innerRy * kappa
 
-	// Light pass: upper-left half ring.
+	// Light pass: upper half ring.
 	b.PushState()
 	b.SetFillColorRGB(light)
 	// Outer top half (left → top → right).
@@ -281,7 +284,7 @@ func drawBeveledEllipseBorder(b *appearanceBuilder, cx, cy, rx, ry, bw float64, 
 	b.Fill()
 	b.PopState()
 
-	// Dark pass: lower-right half ring.
+	// Dark pass: lower half ring.
 	b.PushState()
 	b.SetFillColorRGB(dark)
 	b.MoveTo(cx-rx, cy)
@@ -335,8 +338,9 @@ func generateLineAppearance(a *LineAnnotation) *pdfStream {
 	b.Stroke()
 	b.PopState()
 
-	// Line endings. theta points from start toward end; for the start
-	// ending we rotate by theta+π so it points "inward" along the line.
+	// Line endings. theta is the line direction (start → end). The end
+	// ending uses theta directly (apex at the endpoint, pointing
+	// outward along the line). The start ending mirrors with theta+π.
 	ic := a.InteriorColor()
 	drawLineEnding(b, a.StartLineEnding(), sx, sy, theta+math.Pi, bw, ic)
 	drawLineEnding(b, a.EndLineEnding(), ex, ey, theta, bw, ic)
@@ -345,10 +349,13 @@ func generateLineAppearance(a *LineAnnotation) *pdfStream {
 }
 
 // drawLineEnding renders one line ending shape at (x, y) rotated by
-// theta radians (direction toward line interior), using the current
-// stroke color and an optional fill color (for filled shapes:
-// Square/Circle/Diamond/ClosedArrow/RClosedArrow). Ending span =
-// 9 × lineWidth (Acrobat convention).
+// theta radians. theta is the line direction at the endpoint, pointing
+// outward from the line interior — for the end side this is the
+// natural direction of travel from start toward end; the start side
+// passes theta+π so the shape mirrors that direction. Stroke color is
+// inherited from the surrounding state; fill color (used by filled
+// shapes Square/Circle/Diamond/ClosedArrow/RClosedArrow) is provided
+// explicitly. Ending span = 9 × lineWidth (Acrobat convention).
 //
 // The ending is emitted inside a q ... Q block with a local cm so that
 // shapes are authored in axis-aligned coordinates and rotated via the
@@ -383,7 +390,8 @@ func drawLineEnding(b *appearanceBuilder, style LineEndingStyle, x, y, theta, li
 		b.ClosePath()
 		paintShape(b, fill)
 	case LineEndingOpenArrow:
-		// Two lines fanning out from origin (toward "inside" of line).
+		// Two legs from origin (the endpoint) fanning outward along
+		// the line direction — apex at the endpoint.
 		b.MoveTo(span, half)
 		b.LineTo(0, 0)
 		b.LineTo(span, -half)
@@ -401,7 +409,7 @@ func drawLineEnding(b *appearanceBuilder, style LineEndingStyle, x, y, theta, li
 		b.LineTo(0, -half)
 		b.Stroke()
 	case LineEndingROpenArrow:
-		// OpenArrow rotated 180° (fanning out the other way).
+		// OpenArrow's mirror — apex pointing away from the line interior.
 		b.MoveTo(-span, half)
 		b.LineTo(0, 0)
 		b.LineTo(-span, -half)
