@@ -443,3 +443,91 @@ func TestInkAnnotationCatmullRomSmoothsThreePlusPoints(t *testing.T) {
 		t.Fatalf("Strokes shape = %v, want 1 stroke of 5 points", gotStrokes)
 	}
 }
+
+func TestSetterDrivenRegenerate(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sq := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err := page.Annotations().Add(sq); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// Multiple mutations after Add. Last value must win on save.
+	sq.SetBorderWidth(1)
+	sq.SetBorderWidth(2)
+	sq.SetBorderWidth(7)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	sq2 := doc2.Pages()[0].Annotations().At(0).(*pdf.SquareAnnotation)
+	if w := sq2.BorderWidth(); w != 7 {
+		t.Errorf("BorderWidth after multiple sets = %v, want 7", w)
+	}
+}
+
+func TestRegenerateAppearancePublicMethod(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sq := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err := page.Annotations().Add(sq); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// Calling RegenerateAppearance on each of the 4 types must not error.
+	sq.RegenerateAppearance()
+
+	c := pdf.NewCircleAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	page.Annotations().Add(c)
+	c.RegenerateAppearance()
+
+	ln := pdf.NewLineAnnotation(page, pdf.Point{X: 0, Y: 0}, pdf.Point{X: 50, Y: 50})
+	page.Annotations().Add(ln)
+	ln.RegenerateAppearance()
+
+	ink := pdf.NewInkAnnotation(page, [][]pdf.Point{{{X: 0, Y: 0}, {X: 10, Y: 10}}})
+	page.Annotations().Add(ink)
+	ink.RegenerateAppearance()
+}
+
+func TestDrawingAnnotationsFilterByType(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	page.Annotations().Add(pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 50, URY: 50}))
+	page.Annotations().Add(pdf.NewCircleAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 100, URX: 50, URY: 150}))
+	page.Annotations().Add(pdf.NewLineAnnotation(page, pdf.Point{X: 100, Y: 0}, pdf.Point{X: 200, Y: 0}))
+	page.Annotations().Add(pdf.NewInkAnnotation(page, [][]pdf.Point{{{X: 300, Y: 0}, {X: 350, Y: 50}}}))
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	page2, _ := doc2.Page(1)
+
+	counts := map[pdf.AnnotationType]int{}
+	for _, a := range page2.Annotations().All() {
+		counts[a.AnnotationType()]++
+	}
+	if counts[pdf.AnnotationTypeSquare] != 1 ||
+		counts[pdf.AnnotationTypeCircle] != 1 ||
+		counts[pdf.AnnotationTypeLine] != 1 ||
+		counts[pdf.AnnotationTypeInk] != 1 {
+		t.Errorf("counts = %v, want one of each (Square/Circle/Line/Ink)", counts)
+	}
+}
+
+func TestUnboundAnnotationGeneratesAP(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	// Create but do NOT Add. /AP/N still gets generated because constructor
+	// sets doc reference.
+	sq := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 50, URY: 50})
+	sq.SetColor(&pdf.Color{R: 1, G: 0, B: 0, A: 1})
+	// Even before Add, /AP/N must reference an XObject in doc.objects.
+	// We can't inspect dict directly from external package, but we can
+	// confirm RemoveUnusedObjects sees an orphan XObject (the unbound /AP/N).
+	removed := doc.RemoveUnusedObjects()
+	// Square's XObject is unreachable (no annotation in /Annots) so it
+	// gets removed. We expect at least 1 removal — that's the unbound
+	// /AP/N XObject.
+	if removed < 1 {
+		t.Errorf("RemoveUnusedObjects removed %d, want >= 1 (orphan /AP/N XObject)", removed)
+	}
+}
