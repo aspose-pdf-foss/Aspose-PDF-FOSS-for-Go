@@ -1,5 +1,7 @@
 package asposepdf
 
+import "math"
+
 // makeFormXObject builds a Form XObject stream wrapping the given content
 // bytes and bbox. The returned stream is ready for storage in
 // doc.objects and reference from /AP/N.
@@ -331,6 +333,101 @@ func generateLineAppearance(a *LineAnnotation) *pdfStream {
 	b.PopState()
 
 	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
+}
+
+// drawLineEnding renders one line ending shape at (x, y) rotated by
+// theta radians (direction toward line interior), using the current
+// stroke color and an optional fill color (for filled shapes:
+// Square/Circle/Diamond/ClosedArrow/RClosedArrow). Ending span =
+// 9 × lineWidth (Acrobat convention).
+//
+// The ending is emitted inside a q ... Q block with a local cm so that
+// shapes are authored in axis-aligned coordinates and rotated via the
+// matrix.
+func drawLineEnding(b *appearanceBuilder, style LineEndingStyle, x, y, theta, lineWidth float64, fill *Color) {
+	if style == LineEndingNone {
+		return
+	}
+	span := 9 * lineWidth
+	half := span / 2
+
+	cos := math.Cos(theta)
+	sin := math.Sin(theta)
+
+	b.PushState()
+	// cm: rotate by theta then translate to (x, y). PDF cm matrix is
+	// [a b c d e f] = [cos sin -sin cos x y].
+	b.ConcatMatrix(cos, sin, -sin, cos, x, y)
+
+	switch style {
+	case LineEndingSquare:
+		b.Rect(-half, -half, span, span)
+		paintShape(b, fill)
+	case LineEndingCircle:
+		b.Ellipse(0, 0, half, half)
+		paintShape(b, fill)
+	case LineEndingDiamond:
+		b.MoveTo(half, 0)
+		b.LineTo(0, half)
+		b.LineTo(-half, 0)
+		b.LineTo(0, -half)
+		b.ClosePath()
+		paintShape(b, fill)
+	case LineEndingOpenArrow:
+		// Two lines fanning out from origin (toward "inside" of line).
+		b.MoveTo(span, half)
+		b.LineTo(0, 0)
+		b.LineTo(span, -half)
+		b.Stroke()
+	case LineEndingClosedArrow:
+		// Triangle: origin, (span, half), (span, -half).
+		b.MoveTo(0, 0)
+		b.LineTo(span, half)
+		b.LineTo(span, -half)
+		b.ClosePath()
+		paintShape(b, fill)
+	case LineEndingButt:
+		// Short perpendicular segment across the point.
+		b.MoveTo(0, half)
+		b.LineTo(0, -half)
+		b.Stroke()
+	case LineEndingROpenArrow:
+		// OpenArrow rotated 180° (fanning out the other way).
+		b.MoveTo(-span, half)
+		b.LineTo(0, 0)
+		b.LineTo(-span, -half)
+		b.Stroke()
+	case LineEndingRClosedArrow:
+		// ClosedArrow rotated 180°.
+		b.MoveTo(0, 0)
+		b.LineTo(-span, half)
+		b.LineTo(-span, -half)
+		b.ClosePath()
+		paintShape(b, fill)
+	case LineEndingSlash:
+		// Diagonal at 60° (cos 60° = 0.5, sin 60° ≈ 0.866). Length = span.
+		dx := half
+		dy := half * math.Sqrt(3)
+		b.MoveTo(-dx, -dy)
+		b.LineTo(dx, dy)
+		b.Stroke()
+	}
+
+	b.PopState()
+}
+
+// paintShape paints the current subpath. With fill: FillStroke (B).
+// Without fill: just Stroke (S). Used by line endings that have a
+// filled body.
+func paintShape(b *appearanceBuilder, fill *Color) {
+	if fill != nil {
+		b.PushState()
+		b.SetFillColorRGB(*fill)
+		b.FillStroke()
+		b.PopState()
+	} else {
+		b.Stroke()
+	}
 }
 
 // setAppearanceN replaces /AP/N on the annotation. If /AP/N already
