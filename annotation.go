@@ -16,6 +16,7 @@ const (
 	AnnotationTypeSquiggly
 	AnnotationTypeWidget
 	AnnotationTypeSquare
+	AnnotationTypeCircle
 )
 
 // Annotation is the common interface implemented by every concrete
@@ -361,6 +362,10 @@ func parseAnnotation(base annotationBase) Annotation {
 		sq := &SquareAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
 		sq.regenerate = sq.regenerateAP
 		return sq
+	case "/Circle":
+		c := &CircleAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
+		c.regenerate = c.regenerateAP
+		return c
 	}
 	return &GenericAnnotation{annotationBase: base}
 }

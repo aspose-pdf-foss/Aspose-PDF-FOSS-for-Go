@@ -166,6 +166,133 @@ func beveledColorPair(base Color, inverted bool) (light, dark Color) {
 	return light, dark
 }
 
+// generateCircleAppearance produces /AP/N for a Circle annotation.
+// Geometry: an ellipse inscribed in the local bbox. Border styles
+// match SquareAnnotation: Solid, Dashed, Beveled, Inset, Underline
+// (Underline = lower semicircle only).
+func generateCircleAppearance(a *CircleAnnotation) *pdfStream {
+	rect := a.Rect()
+	width := rect.URX - rect.LLX
+	height := rect.URY - rect.LLY
+
+	bw := a.BorderWidth()
+	style := a.BorderStyle()
+
+	b := newAppearanceBuilder()
+
+	cx := width / 2
+	cy := height / 2
+	rx := width/2 - bw/2
+	ry := height/2 - bw/2
+
+	switch style {
+	case BorderBeveled, BorderInset:
+		drawBeveledEllipseBorder(b, cx, cy, rx, ry, bw, a.Color(), style == BorderInset, a.InteriorColor())
+
+	case BorderUnderline:
+		// Lower semicircle only: from (cx-rx, cy) clockwise to (cx+rx, cy).
+		b.PushState()
+		b.SetLineWidth(bw)
+		if c := a.Color(); c != nil {
+			b.SetStrokeColorRGB(*c)
+		}
+		// Bottom half ellipse: 2 cubic Beziers.
+		dx := rx * kappa
+		dy := ry * kappa
+		b.MoveTo(cx-rx, cy)
+		b.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry)
+		b.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy)
+		b.Stroke()
+		b.PopState()
+
+	default:
+		b.PushState()
+		b.SetLineWidth(bw)
+		if c := a.Color(); c != nil {
+			b.SetStrokeColorRGB(*c)
+		}
+		if style == BorderDashed {
+			dp := a.DashPattern()
+			if len(dp) == 0 {
+				dp = []float64{3, 3}
+			}
+			b.SetDashPattern(dp, 0)
+		}
+		hasFill := false
+		if ic := a.InteriorColor(); ic != nil {
+			b.SetFillColorRGB(*ic)
+			hasFill = true
+		}
+		b.Ellipse(cx, cy, rx, ry)
+		if hasFill {
+			b.FillStroke()
+		} else {
+			b.Stroke()
+		}
+		b.PopState()
+	}
+
+	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
+}
+
+// drawBeveledEllipseBorder emits a two-pass beveled (or inset) border on
+// an ellipse. Top + left semicircles get the light color; bottom + right
+// get the dark color. Optional /IC fill is rendered first.
+func drawBeveledEllipseBorder(b *appearanceBuilder, cx, cy, rx, ry, bw float64, baseColor *Color, inverted bool, fill *Color) {
+	if fill != nil {
+		b.PushState()
+		b.SetFillColorRGB(*fill)
+		// Inner ellipse for the fill region.
+		innerRx := rx - bw/2
+		innerRy := ry - bw/2
+		if innerRx > 0 && innerRy > 0 {
+			b.Ellipse(cx, cy, innerRx, innerRy)
+			b.Fill()
+		}
+		b.PopState()
+	}
+	base := Color{R: 0, G: 0, B: 0, A: 1}
+	if baseColor != nil {
+		base = *baseColor
+	}
+	light, dark := beveledColorPair(base, inverted)
+
+	dx := rx * kappa
+	dy := ry * kappa
+	innerRx := rx - bw
+	innerRy := ry - bw
+	innerDx := innerRx * kappa
+	innerDy := innerRy * kappa
+
+	// Light pass: upper-left half ring.
+	b.PushState()
+	b.SetFillColorRGB(light)
+	// Outer top half (left → top → right).
+	b.MoveTo(cx-rx, cy)
+	b.CurveTo(cx-rx, cy+dy, cx-dx, cy+ry, cx, cy+ry)
+	b.CurveTo(cx+dx, cy+ry, cx+rx, cy+dy, cx+rx, cy)
+	// Step in to inner ellipse, retrace top half backwards.
+	b.LineTo(cx+innerRx, cy)
+	b.CurveTo(cx+innerRx, cy+innerDy, cx+innerDx, cy+innerRy, cx, cy+innerRy)
+	b.CurveTo(cx-innerDx, cy+innerRy, cx-innerRx, cy+innerDy, cx-innerRx, cy)
+	b.ClosePath()
+	b.Fill()
+	b.PopState()
+
+	// Dark pass: lower-right half ring.
+	b.PushState()
+	b.SetFillColorRGB(dark)
+	b.MoveTo(cx-rx, cy)
+	b.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry)
+	b.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy)
+	b.LineTo(cx+innerRx, cy)
+	b.CurveTo(cx+innerRx, cy-innerDy, cx+innerDx, cy-innerRy, cx, cy-innerRy)
+	b.CurveTo(cx-innerDx, cy-innerRy, cx-innerRx, cy-innerDy, cx-innerRx, cy)
+	b.ClosePath()
+	b.Fill()
+	b.PopState()
+}
+
 // setAppearanceN replaces /AP/N on the annotation. If /AP/N already
 // references an XObject in doc.objects, that object is mutated in place
 // (no new objID allocated, no orphans). Otherwise a fresh XObject is

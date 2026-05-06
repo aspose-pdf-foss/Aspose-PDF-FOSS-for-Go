@@ -240,6 +240,71 @@ func (a *SquareAnnotation) RegenerateAppearance() {
 	a.regenerateAP()
 }
 
+// CircleAnnotation draws an elliptical annotation. Mirrors
+// SquareAnnotation API; only the rendered shape and /Subtype differ.
+// Border styles (Solid/Dashed/Beveled/Inset/Underline) and
+// BorderWidth/Color/DashPattern are inherited from drawingAnnotationBase.
+type CircleAnnotation struct {
+	drawingAnnotationBase
+}
+
+func (a *CircleAnnotation) AnnotationType() AnnotationType { return AnnotationTypeCircle }
+
+// NewCircleAnnotation builds an unbound circle annotation. Page must be
+// non-nil. The ellipse is inscribed in the given rectangle.
+func NewCircleAnnotation(page *Page, rect Rectangle) *CircleAnnotation {
+	if page == nil {
+		panic("NewCircleAnnotation: nil page")
+	}
+	dict := pdfDict{
+		"/Type":    pdfName("/Annot"),
+		"/Subtype": pdfName("/Circle"),
+		"/Rect":    pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY},
+	}
+	a := &CircleAnnotation{drawingAnnotationBase: drawingAnnotationBase{
+		annotationBase: annotationBase{
+			dict: dict,
+			doc:  page.doc,
+			page: page,
+		},
+	}}
+	a.regenerate = a.regenerateAP
+	a.regenerateAP()
+	return a
+}
+
+// InteriorColor returns the /IC fill color, or nil if absent.
+func (a *CircleAnnotation) InteriorColor() *Color {
+	arr, ok := a.dict["/IC"].(pdfArray)
+	if !ok || len(arr) != 3 {
+		return nil
+	}
+	r, _ := toFloat(arr[0])
+	g, _ := toFloat(arr[1])
+	bl, _ := toFloat(arr[2])
+	return &Color{R: r, G: g, B: bl, A: 1}
+}
+
+// SetInteriorColor writes /IC as an RGB array; nil removes the entry.
+func (a *CircleAnnotation) SetInteriorColor(c *Color) {
+	if c == nil {
+		delete(a.dict, "/IC")
+	} else {
+		a.dict["/IC"] = pdfArray{c.R, c.G, c.B}
+	}
+	a.regenerateAP()
+}
+
+// regenerateAP rebuilds /AP/N from the annotation's current properties.
+func (a *CircleAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateCircleAppearance(a))
+}
+
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *CircleAnnotation) RegenerateAppearance() {
+	a.regenerateAP()
+}
+
 // borderStyleName maps a BorderStyle to its PDF name code per Table 168.
 func borderStyleName(s BorderStyle) pdfName {
 	switch s {

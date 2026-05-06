@@ -254,3 +254,37 @@ func TestSquareAnnotationNoXObjectLeak(t *testing.T) {
 		t.Errorf("RemoveUnusedObjects removed %d objects after multiple setters; want 0 (mutate-in-place expected)", removed)
 	}
 }
+
+func TestCircleAnnotationRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	c := pdf.NewCircleAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700})
+	c.SetColor(&pdf.Color{R: 1, G: 0, B: 0, A: 1})
+	c.SetInteriorColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
+	c.SetBorderWidth(3)
+	c.SetBorderStyle(pdf.BorderDashed)
+	c.SetDashPattern([]float64{4, 2})
+	if err := page.Annotations().Add(c); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Pages()[0].Annotations().At(0)
+	if got.AnnotationType() != pdf.AnnotationTypeCircle {
+		t.Errorf("type = %v, want AnnotationTypeCircle", got.AnnotationType())
+	}
+	c2, ok := got.(*pdf.CircleAnnotation)
+	if !ok {
+		t.Fatalf("concrete type = %T", got)
+	}
+	if c2.BorderStyle() != pdf.BorderDashed {
+		t.Errorf("BorderStyle = %v", c2.BorderStyle())
+	}
+	if w := c2.BorderWidth(); w != 3 {
+		t.Errorf("BorderWidth = %v, want 3", w)
+	}
+	if ic := c2.InteriorColor(); ic == nil || ic.R != 1 {
+		t.Errorf("InteriorColor = %v", ic)
+	}
+}
