@@ -19,6 +19,9 @@ const (
 	AnnotationTypeCircle
 	AnnotationTypeLine
 	AnnotationTypeInk
+	AnnotationTypeText
+	AnnotationTypeFreeText
+	AnnotationTypeStamp
 )
 
 // Annotation is the common interface implemented by every concrete
