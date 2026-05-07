@@ -358,14 +358,30 @@ func parseResetFormAction(d pdfDict) *ResetFormAction {
 
 // JavaScriptAction holds a JavaScript snippet attached to an annotation.
 // This subepic supports parsing JS actions read from existing PDFs.
-// Constructing JavaScript actions from user-supplied script is deferred
-// to a future security-conscious epic — there is no NewJavaScriptAction.
 type JavaScriptAction struct {
 	script string
 }
 
 func (a *JavaScriptAction) ActionType() ActionType { return ActionTypeJavaScript }
 func (a *JavaScriptAction) Script() string         { return a.script }
+
+// NewJavaScriptAction builds a /JavaScript action carrying the given
+// script. The action runs when its parent annotation is activated
+// (clicked) by a viewer that supports JavaScript.
+//
+// SECURITY WARNING: Embedding JavaScript in a PDF can introduce
+// security risks for recipients. Scripts execute in the viewer's
+// JavaScript engine context with access to form fields, navigation,
+// and viewer-specific APIs (varies by viewer). Use only with scripts
+// you authored or audited; never embed user-supplied JS without
+// careful review.
+//
+// JavaScript actions are commonly disabled by default in viewers
+// (Acrobat: Preferences > Security > "Enable JavaScript") so behavior
+// is not guaranteed across all rendering environments.
+func NewJavaScriptAction(script string) *JavaScriptAction {
+	return &JavaScriptAction{script: script}
+}
 
 // encode is required by the Action interface but not used (no
 // constructor). Returns a minimal /JavaScript dict so re-saving a file

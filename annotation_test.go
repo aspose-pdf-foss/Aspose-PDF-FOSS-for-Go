@@ -825,3 +825,29 @@ func TestAnnotationFilterByType(t *testing.T) {
 		t.Errorf("counts: links=%d highlights=%d underlines=%d", links, highlights, underlines)
 	}
 }
+
+func TestNewJavaScriptAction(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
+	js := pdf.NewJavaScriptAction("app.alert('Hello from PDF');")
+	link.SetAction(js)
+	if err := page.Annotations().Add(link); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	link2 := doc2.Pages()[0].Annotations().At(0).(*pdf.LinkAnnotation)
+	act := link2.Action()
+	if act == nil {
+		t.Fatal("Action() = nil")
+	}
+	js2, ok := act.(*pdf.JavaScriptAction)
+	if !ok {
+		t.Fatalf("type = %T, want *pdf.JavaScriptAction", act)
+	}
+	if js2.Script() != "app.alert('Hello from PDF');" {
+		t.Errorf("Script = %q", js2.Script())
+	}
+}
