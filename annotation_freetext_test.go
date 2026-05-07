@@ -380,3 +380,54 @@ func TestFreeTextAnnotationDefaultEndLineEnding(t *testing.T) {
 		t.Errorf("default EndLineEnding = %v, want LineEndingNone", got)
 	}
 }
+
+func TestFreeTextAnnotationBorderEffectRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 700},
+		"cloudy text", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12})
+	ft.SetBorderEffect(pdf.BorderEffectCloudy)
+	ft.SetBorderEffectIntensity(1.5)
+	if err := page.Annotations().Add(ft); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	ft2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FreeTextAnnotation)
+	if got := ft2.BorderEffect(); got != pdf.BorderEffectCloudy {
+		t.Errorf("BorderEffect = %v, want Cloudy", got)
+	}
+	if got := ft2.BorderEffectIntensity(); got != 1.5 {
+		t.Errorf("BorderEffectIntensity = %v, want 1.5", got)
+	}
+}
+
+func TestFreeTextAnnotationBorderEffectDefaults(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page, pdf.Rectangle{}, "x", pdf.TextStyle{})
+	if got := ft.BorderEffect(); got != pdf.BorderEffectNone {
+		t.Errorf("default BorderEffect = %v, want None", got)
+	}
+	if got := ft.BorderEffectIntensity(); got != 0 {
+		t.Errorf("default BorderEffectIntensity = %v, want 0", got)
+	}
+}
+
+func TestFreeTextAnnotationCloudyClearsToNone(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}, "x", pdf.TextStyle{})
+	ft.SetBorderEffect(pdf.BorderEffectCloudy)
+	ft.SetBorderEffect(pdf.BorderEffectNone)
+	page.Annotations().Add(ft)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	ft2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FreeTextAnnotation)
+	if got := ft2.BorderEffect(); got != pdf.BorderEffectNone {
+		t.Errorf("BorderEffect after reset = %v, want None", got)
+	}
+}

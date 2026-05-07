@@ -146,3 +146,36 @@ func TestDrawCalloutLineSkipsEmpty(t *testing.T) {
 		t.Errorf("single-point pts should emit nothing, got %q", string(b.Bytes()))
 	}
 }
+
+func TestDrawCloudyRectBorderProducesCurves(t *testing.T) {
+	b := newAppearanceBuilder()
+	drawCloudyRectBorder(b, 100, 50, 1.0, &Color{R: 0, G: 0, B: 0, A: 1}, 1.0)
+	out := string(b.Bytes())
+	cCount := strings.Count(out, " c\n")
+	if cCount < 8 {
+		// Expect lots of cubics (4 sides × ~N bulges × 2 cubics each).
+		// For 100×50 with intensity 1.0 and lineWidth 1.0:
+		// bulge step ≈ 10pt, so ~10 bulges on long side (100pt), ~5 on short (50pt).
+		// Total ≈ (10+5+10+5)×2 = 60 cubics. Use a conservative lower bound.
+		t.Errorf("expected lots of c ops for cloudy border, got %d in %q", cCount, out)
+	}
+	// Should also have a stroke at the end.
+	if !strings.Contains(out, "S\n") {
+		t.Errorf("expected stroke (S) op; got %q", out)
+	}
+}
+
+func TestDrawCloudyRectBorderHigherIntensity(t *testing.T) {
+	// Higher intensity = larger bulges = fewer segments per side = fewer curves.
+	b1 := newAppearanceBuilder()
+	drawCloudyRectBorder(b1, 100, 50, 1.0, nil, 1.0)
+	c1 := strings.Count(string(b1.Bytes()), " c\n")
+
+	b2 := newAppearanceBuilder()
+	drawCloudyRectBorder(b2, 100, 50, 1.0, nil, 2.0)
+	c2 := strings.Count(string(b2.Bytes()), " c\n")
+
+	if c2 >= c1 {
+		t.Errorf("intensity 2.0 should produce fewer cubics than intensity 1.0; got %d vs %d", c2, c1)
+	}
+}

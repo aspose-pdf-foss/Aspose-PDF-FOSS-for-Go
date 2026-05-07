@@ -49,7 +49,15 @@ func generateFreeTextAppearance(a *FreeTextAnnotation) *pdfStream {
 	// 2. Border (skip for typewriter).
 	bw := a.BorderWidth()
 	if !skipChrome && bw > 0 {
-		drawStandardRectBorder(b, width, height, a.BorderStyle(), bw, a.DashPattern(), a.Color())
+		if a.BorderEffect() == BorderEffectCloudy {
+			intensity := a.BorderEffectIntensity()
+			if intensity == 0 {
+				intensity = 1.0 // default
+			}
+			drawCloudyRectBorder(b, width, height, bw, a.Color(), intensity)
+		} else {
+			drawStandardRectBorder(b, width, height, a.BorderStyle(), bw, a.DashPattern(), a.Color())
+		}
 	}
 
 	// 3. Determine text rendering rect.
@@ -171,6 +179,133 @@ func drawStandardRectBorder(b *appearanceBuilder, width, height float64, style B
 		b.Rect(inset, inset, width-lineWidth, height-lineWidth)
 		b.Stroke()
 		b.PopState()
+	}
+}
+
+// drawCloudyRectBorder renders an Acrobat-style wavy "cloudy" border
+// around a rectangle of size (width, height). Each side is subdivided
+// into segments of length ~10×intensity×lineWidth; each segment
+// renders as a half-circle bulge protruding outward from the rect.
+//
+// All 4 sides drawn as one path (via sequential drawCloudySide calls),
+// closed and stroked at the end. Color and line width are applied here.
+//
+// intensity controls the bulge size and segment density (spec range
+// ~0.5–2.0; default 1.0). Lower = tighter waves, higher = larger bulges
+// with fewer per side.
+func drawCloudyRectBorder(b *appearanceBuilder, width, height, lineWidth float64, color *Color, intensity float64) {
+	if intensity <= 0 {
+		intensity = 1.0
+	}
+	radius := 5.0 * intensity * lineWidth
+	if radius < 2 {
+		radius = 2
+	}
+	bulgeStep := radius * 2.0
+
+	b.PushState()
+	b.SetLineWidth(lineWidth)
+	if color != nil {
+		b.SetStrokeColorRGB(*color)
+	}
+
+	// Inset by lineWidth/2 so the stroke stays inside the bbox.
+	inset := lineWidth / 2
+	x0, y0 := inset, inset
+	x1, y1 := width-inset, height-inset
+
+	// Trace 4 sides with bulges going outward.
+	// Side 1: bottom (left → right), bulge direction = -y (down)
+	drawCloudySide(b, Point{X: x0, Y: y0}, Point{X: x1, Y: y0}, Point{X: 0, Y: -1}, bulgeStep, radius, true)
+	// Side 2: right (bottom → top), bulge direction = +x (right)
+	drawCloudySide(b, Point{X: x1, Y: y0}, Point{X: x1, Y: y1}, Point{X: 1, Y: 0}, bulgeStep, radius, false)
+	// Side 3: top (right → left), bulge direction = +y (up)
+	drawCloudySide(b, Point{X: x1, Y: y1}, Point{X: x0, Y: y1}, Point{X: 0, Y: 1}, bulgeStep, radius, false)
+	// Side 4: left (top → bottom), bulge direction = -x (left)
+	drawCloudySide(b, Point{X: x0, Y: y1}, Point{X: x0, Y: y0}, Point{X: -1, Y: 0}, bulgeStep, radius, false)
+
+	b.ClosePath()
+	b.Stroke()
+	b.PopState()
+}
+
+// drawCloudySide draws one side of the cloudy border from start to end,
+// with bulges protruding in the perpDir direction (unit vector).
+// Each segment of length bulgeStep renders as a half-circle bulge via
+// 2 cubic Beziers (kappa approximation).
+//
+// isFirst controls whether to emit a MoveTo at the beginning (true for
+// the first side; subsequent sides continue the path from the prior side's
+// endpoint).
+func drawCloudySide(b *appearanceBuilder, start, end, perpDir Point, bulgeStep, radius float64, isFirst bool) {
+	dx := end.X - start.X
+	dy := end.Y - start.Y
+	length := math.Sqrt(dx*dx + dy*dy)
+	if length < 1 {
+		return
+	}
+	// Direction unit vector along the side.
+	dirX := dx / length
+	dirY := dy / length
+
+	// Number of bulges: at least 1, rounded to nearest integer.
+	n := int(math.Max(1, math.Round(length/bulgeStep)))
+	segLen := length / float64(n)
+
+	// kappa-based control-point offset for quarter-circle approximation.
+	kappaR := radius * kappa
+
+	if isFirst {
+		b.MoveTo(start.X, start.Y)
+	}
+
+	// For each segment, emit a half-circle bulge via 2 cubic Beziers.
+	// Bulge: from point A to point B (along side, segLen apart), peak
+	// protrudes outward by radius at midpoint.
+	for i := 0; i < n; i++ {
+		a := Point{
+			X: start.X + dirX*float64(i)*segLen,
+			Y: start.Y + dirY*float64(i)*segLen,
+		}
+		c := Point{
+			X: start.X + dirX*float64(i+1)*segLen,
+			Y: start.Y + dirY*float64(i+1)*segLen,
+		}
+		// Peak: midpoint of segment displaced outward by radius.
+		midSide := Point{
+			X: (a.X + c.X) / 2,
+			Y: (a.Y + c.Y) / 2,
+		}
+		peak := Point{
+			X: midSide.X + perpDir.X*radius,
+			Y: midSide.Y + perpDir.Y*radius,
+		}
+
+		// First Bezier: A → peak.
+		// c1: from A, offset along dir and perpDir by kappaR.
+		// c2: from peak, pulled back along dir by kappaR.
+		c1 := Point{
+			X: a.X + dirX*kappaR + perpDir.X*kappaR,
+			Y: a.Y + dirY*kappaR + perpDir.Y*kappaR,
+		}
+		c2 := Point{
+			X: peak.X - dirX*kappaR,
+			Y: peak.Y - dirY*kappaR,
+		}
+		b.CurveTo(c1.X, c1.Y, c2.X, c2.Y, peak.X, peak.Y)
+
+		// Second Bezier: peak → C.
+		// c3: from peak, offset along dir by kappaR.
+		// c4: from C, pulled back along dir and offset outward by kappaR.
+		c3 := Point{
+			X: peak.X + dirX*kappaR,
+			Y: peak.Y + dirY*kappaR,
+		}
+		c4 := Point{
+			X: c.X - dirX*kappaR + perpDir.X*kappaR,
+			Y: c.Y - dirY*kappaR + perpDir.Y*kappaR,
+		}
+		b.CurveTo(c3.X, c3.Y, c4.X, c4.Y, c.X, c.Y)
 	}
 }
 

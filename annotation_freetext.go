@@ -402,6 +402,72 @@ func (a *FreeTextAnnotation) SetInnerRect(inner Rectangle) {
 	a.regenerateAP()
 }
 
+// BorderEffect returns the /BE/S entry as a BorderEffect. Returns
+// BorderEffectNone if /BE is absent or unrecognized.
+func (a *FreeTextAnnotation) BorderEffect() BorderEffect {
+	be, ok := a.dict["/BE"].(pdfDict)
+	if !ok {
+		return BorderEffectNone
+	}
+	s, _ := be["/S"].(pdfName)
+	if s == "/C" {
+		return BorderEffectCloudy
+	}
+	return BorderEffectNone
+}
+
+// SetBorderEffect writes /BE/S. The default (BorderEffectNone) removes
+// the /BE entry to keep the dict minimal.
+func (a *FreeTextAnnotation) SetBorderEffect(e BorderEffect) {
+	if e == BorderEffectNone {
+		delete(a.dict, "/BE")
+	} else {
+		be, _ := a.dict["/BE"].(pdfDict)
+		if be == nil {
+			be = pdfDict{}
+		}
+		be["/S"] = pdfName("/C")
+		a.dict["/BE"] = be
+	}
+	a.regenerateAP()
+}
+
+// BorderEffectIntensity returns the /BE/I entry. Returns 0 if absent.
+// Default visual intensity for cloudy border is 1.0 — caller of
+// SetBorderEffect typically also sets intensity via SetBorderEffectIntensity.
+func (a *FreeTextAnnotation) BorderEffectIntensity() float64 {
+	be, ok := a.dict["/BE"].(pdfDict)
+	if !ok {
+		return 0
+	}
+	v, err := toFloat(be["/I"])
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// SetBorderEffectIntensity writes /BE/I (cloud intensity, typically
+// 0-2). Setting to 0 removes the /I entry; if /BE becomes empty,
+// removes /BE entirely.
+func (a *FreeTextAnnotation) SetBorderEffectIntensity(i float64) {
+	be, _ := a.dict["/BE"].(pdfDict)
+	if be == nil {
+		be = pdfDict{}
+	}
+	if i == 0 {
+		delete(be, "/I")
+	} else {
+		be["/I"] = i
+	}
+	if len(be) == 0 {
+		delete(a.dict, "/BE")
+	} else {
+		a.dict["/BE"] = be
+	}
+	a.regenerateAP()
+}
+
 // parseFreeTextAnnotation builds a FreeTextAnnotation from a parsed dict.
 func parseFreeTextAnnotation(base annotationBase) *FreeTextAnnotation {
 	a := &FreeTextAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
