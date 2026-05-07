@@ -174,7 +174,10 @@ func generatePredefinedStamp(a *StampAnnotation) *pdfStream {
 	primary, fill, label := stampVisualParams(a.Name())
 
 	b := newAppearanceBuilder()
-	resources := pdfDict{}
+	resources := existingAPNResources(&a.annotationBase)
+	if resources == nil {
+		resources = pdfDict{}
+	}
 
 	// 1. Filled rounded rect (background + outer border).
 	b.PushState()

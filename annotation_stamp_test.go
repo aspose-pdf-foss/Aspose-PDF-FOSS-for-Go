@@ -202,3 +202,23 @@ func TestStampAnnotationCustomImageInvalidFormat(t *testing.T) {
 		t.Error("expected error for non-image file")
 	}
 }
+
+func TestStampAnnotationAPNoXObjectLeak(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sa := pdf.NewStampAnnotation(page,
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100}, pdf.StampNameDraft)
+	if err := page.Annotations().Add(sa); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// Multiple regenerations from setter calls — must reuse the same
+	// font XObject (mutate-in-place semantics), not allocate fresh
+	// each time.
+	sa.SetName(pdf.StampNameApproved)
+	sa.SetName(pdf.StampNameConfidential)
+	sa.SetName(pdf.StampNameFinal)
+	sa.SetBorderWidth(2)
+	if removed := doc.RemoveUnusedObjects(); removed != 0 {
+		t.Errorf("RemoveUnusedObjects = %d after multiple setters; want 0 (mutate-in-place expected)", removed)
+	}
+}
