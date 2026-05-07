@@ -236,10 +236,30 @@ func fitStampFontSize(label string, maxWidth, maxHeight float64) float64 {
 	return size
 }
 
-// generateCustomImageStamp wraps the custom Image XObject (allocated
-// during SetCustomImage) into the /AP/N Form XObject. Stub for now —
-// full impl in Task 8.
+// generateCustomImageStamp wraps the embedded Image XObject (allocated
+// during SetCustomImage) into a Form XObject /AP/N. The image is
+// scaled to fit /BBox via cm transform and invoked with Do.
 func generateCustomImageStamp(a *StampAnnotation) *pdfStream {
 	rect := a.Rect()
-	return makeFormXObjectWithResources([]byte{}, Rectangle{URX: rect.URX - rect.LLX, URY: rect.URY - rect.LLY}, pdfDict{})
+	width := rect.URX - rect.LLX
+	height := rect.URY - rect.LLY
+
+	if a.customImageObjID == 0 {
+		// Should not happen — caller checks HasCustomImage. Defensive fallback.
+		return generatePredefinedStamp(a)
+	}
+
+	imgRef := pdfRef{Num: a.customImageObjID}
+	resources := pdfDict{
+		"/XObject": pdfDict{"/Im0": imgRef},
+	}
+
+	b := newAppearanceBuilder()
+	b.PushState()
+	// Scale image to fill BBox: cm matrix [width 0 0 height 0 0].
+	b.ConcatMatrix(width, 0, 0, height, 0, 0)
+	b.DoXObject(pdfName("/Im0"))
+	b.PopState()
+
+	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 }

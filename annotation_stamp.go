@@ -1,5 +1,11 @@
 package asposepdf
 
+import (
+	"fmt"
+	"io"
+	"os"
+)
+
 // StampName names per ISO 32000-1 §12.5.6.13 Table 184. Used in
 // /Subtype /Stamp annotations' /Name entry. Unknown handles non-spec
 // custom names (round-tripped via RawName).
@@ -111,9 +117,86 @@ func (a *StampAnnotation) RegenerateAppearance() {
 	a.regenerateAP()
 }
 
+// SetCustomImage embeds the image at path as the stamp's /AP/N visual,
+// overriding the predefined-name template. Format auto-detected from
+// magic bytes (JPEG, PNG).
+func (a *StampAnnotation) SetCustomImage(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("StampAnnotation.SetCustomImage: %w", err)
+	}
+	return a.setCustomImageBytes(data)
+}
+
+// SetCustomImageFromStream is the io.Reader variant of SetCustomImage.
+func (a *StampAnnotation) SetCustomImageFromStream(r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("StampAnnotation.SetCustomImageFromStream: %w", err)
+	}
+	return a.setCustomImageBytes(data)
+}
+
+// setCustomImageBytes is the common implementation: detect format,
+// build Image XObject, register in doc.objects, store objID.
+func (a *StampAnnotation) setCustomImageBytes(data []byte) error {
+	format, err := detectImageFormat(data)
+	if err != nil {
+		return fmt.Errorf("StampAnnotation.SetCustomImage: %w", err)
+	}
+	imgStream, smaskStream, err := createImageXObject(data, format)
+	if err != nil {
+		return fmt.Errorf("StampAnnotation.SetCustomImage: %w", err)
+	}
+	// If PNG with alpha, embed SMask first and link from main image.
+	if smaskStream != nil {
+		smaskID := a.doc.nextID
+		a.doc.nextID++
+		a.doc.objects[smaskID] = &pdfObject{Num: smaskID, Value: smaskStream}
+		imgStream.Dict["/SMask"] = pdfRef{Num: smaskID}
+	}
+	imgID := a.doc.nextID
+	a.doc.nextID++
+	a.doc.objects[imgID] = &pdfObject{Num: imgID, Value: imgStream}
+
+	a.customImageObjID = imgID
+	a.regenerateAP()
+	return nil
+}
+
+// ClearCustomImage reverts /AP/N to the predefined-name template visual.
+// The previously-attached image XObject becomes orphan and can be
+// reclaimed via doc.RemoveUnusedObjects().
+func (a *StampAnnotation) ClearCustomImage() {
+	a.customImageObjID = 0
+	a.regenerateAP()
+}
+
 // parseStampAnnotation builds a StampAnnotation from a parsed dict.
+// If /AP/N/Resources/XObject/Im0 is present, treats this as a
+// custom-image stamp and re-derives customImageObjID accordingly.
 func parseStampAnnotation(base annotationBase) *StampAnnotation {
 	a := &StampAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
 	a.regenerate = a.regenerateAP
+
+	// Detect custom image from /AP/N/Resources/XObject/Im0.
+	if apDict, ok := base.dict["/AP"].(pdfDict); ok {
+		if nVal, ok := apDict["/N"]; ok {
+			// /N may be a pdfRef or inline pdfStream.
+			if ref, ok := nVal.(pdfRef); ok {
+				if obj, exists := base.doc.objects[ref.Num]; exists {
+					if stream, ok := obj.Value.(*pdfStream); ok {
+						if res, ok := stream.Dict["/Resources"].(pdfDict); ok {
+							if xobj, ok := res["/XObject"].(pdfDict); ok {
+								if imRef, ok := xobj["/Im0"].(pdfRef); ok {
+									a.customImageObjID = imRef.Num
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	return a
 }

@@ -2,6 +2,9 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"image"
+	"image/png"
+	"os"
 	"testing"
 
 	pdf "github.com/aspose/pdf-for-go"
@@ -95,5 +98,107 @@ func TestStampAnnotationAllPredefinedNamesRoundTrip(t *testing.T) {
 				t.Errorf("Name round-trip = %v, want %v", got, name)
 			}
 		})
+	}
+}
+
+func makeTestPNG(t *testing.T) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for i := range img.Pix {
+		if i%4 == 0 {
+			img.Pix[i] = 0xFF // R
+		} else if i%4 == 3 {
+			img.Pix[i] = 0xFF // A
+		}
+	}
+	f, err := os.CreateTemp("", "stamp-*.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	return f.Name()
+}
+
+func TestStampAnnotationCustomImageFromFile(t *testing.T) {
+	path := makeTestPNG(t)
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sa := pdf.NewStampAnnotation(page,
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 250, URY: 800}, pdf.StampNameDraft)
+	if sa.HasCustomImage() {
+		t.Error("HasCustomImage = true before SetCustomImage")
+	}
+	if err := sa.SetCustomImage(path); err != nil {
+		t.Fatalf("SetCustomImage: %v", err)
+	}
+	if !sa.HasCustomImage() {
+		t.Error("HasCustomImage = false after SetCustomImage")
+	}
+	if err := page.Annotations().Add(sa); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	sa2 := doc2.Pages()[0].Annotations().At(0).(*pdf.StampAnnotation)
+	if !sa2.HasCustomImage() {
+		t.Error("HasCustomImage = false after roundtrip")
+	}
+}
+
+func TestStampAnnotationCustomImageFromStream(t *testing.T) {
+	path := makeTestPNG(t)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sa := pdf.NewStampAnnotation(page,
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 250, URY: 800}, pdf.StampNameDraft)
+	if err := sa.SetCustomImageFromStream(f); err != nil {
+		t.Fatalf("SetCustomImageFromStream: %v", err)
+	}
+	if !sa.HasCustomImage() {
+		t.Error("HasCustomImage = false")
+	}
+}
+
+func TestStampAnnotationClearCustomImage(t *testing.T) {
+	path := makeTestPNG(t)
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sa := pdf.NewStampAnnotation(page,
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}, pdf.StampNameDraft)
+	sa.SetCustomImage(path)
+	sa.ClearCustomImage()
+	if sa.HasCustomImage() {
+		t.Error("HasCustomImage = true after Clear")
+	}
+}
+
+func TestStampAnnotationCustomImageInvalidFormat(t *testing.T) {
+	f, err := os.CreateTemp("", "stamp-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("not an image")
+	f.Close()
+	defer os.Remove(f.Name())
+
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	sa := pdf.NewStampAnnotation(page,
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}, pdf.StampNameDraft)
+	if err := sa.SetCustomImage(f.Name()); err == nil {
+		t.Error("expected error for non-image file")
 	}
 }
