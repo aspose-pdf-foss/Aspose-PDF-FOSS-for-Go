@@ -33,3 +33,50 @@ func TestDrawRoundedRectClampsRadius(t *testing.T) {
 		t.Errorf("expected 4 c ops even with clamped radius, got %d", strings.Count(out, " c\n"))
 	}
 }
+
+func TestStampVisualParamsAllNames(t *testing.T) {
+	cases := []struct {
+		name  StampName
+		label string
+	}{
+		{StampNameApproved, "APPROVED"},
+		{StampNameAsIs, "AS IS"},
+		{StampNameConfidential, "CONFIDENTIAL"},
+		{StampNameDepartmental, "DEPARTMENTAL"},
+		{StampNameDraft, "DRAFT"},
+		{StampNameExperimental, "EXPERIMENTAL"},
+		{StampNameExpired, "EXPIRED"},
+		{StampNameFinal, "FINAL"},
+		{StampNameForComment, "FOR COMMENT"},
+		{StampNameForPublicRelease, "FOR PUBLIC RELEASE"},
+		{StampNameNotApproved, "NOT APPROVED"},
+		{StampNameNotForPublicRelease, "NOT FOR PUBLIC RELEASE"},
+		{StampNameSold, "SOLD"},
+		{StampNameTopSecret, "TOP SECRET"},
+	}
+	for _, tc := range cases {
+		primary, fill, label := stampVisualParams(tc.name)
+		if label != tc.label {
+			t.Errorf("name=%v: label=%q, want %q", tc.name, label, tc.label)
+		}
+		// Sanity-check colors are non-zero (some channel must be > 0).
+		if primary.R == 0 && primary.G == 0 && primary.B == 0 {
+			t.Errorf("name=%v: primary all zero", tc.name)
+		}
+		if fill.R == 0 && fill.G == 0 && fill.B == 0 {
+			t.Errorf("name=%v: fill all zero", tc.name)
+		}
+	}
+}
+
+func TestStampVisualParamsUnknownDefaults(t *testing.T) {
+	primary, fill, label := stampVisualParams(StampNameUnknown)
+	if label != "" {
+		t.Errorf("Unknown label = %q, want empty", label)
+	}
+	// Default = Draft (orange).
+	if primary.R == 0 && primary.G == 0 && primary.B == 0 {
+		t.Errorf("Unknown primary all zero")
+	}
+	_ = fill
+}

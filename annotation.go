@@ -381,6 +381,8 @@ func parseAnnotation(base annotationBase) Annotation {
 		return ink
 	case "/Text":
 		return parseTextAnnotation(base)
+	case "/Stamp":
+		return parseStampAnnotation(base)
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
