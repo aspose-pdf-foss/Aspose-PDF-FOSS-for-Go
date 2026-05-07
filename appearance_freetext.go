@@ -1,5 +1,7 @@
 package asposepdf
 
+import "math"
+
 // generateFreeTextAppearance produces /AP/N for a FreeText annotation.
 //
 // Order:
@@ -116,5 +118,51 @@ func drawStandardRectBorder(b *appearanceBuilder, width, height float64, style B
 		b.Rect(inset, inset, width-lineWidth, height-lineWidth)
 		b.Stroke()
 		b.PopState()
+	}
+}
+
+// drawCalloutLine renders a FreeText callout connector line: start →
+// knee(s) → endpoint, with an optional line ending at the endpoint.
+//
+// pts must have 2 elements (one knee + endpoint) or 3 elements (two
+// knees + endpoint). With fewer than 2, this is a no-op.
+//
+// All coordinates are in local /BBox space (caller translates from
+// page space). The start point is computed by the caller as the
+// midpoint of the inner-rect edge nearest to pts[0].
+//
+// The endpoint is at pts[len(pts)-1]. Theta for the line ending is
+// the angle of the last segment (last-knee → endpoint), pointing
+// outward (matching Subepic 3 line-ending conventions).
+func drawCalloutLine(b *appearanceBuilder, start Point, pts []Point, lineWidth float64, color *Color, ending LineEndingStyle) {
+	if len(pts) < 2 {
+		return
+	}
+	b.PushState()
+	b.SetLineWidth(lineWidth)
+	if color != nil {
+		b.SetStrokeColorRGB(*color)
+	}
+	b.MoveTo(start.X, start.Y)
+	for _, p := range pts {
+		b.LineTo(p.X, p.Y)
+	}
+	b.Stroke()
+	b.PopState()
+
+	// Line ending at endpoint.
+	if ending != LineEndingNone {
+		endpoint := pts[len(pts)-1]
+		prev := pts[len(pts)-2]
+		theta := math.Atan2(endpoint.Y-prev.Y, endpoint.X-prev.X)
+		// /IC fill is not applicable here (FreeText callout endings
+		// typically use the stroke color for fill); use stroke color
+		// when a fill is needed.
+		var fill *Color
+		if color != nil {
+			fc := *color
+			fill = &fc
+		}
+		drawLineEnding(b, ending, endpoint.X, endpoint.Y, theta, lineWidth, fill)
 	}
 }
