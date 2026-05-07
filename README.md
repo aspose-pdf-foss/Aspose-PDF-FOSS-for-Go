@@ -46,7 +46,7 @@ doc.Save("merged.pdf")
 - **Text watermarks** — apply text watermarks to all or selected pages with full styling control
 - **Stream input** — open PDFs from any `io.Reader`, not just file paths
 - **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE; viewers regenerate appearances via auto `/NeedAppearances=true`
-- **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript-read-only), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
+- **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript-read-only), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. Text-bearing types (Text sticky note, FreeText with callout/typewriter/cloudy-border modes, Stamp with 14 predefined visuals + custom image override). `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
 
 ## API Reference
 
@@ -308,7 +308,7 @@ page.Annotations().Add(submit)
 doc.Save("with_annotations.pdf")
 ```
 
-Supported subtypes: `Link`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `Line`, `Ink`. Existing form widgets surface as `WidgetAnnotation` for read-only inspection — to mutate form fields use the `Form` API. JavaScript actions are read-only (parsed but not constructible). Out of scope for this release: text/sticky-note, FreeText, Stamp, FileAttachment, Redact.
+Supported subtypes: `Link`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `Line`, `Ink`, `Text`, `FreeText`, `Stamp`. Existing form widgets surface as `WidgetAnnotation` for read-only inspection — to mutate form fields use the `Form` API. JavaScript actions are read-only (parsed but not constructible). Out of scope for this release: FileAttachment, Redact.
 
 ### Drawing annotations (Square / Circle / Line / Ink)
 
@@ -357,6 +357,73 @@ Border styles available: `BorderSolid`, `BorderDashed`, `BorderBeveled`, `Border
 `SetColor`, `SetStrokes`, etc.) immediately regenerates the annotation's
 appearance stream so `/AP/N` is always in sync; no `/NeedAppearances=true`
 required, drawing annotations render in any spec-conforming viewer.
+
+### Text-bearing annotations (Text / FreeText / Stamp)
+
+```go
+doc := pdf.NewDocument(595, 842)
+page, _ := doc.Page(1)
+
+// Sticky-note annotation (icon-based, no /AP needed — viewer renders icon)
+ta := pdf.NewTextAnnotation(page, pdf.Point{X: 50, Y: 700})
+ta.SetIcon(pdf.TextIconComment)
+ta.SetTitle("Reviewer")
+ta.SetContents("Important comment about this paragraph.")
+ta.SetOpen(true)
+page.Annotations().Add(ta)
+
+// FreeText — text drawn directly on the page
+ft := pdf.NewFreeTextAnnotation(page,
+    pdf.Rectangle{LLX: 100, LLY: 600, URX: 400, URY: 660},
+    "Highlighted note\nMulti-line supported",
+    pdf.TextStyle{
+        Font:       pdf.FontHelveticaBold,
+        Size:       14,
+        Color:      &pdf.Color{R: 0, G: 0, B: 0.5, A: 1},
+        Background: &pdf.Color{R: 1, G: 1, B: 0.85, A: 1},
+        HAlign:     pdf.HAlignCenter,
+        VAlign:     pdf.VAlignMiddle,
+    })
+ft.SetBorderWidth(2)
+ft.SetBorderEffect(pdf.BorderEffectCloudy)
+page.Annotations().Add(ft)
+
+// FreeText with callout pointer (Acrobat-style "comment with arrow")
+ftc := pdf.NewFreeTextAnnotation(page,
+    pdf.Rectangle{LLX: 300, LLY: 500, URX: 500, URY: 570},
+    "Callout note",
+    pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11})
+ftc.SetCalloutPoints([]pdf.Point{
+    {X: 250, Y: 530}, // knee
+    {X: 200, Y: 480}, // endpoint (arrow tip)
+})
+ftc.SetEndLineEnding(pdf.LineEndingClosedArrow)
+page.Annotations().Add(ftc)
+
+// Stamp — predefined "Approved" with built-in green visual
+sap := pdf.NewStampAnnotation(page,
+    pdf.Rectangle{LLX: 100, LLY: 400, URX: 300, URY: 470},
+    pdf.StampNameApproved)
+page.Annotations().Add(sap)
+
+// Stamp with custom image (PNG / JPEG via path or io.Reader)
+sci := pdf.NewStampAnnotation(page,
+    pdf.Rectangle{LLX: 320, LLY: 400, URX: 500, URY: 470},
+    pdf.StampNameDraft) // /Name still set per spec, image overrides /AP
+sci.SetCustomImage("logo.png")
+page.Annotations().Add(sci)
+
+doc.Save("text_bearing.pdf")
+```
+
+`TextAnnotation` icon names: `TextIconNote` (default), `Comment`, `Key`, `Help`, `NewParagraph`,
+`Paragraph`, `Insert`. `FreeTextAnnotation` supports three intents — `FreeTextIntentFreeText`
+(default), `Callout` (with arrow), `Typewriter` (no border/background). Border effects: `BorderEffectNone`
+(default) and `BorderEffectCloudy` (wavy border per ISO 32000-1 §12.5.4 /BE). All 14 stamp names
+from ISO 32000-1 Table 184 (`StampNameApproved` through `StampNameTopSecret`) ship with
+library-default colored visuals — green for positive (Approved/Final/ForPublicRelease), red for
+warning (Confidential/Expired/etc.), orange for informational (Draft/AsIs/etc.), gray for neutral
+(Departmental). Custom images (JPEG / PNG) override the default visual.
 
 ### Validation
 

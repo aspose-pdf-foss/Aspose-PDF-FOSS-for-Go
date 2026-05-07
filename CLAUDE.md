@@ -147,7 +147,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 **`annotation.go` / `annotation_action.go` / `annotation_link.go` / `annotation_markup.go`**
 - `Annotation` interface — `AnnotationType()`, `Rect()/SetRect()`, `Color()/SetColor()`, `Title()/SetTitle()`, `Contents()/SetContents()`, `PageIndex()`
-- `AnnotationType` enum — `AnnotationTypeUnknown`, `AnnotationTypeLink`, `AnnotationTypeHighlight`, `AnnotationTypeUnderline`, `AnnotationTypeStrikeOut`, `AnnotationTypeSquiggly`, `AnnotationTypeWidget`, `AnnotationTypeSquare`, `AnnotationTypeCircle`, `AnnotationTypeLine`, `AnnotationTypeInk`
+- `AnnotationType` enum — `AnnotationTypeUnknown`, `AnnotationTypeLink`, `AnnotationTypeHighlight`, `AnnotationTypeUnderline`, `AnnotationTypeStrikeOut`, `AnnotationTypeSquiggly`, `AnnotationTypeWidget`, `AnnotationTypeSquare`, `AnnotationTypeCircle`, `AnnotationTypeLine`, `AnnotationTypeInk`, `AnnotationTypeText`, `AnnotationTypeFreeText`, `AnnotationTypeStamp`
 - Concrete types: `LinkAnnotation`, `HighlightAnnotation`, `UnderlineAnnotation`, `StrikeOutAnnotation`, `SquigglyAnnotation`, `WidgetAnnotation` (existing form fields, read-only via this surface), `GenericAnnotation` (catch-all for unsupported subtypes)
 - `AnnotationCollection` — `Add(a) error`, `At(i) Annotation`, `Delete(a) bool`, `DeleteAt(i) error`, `Count() int`, `All() []Annotation`. Add panics on nil; idempotent same-page; errors on cross-page re-attach
 - Constructors: `NewLinkAnnotation(page, rect)`, `NewHighlightAnnotation(page, rect)`, `NewUnderlineAnnotation(page, rect)`, `NewStrikeOutAnnotation(page, rect)`, `NewSquigglyAnnotation(page, rect)`
@@ -170,6 +170,16 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `InkAnnotation` — `Strokes/SetStrokes` (defensive deep copy), `AddStroke`, full border surface. Catmull-Rom smoothed in /AP for 3+ point strokes; raw /InkList stored unchanged. Constructor `NewInkAnnotation(page, strokes)`
 - All four types regenerate `/AP/N` on every property setter; an explicit `RegenerateAppearance()` method is also exposed on each type
 - `/AP/N` infrastructure: every drawing annotation owns one Form XObject in `doc.objects`. Setters mutate the XObject in place — no leaks across multiple property changes
+
+**`annotation_text.go` / `annotation_freetext.go` / `annotation_stamp.go` / `appearance_freetext.go` / `appearance_stamp.go`**
+- `TextAnnotation` — sticky-note annotation. `Icon()/SetIcon(t)`, `Open()/SetOpen(b)`, inherited `SetRect/SetColor/SetTitle/SetContents`. Constructor `NewTextAnnotation(page, position Point)` — auto-bbox 24×24pt at anchor. No /AP — viewers render the icon themselves
+- `TextIcon` enum — `TextIconNote` (default), `TextIconComment`, `TextIconKey`, `TextIconHelp`, `TextIconNewParagraph`, `TextIconParagraph`, `TextIconInsert`, `TextIconUnknown`
+- `FreeTextAnnotation` — text drawn directly on the page. `Contents()/SetContents`, `TextStyle()/SetTextStyle` (round-trips through /DA + /Q + /BG). Border via `drawingAnnotationBase` (BorderWidth/BorderStyle/DashPattern). `Intent()/SetIntent` for Plain/Callout/Typewriter modes; `CalloutPoints/EndLineEnding/InnerRect` for callouts; `BorderEffect/BorderEffectIntensity` for cloudy borders. Honors `style.VAlign` (Top/Middle/Bottom) in /AP/N rendering. Constructor `NewFreeTextAnnotation(page, rect, contents, style)`
+- `FreeTextIntent` enum — `FreeTextIntentFreeText` (default), `FreeTextIntentCallout`, `FreeTextIntentTypewriter`
+- `BorderEffect` enum — `BorderEffectNone` (default), `BorderEffectCloudy` (wavy "cloud" border via /BE/S=/C)
+- `StampAnnotation` — rubber-stamp annotation. `Name()/SetName(StampName)`, `RawName()/SetRawName(string)` (escape hatch for non-spec names). Custom image override via `SetCustomImage(path)/SetCustomImageFromStream(r)/ClearCustomImage()`. Border via `drawingAnnotationBase`. Constructor `NewStampAnnotation(page, rect, name)`. Library-default visuals for all 14 predefined names (color-coded: green=positive, red=warning, orange=informational, gray=neutral)
+- `StampName` enum — 14 names per ISO 32000-1 §12.5.6.13 Table 184: `StampNameApproved`, `StampNameAsIs`, `StampNameConfidential`, `StampNameDepartmental`, `StampNameDraft`, `StampNameExperimental`, `StampNameExpired`, `StampNameFinal`, `StampNameForComment`, `StampNameForPublicRelease`, `StampNameNotApproved`, `StampNameNotForPublicRelease`, `StampNameSold`, `StampNameTopSecret`, plus `StampNameUnknown` for non-spec names
+- All three types regenerate `/AP/N` on every property setter (TextAnnotation has no /AP — `RegenerateAppearance()` is no-op for API symmetry); explicit `RegenerateAppearance()` method exposed on each type
 
 **`validate.go`**
 - `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
