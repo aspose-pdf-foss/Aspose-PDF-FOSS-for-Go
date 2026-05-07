@@ -1,6 +1,8 @@
 package asposepdf
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -178,4 +180,88 @@ func TestDrawCloudyRectBorderHigherIntensity(t *testing.T) {
 	if c2 >= c1 {
 		t.Errorf("intensity 2.0 should produce fewer cubics than intensity 1.0; got %d vs %d", c2, c1)
 	}
+}
+
+// TestFreeTextAPVAlignDiffersByPosition verifies that the text baseline Y
+// coordinate inside /AP/N differs correctly for VAlignTop, VAlignMiddle,
+// and VAlignBottom on an identical FreeTextAnnotation rect.
+//
+// VAlign is a rendering hint (not round-tripped through the PDF dict), so
+// this test can only verify in-memory /AP/N stream bytes — exactly what the
+// renderer produces for each VAlign value.
+func TestFreeTextAPVAlignDiffersByPosition(t *testing.T) {
+	// extractFirstTdY parses the first absolute Td Y coordinate from raw AP/N bytes.
+	// renderTextInBuilder emits "X Y Td\n" for the first line; subsequent lines
+	// are relative. We want the first Td only.
+	extractFirstTdY := func(data []byte) float64 {
+		re := regexp.MustCompile(`(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+Td`)
+		m := re.FindStringSubmatch(string(data))
+		if m == nil {
+			return -1
+		}
+		y, err := strconv.ParseFloat(m[2], 64)
+		if err != nil {
+			return -1
+		}
+		return y
+	}
+
+	// renderAP builds a FreeTextAnnotation with the given VAlign and returns the
+	// /AP/N stream bytes (already decoded — stored as-is in pdfStream.Data).
+	renderAP := func(va VAlign) []byte {
+		doc := NewDocument(595, 842)
+		page, err := doc.Page(1)
+		if err != nil {
+			t.Fatalf("Page(1): %v", err)
+		}
+		rect := Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100}
+		ft := NewFreeTextAnnotation(page, rect, "Hello", TextStyle{
+			Font:   FontHelvetica,
+			Size:   12,
+			VAlign: va,
+		})
+		// Access /AP/N via the dict field (internal package access).
+		apDict, _ := ft.dict["/AP"].(pdfDict)
+		if apDict == nil {
+			t.Fatalf("VAlign=%v: /AP absent", va)
+		}
+		ref, ok := apDict["/N"].(pdfRef)
+		if !ok {
+			t.Fatalf("VAlign=%v: /AP/N is not a pdfRef", va)
+		}
+		obj, exists := doc.objects[ref.Num]
+		if !exists {
+			t.Fatalf("VAlign=%v: /AP/N object %d not found in doc.objects", va, ref.Num)
+		}
+		stream, ok := obj.Value.(*pdfStream)
+		if !ok {
+			t.Fatalf("VAlign=%v: /AP/N object is %T, want *pdfStream", va, obj.Value)
+		}
+		return stream.Data
+	}
+
+	topData := renderAP(VAlignTop)
+	midData := renderAP(VAlignMiddle)
+	botData := renderAP(VAlignBottom)
+
+	yTop := extractFirstTdY(topData)
+	yMiddle := extractFirstTdY(midData)
+	yBottom := extractFirstTdY(botData)
+
+	if yTop < 0 || yMiddle < 0 || yBottom < 0 {
+		t.Logf("top AP:\n%s", topData)
+		t.Logf("middle AP:\n%s", midData)
+		t.Logf("bottom AP:\n%s", botData)
+		t.Fatalf("failed to extract Y coordinates: top=%v middle=%v bottom=%v", yTop, yMiddle, yBottom)
+	}
+
+	// The text baseline Y must decrease from Top to Middle to Bottom.
+	// Top: startY = rect.URY (100) → y near 100-ascent.
+	// Middle: startY = URY - (height-totalTextHeight)/2 → y in the middle.
+	// Bottom: startY = LLY + totalTextHeight → y near ascent-adjusted bottom.
+	if !(yTop > yMiddle && yMiddle > yBottom) {
+		t.Errorf("expected yTop > yMiddle > yBottom, got top=%.4f middle=%.4f bottom=%.4f",
+			yTop, yMiddle, yBottom)
+	}
+
 }

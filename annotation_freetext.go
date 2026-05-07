@@ -33,6 +33,11 @@ const (
 // callouts. Full feature set added incrementally across Tasks 9-17.
 type FreeTextAnnotation struct {
 	drawingAnnotationBase
+	// vAlign is a rendering-only hint — not stored in the PDF dict (no
+	// standard entry for vertical alignment in /Subtype /FreeText). It is
+	// preserved in-memory across SetTextStyle calls so that RegenerateAppearance
+	// can honor it on demand.
+	vAlign VAlign
 }
 
 func (a *FreeTextAnnotation) AnnotationType() AnnotationType { return AnnotationTypeFreeText }
@@ -50,13 +55,16 @@ func NewFreeTextAnnotation(page *Page, rect Rectangle, contents string, style Te
 		"/Rect":     pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY},
 		"/Contents": encodeFormString(contents),
 	}
-	a := &FreeTextAnnotation{drawingAnnotationBase: drawingAnnotationBase{
-		annotationBase: annotationBase{
-			dict: dict,
-			doc:  page.doc,
-			page: page,
+	a := &FreeTextAnnotation{
+		drawingAnnotationBase: drawingAnnotationBase{
+			annotationBase: annotationBase{
+				dict: dict,
+				doc:  page.doc,
+				page: page,
+			},
 		},
-	}}
+		vAlign: style.VAlign,
+	}
 	a.regenerate = a.regenerateAP
 	serializeTextStyle(a, style)
 	a.regenerateAP()
@@ -112,11 +120,17 @@ func (a *FreeTextAnnotation) TextStyle() TextStyle {
 		bb, _ := toFloat(bg[2])
 		style.Background = &Color{R: r, G: g, B: bb, A: 1}
 	}
+
+	// VAlign is an in-memory rendering hint — not stored in the PDF dict.
+	style.VAlign = a.vAlign
 	return style
 }
 
 // SetTextStyle writes the style as /DA + /Q + /BG and regenerates /AP/N.
+// VAlign is preserved in-memory (not stored in the PDF dict) and honored
+// by the /AP/N renderer.
 func (a *FreeTextAnnotation) SetTextStyle(s TextStyle) {
+	a.vAlign = s.VAlign
 	serializeTextStyle(a, s)
 	a.regenerateAP()
 }
