@@ -541,3 +541,41 @@ func TestAddTextRejectsCrossDocumentFont(t *testing.T) {
 		t.Errorf("error = %q, want to mention 'different document'", err.Error())
 	}
 }
+
+// TestAddTextRotationUsesPivotRelativeCoords verifies that when rotation is
+// applied, the content operators inside the cm-wrapped block use coordinates
+// relative to the pivot point (rect.LLX, rect.LLY), not absolute page coords.
+//
+// Before the fix (ae1c7f0 regression), renderTextInBuilder was called with
+// the original rect, so the clipping path emitted "100 500 100 100 re W n"
+// inside a cm block that already translated the origin to (100, 500),
+// producing a double offset. After the fix the clipping rect must be "0 0".
+func TestAddTextRotationUsesPivotRelativeCoords(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.AddText("X", TextStyle{
+		Font:     FontHelvetica,
+		Size:     12,
+		Rotation: 45,
+	}, Rectangle{LLX: 100, LLY: 500, URX: 200, URY: 600})
+	if err != nil {
+		t.Fatalf("AddText: %v", err)
+	}
+	// Read the uncompressed in-memory content stream, which contains the raw
+	// PDF operators we emitted (WriteTo compresses them, so we bypass that).
+	data, err := page.contentStreams()
+	if err != nil {
+		t.Fatalf("contentStreams: %v", err)
+	}
+	content := string(data)
+	// The rotated content must use pivot-relative coordinates (origin 0,0).
+	// The clipping rectangle inside the rotation block must start at 0 0,
+	// not at the absolute page coordinates 100 500.
+	if strings.Contains(content, "100 500 100 100 re") {
+		t.Errorf("rotated content uses absolute coords; expected pivot-relative " +
+			"(found '100 500 100 100 re' inside cm-wrapped block)\ncontent:\n%s", content)
+	}
+	if !strings.Contains(content, "0 0 100 100 re") {
+		t.Errorf("expected '0 0 100 100 re' (pivot-relative clip) inside rotation block;\ncontent:\n%s", content)
+	}
+}

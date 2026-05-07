@@ -96,19 +96,12 @@ func renderTextInBuilder(
 		startY = rect.URY
 	}
 
-	// Coordinate offsets: when rotation is handled by the caller via cm,
-	// positions inside this block are still absolute. We do not apply any
-	// offset here; the caller's cm already re-maps the coordinate space.
-	// (Kept as zero to match the original behaviour.)
-	ox := 0.0
-	oy := 0.0
-
 	// Save state.
 	b.PushState()
 
 	// Clipping path.
 	b.buf.WriteString(fmt.Sprintf("%s %s %s %s re W n\n",
-		formatFloat(rect.LLX-ox), formatFloat(rect.LLY-oy),
+		formatFloat(rect.LLX), formatFloat(rect.LLY),
 		formatFloat(rectWidth), formatFloat(rectHeight)))
 
 	// Background fill.
@@ -119,7 +112,7 @@ func renderTextInBuilder(
 		b.buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(style.Background.R), formatFloat(style.Background.G), formatFloat(style.Background.B)))
 		b.buf.WriteString(fmt.Sprintf("%s %s %s %s re f\n",
-			formatFloat(rect.LLX-ox), formatFloat(rect.LLY-oy),
+			formatFloat(rect.LLX), formatFloat(rect.LLY),
 			formatFloat(rectWidth), formatFloat(rectHeight)))
 	}
 
@@ -161,21 +154,16 @@ func renderTextInBuilder(
 		ascent := ascentFactor * fontSize
 		y := startY - float64(i)*lineHeight - ascent
 
-		// Apply coordinate offset for rotation (always zero here; preserved
-		// for symmetry with the original monolithic code).
-		adjX := x - ox
-		adjY := y - oy
-
 		if len(linePositions) == 0 {
-			b.buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(adjX), formatFloat(adjY)))
+			b.buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x), formatFloat(y)))
 		} else {
 			prevX := linePositions[len(linePositions)-1].x
 			prevY := linePositions[len(linePositions)-1].y
-			b.buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(adjX-prevX), formatFloat(adjY-prevY)))
+			b.buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x-prevX), formatFloat(y-prevY)))
 		}
 
 		b.buf.WriteString(fmt.Sprintf("%s Tj\n", encode(line)))
-		linePositions = append(linePositions, linePos{x: adjX, y: adjY, width: lineWidth})
+		linePositions = append(linePositions, linePos{x: x, y: y, width: lineWidth})
 	}
 
 	b.buf.WriteString("ET\n")
@@ -477,9 +465,20 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 			formatFloat(cos), formatFloat(sin), formatFloat(-sin), formatFloat(cos)))
 	}
 
+	// When rotation is active, the cm transform already translates the
+	// coordinate origin to (rect.LLX, rect.LLY). renderTextInBuilder must
+	// therefore use pivot-relative coordinates starting at (0, 0); otherwise
+	// the offset would be applied twice (double-translation bug).
+	renderRect := rect
+	if style.Rotation != 0 {
+		width := rect.URX - rect.LLX
+		height := rect.URY - rect.LLY
+		renderRect = Rectangle{LLX: 0, LLY: 0, URX: width, URY: height}
+	}
+
 	// Render the text body into a sub-builder, then embed it.
 	b := newAppearanceBuilder()
-	if err := renderTextInBuilder(b, pdfDict{}, text, style, rect, resolve, textGSName, bgGSName); err != nil {
+	if err := renderTextInBuilder(b, pdfDict{}, text, style, renderRect, resolve, textGSName, bgGSName); err != nil {
 		return err
 	}
 	buf.Write(b.Bytes())
