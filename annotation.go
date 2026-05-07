@@ -22,6 +22,8 @@ const (
 	AnnotationTypeText
 	AnnotationTypeFreeText
 	AnnotationTypeStamp
+	AnnotationTypeFileAttachment
+	AnnotationTypeRedact
 )
 
 // Annotation is the common interface implemented by every concrete
