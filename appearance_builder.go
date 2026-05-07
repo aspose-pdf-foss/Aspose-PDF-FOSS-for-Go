@@ -252,3 +252,12 @@ func (ab *appearanceBuilder) ClosePathFillStroke() {
 func (ab *appearanceBuilder) EndPath() {
 	ab.buf.WriteString("n\n")
 }
+
+// DoXObject invokes a previously-registered Form or Image XObject by
+// resource name (Do operator). The name must include the leading slash
+// (e.g. "/Im0"). Caller is responsible for ensuring the XObject is
+// registered in the surrounding /Resources/XObject dict.
+func (ab *appearanceBuilder) DoXObject(name pdfName) {
+	ab.buf.WriteString(string(name))
+	ab.buf.WriteString(" Do\n")
+}

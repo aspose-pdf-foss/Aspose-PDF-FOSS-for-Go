@@ -22,6 +22,25 @@ func makeFormXObject(content []byte, bbox Rectangle) *pdfStream {
 	}
 }
 
+// makeFormXObjectWithResources is a variant of makeFormXObject that
+// accepts an explicit /Resources dict. Used by FreeText and Stamp /AP
+// generators that reference fonts or image XObjects.
+func makeFormXObjectWithResources(content []byte, bbox Rectangle, resources pdfDict) *pdfStream {
+	if resources == nil {
+		resources = pdfDict{}
+	}
+	return &pdfStream{
+		Dict: pdfDict{
+			"/Type":      pdfName("/XObject"),
+			"/Subtype":   pdfName("/Form"),
+			"/BBox":      pdfArray{bbox.LLX, bbox.LLY, bbox.URX, bbox.URY},
+			"/Resources": resources,
+		},
+		Data:    content,
+		Decoded: true,
+	}
+}
+
 // generateSquareAppearance produces /AP/N for a Square annotation.
 // Supports all five border styles: Solid, Dashed, Beveled, Inset, Underline.
 // InteriorColor (/IC) is applied as a fill for Solid/Dashed styles and as a

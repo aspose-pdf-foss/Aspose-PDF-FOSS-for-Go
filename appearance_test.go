@@ -92,3 +92,25 @@ func TestSetAppearanceNUnboundDoc(t *testing.T) {
 		t.Error("/AP must not be set when doc is nil")
 	}
 }
+
+func TestMakeFormXObjectWithResources(t *testing.T) {
+	res := pdfDict{
+		"/XObject": pdfDict{"/Im0": pdfRef{Num: 5}},
+	}
+	stream := makeFormXObjectWithResources([]byte("/Im0 Do\n"),
+		Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}, res)
+	if stream == nil {
+		t.Fatal("nil stream")
+	}
+	gotRes, ok := stream.Dict["/Resources"].(pdfDict)
+	if !ok {
+		t.Fatal("/Resources missing or wrong type")
+	}
+	xo, ok := gotRes["/XObject"].(pdfDict)
+	if !ok {
+		t.Fatal("/Resources/XObject missing")
+	}
+	if _, ok := xo["/Im0"].(pdfRef); !ok {
+		t.Fatal("/Resources/XObject/Im0 missing or not pdfRef")
+	}
+}

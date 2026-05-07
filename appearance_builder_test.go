@@ -223,3 +223,11 @@ func TestBuilderEndPath(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestBuilderDoXObject(t *testing.T) {
+	b := newAppearanceBuilder()
+	b.DoXObject(pdfName("/Im0"))
+	if got := string(b.Bytes()); got != "/Im0 Do\n" {
+		t.Errorf("got %q, want \"/Im0 Do\\n\"", got)
+	}
+}
