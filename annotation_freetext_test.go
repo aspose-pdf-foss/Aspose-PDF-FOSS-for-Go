@@ -217,3 +217,70 @@ func TestFreeTextAnnotationAPNoXObjectLeak(t *testing.T) {
 		t.Errorf("RemoveUnusedObjects removed %d objects after multiple setters; want 0 (mutate-in-place expected)", removed)
 	}
 }
+
+func TestFreeTextAnnotationIntentDefault(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100},
+		"x", pdf.TextStyle{})
+	if ft.Intent() != pdf.FreeTextIntentFreeText {
+		t.Errorf("default Intent = %v, want FreeTextIntentFreeText", ft.Intent())
+	}
+}
+
+func TestFreeTextAnnotationTypewriterRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 700},
+		"typed", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12})
+	ft.SetIntent(pdf.FreeTextIntentTypewriter)
+	if err := page.Annotations().Add(ft); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	ft2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FreeTextAnnotation)
+	if got := ft2.Intent(); got != pdf.FreeTextIntentTypewriter {
+		t.Errorf("Intent = %v, want FreeTextIntentTypewriter", got)
+	}
+}
+
+func TestFreeTextAnnotationCalloutIntentRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 700},
+		"callout text", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12})
+	ft.SetIntent(pdf.FreeTextIntentCallout)
+	if err := page.Annotations().Add(ft); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	ft2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FreeTextAnnotation)
+	if got := ft2.Intent(); got != pdf.FreeTextIntentCallout {
+		t.Errorf("Intent = %v, want FreeTextIntentCallout", got)
+	}
+}
+
+func TestFreeTextAnnotationSetIntentClearsToDefault(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	ft := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100},
+		"x", pdf.TextStyle{})
+	ft.SetIntent(pdf.FreeTextIntentTypewriter)
+	ft.SetIntent(pdf.FreeTextIntentFreeText)
+	page.Annotations().Add(ft)
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	ft2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FreeTextAnnotation)
+	if got := ft2.Intent(); got != pdf.FreeTextIntentFreeText {
+		t.Errorf("Intent = %v, want FreeTextIntentFreeText after reset", got)
+	}
+}

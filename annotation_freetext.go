@@ -258,6 +258,36 @@ func fontFromDAResName(resName string) Font {
 	return nil
 }
 
+// Intent returns the /IT entry mapped to a FreeTextIntent. Returns
+// FreeTextIntentFreeText (the spec default) if /IT is absent.
+func (a *FreeTextAnnotation) Intent() FreeTextIntent {
+	n, ok := a.dict["/IT"].(pdfName)
+	if !ok {
+		return FreeTextIntentFreeText
+	}
+	switch n {
+	case "/FreeTextCallout":
+		return FreeTextIntentCallout
+	case "/FreeTextTypeWriter":
+		return FreeTextIntentTypewriter
+	}
+	return FreeTextIntentFreeText
+}
+
+// SetIntent writes the /IT entry. The default (FreeTextIntentFreeText)
+// removes the entry to keep the dict minimal.
+func (a *FreeTextAnnotation) SetIntent(i FreeTextIntent) {
+	switch i {
+	case FreeTextIntentCallout:
+		a.dict["/IT"] = pdfName("/FreeTextCallout")
+	case FreeTextIntentTypewriter:
+		a.dict["/IT"] = pdfName("/FreeTextTypeWriter")
+	default: // FreeTextIntentFreeText
+		delete(a.dict, "/IT")
+	}
+	a.regenerateAP()
+}
+
 // regenerateAP rebuilds /AP/N from current properties. Stub for now —
 // full visual rendering in Task 11.
 func (a *FreeTextAnnotation) regenerateAP() {

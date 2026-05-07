@@ -3,13 +3,15 @@ package asposepdf
 // generateFreeTextAppearance produces /AP/N for a FreeText annotation.
 //
 // Order:
-//  1. Optional /BG background fill (full rect).
-//  2. Standard rectangle border (Solid by default; Beveled/Inset/Underline
-//     follow Subepic 3's drawingAnnotationBase semantics; Dashed via /BS/D).
-//  3. Text rendered inside an inner rect (rect minus border-width padding)
-//     via renderTextInBuilder, using the XObject's own /Resources/Font.
+//  1. Optional /BG background fill (full rect) — skipped for Typewriter.
+//  2. Standard rectangle border — skipped for Typewriter.
+//  3. Text rendered inside an inner rect via renderTextInBuilder, using
+//     the XObject's own /Resources/Font.
 //
-// Intent dispatch (Typewriter, Callout) is wired in Tasks 12 and 14.
+// Typewriter intent renders bare text with no background or border and
+// zero padding (text fills the full bbox), matching Acrobat behavior.
+//
+// Callout intent (Task 14) will add leader-line drawing here later.
 // Cloudy border (BorderEffect) is wired in Tasks 15-16.
 // VAlign in /AP is verified end-to-end in Task 17 (renderTextInBuilder
 // already supports VAlign from Task 1).
@@ -18,6 +20,7 @@ func generateFreeTextAppearance(a *FreeTextAnnotation) *pdfStream {
 	width := rect.URX - rect.LLX
 	height := rect.URY - rect.LLY
 	style := a.TextStyle()
+	intent := a.Intent()
 
 	b := newAppearanceBuilder()
 
@@ -29,8 +32,11 @@ func generateFreeTextAppearance(a *FreeTextAnnotation) *pdfStream {
 		resources = pdfDict{}
 	}
 
-	// 1. Background fill.
-	if style.Background != nil {
+	// Typewriter intent: bare text, no background or border per Acrobat behavior.
+	skipChrome := intent == FreeTextIntentTypewriter
+
+	// 1. Background fill (skip for typewriter).
+	if !skipChrome && style.Background != nil {
 		b.PushState()
 		b.SetFillColorRGB(*style.Background)
 		b.Rect(0, 0, width, height)
@@ -38,16 +44,21 @@ func generateFreeTextAppearance(a *FreeTextAnnotation) *pdfStream {
 		b.PopState()
 	}
 
-	// 2. Border.
+	// 2. Border (skip for typewriter).
 	bw := a.BorderWidth()
-	if bw > 0 {
+	if !skipChrome && bw > 0 {
 		drawStandardRectBorder(b, width, height, a.BorderStyle(), bw, a.DashPattern(), a.Color())
 	}
 
-	// 3. Text in inner rect (inset by border width).
-	pad := bw
-	if pad < 2 {
-		pad = 2 // at least 2 pt of margin even with 0-width border
+	// 3. Text in inner rect.
+	var pad float64
+	if skipChrome {
+		pad = 0 // typewriter has no border/padding chrome
+	} else {
+		pad = bw
+		if pad < 2 {
+			pad = 2 // at least 2 pt of margin even with 0-width border
+		}
 	}
 	innerLocal := Rectangle{LLX: pad, LLY: pad, URX: width - pad, URY: height - pad}
 	contents := a.Contents()
