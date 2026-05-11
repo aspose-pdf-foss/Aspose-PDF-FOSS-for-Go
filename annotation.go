@@ -389,6 +389,8 @@ func parseAnnotation(base annotationBase) Annotation {
 		return parseFreeTextAnnotation(base)
 	case "/FileAttachment":
 		return parseFileAttachmentAnnotation(base)
+	case "/Redact":
+		return parseRedactAnnotation(base)
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
