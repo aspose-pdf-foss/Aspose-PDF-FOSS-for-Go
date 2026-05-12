@@ -9,15 +9,68 @@ import (
 )
 
 // TestSetEncryptionAES128_WithFileAttachment verifies that AES-128
-// encryption interoperates with FileAttachment annotations. Currently
-// skipped — embedded file streams are encrypted but not decrypted correctly
-// when read back from encrypted PDFs. The decryptObject() call in
-// (*rawDocument).getObject happens but the /EmbeddedFile stream Data
-// remains encrypted (32 bytes = IV+plaintext+padding instead of 13 bytes).
-// This suggests a deeper issue in the object tree traversal during
-// decryption. Tracked as a separate issue outside this task.
+// encryption interoperates with FileAttachment annotations: an embedded
+// file survives a Write/Open roundtrip and its bytes come back intact.
 func TestSetEncryptionAES128_WithFileAttachment(t *testing.T) {
-	t.Skip("embedded file decryption not yet implemented")
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 50, Y: 700})
+	fa.SetIcon(pdf.FileAttachmentIconPushPin)
+	if err := fa.SetFileFromStream(strings.NewReader("attached data"), "data.txt"); err != nil {
+		t.Fatal(err)
+	}
+	page.Annotations().Add(fa)
+	doc.SetEncryption(pdf.EncryptionOptions{UserPassword: "x", Algorithm: pdf.EncryptionAlgAES128})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatalf("OpenStreamWithPassword: %v", err)
+	}
+	page2 := doc2.Pages()[0]
+	fa2, ok := page2.Annotations().At(0).(*pdf.FileAttachmentAnnotation)
+	if !ok {
+		t.Fatal("first annotation is not a FileAttachmentAnnotation")
+	}
+	if got := string(fa2.FileBytes()); got != "attached data" {
+		t.Errorf("file bytes after AES-128 roundtrip = %q, want %q", got, "attached data")
+	}
+}
+
+// TestSetEncryptionRC4_WithFileAttachment verifies that RC4-128
+// encryption interoperates with FileAttachment annotations.
+func TestSetEncryptionRC4_WithFileAttachment(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 50, Y: 700})
+	fa.SetIcon(pdf.FileAttachmentIconPushPin)
+	if err := fa.SetFileFromStream(strings.NewReader("attached data"), "data.txt"); err != nil {
+		t.Fatal(err)
+	}
+	page.Annotations().Add(fa)
+	doc.SetEncryption(pdf.EncryptionOptions{UserPassword: "x", Algorithm: pdf.EncryptionAlgRC4_128})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatalf("OpenStreamWithPassword: %v", err)
+	}
+	page2 := doc2.Pages()[0]
+	fa2, ok := page2.Annotations().At(0).(*pdf.FileAttachmentAnnotation)
+	if !ok {
+		t.Fatal("first annotation is not a FileAttachmentAnnotation")
+	}
+	if got := string(fa2.FileBytes()); got != "attached data" {
+		t.Errorf("file bytes after RC4-128 roundtrip = %q, want %q", got, "attached data")
+	}
 }
 
 // TestSetEncryptionAES128_WithAcroForm verifies that AES-128 encryption

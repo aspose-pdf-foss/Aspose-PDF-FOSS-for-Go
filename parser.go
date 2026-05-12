@@ -113,6 +113,13 @@ func parseDictOrStream(l *lexer) (pdfValue, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Only attempt filter decoding when a /Filter is present.
+		// Streams without /Filter may still be encrypted (no filter to detect
+		// that), so we must leave Decoded=false in that case so the decryption
+		// pass in getObject can process the raw bytes before we mark them clean.
+		if _, hasFilter := d["/Filter"]; !hasFilter {
+			return &pdfStream{Dict: d, Data: streamData, Decoded: false}, nil
+		}
 		decoded, err := decodeStream(d, streamData)
 		if err != nil {
 			// Unsupported filter (e.g. DCTDecode/JPEG): keep raw bytes and
