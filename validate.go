@@ -316,7 +316,9 @@ func (d *rawDocument) getObject(num int) (*pdfObject, error) {
 	} else {
 		obj, err = parseIndirectObject(d.data, entry.Offset)
 		if err == nil && d.encState != nil && num != d.encryptObjNum {
-			decryptObject(obj, d.encState)
+			if err := decryptObject(obj, d.encState); err != nil {
+				return nil, fmt.Errorf("decrypt object %d: %w", num, err)
+			}
 		}
 	}
 	if err != nil {

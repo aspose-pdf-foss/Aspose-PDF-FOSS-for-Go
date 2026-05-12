@@ -90,3 +90,75 @@ func buildDecryptStateV4R4(encDict pdfDict, trailer pdfDict, password string) (*
 	state.algorithm = EncryptionAlgAES128
 	return state, nil
 }
+
+// decryptObjectTreeAES128 walks obj's value tree, AES-decrypting every
+// string and stream payload with the per-object AES-128 key derived
+// from obj.Num and obj.Gen.
+func decryptObjectTreeAES128(obj *pdfObject, state *encryptState) error {
+	decrypt := func(b []byte) ([]byte, error) {
+		return decryptObjectAES128(state, obj.Num, obj.Gen, b)
+	}
+	newVal, err := decryptValueAES128(obj.Value, decrypt)
+	if err != nil {
+		return err
+	}
+	obj.Value = newVal
+	return nil
+}
+
+func decryptValueAES128(v pdfValue, decrypt func([]byte) ([]byte, error)) (pdfValue, error) {
+	switch val := v.(type) {
+	case string:
+		plain, err := decrypt([]byte(val))
+		if err != nil {
+			return nil, err
+		}
+		return string(plain), nil
+	case pdfHexString:
+		plain, err := decrypt([]byte(val))
+		if err != nil {
+			return nil, err
+		}
+		return pdfHexString(plain), nil
+	case pdfDict:
+		for k, vv := range val {
+			nv, err := decryptValueAES128(vv, decrypt)
+			if err != nil {
+				return nil, err
+			}
+			val[k] = nv
+		}
+		return val, nil
+	case pdfArray:
+		for i, vv := range val {
+			nv, err := decryptValueAES128(vv, decrypt)
+			if err != nil {
+				return nil, err
+			}
+			val[i] = nv
+		}
+		return val, nil
+	case *pdfStream:
+		if err := decryptStreamAES128(val, decrypt); err != nil {
+			return nil, err
+		}
+		return val, nil
+	}
+	return v, nil
+}
+
+func decryptStreamAES128(s *pdfStream, decrypt func([]byte) ([]byte, error)) error {
+	if s.Decoded {
+		return nil
+	}
+	plain, err := decrypt(s.Data)
+	if err != nil {
+		return err
+	}
+	s.Data = plain
+	if decoded, derr := decodeStream(s.Dict, s.Data); derr == nil {
+		s.Data = decoded
+		s.Decoded = true
+	}
+	return nil
+}

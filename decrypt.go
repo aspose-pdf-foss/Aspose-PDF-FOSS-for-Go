@@ -166,12 +166,20 @@ func pdfStringBytes(v pdfValue) ([]byte, error) {
 }
 
 // decryptObject mutates obj's value tree in place: every string is
-// RC4-decrypted with the per-object key, and every stream's raw Data is
-// decrypted then decoded via the /Filter chain. The /Encrypt dict itself
-// is never decrypted by this function — callers must skip it.
-func decryptObject(obj *pdfObject, state *encryptState) {
-	key := state.objectKey(obj.Num)
-	obj.Value = decryptValue(obj.Value, key)
+// decrypted via the appropriate per-object cipher (RC4 for V=2 R=3;
+// AES-128-CBC for V=4 R=4), and every stream's raw Data is decrypted
+// then decoded via the /Filter chain. The /Encrypt dict itself is
+// never decrypted by this function — callers must skip it.
+func decryptObject(obj *pdfObject, state *encryptState) error {
+	switch state.algorithm {
+	case EncryptionAlgRC4_128:
+		key := state.objectKey(obj.Num)
+		obj.Value = decryptValue(obj.Value, key)
+		return nil
+	case EncryptionAlgAES128:
+		return decryptObjectTreeAES128(obj, state)
+	}
+	return fmt.Errorf("decryptObject: unknown algorithm %d", state.algorithm)
 }
 
 func decryptValue(v pdfValue, key []byte) pdfValue {
