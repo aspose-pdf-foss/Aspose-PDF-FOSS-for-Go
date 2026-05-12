@@ -75,17 +75,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		obj := d.objects[oldID]
 		outID := remap[oldID]
 		offsets[outID] = int64(buf.Len())
-		var encFn func([]byte) []byte
+		var encFn func([]byte) ([]byte, error)
 		if encState != nil {
-			encFn = func(b []byte) []byte {
-				out, err := encState.encryptBytes(outID, 0, b)
-				if err != nil {
-					panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
-				}
-				return out
-			}
+			encFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(outID, 0, b) }
 		}
-		writeObject(&buf, outID, obj.Value, remapFn, encFn)
+		if err := writeObject(&buf, outID, obj.Value, remapFn, encFn); err != nil {
+			return nil, err
+		}
 	}
 
 	// Write /Pages node.
@@ -107,32 +103,24 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	}
 	catOut["/Type"] = pdfName("/Catalog")
 	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
-	var catalogEncFn func([]byte) []byte
+	var catalogEncFn func([]byte) ([]byte, error)
 	if encState != nil {
-		catalogEncFn = func(b []byte) []byte {
-			out, err := encState.encryptBytes(catalogObjID, 0, b)
-			if err != nil {
-				panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
-			}
-			return out
-		}
+		catalogEncFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(catalogObjID, 0, b) }
 	}
-	writeObject(&buf, catalogObjID, pdfValue(catOut), remapFn, catalogEncFn)
+	if err := writeObject(&buf, catalogObjID, pdfValue(catOut), remapFn, catalogEncFn); err != nil {
+		return nil, err
+	}
 
 	// Write /Info if present.
 	if infoObjID != 0 {
 		offsets[infoObjID] = int64(buf.Len())
-		var encFn func([]byte) []byte
+		var encFn func([]byte) ([]byte, error)
 		if encState != nil {
-			encFn = func(b []byte) []byte {
-				out, err := encState.encryptBytes(infoObjID, 0, b)
-				if err != nil {
-					panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
-				}
-				return out
-			}
+			encFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(infoObjID, 0, b) }
 		}
-		writeObject(&buf, infoObjID, pdfValue(d.info), remapFn, encFn)
+		if err := writeObject(&buf, infoObjID, pdfValue(d.info), remapFn, encFn); err != nil {
+			return nil, err
+		}
 	}
 
 	// Write /Encrypt if present.
@@ -189,10 +177,13 @@ func writePageTreeNode(buf *bytes.Buffer, pagesObjID int, pages []*pdfObject, re
 }
 
 // writeObject writes "N 0 obj\n...\nendobj\n" for the given value.
-func writeObject(buf *bytes.Buffer, id int, v pdfValue, remapFn func(int) int, encFn func([]byte) []byte) {
+func writeObject(buf *bytes.Buffer, id int, v pdfValue, remapFn func(int) int, encFn func([]byte) ([]byte, error)) error {
 	fmt.Fprintf(buf, "%d 0 obj\n", id)
-	writeValue(buf, v, remapFn, encFn)
+	if err := writeValue(buf, v, remapFn, encFn); err != nil {
+		return err
+	}
 	buf.WriteString("\nendobj\n")
+	return nil
 }
 
 // sortedObjectIDs returns the object IDs from objects in ascending order.
@@ -207,7 +198,7 @@ func sortedObjectIDs(objects map[int]*pdfObject) []int {
 
 // writeValue serialises a PDF value to buf, remapping object reference numbers via remapFn.
 // encFn, if non-nil, is called to encrypt string and stream data for the current object.
-func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func([]byte) []byte) {
+func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func([]byte) ([]byte, error)) error {
 	switch val := v.(type) {
 	case pdfNull:
 		buf.WriteString("null")
@@ -225,7 +216,11 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		buf.WriteString(string(val))
 	case string:
 		if encFn != nil {
-			writeHexBytes(buf, encFn([]byte(val)))
+			enc, err := encFn([]byte(val))
+			if err != nil {
+				return err
+			}
+			writeHexBytes(buf, enc)
 		} else {
 			buf.WriteString("(")
 			buf.WriteString(escapeLiteral(val))
@@ -233,7 +228,11 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		}
 	case pdfHexString:
 		if encFn != nil {
-			writeHexBytes(buf, encFn([]byte(val)))
+			enc, err := encFn([]byte(val))
+			if err != nil {
+				return err
+			}
+			writeHexBytes(buf, enc)
 		} else {
 			writeHexBytes(buf, []byte(val))
 		}
@@ -259,7 +258,9 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			buf.WriteString("\n")
 			buf.WriteString(k)
 			buf.WriteString(" ")
-			writeValue(buf, val[k], remapFn, encFn)
+			if err := writeValue(buf, val[k], remapFn, encFn); err != nil {
+				return err
+			}
 		}
 		buf.WriteString("\n>>")
 	case pdfArray:
@@ -268,7 +269,9 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			if i > 0 {
 				buf.WriteString(" ")
 			}
-			writeValue(buf, item, remapFn, encFn)
+			if err := writeValue(buf, item, remapFn, encFn); err != nil {
+				return err
+			}
 		}
 		buf.WriteString("]")
 	case *pdfStream:
@@ -292,14 +295,21 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			d["/Filter"] = pdfName("/FlateDecode")
 		}
 		if encFn != nil {
-			data = encFn(data)
+			enc, err := encFn(data)
+			if err != nil {
+				return err
+			}
+			data = enc
 		}
 		d["/Length"] = len(data)
-		writeValue(buf, d, remapFn, nil) // dict keys are not encrypted
+		if err := writeValue(buf, d, remapFn, nil); err != nil { // dict keys are not encrypted
+			return err
+		}
 		buf.WriteString("\nstream\n")
 		buf.Write(data)
 		buf.WriteString("\nendstream")
 	}
+	return nil
 }
 
 // writeHexBytes writes b as a PDF hex string <AABB...>.
