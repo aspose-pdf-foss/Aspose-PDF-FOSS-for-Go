@@ -149,6 +149,7 @@ type EncryptionOptions struct {
 
 // encryptConfig holds password and permission settings for encrypting a document.
 type encryptConfig struct {
+	algorithm      EncryptionAlgorithm
 	userPassword   string
 	ownerPassword  string // if empty, treated the same as userPassword
 	permissions    int32  // /P value; used if hasPermissions is true
@@ -192,7 +193,7 @@ func newEncryptState(cfg *encryptConfig) (*encryptState, error) {
 	uEntry := computeUserEntry(key, fileID)
 
 	return &encryptState{
-		algorithm:   EncryptionAlgRC4_128, // Task 9 will override this from cfg.Algorithm
+		algorithm:   cfg.algorithm, // zero value = EncryptionAlgAES128 (new default)
 		key:         key,
 		fileID:      fileID,
 		ownerEntry:  oEntry,
@@ -278,12 +279,17 @@ func encryptBytesRC4(s *encryptState, objNum int, data []byte) []byte {
 	return result
 }
 
-// encryptBytes is the per-object encryption dispatcher. Task 9 will add
-// the AES-128 branch — for now it forwards to encryptBytesRC4. The
-// (objNum, gen int) signature is the final shape; gen is unused by RC4
-// but Algorithm 1.A (AES) reads it.
+// encryptBytes is the per-object encryption dispatcher. gen is the
+// object generation; for newly-written objects it is always 0 but the
+// parameter exists because Algorithm 1.A (AES) reads it.
 func (s *encryptState) encryptBytes(objNum, gen int, data []byte) ([]byte, error) {
-	return encryptBytesRC4(s, objNum, data), nil
+	switch s.algorithm {
+	case EncryptionAlgRC4_128:
+		return encryptBytesRC4(s, objNum, data), nil
+	case EncryptionAlgAES128:
+		return encryptBytesAES128(s, objNum, gen, data)
+	}
+	return nil, fmt.Errorf("encryptBytes: unknown algorithm %d", s.algorithm)
 }
 
 // objectKey derives the per-object RC4 key per PDF Algorithm 1.

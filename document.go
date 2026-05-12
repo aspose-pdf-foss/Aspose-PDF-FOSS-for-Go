@@ -351,6 +351,7 @@ func (d *Document) RemoveEncryption() {
 func (d *Document) SetEncryption(opts EncryptionOptions) {
 	d.preserved = nil // explicit mutation overrides preserved state
 	cfg := &encryptConfig{
+		algorithm:     opts.Algorithm, // zero value = EncryptionAlgAES128
 		userPassword:  opts.UserPassword,
 		ownerPassword: opts.OwnerPassword,
 	}

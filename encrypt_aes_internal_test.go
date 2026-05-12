@@ -197,6 +197,33 @@ func TestBuildEncryptDictAES128(t *testing.T) {
 	}
 }
 
+func TestEncryptBytesDispatcher(t *testing.T) {
+	plain := []byte("hello dispatcher")
+	rc4State := &encryptState{algorithm: EncryptionAlgRC4_128, key: bytes.Repeat([]byte{0xAB}, 16)}
+	aesState := &encryptState{algorithm: EncryptionAlgAES128, key: bytes.Repeat([]byte{0xAB}, 16)}
+
+	rc4Out, err := rc4State.encryptBytes(1, 0, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aesOut, err := aesState.encryptBytes(1, 0, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// AES output starts with 16-byte IV + ciphertext; minimum 32 bytes.
+	if len(aesOut) < 32 {
+		t.Errorf("AES output too short: %d", len(aesOut))
+	}
+	// RC4 output is same length as input (stream cipher, no padding/IV).
+	if len(rc4Out) != len(plain) {
+		t.Errorf("RC4 output length = %d, want %d", len(rc4Out), len(plain))
+	}
+	// They must differ.
+	if bytes.Equal(rc4Out, aesOut[:len(rc4Out)]) {
+		t.Error("dispatcher returned identical bytes for RC4 vs AES — wrong algorithm selected")
+	}
+}
+
 func TestBuildEncryptDictRC4Unchanged(t *testing.T) {
 	state := &encryptState{
 		algorithm:   EncryptionAlgRC4_128,
