@@ -127,12 +127,14 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).ClearMetadata()` — removes the Info dictionary; applied on Save/WriteTo
 - `Metadata` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Custom map[string]string
 
-**`encrypt.go` / `decrypt.go`**
-- `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — writes a password-protected PDF using RC4-128 (PDF 1.4 Standard Security Handler, revision 3)
+**`encrypt.go` / `decrypt.go` / `encrypt_aes.go` / `decrypt_aes.go`**
+- `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — top-level helper writes RC4-128-protected PDF (PDF 1.4 Standard Security Handler V=2 R=3). For AES, use `(*Document).SetEncryption(EncryptionOptions{...})`
 - `ErrEncrypted` — sentinel error from `Open`/`OpenStream` on encrypted input
-- Decryption pipeline: `OpenWithPassword`/`OpenStreamWithPassword` parse `/Encrypt`, verify password against `/U` (user) or recover via `/O` (owner) using PDF Algorithm 7 reverse, derive document key, then decrypt every parsed object except `/Encrypt` itself in `rawDocument.getObject`. Stream `/Filter` chains are re-applied after RC4 decryption per PDF spec ordering (encrypt-after-filter)
+- Decryption pipeline: `OpenWithPassword`/`OpenStreamWithPassword` parse `/Encrypt`, dispatch by `/V` (V=2 R=3 → RC4 path; V=4 R=4 → AES-128 path via `/CFM /AESV2`). Both reuse Algorithms 2/5/7 for password handling; per-object decryption uses Algorithm 1 (RC4) or 1.A (AES, with `"sAlT"` literal suffix in MD5 input). Stream `/Filter` chains are re-applied after decryption per PDF spec ordering (encrypt-after-filter)
 - `Permissions` struct — eight bool flags (AllowPrint, AllowModify, AllowCopy, AllowAnnotations, AllowFormFill, AllowAccessibility, AllowAssembly, AllowPrintHighRes); zero value denies everything. Adobe-convention bit packing per ISO 32000-1 §7.6.3.2 Table 22 with reserved bits 7-8 and 13-32 set high
-- `EncryptionOptions` struct — unified encryption configuration: UserPassword, OwnerPassword (empty → defaults to UserPassword), Permissions *Permissions (nil → grant all). Consumed by `(*Document).SetEncryption`
+- `EncryptionOptions` struct — unified encryption configuration: UserPassword, OwnerPassword (empty → defaults to UserPassword), Permissions *Permissions (nil → grant all), Algorithm EncryptionAlgorithm (zero value → AES-128). Consumed by `(*Document).SetEncryption`
+- `EncryptionAlgorithm` enum — `EncryptionAlgAES128` (default, AES-128 V=4 R=4 `/CFM /AESV2` per ISO 32000-1 §7.6.3.2), `EncryptionAlgRC4_128` (legacy V=2 R=3)
+- AES-128 specifics: per-object key via `MD5(docKey || objNum_LE_3 || gen_LE_2 || "sAlT")[:16]` (Algorithm 1.A); AES-128-CBC with PKCS#7 padding and random 16-byte IV prepended to each encrypted string/stream. Single document-wide StdCF crypt filter; `/StmF` and `/StrF` both point to it
 
 **`form.go` / `form_fields.go`**
 - `Form` — AcroForm view; `Fields() []Field`, `Field(name string) Field`, `HasField(name string) bool`, `NeedAppearances() bool`, `SetNeedAppearances(v bool)`

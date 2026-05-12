@@ -30,7 +30,7 @@ doc.Save("merged.pdf")
 - **Rotate** — rotate pages by 90°, 180°, or 270°
 - **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
 - **Metadata** — read document Info (title, author, dates, etc.)
-- **Encrypt** — password-protect PDFs with RC4-128 (PDF 1.4 Standard Security Handler) and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print)
+- **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`) or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -162,10 +162,13 @@ doc.Save("restricted.pdf")
 
 // One-call unified API via options — equivalent to SetPassword + SetPermissions
 // in a single struct; replaces any prior encryption config on the document.
+// Algorithm defaults to AES-128 (ISO 32000-1 V=4 R=4 /CFM /AESV2). Pass
+// pdf.EncryptionAlgRC4_128 for legacy RC4-128 V=2 R=3 output.
 doc.SetEncryption(pdf.EncryptionOptions{
     UserPassword:  "userpass",
     OwnerPassword: "ownerpass",
     Permissions:   &pdf.Permissions{AllowPrint: true, AllowCopy: true},
+    // Algorithm:  pdf.EncryptionAlgAES128, // default; explicit pdf.EncryptionAlgRC4_128 for legacy
 })
 doc.Save("restricted.pdf")
 
