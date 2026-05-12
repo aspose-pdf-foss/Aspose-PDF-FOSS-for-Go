@@ -101,6 +101,20 @@ func (p Permissions) toPDFBits() int32 {
 	return int32(bits)
 }
 
+// EncryptionAlgorithm selects the cipher and security-handler revision
+// used by (*Document).SetEncryption. The zero value is AES-128.
+type EncryptionAlgorithm int
+
+const (
+	// EncryptionAlgAES128 — AES-128, Standard Security Handler V=4 R=4,
+	// /CFM /AESV2. ISO 32000-1 §7.6.3.2. The default (zero value).
+	EncryptionAlgAES128 EncryptionAlgorithm = iota
+
+	// EncryptionAlgRC4_128 — RC4-128, Standard Security Handler V=2 R=3.
+	// Legacy compatibility only — AES-128 is preferred for new documents.
+	EncryptionAlgRC4_128
+)
+
 // EncryptionOptions bundles every knob that controls how a document is
 // encrypted when saved. It is the unified structured input for
 // (*Document).SetEncryption; the shorter SetPassword / SetPermissions
@@ -116,6 +130,7 @@ func (p Permissions) toPDFBits() int32 {
 //	                pass a non-nil pointer to restrict. Permissions{}
 //	                (value, not pointer) deliberately denies everything,
 //	                so the pointer distinguishes "omitted" from "deny".
+//	Algorithm     — EncryptionAlgAES128 (zero value).
 //
 // Example:
 //
@@ -129,6 +144,7 @@ type EncryptionOptions struct {
 	UserPassword  string
 	OwnerPassword string
 	Permissions   *Permissions
+	Algorithm     EncryptionAlgorithm
 }
 
 // encryptConfig holds password and permission settings for encrypting a document.
