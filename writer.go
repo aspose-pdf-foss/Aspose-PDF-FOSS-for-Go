@@ -342,14 +342,18 @@ func escapeLiteral(s string) string {
 	return b.String()
 }
 
-// buildEncryptDict builds the /Encrypt dictionary for standard RC4-128 security.
-// /O and /U are raw 32-byte binary values emitted as hex strings to avoid
-// literal-string parsing ambiguities (embedded NULs, etc.).
+// buildEncryptDict builds the /Encrypt dictionary for the standard
+// security handler. Branches on s.algorithm:
+//   - EncryptionAlgRC4_128 → V=2 R=3, no /CF (default crypt filter is
+//     implicit RC4 for V<4).
+//   - EncryptionAlgAES128 → V=4 R=4 with /CF/StdCF/CFM /AESV2 and
+//     /StmF and /StrF pointing to /StdCF. ISO 32000-1 §7.6.3.2.
+//
+// /O and /U are raw 32-byte binary values emitted as hex strings to
+// avoid literal-string parsing ambiguities (embedded NULs, etc.).
 func buildEncryptDict(s *encryptState) pdfDict {
-	return pdfDict{
+	dict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V":      2,
-		"/R":      3,
 		"/Length": 128,
 		// /P is a 32-bit bitfield. Emit as unsigned so it reads as a positive
 		// integer (e.g. 4294967292 for grant-all), matching Adobe/pypdf
@@ -358,4 +362,23 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		"/O": pdfHexString(s.ownerEntry),
 		"/U": pdfHexString(s.userEntry),
 	}
+	switch s.algorithm {
+	case EncryptionAlgAES128:
+		dict["/V"] = 4
+		dict["/R"] = 4
+		dict["/CF"] = pdfDict{
+			"/StdCF": pdfDict{
+				"/Type":      pdfName("/CryptFilter"),
+				"/CFM":       pdfName("/AESV2"),
+				"/AuthEvent": pdfName("/DocOpen"),
+				"/Length":    16,
+			},
+		}
+		dict["/StmF"] = pdfName("/StdCF")
+		dict["/StrF"] = pdfName("/StdCF")
+	default: // EncryptionAlgRC4_128
+		dict["/V"] = 2
+		dict["/R"] = 3
+	}
+	return dict
 }

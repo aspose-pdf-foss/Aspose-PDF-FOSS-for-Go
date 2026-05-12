@@ -192,6 +192,7 @@ func newEncryptState(cfg *encryptConfig) (*encryptState, error) {
 	uEntry := computeUserEntry(key, fileID)
 
 	return &encryptState{
+		algorithm:   EncryptionAlgRC4_128, // Task 9 will override this from cfg.Algorithm
 		key:         key,
 		fileID:      fileID,
 		ownerEntry:  oEntry,

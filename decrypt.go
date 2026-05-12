@@ -69,6 +69,7 @@ func buildDecryptState(encDict pdfDict, trailer pdfDict, password string) (*encr
 	if verifyUserPassword(password, oBytes, uBytes, fileID, permissions) {
 		key := computeEncKey(password, oBytes, permissions, fileID)
 		return &encryptState{
+			algorithm:   EncryptionAlgRC4_128,
 			key:         key,
 			fileID:      fileID,
 			ownerEntry:  oBytes,
@@ -81,6 +82,7 @@ func buildDecryptState(encDict pdfDict, trailer pdfDict, password string) (*encr
 		if verifyUserPassword(userPwd, oBytes, uBytes, fileID, permissions) {
 			key := computeEncKey(userPwd, oBytes, permissions, fileID)
 			return &encryptState{
+				algorithm:   EncryptionAlgRC4_128,
 				key:         key,
 				fileID:      fileID,
 				ownerEntry:  oBytes,

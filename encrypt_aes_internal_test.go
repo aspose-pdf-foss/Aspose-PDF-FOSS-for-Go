@@ -156,3 +156,70 @@ func TestEncryptBytesAES128_IVRandomness(t *testing.T) {
 		t.Error("two encryptions of identical input produced identical output — IV not random")
 	}
 }
+
+func TestBuildEncryptDictAES128(t *testing.T) {
+	state := &encryptState{
+		algorithm:   EncryptionAlgAES128,
+		key:         bytes.Repeat([]byte{0xAB}, 16),
+		fileID:      bytes.Repeat([]byte{0xCD}, 16),
+		ownerEntry:  bytes.Repeat([]byte{0x01}, 32),
+		userEntry:   bytes.Repeat([]byte{0x02}, 32),
+		permissions: -4,
+	}
+	dict := buildEncryptDict(state)
+	// Verify V=4 R=4 shape.
+	if v, _ := dict["/V"]; v != 4 {
+		t.Errorf("/V = %v, want 4", v)
+	}
+	if r, _ := dict["/R"]; r != 4 {
+		t.Errorf("/R = %v, want 4", r)
+	}
+	if l, _ := dict["/Length"]; l != 128 {
+		t.Errorf("/Length = %v, want 128", l)
+	}
+	// /CF presence — must be a nested pdfDict.
+	cf, ok := dict["/CF"].(pdfDict)
+	if !ok {
+		t.Fatalf("/CF missing or wrong type: %T", dict["/CF"])
+	}
+	stdCF, ok := cf["/StdCF"].(pdfDict)
+	if !ok {
+		t.Fatalf("/CF/StdCF missing or wrong type: %T", cf["/StdCF"])
+	}
+	if cfm, _ := stdCF["/CFM"].(pdfName); cfm != "/AESV2" {
+		t.Errorf("/CF/StdCF/CFM = %v, want /AESV2", cfm)
+	}
+	if stmf, _ := dict["/StmF"].(pdfName); stmf != "/StdCF" {
+		t.Errorf("/StmF = %v, want /StdCF", stmf)
+	}
+	if strF, _ := dict["/StrF"].(pdfName); strF != "/StdCF" {
+		t.Errorf("/StrF = %v, want /StdCF", strF)
+	}
+}
+
+func TestBuildEncryptDictRC4Unchanged(t *testing.T) {
+	state := &encryptState{
+		algorithm:   EncryptionAlgRC4_128,
+		key:         bytes.Repeat([]byte{0xAB}, 16),
+		fileID:      bytes.Repeat([]byte{0xCD}, 16),
+		ownerEntry:  bytes.Repeat([]byte{0x01}, 32),
+		userEntry:   bytes.Repeat([]byte{0x02}, 32),
+		permissions: -4,
+	}
+	dict := buildEncryptDict(state)
+	if v, _ := dict["/V"]; v != 2 {
+		t.Errorf("/V = %v, want 2 for RC4", v)
+	}
+	if r, _ := dict["/R"]; r != 3 {
+		t.Errorf("/R = %v, want 3 for RC4", r)
+	}
+	if _, exists := dict["/CF"]; exists {
+		t.Error("/CF must not be present in RC4 dict")
+	}
+	if _, exists := dict["/StmF"]; exists {
+		t.Error("/StmF must not be present in RC4 dict")
+	}
+	if _, exists := dict["/StrF"]; exists {
+		t.Error("/StrF must not be present in RC4 dict")
+	}
+}
