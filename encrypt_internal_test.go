@@ -158,8 +158,14 @@ func TestEncryptRC4Symmetric(t *testing.T) {
 	copy(s.key, []byte("0123456789abcdef"))
 
 	original := []byte("Hello, PDF encryption!")
-	encrypted := s.encryptBytes(5, original)
-	decrypted := s.encryptBytes(5, encrypted)
+	encrypted, err := s.encryptBytes(5, 0, original)
+	if err != nil {
+		t.Fatalf("encryptBytes(encrypt): %v", err)
+	}
+	decrypted, err := s.encryptBytes(5, 0, encrypted)
+	if err != nil {
+		t.Fatalf("encryptBytes(decrypt): %v", err)
+	}
 
 	if string(decrypted) != string(original) {
 		t.Errorf("RC4 round-trip failed: got %q, want %q", decrypted, original)

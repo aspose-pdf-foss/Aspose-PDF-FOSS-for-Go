@@ -77,7 +77,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		offsets[outID] = int64(buf.Len())
 		var encFn func([]byte) []byte
 		if encState != nil {
-			encFn = func(b []byte) []byte { return encState.encryptBytes(outID, b) }
+			encFn = func(b []byte) []byte {
+				out, err := encState.encryptBytes(outID, 0, b)
+				if err != nil {
+					panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
+				}
+				return out
+			}
 		}
 		writeObject(&buf, outID, obj.Value, remapFn, encFn)
 	}
@@ -103,7 +109,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
 	var catalogEncFn func([]byte) []byte
 	if encState != nil {
-		catalogEncFn = func(b []byte) []byte { return encState.encryptBytes(catalogObjID, b) }
+		catalogEncFn = func(b []byte) []byte {
+			out, err := encState.encryptBytes(catalogObjID, 0, b)
+			if err != nil {
+				panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
+			}
+			return out
+		}
 	}
 	writeObject(&buf, catalogObjID, pdfValue(catOut), remapFn, catalogEncFn)
 
@@ -112,7 +124,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		offsets[infoObjID] = int64(buf.Len())
 		var encFn func([]byte) []byte
 		if encState != nil {
-			encFn = func(b []byte) []byte { return encState.encryptBytes(infoObjID, b) }
+			encFn = func(b []byte) []byte {
+				out, err := encState.encryptBytes(infoObjID, 0, b)
+				if err != nil {
+					panic(fmt.Sprintf("RC4 encryption failed (unreachable): %v", err))
+				}
+				return out
+			}
 		}
 		writeObject(&buf, infoObjID, pdfValue(d.info), remapFn, encFn)
 	}

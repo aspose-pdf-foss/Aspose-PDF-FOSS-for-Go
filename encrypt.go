@@ -265,13 +265,24 @@ func computeUserEntry(encKey, fileID []byte) []byte {
 	return append(result, passwordPadBytes[:16]...)
 }
 
-// encryptBytes encrypts (or decrypts — RC4 is symmetric) data for the given object number.
-func (s *encryptState) encryptBytes(newObjNum int, data []byte) []byte {
-	key := s.objectKey(newObjNum)
+// encryptBytesRC4 encrypts data under the per-object RC4 key derived
+// from state.key and objNum (PDF Algorithm 1). Generation is always 0
+// in our writer. This implements the V=2 R=3 path verbatim — the
+// dispatcher in encryptBytes selects this for EncryptionAlgRC4_128.
+func encryptBytesRC4(s *encryptState, objNum int, data []byte) []byte {
+	key := s.objectKey(objNum)
 	result := make([]byte, len(data))
 	copy(result, data)
 	applyRC4(result, key)
 	return result
+}
+
+// encryptBytes is the per-object encryption dispatcher. Task 9 will add
+// the AES-128 branch — for now it forwards to encryptBytesRC4. The
+// (objNum, gen int) signature is the final shape; gen is unused by RC4
+// but Algorithm 1.A (AES) reads it.
+func (s *encryptState) encryptBytes(objNum, gen int, data []byte) ([]byte, error) {
+	return encryptBytesRC4(s, objNum, data), nil
 }
 
 // objectKey derives the per-object RC4 key per PDF Algorithm 1.
