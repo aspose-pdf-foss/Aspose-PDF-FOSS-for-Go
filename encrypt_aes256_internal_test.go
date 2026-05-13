@@ -228,3 +228,61 @@ func TestEncryptBytesDispatcher_AES256(t *testing.T) {
 		t.Errorf("dispatcher roundtrip failed")
 	}
 }
+
+func TestBuildEncryptDict_V5R6(t *testing.T) {
+	cfg := &encryptConfig{algorithm: EncryptionAlgAES256, userPassword: "x"}
+	state, _ := newEncryptStateV5R6(cfg)
+	dict := buildEncryptDict(state)
+
+	if v, _ := dict["/V"]; v != 5 {
+		t.Errorf("/V = %v, want 5", v)
+	}
+	if r, _ := dict["/R"]; r != 6 {
+		t.Errorf("/R = %v, want 6", r)
+	}
+	if l, _ := dict["/Length"]; l != 256 {
+		t.Errorf("/Length = %v, want 256", l)
+	}
+	for _, k := range []string{"/O", "/U", "/OE", "/UE", "/Perms"} {
+		if _, ok := dict[k]; !ok {
+			t.Errorf("dict missing %s", k)
+		}
+	}
+	if em, _ := dict["/EncryptMetadata"]; em != true {
+		t.Errorf("/EncryptMetadata = %v, want true", em)
+	}
+	cf, ok := dict["/CF"].(pdfDict)
+	if !ok {
+		t.Fatal("/CF missing or wrong type")
+	}
+	stdCF, ok := cf["/StdCF"].(pdfDict)
+	if !ok {
+		t.Fatal("/CF/StdCF missing")
+	}
+	if cfm, _ := stdCF["/CFM"].(pdfName); cfm != "/AESV3" {
+		t.Errorf("/CF/StdCF/CFM = %v, want /AESV3", cfm)
+	}
+	if stmf, _ := dict["/StmF"].(pdfName); stmf != "/StdCF" {
+		t.Errorf("/StmF = %v, want /StdCF", stmf)
+	}
+}
+
+func TestBuildEncryptDict_AES128Unchanged(t *testing.T) {
+	state := &encryptState{
+		algorithm:   EncryptionAlgAES128,
+		key:         bytes.Repeat([]byte{0xAB}, 16),
+		ownerEntry:  bytes.Repeat([]byte{0x01}, 32),
+		userEntry:   bytes.Repeat([]byte{0x02}, 32),
+		permissions: -4,
+	}
+	dict := buildEncryptDict(state)
+	if v, _ := dict["/V"]; v != 4 {
+		t.Errorf("AES-128 /V = %v, want 4 (no regression)", v)
+	}
+	if _, exists := dict["/UE"]; exists {
+		t.Error("AES-128 dict should not contain /UE")
+	}
+	if _, exists := dict["/Perms"]; exists {
+		t.Error("AES-128 dict should not contain /Perms")
+	}
+}

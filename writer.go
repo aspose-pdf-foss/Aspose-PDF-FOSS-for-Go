@@ -376,6 +376,24 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		}
 		dict["/StmF"] = pdfName("/StdCF")
 		dict["/StrF"] = pdfName("/StdCF")
+	case EncryptionAlgAES256:
+		dict["/V"] = 5
+		dict["/R"] = 6
+		dict["/Length"] = 256
+		dict["/OE"] = pdfHexString(s.ownerKeyEntry)
+		dict["/UE"] = pdfHexString(s.userKeyEntry)
+		dict["/Perms"] = pdfHexString(s.permsEntry)
+		dict["/EncryptMetadata"] = true
+		dict["/CF"] = pdfDict{
+			"/StdCF": pdfDict{
+				"/Type":      pdfName("/CryptFilter"),
+				"/CFM":       pdfName("/AESV3"),
+				"/AuthEvent": pdfName("/DocOpen"),
+				"/Length":    32,
+			},
+		}
+		dict["/StmF"] = pdfName("/StdCF")
+		dict["/StrF"] = pdfName("/StdCF")
 	default: // EncryptionAlgRC4_128
 		dict["/V"] = 2
 		dict["/R"] = 3
