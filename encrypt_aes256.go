@@ -23,7 +23,7 @@ func hashV5R6(password, salt, extra []byte) []byte {
 	h.Write(extra)
 	K := h.Sum(nil) // 32 bytes
 
-	for round := 0; ; round++ {
+	for count := 1; ; count++ {
 		// Step a: K1 = 64 × (password || K || extra)
 		blockLen := len(password) + len(K) + len(extra)
 		K1 := make([]byte, 64*blockLen)
@@ -62,9 +62,10 @@ func hashV5R6(password, salt, extra []byte) []byte {
 			K = sum512[:]
 		}
 
-		// Step e+f: termination — minimum 64 rounds (0-indexed: round 63 is the 64th),
-		// then E_last <= round - 32. ISO 32000-2 §7.6.4.3.4 step f.
-		if round >= 63 && int(E[len(E)-1]) <= round-32 {
+		// Step e+f: termination per ISO 32000-2 §7.6.4.3.4 step f.
+		// Mirrors pypdf's 1-indexed `count`: minimum 64 iterations,
+		// then E_last <= count - 32.
+		if count >= 64 && int(E[len(E)-1]) <= count-32 {
 			break
 		}
 	}
