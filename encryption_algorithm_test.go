@@ -24,3 +24,9 @@ func TestEncryptionOptionsHasAlgorithmField(t *testing.T) {
 		t.Errorf("Algorithm = %v", opts.Algorithm)
 	}
 }
+
+func TestEncryptionAlgAES256Constant(t *testing.T) {
+	if int(pdf.EncryptionAlgAES256) != 2 {
+		t.Errorf("EncryptionAlgAES256 = %d, want 2 (after AES128=0, RC4_128=1)", int(pdf.EncryptionAlgAES256))
+	}
+}

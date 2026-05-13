@@ -113,6 +113,12 @@ const (
 	// EncryptionAlgRC4_128 — RC4-128, Standard Security Handler V=2 R=3.
 	// Legacy compatibility only — AES-128 is preferred for new documents.
 	EncryptionAlgRC4_128
+
+	// EncryptionAlgAES256 — AES-256, Standard Security Handler V=5 R=6,
+	// /CFM /AESV3. ISO 32000-2 §7.6.4. Output PDF header is bumped to
+	// %PDF-2.0; viewers older than Adobe Acrobat DC (~2015) may not
+	// support PDF 2.0 documents.
+	EncryptionAlgAES256
 )
 
 // EncryptionOptions bundles every knob that controls how a document is
@@ -167,12 +173,15 @@ func (c *encryptConfig) effectivePermissions() int32 {
 
 // encryptState holds the computed values needed to encrypt a single PDF write.
 type encryptState struct {
-	algorithm   EncryptionAlgorithm // used by Task 9's dispatcher
-	key         []byte              // 16-byte document encryption key
-	fileID      []byte              // 16-byte random file identifier
-	ownerEntry  []byte              // 32-byte /O value for the /Encrypt dict
-	userEntry   []byte              // 32-byte /U value for the /Encrypt dict
-	permissions int32               // /P value propagated to /Encrypt dict
+	algorithm     EncryptionAlgorithm // used by Task 9's dispatcher
+	key           []byte              // RC4/AES-128: 16 bytes; AES-256: 32 bytes (FEK)
+	fileID        []byte              // 16 bytes; not used for V=5 R=6 key derivation
+	ownerEntry    []byte              // RC4/AES-128: 32 bytes; AES-256: 48 bytes
+	userEntry     []byte              // RC4/AES-128: 32 bytes; AES-256: 48 bytes
+	userKeyEntry  []byte              // AES-256 only: 32 bytes (/UE); zero for others
+	ownerKeyEntry []byte              // AES-256 only: 32 bytes (/OE); zero for others
+	permsEntry    []byte              // AES-256 only: 16 bytes (/Perms); zero for others
+	permissions   int32               // /P value propagated to /Encrypt dict
 }
 
 // newEncryptState derives all encryption parameters from cfg.
