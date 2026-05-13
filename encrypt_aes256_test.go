@@ -141,3 +141,39 @@ func TestSetEncryptionAES256_PermissionsRoundTrip(t *testing.T) {
 		t.Errorf("AllowModify should be false: %+v", perms)
 	}
 }
+
+func TestSetEncryptionAES256_PermsTamperDetection(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES256,
+		Permissions: &pdf.Permissions{AllowPrint: false},
+	})
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	raw := buf.Bytes()
+
+	// Tamper attack: locate the /Perms <...> hex literal in the output
+	// and flip one hex digit. This corrupts the encrypted /Perms block,
+	// so the 'adb' marker will not appear after AES decryption, and
+	// OpenStreamWithPassword must return an error.
+	permsIdx := bytes.Index(raw, []byte("/Perms <"))
+	if permsIdx < 0 {
+		t.Skip("/Perms hex literal not found — output shape changed")
+	}
+	// Find the first hex digit after "/Perms <" and flip it.
+	for i := permsIdx + 8; i < len(raw); i++ {
+		c := raw[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			if c == 'f' || c == 'F' {
+				raw[i] = '0'
+			} else {
+				raw[i]++
+			}
+			break
+		}
+	}
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(raw), "x"); err == nil {
+		t.Error("expected error after /Perms tampering; /Perms tamper-detection should fire")
+	}
+}
