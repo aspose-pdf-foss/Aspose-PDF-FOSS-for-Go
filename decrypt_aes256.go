@@ -198,3 +198,76 @@ func readBytesEntryExact(dict pdfDict, key string, wantLen int) ([]byte, error) 
 	}
 	return b, nil
 }
+
+// decryptObjectTreeAES256 walks obj's value tree, AES-256-decrypting
+// every string and stream payload with the FEK held in state.key.
+// V=5 R=6 has no per-object key derivation — object number and gen
+// are not used.
+func decryptObjectTreeAES256(obj *pdfObject, state *encryptState) error {
+	decrypt := func(b []byte) ([]byte, error) {
+		return decryptObjectAES256(state, b)
+	}
+	newVal, err := decryptValueAES256(obj.Value, decrypt)
+	if err != nil {
+		return err
+	}
+	obj.Value = newVal
+	return nil
+}
+
+func decryptValueAES256(v pdfValue, decrypt func([]byte) ([]byte, error)) (pdfValue, error) {
+	switch val := v.(type) {
+	case string:
+		plain, err := decrypt([]byte(val))
+		if err != nil {
+			return nil, err
+		}
+		return string(plain), nil
+	case pdfHexString:
+		plain, err := decrypt([]byte(val))
+		if err != nil {
+			return nil, err
+		}
+		return pdfHexString(plain), nil
+	case pdfDict:
+		for k, vv := range val {
+			nv, err := decryptValueAES256(vv, decrypt)
+			if err != nil {
+				return nil, err
+			}
+			val[k] = nv
+		}
+		return val, nil
+	case pdfArray:
+		for i, vv := range val {
+			nv, err := decryptValueAES256(vv, decrypt)
+			if err != nil {
+				return nil, err
+			}
+			val[i] = nv
+		}
+		return val, nil
+	case *pdfStream:
+		if err := decryptStreamAES256(val, decrypt); err != nil {
+			return nil, err
+		}
+		return val, nil
+	}
+	return v, nil
+}
+
+func decryptStreamAES256(s *pdfStream, decrypt func([]byte) ([]byte, error)) error {
+	if s.Decoded {
+		return nil
+	}
+	plain, err := decrypt(s.Data)
+	if err != nil {
+		return err
+	}
+	s.Data = plain
+	if decoded, derr := decodeStream(s.Dict, s.Data); derr == nil {
+		s.Data = decoded
+		s.Decoded = true
+	}
+	return nil
+}

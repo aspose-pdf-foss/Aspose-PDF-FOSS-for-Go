@@ -169,7 +169,7 @@ func pdfStringBytes(v pdfValue) ([]byte, error) {
 
 // decryptObject mutates obj's value tree in place: every string is
 // decrypted via the appropriate per-object cipher (RC4 for V=2 R=3;
-// AES-128-CBC for V=4 R=4), and every stream's raw Data is decrypted
+// AES-128-CBC for V=4 R=4; AES-256-CBC for V=5 R=6), and every stream's raw Data is decrypted
 // then decoded via the /Filter chain. The /Encrypt dict itself is
 // never decrypted by this function — callers must skip it.
 func decryptObject(obj *pdfObject, state *encryptState) error {
@@ -180,6 +180,8 @@ func decryptObject(obj *pdfObject, state *encryptState) error {
 		return nil
 	case EncryptionAlgAES128:
 		return decryptObjectTreeAES128(obj, state)
+	case EncryptionAlgAES256:
+		return decryptObjectTreeAES256(obj, state)
 	}
 	return fmt.Errorf("decryptObject: unknown algorithm %d", state.algorithm)
 }
