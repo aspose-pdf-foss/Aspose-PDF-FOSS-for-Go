@@ -65,7 +65,12 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.4\n")
+	header := "%PDF-1.4\n"
+	if d.encrypt != nil && d.encrypt.algorithm == EncryptionAlgAES256 {
+		// ISO 32000-2 requires PDF 2.0 for V=5 R=6 encryption.
+		header = "%PDF-2.0\n"
+	}
+	buf.WriteString(header)
 	buf.WriteString("%\xe2\xe3\xcf\xd3\n") // binary marker
 
 	offsets := make(map[int]int64, totalObjects)
