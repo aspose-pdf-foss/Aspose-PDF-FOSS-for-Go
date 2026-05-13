@@ -95,3 +95,33 @@ func encryptBytesAES256(s *encryptState, plaintext []byte) ([]byte, error) {
 	copy(out[len(iv):], body)
 	return out, nil
 }
+
+// buildPermsBlock constructs the 16-byte permissions block per ISO
+// 32000-2 §7.6.4.6.2. The block is later AES-256-ECB encrypted under
+// the FEK and stored as /Perms for tamper-detection.
+//
+// Layout:
+//   bytes 0-3:   /P (little-endian, signed-32 cast to unsigned-32 bytes)
+//   bytes 4-7:   0xFF 0xFF 0xFF 0xFF (high 32 bits of permissions, all 1s)
+//   byte  8:     'T' if encryptMetadata; 'F' otherwise
+//   bytes 9-11:  'a', 'd', 'b' (marker proving decrypt produced valid output)
+//   bytes 12-15: 4 random bytes (entropy/padding)
+func buildPermsBlock(permissions int32, encryptMetadata bool) []byte {
+	out := make([]byte, 16)
+	p := uint32(permissions)
+	out[0] = byte(p)
+	out[1] = byte(p >> 8)
+	out[2] = byte(p >> 16)
+	out[3] = byte(p >> 24)
+	out[4], out[5], out[6], out[7] = 0xFF, 0xFF, 0xFF, 0xFF
+	if encryptMetadata {
+		out[8] = 'T'
+	} else {
+		out[8] = 'F'
+	}
+	out[9], out[10], out[11] = 'a', 'd', 'b'
+	// Best-effort random bytes for the last 4. crypto/rand failure is
+	// exceedingly unlikely; falling through with zero bytes is acceptable.
+	_, _ = io.ReadFull(cryptorand.Reader, out[12:16])
+	return out
+}

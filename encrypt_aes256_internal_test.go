@@ -105,3 +105,35 @@ func TestEncryptBytesAES256_NeedsAES256Key(t *testing.T) {
 		t.Error("encryptBytesAES256 should fail with 16-byte key")
 	}
 }
+
+func TestBuildPermsBlock_Layout(t *testing.T) {
+	block := buildPermsBlock(-4, true)
+	if len(block) != 16 {
+		t.Fatalf("perms block length = %d, want 16", len(block))
+	}
+	// /P = -4 → uint32 0xFFFFFFFC → LE bytes 0xFC 0xFF 0xFF 0xFF
+	if block[0] != 0xFC || block[1] != 0xFF || block[2] != 0xFF || block[3] != 0xFF {
+		t.Errorf("P bytes wrong: %x %x %x %x", block[0], block[1], block[2], block[3])
+	}
+	// Bytes 4-7: 0xFF 0xFF 0xFF 0xFF
+	for i := 4; i < 8; i++ {
+		if block[i] != 0xFF {
+			t.Errorf("byte %d = %x, want 0xFF", i, block[i])
+		}
+	}
+	// Byte 8: 'T' for EncryptMetadata=true
+	if block[8] != 'T' {
+		t.Errorf("byte 8 = %q, want 'T'", block[8])
+	}
+	// Bytes 9-11: 'a','d','b'
+	if block[9] != 'a' || block[10] != 'd' || block[11] != 'b' {
+		t.Errorf("marker bytes wrong: %q%q%q", block[9], block[10], block[11])
+	}
+}
+
+func TestBuildPermsBlock_EncryptMetadataFalse(t *testing.T) {
+	block := buildPermsBlock(-1, false)
+	if block[8] != 'F' {
+		t.Errorf("byte 8 with EncryptMetadata=false = %q, want 'F'", block[8])
+	}
+}
