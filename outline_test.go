@@ -337,3 +337,173 @@ func TestOutlines_WriterSkipsEmptyTree(t *testing.T) {
 		t.Error("empty outline tree should not produce /Outlines in catalog")
 	}
 }
+
+func TestOutlines_Roundtrip_Single(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Chapter 1")
+	item.SetDestination(pdf.NewDestinationXYZ(page, 100, 800, 1.5))
+	doc.Outlines().Add(item)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root2 := doc2.Outlines()
+	if root2.Count() != 1 {
+		t.Fatalf("after roundtrip Count = %d", root2.Count())
+	}
+	item2 := root2.At(0)
+	if item2.Title() != "Chapter 1" {
+		t.Errorf("Title = %q", item2.Title())
+	}
+	dest := item2.Destination()
+	xyz, ok := dest.(*pdf.DestinationXYZ)
+	if !ok {
+		t.Fatalf("Destination type = %T", dest)
+	}
+	if xyz.Left() != 100 || xyz.Top() != 800 || xyz.Zoom() != 1.5 {
+		t.Errorf("coords: %v %v %v", xyz.Left(), xyz.Top(), xyz.Zoom())
+	}
+}
+
+func TestOutlines_NestedHierarchyRoundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	chapter := pdf.NewOutlineItemCollection(doc)
+	chapter.SetTitle("Ch1")
+	chapter.SetDestination(pdf.NewDestinationFit(page))
+	section := pdf.NewOutlineItemCollection(doc)
+	section.SetTitle("Sec1.1")
+	chapter.Add(section)
+	doc.Outlines().Add(chapter)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	r2 := doc2.Outlines()
+	if r2.Count() != 1 {
+		t.Fatalf("top Count = %d", r2.Count())
+	}
+	ch := r2.At(0)
+	if ch.Title() != "Ch1" || ch.Count() != 1 {
+		t.Errorf("Chapter: title=%q count=%d", ch.Title(), ch.Count())
+	}
+	sec := ch.At(0)
+	if sec.Title() != "Sec1.1" {
+		t.Errorf("Section title = %q", sec.Title())
+	}
+	if sec.Parent() != ch {
+		t.Error("parent linkage broken")
+	}
+}
+
+func TestOutlines_StylePropertiesRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Styled")
+	item.SetBold(true)
+	item.SetItalic(true)
+	item.SetColor(&pdf.Color{R: 1, G: 0, B: 0.5, A: 1})
+	doc.Outlines().Add(item)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	got := doc2.Outlines().At(0)
+	if !got.Bold() || !got.Italic() {
+		t.Errorf("Bold=%v Italic=%v", got.Bold(), got.Italic())
+	}
+	c := got.Color()
+	if c == nil || c.R != 1 || c.G != 0 || c.B != 0.5 {
+		t.Errorf("Color = %+v", c)
+	}
+}
+
+func TestOutlines_IsExpandedRoundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	parent := pdf.NewOutlineItemCollection(doc)
+	parent.SetTitle("P")
+	parent.SetIsExpanded(false)
+	child := pdf.NewOutlineItemCollection(doc)
+	child.SetTitle("C")
+	parent.Add(child)
+	doc.Outlines().Add(parent)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	p2 := doc2.Outlines().At(0)
+	if p2.IsExpanded() {
+		t.Error("collapsed state lost in roundtrip")
+	}
+}
+
+func TestOutlines_AllDestinationTypesRoundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	cases := []struct {
+		title string
+		d     pdf.Destination
+		want  pdf.DestinationType
+	}{
+		{"XYZ", pdf.NewDestinationXYZ(page, 1, 2, 3), pdf.DestinationTypeXYZ},
+		{"Fit", pdf.NewDestinationFit(page), pdf.DestinationTypeFit},
+		{"FitH", pdf.NewDestinationFitH(page, 100), pdf.DestinationTypeFitH},
+		{"FitV", pdf.NewDestinationFitV(page, 50), pdf.DestinationTypeFitV},
+		{"FitR", pdf.NewDestinationFitR(page, 10, 20, 30, 40), pdf.DestinationTypeFitR},
+		{"FitB", pdf.NewDestinationFitB(page), pdf.DestinationTypeFitB},
+		{"FitBH", pdf.NewDestinationFitBH(page, 100), pdf.DestinationTypeFitBH},
+		{"FitBV", pdf.NewDestinationFitBV(page, 50), pdf.DestinationTypeFitBV},
+	}
+	for _, c := range cases {
+		oic := pdf.NewOutlineItemCollection(doc)
+		oic.SetTitle(c.title)
+		oic.SetDestination(c.d)
+		doc.Outlines().Add(oic)
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	r := doc2.Outlines()
+	if r.Count() != len(cases) {
+		t.Fatalf("count = %d, want %d", r.Count(), len(cases))
+	}
+	for i, c := range cases {
+		got := r.At(i)
+		if got.Title() != c.title {
+			t.Errorf("[%d] title = %q", i, got.Title())
+		}
+		dest := got.Destination()
+		if dest == nil {
+			t.Fatalf("[%d] dest is nil", i)
+		}
+		if dest.DestinationType() != c.want {
+			t.Errorf("[%d] type = %v, want %v", i, dest.DestinationType(), c.want)
+		}
+	}
+}
+
+func TestOutlines_ActionRoundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Visit")
+	item.SetAction(pdf.NewGoToURIAction("https://example.com"))
+	doc.Outlines().Add(item)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	a := doc2.Outlines().At(0).Action()
+	uri, ok := a.(*pdf.GoToURIAction)
+	if !ok {
+		t.Fatalf("Action type = %T", a)
+	}
+	if uri.URI() != "https://example.com" {
+		t.Errorf("URI = %q", uri.URI())
+	}
+}
