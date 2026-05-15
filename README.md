@@ -1,6 +1,8 @@
 # Aspose.PDF for Go FOSS
 
-A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read metadata, and encrypt documents. No external dependencies.
+A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write metadata, encrypt with RC4-128 / AES-128 / AES-256, fill and build AcroForms, attach and render annotations, create bookmark trees, draw text and apply watermarks, place images, and validate document structure. No external dependencies — standard library only.
+
+Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
 
 ## Quick Start
 
@@ -29,7 +31,7 @@ doc.Save("merged.pdf")
 - **Merge** — combine multiple PDFs into a single document
 - **Rotate** — rotate pages by 90°, 180°, or 270°
 - **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
-- **Metadata** — read document Info (title, author, dates, etc.)
+- **Metadata** — read and write document Info (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries)
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Works alongside encryption + AcroForm + annotations
 - **Validate** — check structural integrity of a PDF file
@@ -45,7 +47,7 @@ doc.Save("merged.pdf")
 - **Add blank pages** — append or insert blank pages into existing documents at any position
 - **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, strikethrough, rotation, and behind-content mode
 - **Text watermarks** — apply text watermarks to all or selected pages with full styling control
-- **Stream input** — open PDFs from any `io.Reader`, not just file paths
+- **Stream I/O** — open PDFs from any `io.Reader` via `OpenStream`/`OpenStreamWithPassword`; serialize to any `io.Writer` via `Document.WriteTo` (implements `io.WriterTo`)
 - **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE; viewers regenerate appearances via auto `/NeedAppearances=true`
 - **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. Text-bearing types (Text sticky note, FreeText with callout/typewriter/cloudy-border modes, Stamp with 14 predefined visuals + custom image override). FileAttachment with file embedding (path/stream + MIME detection); Redact with mark/apply modes (irreversible content removal of text glyphs, images, and paths via `Document.ApplyRedactions()`); `NewJavaScriptAction` public constructor with security warning. `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
 
