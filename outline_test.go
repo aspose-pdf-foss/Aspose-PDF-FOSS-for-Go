@@ -1,6 +1,8 @@
 package asposepdf_test
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	pdf "github.com/aspose/pdf-for-go"
@@ -301,5 +303,37 @@ func TestOutlines_AllSnapshot(t *testing.T) {
 	snap = append(snap, pdf.NewOutlineItemCollection(doc))
 	if root.Count() != 2 {
 		t.Error("All() should return a snapshot, not the live slice")
+	}
+}
+
+func TestOutlines_WriterEmitsOutlinesEntry(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Chapter 1")
+	doc.Outlines().Add(item)
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Outlines") {
+		t.Errorf("output missing /Outlines entry; first 200 bytes: %q", s[:200])
+	}
+	if !strings.Contains(s, "/Type /Outlines") {
+		t.Error("output missing /Type /Outlines on root dict")
+	}
+	if !strings.Contains(s, "Chapter 1") {
+		t.Error("output missing the bookmark Title")
+	}
+}
+
+func TestOutlines_WriterSkipsEmptyTree(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	// Don't add any outline items.
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	s := buf.String()
+	if strings.Contains(s, "/Outlines") {
+		t.Error("empty outline tree should not produce /Outlines in catalog")
 	}
 }

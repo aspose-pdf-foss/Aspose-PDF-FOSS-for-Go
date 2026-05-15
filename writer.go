@@ -24,6 +24,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		}
 	}
 
+	// Build outline objects up-front so they're picked up by the
+	// contentIDs snapshot below and remapped along with everything else.
+	outlinesRef, outlineObjs := buildOutlineObjects(d)
+	for _, obj := range outlineObjs {
+		d.objects[obj.Num] = obj
+	}
+
 	// Assign sequential output IDs to all content objects.
 	// Reserve IDs for structural objects built by the writer.
 	contentIDs := sortedObjectIDs(d.objects)
@@ -108,6 +115,12 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	}
 	catOut["/Type"] = pdfName("/Catalog")
 	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
+	// If we built a fresh outline tree, override any stale /Outlines ref
+	// preserved from the original catalog with our new one. writeValue will
+	// auto-remap the pdfRef to the output ID.
+	if outlinesRef.Num != 0 {
+		catOut["/Outlines"] = outlinesRef
+	}
 	var catalogEncFn func([]byte) ([]byte, error)
 	if encState != nil {
 		catalogEncFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(catalogObjID, 0, b) }
