@@ -507,3 +507,117 @@ func TestOutlines_ActionRoundtrip(t *testing.T) {
 		t.Errorf("URI = %q", uri.URI())
 	}
 }
+
+func TestOutlines_CrossEpicAcroForm(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	form := doc.Form()
+	tb, _ := form.AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720}, "Name")
+	tb.SetValue("Alice")
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Bookmark")
+	item.SetDestination(pdf.NewDestinationFit(page))
+	doc.Outlines().Add(item)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if doc2.Outlines().Count() != 1 {
+		t.Error("outline lost with AcroForm")
+	}
+	if doc2.Form().Field("Name").Value() != "Alice" {
+		t.Error("AcroForm lost with outline")
+	}
+}
+
+func TestOutlines_CrossEpicAES128(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Secret Bookmark")
+	item.SetDestination(pdf.NewDestinationXYZ(page, 0, 800, 1))
+	doc.Outlines().Add(item)
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES128,
+	})
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.Outlines().At(0).Title() != "Secret Bookmark" {
+		t.Error("outline title lost through AES-128 roundtrip")
+	}
+}
+
+func TestOutlines_CrossEpicAES256(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Secret 256")
+	item.SetDestination(pdf.NewDestinationFit(page))
+	doc.Outlines().Add(item)
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES256,
+	})
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.Outlines().At(0).Title() != "Secret 256" {
+		t.Error("outline title lost through AES-256 roundtrip")
+	}
+}
+
+func TestOutlines_CrossEpicAnnotation(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 200, URY: 620})
+	link.SetAction(pdf.NewGoToURIAction("https://example.com"))
+	page.Annotations().Add(link)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Bookmark")
+	doc.Outlines().Add(item)
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if doc2.Outlines().Count() != 1 {
+		t.Error("outline lost with annotation")
+	}
+	page2 := doc2.Pages()[0]
+	if page2.Annotations().Count() != 1 {
+		t.Error("annotation lost with outline")
+	}
+}
+
+func TestOutlines_PreservesOnReSaveWithoutCall(t *testing.T) {
+	// Create a doc with outlines, save, reopen but NEVER call Outlines()
+	// on the reopened doc, re-save → output should still contain the
+	// outline (preserved via untouched /Outlines ref in catalog).
+	doc := pdf.NewDocument(595, 842)
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Preserve")
+	doc.Outlines().Add(item)
+	var buf1 bytes.Buffer
+	doc.WriteTo(&buf1)
+
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf1.Bytes()))
+	// Intentionally skip doc2.Outlines() to avoid triggering parse.
+	var buf2 bytes.Buffer
+	doc2.WriteTo(&buf2)
+
+	if !strings.Contains(buf2.String(), "/Outlines") {
+		t.Error("/Outlines lost after Open + re-Save without explicit access")
+	}
+	if !strings.Contains(buf2.String(), "Preserve") {
+		t.Error("outline Title lost after Open + re-Save")
+	}
+}
