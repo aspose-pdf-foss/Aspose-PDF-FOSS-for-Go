@@ -1,5 +1,7 @@
 package asposepdf
 
+import "fmt"
+
 // OutlineItemCollection represents an outline entry and the collection
 // of its children. The recursive structure mirrors Aspose.PDF for .NET:
 // each entry is both a tree node (with Title, Color, Action,
@@ -134,4 +136,88 @@ func (d *Document) Outlines() *OutlineItemCollection {
 		d.outlinesRoot = &OutlineItemCollection{doc: d, isExpanded: true}
 	}
 	return d.outlinesRoot
+}
+
+// Add appends child as the last child of this entry. Errors on nil,
+// cross-document, cycle, or already-attached child.
+func (o *OutlineItemCollection) Add(child *OutlineItemCollection) error {
+	if err := o.validateAddCandidate(child); err != nil {
+		return err
+	}
+	o.children = append(o.children, child)
+	child.parent = o
+	return nil
+}
+
+// Insert inserts child at the given 0-based index among this entry's children.
+func (o *OutlineItemCollection) Insert(index int, child *OutlineItemCollection) error {
+	if err := o.validateAddCandidate(child); err != nil {
+		return err
+	}
+	if index < 0 || index > len(o.children) {
+		return fmt.Errorf("OutlineItemCollection.Insert: index %d out of range [0,%d]", index, len(o.children))
+	}
+	o.children = append(o.children, nil)
+	copy(o.children[index+1:], o.children[index:])
+	o.children[index] = child
+	child.parent = o
+	return nil
+}
+
+// Remove detaches child if it's a direct child. Returns true on hit.
+func (o *OutlineItemCollection) Remove(child *OutlineItemCollection) bool {
+	for i, c := range o.children {
+		if c == child {
+			o.children = append(o.children[:i], o.children[i+1:]...)
+			child.parent = nil
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveAt detaches the child at the given index.
+func (o *OutlineItemCollection) RemoveAt(index int) error {
+	if index < 0 || index >= len(o.children) {
+		return fmt.Errorf("OutlineItemCollection.RemoveAt: index %d out of range [0,%d)", index, len(o.children))
+	}
+	child := o.children[index]
+	o.children = append(o.children[:index], o.children[index+1:]...)
+	child.parent = nil
+	return nil
+}
+
+// At returns the child at the given 0-based index, or nil if out-of-range.
+func (o *OutlineItemCollection) At(index int) *OutlineItemCollection {
+	if index < 0 || index >= len(o.children) {
+		return nil
+	}
+	return o.children[index]
+}
+
+// All returns a snapshot slice of direct children.
+func (o *OutlineItemCollection) All() []*OutlineItemCollection {
+	out := make([]*OutlineItemCollection, len(o.children))
+	copy(out, o.children)
+	return out
+}
+
+// validateAddCandidate enforces invariants common to Add and Insert.
+func (o *OutlineItemCollection) validateAddCandidate(child *OutlineItemCollection) error {
+	if child == nil {
+		return fmt.Errorf("OutlineItemCollection: nil child")
+	}
+	if child.doc != o.doc {
+		return fmt.Errorf("OutlineItemCollection: child belongs to a different Document")
+	}
+	if child.parent != nil {
+		return fmt.Errorf("OutlineItemCollection: child is already attached to a parent")
+	}
+	// Cycle check: walk up o's parent chain and reject if we encounter child.
+	for cur := o; cur != nil; cur = cur.parent {
+		if cur == child {
+			return fmt.Errorf("OutlineItemCollection: cycle detected — child is an ancestor of o")
+		}
+	}
+	return nil
 }

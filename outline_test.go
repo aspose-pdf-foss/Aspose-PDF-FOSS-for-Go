@@ -152,3 +152,154 @@ func TestOutlines_DestinationAndActionCoexist(t *testing.T) {
 		t.Error("Action should remain after SetDestination")
 	}
 }
+
+func TestOutlines_Add(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	child := pdf.NewOutlineItemCollection(doc)
+	child.SetTitle("Chapter 1")
+	if err := root.Add(child); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if root.Count() != 1 {
+		t.Errorf("Count after Add = %d, want 1", root.Count())
+	}
+	if root.At(0) != child {
+		t.Error("At(0) should return added child")
+	}
+	if child.Parent() != root {
+		t.Error("child.Parent() should be root after Add")
+	}
+}
+
+func TestOutlines_AddNilError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.Outlines().Add(nil); err == nil {
+		t.Error("Add(nil) should error")
+	}
+}
+
+func TestOutlines_AddCrossDocumentError(t *testing.T) {
+	docA := pdf.NewDocument(595, 842)
+	docB := pdf.NewDocument(595, 842)
+	foreign := pdf.NewOutlineItemCollection(docB)
+	if err := docA.Outlines().Add(foreign); err == nil {
+		t.Error("Add cross-document should error")
+	}
+}
+
+func TestOutlines_AddSelfError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	if err := root.Add(root); err == nil {
+		t.Error("Add(self) should error (cycle)")
+	}
+}
+
+func TestOutlines_AddAlreadyAttachedError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc)
+	b := pdf.NewOutlineItemCollection(doc)
+	root.Add(a)
+	if err := b.Add(a); err == nil {
+		t.Error("Add of already-attached child should error")
+	}
+}
+
+func TestOutlines_AddAncestorCycleError(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc)
+	b := pdf.NewOutlineItemCollection(doc)
+	root.Add(a)
+	a.Add(b)
+	if err := b.Add(a); err == nil {
+		t.Error("ancestor cycle should error")
+	}
+}
+
+func TestOutlines_Insert(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc); a.SetTitle("A")
+	c := pdf.NewOutlineItemCollection(doc); c.SetTitle("C")
+	root.Add(a)
+	root.Add(c)
+	b := pdf.NewOutlineItemCollection(doc); b.SetTitle("B")
+	if err := root.Insert(1, b); err != nil {
+		t.Fatal(err)
+	}
+	if root.Count() != 3 || root.At(0) != a || root.At(1) != b || root.At(2) != c {
+		t.Errorf("after Insert: order wrong")
+	}
+}
+
+func TestOutlines_InsertOutOfRange(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	item := pdf.NewOutlineItemCollection(doc)
+	if err := root.Insert(5, item); err == nil {
+		t.Error("Insert at out-of-range should error")
+	}
+	if err := root.Insert(-1, item); err == nil {
+		t.Error("Insert at negative should error")
+	}
+}
+
+func TestOutlines_Remove(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc)
+	root.Add(a)
+	if !root.Remove(a) {
+		t.Error("Remove should return true on hit")
+	}
+	if root.Count() != 0 {
+		t.Errorf("Count after Remove = %d", root.Count())
+	}
+	if a.Parent() != nil {
+		t.Error("removed item should have nil Parent")
+	}
+	if root.Remove(a) {
+		t.Error("Remove on missing should return false")
+	}
+}
+
+func TestOutlines_RemoveAt(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc); a.SetTitle("A")
+	b := pdf.NewOutlineItemCollection(doc); b.SetTitle("B")
+	c := pdf.NewOutlineItemCollection(doc); c.SetTitle("C")
+	root.Add(a)
+	root.Add(b)
+	root.Add(c)
+	if err := root.RemoveAt(1); err != nil {
+		t.Fatal(err)
+	}
+	if root.Count() != 2 || root.At(0) != a || root.At(1) != c {
+		t.Errorf("after RemoveAt: wrong remaining")
+	}
+	if err := root.RemoveAt(99); err == nil {
+		t.Error("RemoveAt out-of-range should error")
+	}
+}
+
+func TestOutlines_AllSnapshot(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	root := doc.Outlines()
+	a := pdf.NewOutlineItemCollection(doc)
+	b := pdf.NewOutlineItemCollection(doc)
+	root.Add(a)
+	root.Add(b)
+	snap := root.All()
+	if len(snap) != 2 || snap[0] != a || snap[1] != b {
+		t.Error("All() snapshot wrong")
+	}
+	// Verify it's a copy.
+	snap = append(snap, pdf.NewOutlineItemCollection(doc))
+	if root.Count() != 2 {
+		t.Error("All() should return a snapshot, not the live slice")
+	}
+}
