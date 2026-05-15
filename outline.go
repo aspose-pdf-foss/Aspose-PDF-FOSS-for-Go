@@ -58,60 +58,84 @@ func (o *OutlineItemCollection) Count() int { return len(o.children) }
 
 // Title returns the bookmark text.
 func (o *OutlineItemCollection) Title() string {
+	if o.dict != nil {
+		return decodeFormString(o.dict["/Title"])
+	}
 	return o.title
 }
 
 // SetTitle replaces the bookmark text.
 func (o *OutlineItemCollection) SetTitle(s string) {
+	o.detachFromDict()
 	o.title = s
 }
 
 // Bold corresponds to /F bit 2 in the outline item dict. Default false.
 func (o *OutlineItemCollection) Bold() bool {
+	if o.dict != nil {
+		return outlineDictFlags(o.dict)&2 != 0
+	}
 	return o.bold
 }
 
 func (o *OutlineItemCollection) SetBold(b bool) {
+	o.detachFromDict()
 	o.bold = b
 }
 
 // Italic corresponds to /F bit 1. Default false.
 func (o *OutlineItemCollection) Italic() bool {
+	if o.dict != nil {
+		return outlineDictFlags(o.dict)&1 != 0
+	}
 	return o.italic
 }
 
 func (o *OutlineItemCollection) SetItalic(b bool) {
+	o.detachFromDict()
 	o.italic = b
 }
 
 // Color returns the RGB label color, or nil if /C is absent (default
 // black). SetColor(nil) clears /C.
 func (o *OutlineItemCollection) Color() *Color {
+	if o.dict != nil {
+		return readDictColor(o.dict)
+	}
 	return o.color
 }
 
 func (o *OutlineItemCollection) SetColor(c *Color) {
+	o.detachFromDict()
 	o.color = c
 }
 
 // IsExpanded controls the viewer's initial expand/collapse state.
 // Encoded via the sign of /Count. Default true.
 func (o *OutlineItemCollection) IsExpanded() bool {
+	if o.dict != nil {
+		return readDictIsExpanded(o.dict)
+	}
 	return o.isExpanded
 }
 
 func (o *OutlineItemCollection) SetIsExpanded(b bool) {
+	o.detachFromDict()
 	o.isExpanded = b
 }
 
 // Action returns the action attached via /A. Reuses the Action
 // interface defined for annotations.
 func (o *OutlineItemCollection) Action() Action {
+	if o.dict != nil {
+		return parseDictAction(o.doc, o.dict["/A"])
+	}
 	return o.action
 }
 
 // SetAction sets the /A action. Pass nil to clear.
 func (o *OutlineItemCollection) SetAction(a Action) {
+	o.detachFromDict()
 	o.action = a
 }
 
@@ -119,12 +143,35 @@ func (o *OutlineItemCollection) SetAction(a Action) {
 // if absent. If both Destination and Action are set, /Dest takes
 // priority per ISO 32000-1 §12.3.3.
 func (o *OutlineItemCollection) Destination() Destination {
+	if o.dict != nil {
+		return parseDestination(o.doc, o.dict["/Dest"])
+	}
 	return o.destination
 }
 
 // SetDestination sets the /Dest entry. Pass nil to clear.
 func (o *OutlineItemCollection) SetDestination(d Destination) {
+	o.detachFromDict()
 	o.destination = d
+}
+
+// detachFromDict pulls all dict-backed values into struct fields and
+// clears the dict reference. After this call, the item is no longer
+// tied to the original PDF object — subsequent SetXxx work on struct
+// fields directly. Idempotent: no-op if dict is already nil.
+func (o *OutlineItemCollection) detachFromDict() {
+	if o.dict == nil {
+		return
+	}
+	o.title = decodeFormString(o.dict["/Title"])
+	flags := outlineDictFlags(o.dict)
+	o.bold = flags&2 != 0
+	o.italic = flags&1 != 0
+	o.color = readDictColor(o.dict)
+	o.isExpanded = readDictIsExpanded(o.dict)
+	o.destination = parseDestination(o.doc, o.dict["/Dest"])
+	o.action = parseDictAction(o.doc, o.dict["/A"])
+	o.dict = nil
 }
 
 // Outlines returns the document's root outline collection. Always
@@ -132,8 +179,7 @@ func (o *OutlineItemCollection) SetDestination(d Destination) {
 // outline content. Mirrors Aspose.PDF for .NET's Document.Outlines.
 func (d *Document) Outlines() *OutlineItemCollection {
 	if d.outlinesRoot == nil {
-		// Task 10 will replace this with parseOutlines(d).
-		d.outlinesRoot = &OutlineItemCollection{doc: d, isExpanded: true}
+		d.outlinesRoot = parseOutlines(d)
 	}
 	return d.outlinesRoot
 }

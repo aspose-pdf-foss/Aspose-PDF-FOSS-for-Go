@@ -176,7 +176,7 @@ func wireOutlineSiblings(entries []*outlineEntry) {
 func encodeOutlineItem(e *outlineEntry, rootObjNum int) pdfDict {
 	o := e.item
 	dict := pdfDict{
-		"/Title": encodeFormString(o.title),
+		"/Title": encodeFormString(o.Title()),
 	}
 	if e.parent == 0 {
 		dict["/Parent"] = pdfRef{Num: rootObjNum}
@@ -198,16 +198,16 @@ func encodeOutlineItem(e *outlineEntry, rootObjNum int) pdfDict {
 		}
 		dict["/Count"] = count
 	}
-	if flags := outlineFlags(o.bold, o.italic); flags != 0 {
+	if flags := outlineFlags(o.Bold(), o.Italic()); flags != 0 {
 		dict["/F"] = flags
 	}
-	if c := o.color; c != nil {
+	if c := o.Color(); c != nil {
 		dict["/C"] = pdfArray{c.R, c.G, c.B}
 	}
-	if d := o.destination; d != nil {
+	if d := o.Destination(); d != nil {
 		dict["/Dest"] = encodeDestination(d)
 	}
-	if a := o.action; a != nil {
+	if a := o.Action(); a != nil {
 		dict["/A"] = a.encode()
 	}
 	return dict

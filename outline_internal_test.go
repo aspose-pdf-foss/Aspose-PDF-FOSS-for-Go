@@ -265,3 +265,47 @@ func TestParseDestinationArray_BadPageRef(t *testing.T) {
 		t.Errorf("bad page ref should return nil, got %T", d)
 	}
 }
+
+func TestOutlines_Roundtrip_Single_Internal(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	item := NewOutlineItemCollection(doc)
+	item.SetTitle("Chapter 1")
+	item.SetDestination(NewDestinationXYZ(page, 100, 800, 1.5))
+	doc.Outlines().Add(item)
+
+	// We can't easily go through OpenStream here since this is an
+	// internal test, but we can verify that buildOutlineObjects +
+	// parseOutlines roundtrip via the doc.objects map.
+
+	// Build and inject outline objects into d.objects (simulating
+	// what the writer does).
+	outlinesRef, outlineObjs := buildOutlineObjects(doc)
+	for _, obj := range outlineObjs {
+		doc.objects[obj.Num] = obj
+	}
+	// Set catalog /Outlines (simulating writer integration).
+	if doc.catalog == nil {
+		doc.catalog = pdfDict{}
+	}
+	doc.catalog["/Outlines"] = outlinesRef
+
+	// Now reset doc.outlinesRoot and re-parse via Outlines().
+	doc.outlinesRoot = nil
+	root2 := doc.Outlines()
+	if root2.Count() != 1 {
+		t.Fatalf("after re-parse Count = %d, want 1", root2.Count())
+	}
+	item2 := root2.At(0)
+	if item2.Title() != "Chapter 1" {
+		t.Errorf("Title after re-parse = %q", item2.Title())
+	}
+	dest := item2.Destination()
+	xyz, ok := dest.(*DestinationXYZ)
+	if !ok {
+		t.Fatalf("Destination type = %T", dest)
+	}
+	if xyz.Left() != 100 || xyz.Top() != 800 || xyz.Zoom() != 1.5 {
+		t.Errorf("coords after re-parse: %v %v %v", xyz.Left(), xyz.Top(), xyz.Zoom())
+	}
+}
