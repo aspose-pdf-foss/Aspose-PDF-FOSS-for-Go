@@ -116,3 +116,79 @@ func TestEncodeDestinationFitR(t *testing.T) {
 		t.Errorf("arr[1] = %v", arr[1])
 	}
 }
+
+func TestBuildOutlineObjects_Empty(t *testing.T) {
+	doc := NewDocument(595, 842)
+	ref, objs := buildOutlineObjects(doc)
+	if ref.Num != 0 || len(objs) != 0 {
+		t.Errorf("empty doc: ref=%v objCount=%d, want zero", ref, len(objs))
+	}
+}
+
+func TestBuildOutlineObjects_Flat(t *testing.T) {
+	doc := NewDocument(595, 842)
+	root := doc.Outlines()
+	a := NewOutlineItemCollection(doc)
+	a.SetTitle("A")
+	root.Add(a)
+	ref, objs := buildOutlineObjects(doc)
+	if ref.Num == 0 {
+		t.Fatal("root ref should be non-zero")
+	}
+	// Expect 2 objects: root dict + 1 item dict
+	if len(objs) != 2 {
+		t.Errorf("obj count = %d, want 2", len(objs))
+	}
+	// Find the root dict (its /Type is /Outlines).
+	var rootDict pdfDict
+	for _, o := range objs {
+		if d, ok := o.Value.(pdfDict); ok {
+			if t, _ := d["/Type"].(pdfName); t == "/Outlines" {
+				rootDict = d
+			}
+		}
+	}
+	if rootDict == nil {
+		t.Fatal("no /Outlines root dict found")
+	}
+	if _, ok := rootDict["/First"]; !ok {
+		t.Error("/Outlines root should have /First")
+	}
+	if _, ok := rootDict["/Last"]; !ok {
+		t.Error("/Outlines root should have /Last")
+	}
+}
+
+func TestBuildOutlineObjects_Nested(t *testing.T) {
+	doc := NewDocument(595, 842)
+	root := doc.Outlines()
+	parent := NewOutlineItemCollection(doc)
+	parent.SetTitle("P")
+	child := NewOutlineItemCollection(doc)
+	child.SetTitle("C")
+	parent.Add(child)
+	root.Add(parent)
+	_, objs := buildOutlineObjects(doc)
+	// Expect 3 objects: root + parent + child
+	if len(objs) != 3 {
+		t.Errorf("obj count = %d, want 3", len(objs))
+	}
+	// Find the parent item (Title == "P") and verify it has /First /Last.
+	var parentDict pdfDict
+	for _, o := range objs {
+		if d, ok := o.Value.(pdfDict); ok {
+			if title := decodeFormString(d["/Title"]); title == "P" {
+				parentDict = d
+			}
+		}
+	}
+	if parentDict == nil {
+		t.Fatal("no parent item dict found")
+	}
+	if _, ok := parentDict["/First"]; !ok {
+		t.Error("parent /First missing")
+	}
+	if _, ok := parentDict["/Count"]; !ok {
+		t.Error("parent /Count missing (has 1 child)")
+	}
+}
