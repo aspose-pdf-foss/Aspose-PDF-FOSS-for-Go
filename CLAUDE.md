@@ -137,6 +137,17 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - AES-128 specifics: per-object key via `MD5(docKey || objNum_LE_3 || gen_LE_2 || "sAlT")[:16]` (Algorithm 1.A); AES-128-CBC with PKCS#7 padding and random 16-byte IV prepended to each encrypted string/stream. Single document-wide StdCF crypt filter; `/StmF` and `/StrF` both point to it
 - AES-256 specifics: random 256-bit File Encryption Key (FEK) is encrypted into /UE under user-derived key and /OE under owner-derived key; passwords are validated against /U / /O hashes computed by Algorithm 2.B; /Perms is an AES-256-ECB encrypted permissions block under FEK providing tamper-detection of /P. Per-object encryption uses FEK directly with AES-256-CBC + PKCS#7 + random 16-byte IV. PDF header bumped to `%PDF-2.0` per ISO 32000-2 requirement
 
+**`outline.go` / `outline_parse.go` / `outline_write.go` / `outline_destination.go`**
+- `(*Document).Outlines() *OutlineItemCollection` — root outline collection. Always non-nil; empty for documents without `/Outlines`. Lazy-parsed on first call. Mirrors Aspose.PDF for .NET's `Document.Outlines`
+- `OutlineItemCollection` — recursive tree node (entry + children collection). Mirrors Aspose .NET's `OutlineItemCollection : IList<OutlineItemCollection>`
+- Constructor: `NewOutlineItemCollection(doc *Document) *OutlineItemCollection` — unattached entry, must be added via `Add`/`Insert` to take effect. .NET equivalent: `new OutlineItemCollection(doc.Outlines)`
+- Style accessors: `Title()/SetTitle`, `Bold()/SetBold` (`/F` bit 2), `Italic()/SetItalic` (`/F` bit 1), `Color()/SetColor` (`*pdf.Color`), `IsExpanded()/SetIsExpanded` (sign of `/Count`)
+- Target accessors: `Action()/SetAction` (reuses `Action` from annotations), `Destination()/SetDestination`. Both may be set; per ISO 32000-1 §12.3.3 viewers honor `/Dest` first
+- Tree: `Add(child) error`, `Insert(index, child) error`, `Remove(child) bool`, `RemoveAt(index) error`, `At(index) *OutlineItemCollection`, `Count() int`, `All() []*OutlineItemCollection`, `Parent() *OutlineItemCollection`. Errors on nil child, cross-document, cycle, or already-attached
+- `Destination` interface + 8 concrete types per ISO 32000-1 §12.3.2.2: `DestinationXYZ`, `DestinationFit`, `DestinationFitH`, `DestinationFitV`, `DestinationFitR`, `DestinationFitB`, `DestinationFitBH`, `DestinationFitBV`. Each has `NewDestinationXxx(page *Page, ...)` constructor; XYZ/FitH/FitV/FitBH/FitBV also have `NewDestinationXxxUnchanged` variants that encode `/null` for "leave as-is"
+- Pages in destinations referenced by `*Page` (resolved to underlying object number at write time). Lazy dict-backed reads with copy-on-mutate: parsed items read from their PDF dict directly; first `SetXxx` call materializes all values into struct fields
+- Encryption-safe: outlines roundtrip cleanly under AES-128, AES-256, and RC4-128
+
 **`form.go` / `form_fields.go`**
 - `Form` — AcroForm view; `Fields() []Field`, `Field(name string) Field`, `HasField(name string) bool`, `NeedAppearances() bool`, `SetNeedAppearances(v bool)`
 - `Field` interface — `PartialName() string`, `FullName() string`, `Value() string`, `SetValue(s string) error`, `IsReadOnly() bool`, `IsRequired() bool`, `PageIndex() int`, `Rect() Rectangle`

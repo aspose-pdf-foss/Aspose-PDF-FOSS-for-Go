@@ -31,6 +31,7 @@ doc.Save("merged.pdf")
 - **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
 - **Metadata** — read document Info (title, author, dates, etc.)
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
+- **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Works alongside encryption + AcroForm + annotations
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -269,6 +270,31 @@ doc.Save("form.pdf")
 `/AcroForm/NeedAppearances` is auto-set on every Add or structural mutation, so any standards-compliant viewer regenerates the field appearances at display time.
 
 Out of scope for this release: self-rendered `/AP` appearances (separate epic — `/NeedAppearances=true` covers most viewers), and form flattening.
+
+### Outlines (Bookmarks)
+
+```go
+doc, _ := pdf.Open("input.pdf")
+page, _ := doc.Page(1)
+
+// Top-level bookmark with style + destination
+chapter := pdf.NewOutlineItemCollection(doc)
+chapter.SetTitle("Chapter 1")
+chapter.SetBold(true)
+chapter.SetColor(&pdf.Color{R: 0, G: 0, B: 0.8, A: 1})
+chapter.SetDestination(pdf.NewDestinationXYZ(page, 0, 800, 1.0))
+doc.Outlines().Add(chapter)
+
+// Nested child
+section := pdf.NewOutlineItemCollection(doc)
+section.SetTitle("Section 1.1")
+section.SetDestination(pdf.NewDestinationFit(page))
+chapter.Add(section)
+
+doc.Save("with_bookmarks.pdf")
+```
+
+API mirrors Aspose.PDF for .NET's `OutlineItemCollection` 1:1 — `Document.Outlines()` is the root collection, `NewOutlineItemCollection(doc)` constructs an unattached entry, and the same `IList<T>`-equivalent surface (`Add`/`Insert`/`Remove`/`RemoveAt`/`At`/`Count`/`All`) lives on every entry for managing children. All 8 PDF destination types are supported (XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV); the `XYZ`, `FitH`, `FitV`, `FitBH`, `FitBV` flavors also have `NewDestinationXxxUnchanged` variants for leaving specific coordinates as "current viewer state". `Action` and `Destination` may both be set per ISO 32000-1 §12.3.3 — viewers honor `/Dest` first.
 
 ### Annotations
 
