@@ -205,7 +205,15 @@ func encodeOutlineItem(e *outlineEntry, rootObjNum int) pdfDict {
 		dict["/C"] = pdfArray{c.R, c.G, c.B}
 	}
 	if d := o.Destination(); d != nil {
-		dict["/Dest"] = encodeDestination(d)
+		if nd, ok := d.(*NamedDestination); ok {
+			// Per ISO 32000-1 §12.3.2.3, /Dest may hold either an
+			// explicit-dest array or a name-string reference into
+			// /Names/Dests. The writer's case string: branch emits
+			// Go strings as PDF string literals "(name)".
+			dict["/Dest"] = nd.Name()
+		} else if arr := encodeDestination(d); arr != nil {
+			dict["/Dest"] = arr
+		}
 	}
 	if a := o.Action(); a != nil {
 		dict["/A"] = a.encode()

@@ -254,3 +254,28 @@ func TestNamedDestinations_WriterPreservesDirectDictNamesSibling(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 }
+
+func TestNamedDestinations_OutlineEmitsNameString(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	doc.NamedDestinations().Add("chapter1", pdf.NewDestinationFit(page))
+
+	oic := pdf.NewOutlineItemCollection(doc)
+	oic.SetTitle("Chapter 1")
+	oic.SetDestination(pdf.NewNamedDestination(doc, "chapter1"))
+	doc.Outlines().Add(oic)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// Outline /Dest should contain the name "chapter1" as a PDF string
+	// literal, not an explicit-dest array. The name will also appear in
+	// the /Names/Dests tree (registered above), so a plain substring
+	// check on "chapter1" passes spuriously. Instead, assert the exact
+	// "/Dest (chapter1)" form the writer produces for a Go string value.
+	if !strings.Contains(s, "/Dest (chapter1)") {
+		t.Error("output missing /Dest (chapter1) string literal in outline item")
+	}
+}
