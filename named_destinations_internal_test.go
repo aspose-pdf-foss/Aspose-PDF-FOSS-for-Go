@@ -101,3 +101,86 @@ func TestBuildNamedDestTree_SkipsNestedNamedDest(t *testing.T) {
 	}
 	_ = bytes.Buffer{} // keep import used
 }
+
+func TestWalkNameTree_FlatLeaf(t *testing.T) {
+	doc := NewDocument(595, 842)
+	leaf := pdfDict{
+		"/Names": pdfArray{
+			"alpha", pdfArray{pdfRef{Num: 999}, pdfName("/Fit")},
+			"beta", pdfArray{pdfRef{Num: 999}, pdfName("/Fit")},
+		},
+	}
+	visited := map[string]bool{}
+	walkNameTree(doc, leaf, func(name string, val pdfValue) {
+		visited[name] = true
+	})
+	if !visited["alpha"] || !visited["beta"] {
+		t.Errorf("visited = %v, want alpha + beta", visited)
+	}
+}
+
+func TestWalkNameTree_KidsHierarchy(t *testing.T) {
+	doc := NewDocument(595, 842)
+	leafA := pdfDict{
+		"/Names": pdfArray{"a", pdfArray{pdfRef{Num: 99}, pdfName("/Fit")}},
+	}
+	leafB := pdfDict{
+		"/Names": pdfArray{"b", pdfArray{pdfRef{Num: 99}, pdfName("/Fit")}},
+	}
+	leafAID := doc.nextID
+	doc.nextID++
+	doc.objects[leafAID] = &pdfObject{Num: leafAID, Value: leafA}
+	leafBID := doc.nextID
+	doc.nextID++
+	doc.objects[leafBID] = &pdfObject{Num: leafBID, Value: leafB}
+	root := pdfDict{
+		"/Kids": pdfArray{pdfRef{Num: leafAID}, pdfRef{Num: leafBID}},
+	}
+	visited := map[string]bool{}
+	walkNameTree(doc, root, func(name string, val pdfValue) {
+		visited[name] = true
+	})
+	if !visited["a"] || !visited["b"] {
+		t.Errorf("visited = %v, want a + b", visited)
+	}
+}
+
+func TestWalkNameTree_Cycle(t *testing.T) {
+	doc := NewDocument(595, 842)
+	rootID := doc.nextID
+	doc.nextID++
+	cycle := pdfDict{
+		"/Kids": pdfArray{pdfRef{Num: rootID}},
+	}
+	doc.objects[rootID] = &pdfObject{Num: rootID, Value: cycle}
+	visited := 0
+	walkNameTree(doc, pdfRef{Num: rootID}, func(name string, val pdfValue) {
+		visited++
+	})
+	_ = visited
+}
+
+func TestParseDestinationAny_Array(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	arr := pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/Fit")}
+	d := parseDestinationAny(doc, arr)
+	if d == nil {
+		t.Fatal("nil")
+	}
+	if d.DestinationType() != DestinationTypeFit {
+		t.Errorf("type = %v", d.DestinationType())
+	}
+}
+
+func TestParseDestinationAny_DictWithD(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	dict := pdfDict{
+		"/D": pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/Fit")},
+	}
+	d := parseDestinationAny(doc, dict)
+	if d == nil || d.DestinationType() != DestinationTypeFit {
+		t.Errorf("/D-wrapped parsing failed: %v", d)
+	}
+}
