@@ -18,6 +18,7 @@ type Document struct {
 	preserved    *encryptState      // captured verbatim at OpenWithPassword time; nil after any explicit mutation
 	nextID       int                // next available object ID
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
+	namedDests   *NamedDestinations // nil until first NamedDestinations() call
 }
 
 // Open opens a PDF file and returns a Document.

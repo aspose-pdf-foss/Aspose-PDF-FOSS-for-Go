@@ -12,6 +12,7 @@ const (
 	DestinationTypeFitB
 	DestinationTypeFitBH
 	DestinationTypeFitBV
+	DestinationTypeNamed // named destination reference via collection lookup
 )
 
 // Destination is the common interface for all explicit destinations.
