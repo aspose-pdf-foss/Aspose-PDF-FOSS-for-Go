@@ -33,7 +33,47 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 
 	// Build named-destination tree objects up-front so they're picked up by
 	// the contentIDs snapshot below and remapped along with everything else.
+	// When the original catalog already had a /Names dict (either as an
+	// indirect ref or as a direct dict per ISO 32000-1 §7.7.4), merge its
+	// non-/Dests subentries (JavaScript, EmbeddedFiles, etc.) into the
+	// synthesized /Names dict NOW so the merged value is the one written
+	// during the content-write loop below. Doing it later would be too
+	// late — the object's bytes are already on disk by then.
 	ndTreeRef, ndNamesDictRef, ndObjs := buildNamedDestTree(d)
+	if ndTreeRef.Num != 0 {
+		var preserved pdfDict
+		switch v := d.catalog["/Names"].(type) {
+		case pdfRef:
+			if obj, ok := d.objects[v.Num]; ok {
+				if dict, ok := obj.Value.(pdfDict); ok {
+					preserved = pdfDict{}
+					for k, val := range dict {
+						if k != "/Dests" {
+							preserved[k] = deepCopyValue(val)
+						}
+					}
+				}
+			}
+		case pdfDict:
+			preserved = pdfDict{}
+			for k, val := range v {
+				if k != "/Dests" {
+					preserved[k] = deepCopyValue(val)
+				}
+			}
+		}
+		if len(preserved) > 0 {
+			// ndObjs[1] is the parent /Names dict synthesized by
+			// buildNamedDestTree with only /Dests; fold the preserved
+			// siblings in before it gets serialized.
+			namesObj := ndObjs[1]
+			if dict, ok := namesObj.Value.(pdfDict); ok {
+				for k, val := range preserved {
+					dict[k] = val
+				}
+			}
+		}
+	}
 	for _, obj := range ndObjs {
 		d.objects[obj.Num] = obj
 	}
@@ -128,31 +168,12 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	if outlinesRef.Num != 0 {
 		catOut["/Outlines"] = outlinesRef
 	}
-	// /Names/Dests if collection non-empty. Merge with any existing /Names
-	// dict to preserve sibling subentries (JavaScript, EmbeddedFiles, etc.)
-	// without clobbering them. Strip old /Dests; the new tree replaces it.
+	// /Names/Dests if the collection is non-empty. The synthesized /Names
+	// dict was already merged with the original catalog's /Names siblings
+	// up-front (see buildNamedDestTree call site), so all we do here is
+	// point /Catalog/Names at the merged dict and let writeValue remap the
+	// ref to the output ID.
 	if ndTreeRef.Num != 0 {
-		var namesDict pdfDict
-		if existing, ok := catOut["/Names"].(pdfRef); ok {
-			if obj, ok := d.objects[existing.Num]; ok {
-				if dict, ok := obj.Value.(pdfDict); ok {
-					namesDict = pdfDict{}
-					for k, v := range dict {
-						if k != "/Dests" {
-							namesDict[k] = v
-						}
-					}
-				}
-			}
-		}
-		if namesDict == nil {
-			namesDict = pdfDict{}
-		}
-		namesDict["/Dests"] = ndTreeRef
-		// Replace the synthesized /Names dict in ndObjs (index 1) with the merged one.
-		ndObjs[1] = &pdfObject{Num: ndNamesDictRef.Num, Value: namesDict}
-		// Re-register the updated /Names dict object.
-		d.objects[ndNamesDictRef.Num] = ndObjs[1]
 		catOut["/Names"] = ndNamesDictRef
 	}
 	var catalogEncFn func([]byte) ([]byte, error)
