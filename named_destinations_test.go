@@ -344,3 +344,93 @@ func TestNamedDestinations_OutlineUnregisteredNameStillWraps(t *testing.T) {
 		t.Error("Resolve should be nil for unregistered name")
 	}
 }
+
+func TestNamedDestinations_RoundTrip_SingleEntry(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	doc.NamedDestinations().Add("intro", pdf.NewDestinationXYZ(page, 100, 800, 1.5))
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := doc2.NamedDestinations().Get("intro")
+	if dest == nil {
+		t.Fatal("intro not in NamedDestinations after roundtrip")
+	}
+	xyz, ok := dest.(*pdf.DestinationXYZ)
+	if !ok {
+		t.Fatalf("type = %T, want *DestinationXYZ", dest)
+	}
+	if xyz.Left() != 100 || xyz.Top() != 800 || xyz.Zoom() != 1.5 {
+		t.Errorf("coords: %v %v %v", xyz.Left(), xyz.Top(), xyz.Zoom())
+	}
+}
+
+func TestNamedDestinations_RoundTrip_AllDestTypes(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	cases := map[string]struct {
+		d    pdf.Destination
+		want pdf.DestinationType
+	}{
+		"a-xyz":  {pdf.NewDestinationXYZ(page, 1, 2, 3), pdf.DestinationTypeXYZ},
+		"b-fit":  {pdf.NewDestinationFit(page), pdf.DestinationTypeFit},
+		"c-fith": {pdf.NewDestinationFitH(page, 100), pdf.DestinationTypeFitH},
+		"d-fitv": {pdf.NewDestinationFitV(page, 50), pdf.DestinationTypeFitV},
+		"e-fitr": {pdf.NewDestinationFitR(page, 10, 20, 30, 40), pdf.DestinationTypeFitR},
+		"f-fitb": {pdf.NewDestinationFitB(page), pdf.DestinationTypeFitB},
+		"g-fbh":  {pdf.NewDestinationFitBH(page, 100), pdf.DestinationTypeFitBH},
+		"h-fbv":  {pdf.NewDestinationFitBV(page, 50), pdf.DestinationTypeFitBV},
+	}
+	for name, c := range cases {
+		doc.NamedDestinations().Add(name, c.d)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range cases {
+		got := doc2.NamedDestinations().Get(name)
+		if got == nil {
+			t.Errorf("[%s] missing after roundtrip", name)
+			continue
+		}
+		if got.DestinationType() != c.want {
+			t.Errorf("[%s] type = %v, want %v", name, got.DestinationType(), c.want)
+		}
+	}
+}
+
+func TestNamedDestinations_ForwardReference(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	oic := pdf.NewOutlineItemCollection(doc)
+	oic.SetTitle("Notes")
+	// Reference before registering.
+	oic.SetDestination(pdf.NewNamedDestination(doc, "notes"))
+	doc.Outlines().Add(oic)
+	// Register later.
+	doc.NamedDestinations().Add("notes", pdf.NewDestinationFit(page))
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nd, _ := doc2.Outlines().At(0).Destination().(*pdf.NamedDestination)
+	if nd == nil || nd.Resolve() == nil {
+		t.Error("forward reference didn't resolve after roundtrip")
+	}
+}
