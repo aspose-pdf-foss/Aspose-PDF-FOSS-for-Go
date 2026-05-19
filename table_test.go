@@ -3,6 +3,7 @@ package asposepdf_test
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -476,33 +477,6 @@ func TestAddTable_OuterBorderClampedToDrawnRows(t *testing.T) {
 	}
 }
 
-func TestAddTable_RowsBeyondRectAreClipped(t *testing.T) {
-	doc := pdf.NewDocument(595, 842)
-	page, _ := doc.Page(1)
-
-	// 3 rows, each ~22pt with default 12pt font + default margins. Rect is
-	// only 30pt tall, so only the first row fits.
-	table := pdf.NewTable().
-		SetColumnWidths([]float64{100}).
-		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
-		SetDefaultCellMargin(pdf.MarginInfo{Top: 4, Right: 4, Bottom: 4, Left: 4})
-	table.AddRow().AddCell("rowOne")
-	table.AddRow().AddCell("rowTwo")
-	table.AddRow().AddCell("rowThree")
-
-	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 730}); err != nil {
-		t.Fatal(err)
-	}
-
-	text, _ := page.ExtractText()
-	if !strings.Contains(text, "rowOne") {
-		t.Error("rowOne should have been drawn")
-	}
-	if strings.Contains(text, "rowThree") {
-		t.Error("rowThree should have been clipped (rect too short)")
-	}
-}
-
 func TestAddTable_AES128Roundtrip(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -791,5 +765,105 @@ func TestAddTable_RepeatingRowsCountValidation(t *testing.T) {
 	_, err = page.AddTable(table2, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
 	if err == nil {
 		t.Error("expected error for negative RepeatingRowsCount")
+	}
+}
+
+func TestAddTable_OverflowAddsPage(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 4, Right: 4, Bottom: 4, Left: 4})
+	// 3 rows of ~22pt each = ~66pt; rect height = 30pt → only 1 row fits.
+	table.AddRow().AddCell("rowOne")
+	table.AddRow().AddCell("rowTwo")
+	table.AddRow().AddCell("rowThree")
+
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 730})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Errorf("pagesAdded = %d, want >= 1", pagesAdded)
+	}
+	if doc.PageCount() != 1+pagesAdded {
+		t.Errorf("PageCount = %d, want %d", doc.PageCount(), 1+pagesAdded)
+	}
+}
+
+func TestAddTable_OverflowReturnsZeroIfFits(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{100})
+	table.AddRow().AddCell("only row")
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded != 0 {
+		t.Errorf("pagesAdded = %d, want 0 (fits)", pagesAdded)
+	}
+	if doc.PageCount() != 1 {
+		t.Errorf("PageCount = %d, want 1", doc.PageCount())
+	}
+}
+
+func TestAddTable_OverflowContentSurvivesRoundTrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 3, Bottom: 3, Left: 3})
+	for i := 1; i <= 8; i++ {
+		table.AddRow().AddCell(fmt.Sprintf("row%d", i))
+	}
+
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 760}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 8; i++ {
+		want := fmt.Sprintf("row%d", i)
+		found := false
+		for p := 1; p <= doc2.PageCount(); p++ {
+			pg, _ := doc2.Page(p)
+			text, _ := pg.ExtractText()
+			if strings.Contains(text, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing %q somewhere in document", want)
+		}
+	}
+}
+
+func TestAddTable_OverflowGroupTooTallErrors(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetOverflowMargins(400, 400) // leaves only 42pt for content on A4 (842-800)
+	row := table.AddRow()
+	row.SetHeight(100) // single row taller than the available continuation space
+	row.AddCell("huge")
+
+	_, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50})
+	if err == nil {
+		t.Error("expected error for group too tall for any page")
 	}
 }

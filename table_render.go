@@ -10,10 +10,9 @@ import (
 // Returns the number of pages automatically appended to the document (0 when
 // the table fits in rect). When the table doesn't fit and overflow is needed,
 // new pages are appended with dimensions matching the receiver page; the
-// continuation rectangle is computed from t.OverflowMargins().
-//
-// (Overflow logic arrives in Phase 2 Task 9 — this task only changes the
-// signature; the function still always returns 0 for pagesAdded.)
+// continuation rectangle is computed from t.OverflowMargins(). Repeating
+// header rows (see Table.SetRepeatingRowsCount) draw at the top of each page,
+// including the original.
 //
 // Errors before any drawing on validation failures: nil table, bad rect,
 // non-positive column widths, mismatched cell counts (span-aware), merge
@@ -54,34 +53,124 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 		return 0, fmt.Errorf("add table: %w", err)
 	}
 
-	// X offsets: xOffsets[c] = sum(columnWidths[0..c]); len(xOffsets) = numCols+1.
+	// Pre-compute xOffsets (running sum of column widths).
 	xOffsets := make([]float64, len(t.columnWidths)+1)
 	for i, w := range t.columnWidths {
 		xOffsets[i+1] = xOffsets[i] + w
 	}
 
-	// Single-page rendering (Phase 1-style clip — Task 9 replaces with multi-page).
-	y := rect.URY
-	drawnHeight := 0.0
-	i := 0
-	for i < len(t.rows) {
-		if y-heights[i] < rect.LLY {
-			break
+	// Compute continuation rect (used on auto-appended pages).
+	overflowTop, overflowBottom := t.OverflowMargins()
+	sz, err := p.Size()
+	if err != nil {
+		return 0, fmt.Errorf("add table: page size: %w", err)
+	}
+	continuationRect := Rectangle{
+		LLX: rect.LLX,
+		LLY: overflowBottom,
+		URX: rect.URX,
+		URY: sz.Height - overflowTop,
+	}
+	continuationHeight := continuationRect.URY - continuationRect.LLY
+	if continuationHeight <= 0 {
+		return 0, fmt.Errorf(
+			"add table: continuation rect has non-positive height (page %g, margins top=%g bottom=%g)",
+			sz.Height, overflowTop, overflowBottom)
+	}
+
+	// Compute spanning groups for the body (skip header rows).
+	groups := computeSpanningGroups(t, t.repeatingRowsCount)
+
+	// Validate header + group heights against available rectangles.
+	headerHeight := 0.0
+	for i := 0; i < t.repeatingRowsCount; i++ {
+		headerHeight += heights[i]
+	}
+	if headerHeight > rect.URY-rect.LLY {
+		return 0, fmt.Errorf("add table: header rows height %g exceeds initial rect height %g",
+			headerHeight, rect.URY-rect.LLY)
+	}
+	if headerHeight > continuationHeight {
+		return 0, fmt.Errorf("add table: header rows height %g exceeds continuation rect height %g",
+			headerHeight, continuationHeight)
+	}
+	for _, g := range groups {
+		gh := 0.0
+		for r := g.start; r <= g.end; r++ {
+			gh += heights[r]
 		}
-		h, err := drawRowRange(p, t, i, i, rect, y, covered, xOffsets, heights)
+		if gh > continuationHeight-headerHeight {
+			return 0, fmt.Errorf("add table: group [%d..%d] height %g exceeds continuation rect body height %g",
+				g.start, g.end, gh, continuationHeight-headerHeight)
+		}
+	}
+
+	// Render loop.
+	pagesAdded := 0
+	currentPage := p
+	currentRect := rect
+	y := currentRect.URY
+	pageDrawn := 0.0
+
+	// Headers on the first page.
+	if t.repeatingRowsCount > 0 {
+		h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights)
 		if err != nil {
-			return 0, fmt.Errorf("add table: %w", err)
+			return pagesAdded, fmt.Errorf("add table: headers: %w", err)
 		}
 		y -= h
-		drawnHeight += h
-		i++
+		pageDrawn += h
 	}
 
-	if err := drawOuterBorder(p, t, rect, rect.URY, drawnHeight, xOffsets); err != nil {
-		return 0, fmt.Errorf("add table: outer border: %w", err)
+	// Walk body groups.
+	for _, g := range groups {
+		groupH := 0.0
+		for r := g.start; r <= g.end; r++ {
+			groupH += heights[r]
+		}
+		if y-groupH < currentRect.LLY {
+			// Overflow: finish outer border on current page, append a new page.
+			if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets); err != nil {
+				return pagesAdded, fmt.Errorf("add table: outer border (page break): %w", err)
+			}
+
+			if err := p.doc.AddBlankPage(sz.Width, sz.Height); err != nil {
+				return pagesAdded, fmt.Errorf("add table: append page: %w", err)
+			}
+			pagesAdded++
+			// Construct a Page view directly for the new last page. Using
+			// doc.Page() here would panic if a stale pageCache was lazily
+			// allocated earlier with a shorter length.
+			currentPage = &Page{doc: p.doc, index: len(p.doc.pages) - 1}
+			currentRect = continuationRect
+			y = currentRect.URY
+			pageDrawn = 0.0
+
+			// Repeat headers on the new page.
+			if t.repeatingRowsCount > 0 {
+				h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights)
+				if err != nil {
+					return pagesAdded, fmt.Errorf("add table: repeated headers: %w", err)
+				}
+				y -= h
+				pageDrawn += h
+			}
+		}
+
+		h, err := drawRowRange(currentPage, t, g.start, g.end, currentRect, y, covered, xOffsets, heights)
+		if err != nil {
+			return pagesAdded, fmt.Errorf("add table: group [%d..%d]: %w", g.start, g.end, err)
+		}
+		y -= h
+		pageDrawn += h
 	}
 
-	return 0, nil
+	// Final outer border on the last page.
+	if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets); err != nil {
+		return pagesAdded, fmt.Errorf("add table: outer border (final): %w", err)
+	}
+
+	return pagesAdded, nil
 }
 
 // validateAndCover walks the rows, validates span boundaries + non-overlap,
