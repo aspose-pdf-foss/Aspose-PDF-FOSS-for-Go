@@ -1022,3 +1022,56 @@ func TestAddTable_RowSpanGroupSurvivesPageBreak(t *testing.T) {
 		t.Errorf("rowspan group split across pages: span=%d b4=%d b5=%d", spanPage, b4Page, b5Page)
 	}
 }
+
+func TestAddTable_OverflowAES128Roundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 3, Bottom: 3, Left: 3})
+	table.AddRow().AddCell("encrypted header")
+	for i := 1; i <= 5; i++ {
+		table.AddRow().AddCell(fmt.Sprintf("encrypted row%d", i))
+	}
+	table.SetRepeatingRowsCount(1)
+
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 760})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Fatal("expected overflow")
+	}
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES128,
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Header must appear on every page; all 5 body rows must appear somewhere.
+	foundRows := 0
+	for p := 1; p <= doc2.PageCount(); p++ {
+		pg, _ := doc2.Page(p)
+		text, _ := pg.ExtractText()
+		if !strings.Contains(text, "encrypted header") {
+			t.Errorf("page %d missing repeated header", p)
+		}
+		for i := 1; i <= 5; i++ {
+			if strings.Contains(text, fmt.Sprintf("encrypted row%d", i)) {
+				foundRows++
+			}
+		}
+	}
+	if foundRows != 5 {
+		t.Errorf("found %d body rows across pages; want 5", foundRows)
+	}
+}
