@@ -2,11 +2,45 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"compress/zlib"
+	"io"
+	"regexp"
 	"strings"
 	"testing"
 
 	pdf "github.com/aspose/pdf-for-go"
 )
+
+// renderedContent returns the concatenated, FlateDecoded content stream bytes
+// produced by doc.WriteTo, so tests can grep for raw PDF operators (which the
+// writer otherwise stores compressed).
+func renderedContent(t *testing.T, doc *pdf.Document) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	data := buf.Bytes()
+	re := regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
+	var out strings.Builder
+	for _, m := range re.FindAllSubmatch(data, -1) {
+		body := m[1]
+		zr, err := zlib.NewReader(bytes.NewReader(body))
+		if err != nil {
+			// Not a flate stream — append as-is (e.g. uncompressed object).
+			out.Write(body)
+			continue
+		}
+		dec, err := io.ReadAll(zr)
+		zr.Close()
+		if err != nil {
+			continue
+		}
+		out.Write(dec)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
 
 func TestTable_BorderSideBitmask(t *testing.T) {
 	if pdf.BorderSideNone != 0 {
@@ -295,5 +329,82 @@ func TestAddTable_RoundTripText(t *testing.T) {
 	text, _ := page2.ExtractText()
 	if !strings.Contains(text, "hello") || !strings.Contains(text, "world") {
 		t.Errorf("roundtrip lost cell text: %q", text)
+	}
+}
+
+func TestAddTable_BackgroundFillEmitted(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50})
+	cell := table.AddRow().AddCell("x")
+	cell.SetBackground(&pdf.Color{R: 1, G: 0, B: 0, A: 1})
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := renderedContent(t, doc)
+	// Red fill: 1 0 0 rg ... re f
+	if !strings.Contains(s, "1 0 0 rg") {
+		t.Error("output missing red fill color")
+	}
+}
+
+func TestAddTable_BorderSidesMask(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("x").
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideTop | pdf.BorderSideBottom, Width: 1})
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := renderedContent(t, doc)
+	// Two strokes from the cell border (Top + Bottom).
+	strokeCount := strings.Count(s, " S\n")
+	if strokeCount < 2 {
+		t.Errorf("strokes = %d, want >= 2 (top + bottom)", strokeCount)
+	}
+}
+
+func TestAddTable_ZeroWidthBorderNotDrawn(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("x").
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 0})
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := renderedContent(t, doc)
+	if strings.Contains(s, " S\n") {
+		t.Error("zero-width border should not emit stroke")
+	}
+}
+
+func TestAddTable_CellOverridesDefaultBorder(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{50, 50}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 0.5})
+	row := table.AddRow()
+	row.AddCell("a") // inherits default
+	row.AddCell("b").SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 3})
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, "0.5 w") {
+		t.Error("default border width 0.5 missing")
+	}
+	if !strings.Contains(s, "3 w") {
+		t.Error("cell-override border width 3 missing")
 	}
 }

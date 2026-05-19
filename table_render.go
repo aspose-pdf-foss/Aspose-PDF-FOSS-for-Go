@@ -1,6 +1,9 @@
 package asposepdf
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // AddTable renders the table inside the given rectangle. Per the package
 // design, cell content is drawn using each cell's TextStyle override (or the
@@ -65,9 +68,28 @@ func (p *Page) AddTable(t *Table, rect Rectangle) error {
 				URX: cellURX - margin.Right,
 				URY: cellURY - margin.Top,
 			}
+
+			// 1. Background first (so text and borders go on top).
+			if cell.background != nil {
+				if err := p.appendToContentStream([]byte(
+					drawCellBackground(cellLLX, cellLLY, cellURX, cellURY, cell.background),
+				)); err != nil {
+					return fmt.Errorf("add table: row %d col %d background: %w", i, col, err)
+				}
+			}
+
+			// 2. Text (existing AddText call).
 			if interior.URX > interior.LLX && interior.URY > interior.LLY && cell.text != "" {
 				if err := p.AddText(cell.text, style, interior); err != nil {
 					return fmt.Errorf("add table: row %d col %d text: %w", i, col, err)
+				}
+			}
+
+			// 3. Cell border on top of text edges.
+			border := effectiveCellBorder(t, cell)
+			if ops := drawBorderSides(cellLLX, cellLLY, cellURX, cellURY, border); ops != "" {
+				if err := p.appendToContentStream([]byte(ops)); err != nil {
+					return fmt.Errorf("add table: row %d col %d border: %w", i, col, err)
 				}
 			}
 			x += colWidth
@@ -125,6 +147,63 @@ func effectiveCellMargin(t *Table, c *Cell) MarginInfo {
 		return *c.margin
 	}
 	return t.defaultCellMargin
+}
+
+// drawCellBackground returns a content-stream fragment that fills the cell
+// rect with the given color. Returns empty string if col is nil.
+func drawCellBackground(cellLLX, cellLLY, cellURX, cellURY float64, col *Color) string {
+	if col == nil {
+		return ""
+	}
+	w := cellURX - cellLLX
+	h := cellURY - cellLLY
+	return fmt.Sprintf("q\n%s %s %s rg\n%s %s %s %s re f\nQ\n",
+		formatFloat(col.R), formatFloat(col.G), formatFloat(col.B),
+		formatFloat(cellLLX), formatFloat(cellLLY),
+		formatFloat(w), formatFloat(h))
+}
+
+// drawBorderSides returns stroking operators for each side of a rectangle
+// selected by the bitmask. Returns empty string if no sides or zero width.
+func drawBorderSides(llx, lly, urx, ury float64, b BorderInfo) string {
+	if b.Sides == BorderSideNone || b.Width <= 0 {
+		return ""
+	}
+	col := Color{R: 0, G: 0, B: 0, A: 1}
+	if b.Color != nil {
+		col = *b.Color
+	}
+	var buf strings.Builder
+	buf.WriteString("q\n")
+	buf.WriteString(fmt.Sprintf("%s w\n", formatFloat(b.Width)))
+	buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
+		formatFloat(col.R), formatFloat(col.G), formatFloat(col.B)))
+	if b.Sides&BorderSideTop != 0 {
+		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
+			formatFloat(llx), formatFloat(ury), formatFloat(urx), formatFloat(ury)))
+	}
+	if b.Sides&BorderSideRight != 0 {
+		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
+			formatFloat(urx), formatFloat(ury), formatFloat(urx), formatFloat(lly)))
+	}
+	if b.Sides&BorderSideBottom != 0 {
+		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
+			formatFloat(urx), formatFloat(lly), formatFloat(llx), formatFloat(lly)))
+	}
+	if b.Sides&BorderSideLeft != 0 {
+		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
+			formatFloat(llx), formatFloat(lly), formatFloat(llx), formatFloat(ury)))
+	}
+	buf.WriteString("Q\n")
+	return buf.String()
+}
+
+// effectiveCellBorder returns the per-cell border, falling back to the table default.
+func effectiveCellBorder(t *Table, c *Cell) BorderInfo {
+	if c.border != nil {
+		return *c.border
+	}
+	return t.defaultCellBorder
 }
 
 // effectiveCellStyle returns the resolved TextStyle for a cell, layering:
