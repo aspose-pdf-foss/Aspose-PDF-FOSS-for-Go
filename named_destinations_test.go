@@ -348,7 +348,9 @@ func TestNamedDestinations_OutlineUnregisteredNameStillWraps(t *testing.T) {
 func TestNamedDestinations_RoundTrip_SingleEntry(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
-	doc.NamedDestinations().Add("intro", pdf.NewDestinationXYZ(page, 100, 800, 1.5))
+	if err := doc.NamedDestinations().Add("intro", pdf.NewDestinationXYZ(page, 100, 800, 1.5)); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 
 	var buf bytes.Buffer
 	if _, err := doc.WriteTo(&buf); err != nil {
@@ -378,17 +380,19 @@ func TestNamedDestinations_RoundTrip_AllDestTypes(t *testing.T) {
 		d    pdf.Destination
 		want pdf.DestinationType
 	}{
-		"a-xyz":  {pdf.NewDestinationXYZ(page, 1, 2, 3), pdf.DestinationTypeXYZ},
-		"b-fit":  {pdf.NewDestinationFit(page), pdf.DestinationTypeFit},
-		"c-fith": {pdf.NewDestinationFitH(page, 100), pdf.DestinationTypeFitH},
-		"d-fitv": {pdf.NewDestinationFitV(page, 50), pdf.DestinationTypeFitV},
-		"e-fitr": {pdf.NewDestinationFitR(page, 10, 20, 30, 40), pdf.DestinationTypeFitR},
-		"f-fitb": {pdf.NewDestinationFitB(page), pdf.DestinationTypeFitB},
-		"g-fbh":  {pdf.NewDestinationFitBH(page, 100), pdf.DestinationTypeFitBH},
-		"h-fbv":  {pdf.NewDestinationFitBV(page, 50), pdf.DestinationTypeFitBV},
+		"xyz":   {pdf.NewDestinationXYZ(page, 1, 2, 3), pdf.DestinationTypeXYZ},
+		"fit":   {pdf.NewDestinationFit(page), pdf.DestinationTypeFit},
+		"fith":  {pdf.NewDestinationFitH(page, 100), pdf.DestinationTypeFitH},
+		"fitv":  {pdf.NewDestinationFitV(page, 50), pdf.DestinationTypeFitV},
+		"fitr":  {pdf.NewDestinationFitR(page, 10, 20, 30, 40), pdf.DestinationTypeFitR},
+		"fitb":  {pdf.NewDestinationFitB(page), pdf.DestinationTypeFitB},
+		"fitbh": {pdf.NewDestinationFitBH(page, 100), pdf.DestinationTypeFitBH},
+		"fitbv": {pdf.NewDestinationFitBV(page, 50), pdf.DestinationTypeFitBV},
 	}
 	for name, c := range cases {
-		doc.NamedDestinations().Add(name, c.d)
+		if err := doc.NamedDestinations().Add(name, c.d); err != nil {
+			t.Fatalf("Add(%q): %v", name, err)
+		}
 	}
 	var buf bytes.Buffer
 	if _, err := doc.WriteTo(&buf); err != nil {
@@ -419,7 +423,9 @@ func TestNamedDestinations_ForwardReference(t *testing.T) {
 	oic.SetDestination(pdf.NewNamedDestination(doc, "notes"))
 	doc.Outlines().Add(oic)
 	// Register later.
-	doc.NamedDestinations().Add("notes", pdf.NewDestinationFit(page))
+	if err := doc.NamedDestinations().Add("notes", pdf.NewDestinationFit(page)); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 
 	var buf bytes.Buffer
 	if _, err := doc.WriteTo(&buf); err != nil {
@@ -429,8 +435,16 @@ func TestNamedDestinations_ForwardReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nd, _ := doc2.Outlines().At(0).Destination().(*pdf.NamedDestination)
-	if nd == nil || nd.Resolve() == nil {
-		t.Error("forward reference didn't resolve after roundtrip")
+	dest := doc2.Outlines().At(0).Destination()
+	nd, ok := dest.(*pdf.NamedDestination)
+	if !ok {
+		t.Fatalf("Destination type = %T, want *NamedDestination", dest)
+	}
+	resolved := nd.Resolve()
+	if resolved == nil {
+		t.Fatal("forward reference didn't resolve after roundtrip")
+	}
+	if _, ok := resolved.(*pdf.DestinationFit); !ok {
+		t.Errorf("resolved type = %T, want *DestinationFit", resolved)
 	}
 }
