@@ -1,6 +1,7 @@
 package asposepdf_test
 
 import (
+	"fmt"
 	"testing"
 
 	pdf "github.com/aspose/pdf-for-go"
@@ -51,6 +52,83 @@ func TestAsposeParity_CellOverrides(t *testing.T) {
 	cell.SetHAlign(pdf.HAlignCenter)
 	cell.SetVAlign(pdf.VAlignMiddle)
 	cell.SetMargin(pdf.MarginInfo{Top: 5, Right: 5, Bottom: 5, Left: 5})
+
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Aspose .NET sample:
+//   Table table = new Table();
+//   table.ColumnWidths = "80 160 80";
+//   table.RepeatingRowsCount = 1;
+//   Row header = table.Rows.Add();
+//   header.Cells.Add("Header A");
+//   header.Cells.Add("Header B");
+//   header.Cells.Add("Header C");
+//   for (int i = 0; i < 30; i++) {
+//       Row r = table.Rows.Add();
+//       r.Cells.Add("a"+i); r.Cells.Add("b"+i); r.Cells.Add("c"+i);
+//   }
+//   page.Paragraphs.Add(table); // auto-flows across pages
+func TestAsposeParity_TableRepeatingRows(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{80, 160, 80}).
+		SetRepeatingRowsCount(1)
+	header := table.AddRow()
+	header.AddCells("Header A", "Header B", "Header C")
+	for i := 0; i < 30; i++ {
+		table.AddRow().AddCells(
+			fmt.Sprintf("a%d", i),
+			fmt.Sprintf("b%d", i),
+			fmt.Sprintf("c%d", i),
+		)
+	}
+
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 100, URX: 370, URY: 320})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Fatalf("expected overflow, pagesAdded = %d", pagesAdded)
+	}
+}
+
+// Aspose .NET sample:
+//   Cell cell = row.Cells.Add("TOTAL");
+//   cell.ColSpan = 2;
+//   cell.Alignment = HorizontalAlignment.Right;
+func TestAsposeParity_CellColSpan(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().SetColumnWidths([]float64{80, 80, 80, 80})
+	row := table.AddRow()
+	row.AddCell("Item 1").SetHAlign(pdf.HAlignLeft)
+	row.AddCell("Item 2").SetHAlign(pdf.HAlignLeft)
+	row.AddCell("TOTAL").SetColSpan(2).SetHAlign(pdf.HAlignRight)
+
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 370, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Aspose .NET sample:
+//   Cell cell = row.Cells.Add("Category");
+//   cell.RowSpan = 3;
+func TestAsposeParity_CellRowSpan(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().SetColumnWidths([]float64{100, 100})
+	row0 := table.AddRow()
+	row0.AddCell("Category").SetRowSpan(3)
+	row0.AddCell("Item 1")
+	table.AddRow().AddCell("Item 2") // col 0 covered by rowspan
+	table.AddRow().AddCell("Item 3") // col 0 covered by rowspan
 
 	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}); err != nil {
 		t.Fatal(err)
