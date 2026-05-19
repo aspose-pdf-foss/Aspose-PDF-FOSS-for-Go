@@ -61,6 +61,8 @@ type Cell struct {
 	vAlign     VAlign
 	hAlignSet  bool
 	vAlignSet  bool
+	colSpan    int // 0 == default 1
+	rowSpan    int // 0 == default 1
 }
 
 // NewTable returns an empty table. Configure via Set* methods + AddRow.
@@ -171,3 +173,33 @@ func (c *Cell) Margin() *MarginInfo { return c.margin }
 
 func (c *Cell) SetHAlign(h HAlign) *Cell { c.hAlign = h; c.hAlignSet = true; return c }
 func (c *Cell) SetVAlign(v VAlign) *Cell { c.vAlign = v; c.vAlignSet = true; return c }
+
+// SetColSpan sets the column span (cells the cell occupies horizontally).
+// Default 1. Mirrors Aspose.PDF for .NET's Cell.ColSpan.
+//
+// When colSpan > 1, the caller does NOT add cells for the positions covered
+// by the span — the row simply has fewer cells.
+func (c *Cell) SetColSpan(n int) *Cell { c.colSpan = n; return c }
+
+// ColSpan returns the cell's column span (1 if unset).
+func (c *Cell) ColSpan() int {
+	if c.colSpan < 1 {
+		return 1
+	}
+	return c.colSpan
+}
+
+// SetRowSpan sets the row span (rows the cell occupies vertically).
+// Default 1. Mirrors Aspose.PDF for .NET's Cell.RowSpan.
+//
+// When rowSpan > 1, the caller does NOT add cells in subsequent rows for the
+// positions covered by the span — those rows simply have fewer cells.
+func (c *Cell) SetRowSpan(n int) *Cell { c.rowSpan = n; return c }
+
+// RowSpan returns the cell's row span (1 if unset).
+func (c *Cell) RowSpan() int {
+	if c.rowSpan < 1 {
+		return 1
+	}
+	return c.rowSpan
+}

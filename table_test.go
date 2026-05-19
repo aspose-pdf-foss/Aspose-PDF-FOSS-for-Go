@@ -641,3 +641,27 @@ func TestAddTable_CellStyleOverridesDefault(t *testing.T) {
 		t.Errorf("override cell font size = %g, want 18", bigSize)
 	}
 }
+
+func TestCell_ColSpanDefault(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("x")
+	if cell.ColSpan() != 1 {
+		t.Errorf("default ColSpan = %d, want 1", cell.ColSpan())
+	}
+	if cell.RowSpan() != 1 {
+		t.Errorf("default RowSpan = %d, want 1", cell.RowSpan())
+	}
+}
+
+func TestCell_SetColSpanChaining(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50, 50, 50}).AddRow().AddCell("x").SetColSpan(2)
+	if cell.ColSpan() != 2 {
+		t.Errorf("ColSpan = %d, want 2", cell.ColSpan())
+	}
+}
+
+func TestCell_SetRowSpanChaining(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("x").SetRowSpan(3)
+	if cell.RowSpan() != 3 {
+		t.Errorf("RowSpan = %d, want 3", cell.RowSpan())
+	}
+}
