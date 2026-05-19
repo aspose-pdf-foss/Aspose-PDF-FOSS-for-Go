@@ -235,3 +235,52 @@ func TestValidateAndCover_MergeOverlapErrors(t *testing.T) {
 		t.Error("expected error: row 1 has 2 cells but only 1 uncovered slot")
 	}
 }
+
+func TestComputeRowHeights_ColSpanUsesWiderInterior(t *testing.T) {
+	// Two columns each 60pt. Without colspan, "Hello World Foo Bar" wraps in 60pt.
+	// With colspan(2), interior is 120 - margins → no wrap.
+	table := NewTable().SetColumnWidths([]float64{60, 60}).
+		SetDefaultCellStyle(TextStyle{Font: FontHelvetica, Size: 12}).
+		SetDefaultCellMargin(MarginInfo{Top: 4, Right: 4, Bottom: 4, Left: 4})
+	row := table.AddRow()
+	row.AddCell("Hello World Foo Bar").SetColSpan(2)
+	heights, err := computeRowHeights(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Interior width = 120 - 8 = 112pt; "Hello World Foo Bar" ≈ 110pt at 12pt
+	// Helvetica → fits on one line. Height = lineHeight + top + bottom margin.
+	size := 12.0
+	spacing := 1.2
+	lineHeight := size * spacing
+	want := 1.0*lineHeight + 4.0 + 4.0
+	if heights[0] != want {
+		t.Errorf("colspan row height = %g, want %g (no wrap with wider interior)",
+			heights[0], want)
+	}
+}
+
+func TestComputeRowHeights_RowSpanCellExcludedFromMax(t *testing.T) {
+	// Row 0: tall rowspan cell (occupies rows 0 and 1) + normal cell.
+	// Row 1: one cell at col 1 (col 0 is covered).
+	// Auto-fit row heights are determined by NON-rowspan cells only.
+	table := NewTable().SetColumnWidths([]float64{60, 60}).
+		SetDefaultCellStyle(TextStyle{Font: FontHelvetica, Size: 12}).
+		SetDefaultCellMargin(MarginInfo{Top: 2, Right: 2, Bottom: 2, Left: 2})
+	row0 := table.AddRow()
+	row0.AddCell("Multi-line\ntall content here\nover multiple lines").SetRowSpan(2)
+	row0.AddCell("a")
+	table.AddRow().AddCell("b")
+	heights, err := computeRowHeights(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each row's non-rowspan cell is a single line.
+	size := 12.0
+	spacing := 1.2
+	lineHeight := size * spacing
+	want := lineHeight + 2.0 + 2.0
+	if heights[0] != want || heights[1] != want {
+		t.Errorf("rowspan-excluded heights = %v, want both %g", heights, want)
+	}
+}

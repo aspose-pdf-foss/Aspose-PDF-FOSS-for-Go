@@ -205,17 +205,43 @@ func validateAndCover(t *Table) ([][]bool, error) {
 // (column width - margin.Left - margin.Right).
 func computeRowHeights(t *Table) ([]float64, error) {
 	heights := make([]float64, len(t.rows))
+
+	// Span-aware iteration needs the covered grid. Call validateAndCover here;
+	// AddTable also calls it — both calls produce identical output. For MVP
+	// this O(rows*cols) duplicate work is acceptable.
+	covered, err := validateAndCover(t)
+	if err != nil {
+		return nil, err
+	}
+
 	for i, row := range t.rows {
 		if row.height > 0 {
 			heights[i] = row.height
 			continue
 		}
 		maxH := 0.0
-		for col, cell := range row.cells {
-			colWidth := t.columnWidths[col]
+		col := 0
+		for _, cell := range row.cells {
+			// Skip positions covered by inherited rowspans.
+			for col < len(t.columnWidths) && covered[i][col] {
+				col++
+			}
+			cs := cell.ColSpan()
+			rs := cell.RowSpan()
+			// Skip rowspan cells: their height is checked separately (currently
+			// they're allowed to clip if too tall — matches AddText clip semantics).
+			if rs > 1 {
+				col += cs
+				continue
+			}
+			// Interior width = sum of cs column widths - margins.
+			sumW := 0.0
+			for c := 0; c < cs; c++ {
+				sumW += t.columnWidths[col+c]
+			}
 			margin := effectiveCellMargin(t, cell)
 			style := effectiveCellStyle(t, cell)
-			interiorWidth := colWidth - margin.Left - margin.Right
+			interiorWidth := sumW - margin.Left - margin.Right
 			if interiorWidth < 0 {
 				interiorWidth = 0
 			}
@@ -227,6 +253,7 @@ func computeRowHeights(t *Table) ([]float64, error) {
 			if cellH > maxH {
 				maxH = cellH
 			}
+			col += cs
 		}
 		heights[i] = maxH
 	}
