@@ -35,14 +35,14 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 			return 0, fmt.Errorf("add table: column %d has non-positive width %g", i, w)
 		}
 	}
-	for i, row := range t.rows {
-		if len(row.cells) != len(t.columnWidths) {
-			return 0, fmt.Errorf("add table: row %d has %d cells, want %d", i, len(row.cells), len(t.columnWidths))
-		}
-	}
 	if len(t.rows) == 0 {
 		return 0, nil
 	}
+	covered, err := validateAndCover(t)
+	if err != nil {
+		return 0, err
+	}
+	_ = covered // used by subsequent rendering tasks
 	heights, err := computeRowHeights(t)
 	if err != nil {
 		return 0, fmt.Errorf("add table: %w", err)
@@ -125,6 +125,72 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 	}
 
 	return 0, nil
+}
+
+// validateAndCover walks the rows, validates span boundaries + non-overlap,
+// and returns a [rows][cols] grid where covered[i][j] == true means position
+// (i, j) is filled by a cell that started at an earlier row (rowspan) — i.e.
+// the caller does not add a *Cell for this position in row i.
+//
+// Per the spec: every row's cells, placed left-to-right and skipping covered
+// positions, must exactly cover the remaining column slots in that row.
+func validateAndCover(t *Table) ([][]bool, error) {
+	numRows := len(t.rows)
+	numCols := len(t.columnWidths)
+	covered := make([][]bool, numRows)
+	for i := range covered {
+		covered[i] = make([]bool, numCols)
+	}
+
+	for i, row := range t.rows {
+		col := 0
+		for cellIdx, cell := range row.cells {
+			// Skip positions covered by inherited rowspans.
+			for col < numCols && covered[i][col] {
+				col++
+			}
+			if col >= numCols {
+				return nil, fmt.Errorf(
+					"add table: row %d has extra cell %d but all columns already covered",
+					i, cellIdx)
+			}
+			cs := cell.ColSpan()
+			rs := cell.RowSpan()
+			if col+cs > numCols {
+				return nil, fmt.Errorf(
+					"add table: colspan at row %d cell %d (col %d, span %d) exceeds column count %d",
+					i, cellIdx, col, cs, numCols)
+			}
+			if i+rs > numRows {
+				return nil, fmt.Errorf(
+					"add table: rowspan at row %d cell %d (span %d) exceeds row count %d",
+					i, cellIdx, rs, numRows)
+			}
+			// Mark future-row coverage.
+			for r := 1; r < rs; r++ {
+				for c := 0; c < cs; c++ {
+					if covered[i+r][col+c] {
+						return nil, fmt.Errorf(
+							"add table: merge overlap at row %d col %d", i+r, col+c)
+					}
+					covered[i+r][col+c] = true
+				}
+			}
+			col += cs
+		}
+		// After placing all of row i's cells, every column must be covered:
+		//   columns 0..col-1 are covered by this row's cells (placed left-to-right)
+		//   columns col..numCols-1 must be covered by inherited rowspans
+		for c := col; c < numCols; c++ {
+			if !covered[i][c] {
+				return nil, fmt.Errorf(
+					"add table: row %d undercoverage at col %d (cells stop at %d, no inherited rowspan)",
+					i, c, col)
+			}
+		}
+	}
+
+	return covered, nil
 }
 
 // computeRowHeights returns the drawn height of each row in t.

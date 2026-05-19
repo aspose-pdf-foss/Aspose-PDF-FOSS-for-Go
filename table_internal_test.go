@@ -124,3 +124,114 @@ func TestComputeRowHeights_EmptyCellTextIsZero(t *testing.T) {
 		t.Errorf("empty-cell row height = %g, want 6", heights[0])
 	}
 }
+
+func TestValidateAndCover_NoMergeSimplePass(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50, 50, 50})
+	table.AddRow().AddCells("a", "b", "c")
+	table.AddRow().AddCells("d", "e", "f")
+	covered, err := validateAndCover(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(covered) != 2 || len(covered[0]) != 3 {
+		t.Fatalf("covered shape = %dx%d, want 2x3", len(covered), len(covered[0]))
+	}
+	for i, row := range covered {
+		for j, c := range row {
+			if c {
+				t.Errorf("covered[%d][%d] = true, want false (no merges)", i, j)
+			}
+		}
+	}
+}
+
+func TestValidateAndCover_ColSpanNoFutureCoverage(t *testing.T) {
+	// ColSpan alone doesn't cover future rows.
+	table := NewTable().SetColumnWidths([]float64{50, 50, 50})
+	row := table.AddRow()
+	row.AddCell("wide").SetColSpan(2) // covers cols 0..1 in row 0 only
+	row.AddCell("c")                  // col 2
+	covered, err := validateAndCover(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No future rows → covered grid has only row 0, no positions marked.
+	for i, row := range covered {
+		for j, c := range row {
+			if c {
+				t.Errorf("covered[%d][%d] = true, want false (colspan only)", i, j)
+			}
+		}
+	}
+}
+
+func TestValidateAndCover_RowSpanMarksFutureRows(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	row0 := table.AddRow()
+	row0.AddCell("tall").SetRowSpan(2)
+	row0.AddCell("a")
+	// Row 1 has only one cell because col 0 is covered by row 0's rowspan.
+	table.AddRow().AddCell("b")
+	covered, err := validateAndCover(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !covered[1][0] {
+		t.Error("covered[1][0] should be true (rowspan from row 0)")
+	}
+	if covered[1][1] {
+		t.Error("covered[1][1] should be false")
+	}
+}
+
+func TestValidateAndCover_ColSpanOutOfBoundsErrors(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	table.AddRow().AddCell("too wide").SetColSpan(3)
+	_, err := validateAndCover(table)
+	if err == nil {
+		t.Error("expected error for colspan exceeding column count")
+	}
+}
+
+func TestValidateAndCover_RowSpanOutOfBoundsErrors(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("x").SetRowSpan(3) // only 1 row
+	_, err := validateAndCover(table)
+	if err == nil {
+		t.Error("expected error for rowspan exceeding row count")
+	}
+}
+
+func TestValidateAndCover_UnderCoverageErrors(t *testing.T) {
+	// Row with too few cells for its column count, no rowspan inherits.
+	table := NewTable().SetColumnWidths([]float64{50, 50, 50})
+	table.AddRow().AddCell("only one")
+	_, err := validateAndCover(table)
+	if err == nil {
+		t.Error("expected error for row covering fewer than all columns")
+	}
+}
+
+func TestValidateAndCover_OverCoverageErrors(t *testing.T) {
+	// Row with too many cells (colSpan-aware count > columns).
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	table.AddRow().AddCells("a", "b", "c")
+	_, err := validateAndCover(table)
+	if err == nil {
+		t.Error("expected error for row covering more than all columns")
+	}
+}
+
+func TestValidateAndCover_MergeOverlapErrors(t *testing.T) {
+	// Row 0: rowspan(2) at col 0, normal cell at col 1.
+	// Row 1: attempts to put two cells (cols 0 and 1) but col 0 is covered.
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	row0 := table.AddRow()
+	row0.AddCell("tall").SetRowSpan(2)
+	row0.AddCell("a")
+	table.AddRow().AddCells("oops", "b") // first cell tries col 0 but it's covered → over-coverage
+	_, err := validateAndCover(table)
+	if err == nil {
+		t.Error("expected error: row 1 has 2 cells but only 1 uncovered slot")
+	}
+}
