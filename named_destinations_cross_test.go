@@ -7,7 +7,7 @@ import (
 	pdf "github.com/aspose/pdf-for-go"
 )
 
-func TestNamedDest_WithOutlineRoundTrip(t *testing.T) {
+func TestNamedDestinations_CrossOutlineRoundTrip(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
 	if err := doc.NamedDestinations().Add("ch1", pdf.NewDestinationFit(page)); err != nil {
@@ -36,7 +36,7 @@ func TestNamedDest_WithOutlineRoundTrip(t *testing.T) {
 	}
 }
 
-func TestNamedDest_WithAES128(t *testing.T) {
+func TestNamedDestinations_CrossAES128(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
 	if err := doc.NamedDestinations().Add("secret", pdf.NewDestinationXYZ(page, 50, 700, 1)); err != nil {
@@ -59,7 +59,7 @@ func TestNamedDest_WithAES128(t *testing.T) {
 	}
 }
 
-func TestNamedDest_WithAES256(t *testing.T) {
+func TestNamedDestinations_CrossAES256(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
 	if err := doc.NamedDestinations().Add("vault", pdf.NewDestinationFit(page)); err != nil {
