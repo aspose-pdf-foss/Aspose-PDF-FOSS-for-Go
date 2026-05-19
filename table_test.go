@@ -867,3 +867,85 @@ func TestAddTable_OverflowGroupTooTallErrors(t *testing.T) {
 		t.Error("expected error for group too tall for any page")
 	}
 }
+
+func TestAddTable_HeadersRepeatOnEachOverflowPage(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 3, Bottom: 3, Left: 3})
+	table.AddRow().AddCell("HDR-XYZ") // unique header text
+	for i := 1; i <= 6; i++ {
+		table.AddRow().AddCell(fmt.Sprintf("row%d", i))
+	}
+	table.SetRepeatingRowsCount(1)
+
+	// Small rect → 1 header + ~2 body rows per page → 3 pages total.
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 760})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Fatalf("expected overflow, pagesAdded = %d", pagesAdded)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Header text must appear on EVERY page that contains body content.
+	headerPages := 0
+	for p := 1; p <= doc2.PageCount(); p++ {
+		page, _ := doc2.Page(p)
+		text, _ := page.ExtractText()
+		if strings.Contains(text, "HDR-XYZ") {
+			headerPages++
+		}
+	}
+	if headerPages != doc2.PageCount() {
+		t.Errorf("header appeared on %d of %d pages; want all", headerPages, doc2.PageCount())
+	}
+}
+
+func TestAddTable_NoHeaderRepeatByDefault(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 3, Bottom: 3, Left: 3})
+	table.AddRow().AddCell("HDR-XYZ")
+	for i := 1; i <= 6; i++ {
+		table.AddRow().AddCell(fmt.Sprintf("row%d", i))
+	}
+	// NOTE: NO SetRepeatingRowsCount call → default 0.
+
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 200, URY: 760})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Fatal("expected overflow")
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	headerPages := 0
+	for p := 1; p <= doc2.PageCount(); p++ {
+		page, _ := doc2.Page(p)
+		text, _ := page.ExtractText()
+		if strings.Contains(text, "HDR-XYZ") {
+			headerPages++
+		}
+	}
+	// Without repeat, header appears on exactly 1 page (the first).
+	if headerPages != 1 {
+		t.Errorf("header without repeat appeared on %d pages; want exactly 1", headerPages)
+	}
+}
