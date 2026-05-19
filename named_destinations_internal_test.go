@@ -147,17 +147,32 @@ func TestWalkNameTree_KidsHierarchy(t *testing.T) {
 
 func TestWalkNameTree_Cycle(t *testing.T) {
 	doc := NewDocument(595, 842)
+	// Build a cycle that ALSO has a reachable leaf, so we can distinguish
+	// "cycle detected (visits leaf once)" from "infinite recursion (would
+	// visit leaf many times before depth cap or test timeout)".
+	leafID := doc.nextID
+	doc.nextID++
+	leaf := pdfDict{
+		"/Names": pdfArray{"leafKey", pdfArray{pdfRef{Num: 99}, pdfName("/Fit")}},
+	}
+	doc.objects[leafID] = &pdfObject{Num: leafID, Value: leaf}
+
 	rootID := doc.nextID
 	doc.nextID++
+	// Root's /Kids points to the leaf AND back to itself — the self-cycle
+	// would re-visit the leaf forever without cycle protection.
 	cycle := pdfDict{
-		"/Kids": pdfArray{pdfRef{Num: rootID}},
+		"/Kids": pdfArray{pdfRef{Num: leafID}, pdfRef{Num: rootID}},
 	}
 	doc.objects[rootID] = &pdfObject{Num: rootID, Value: cycle}
-	visited := 0
+
+	visits := 0
 	walkNameTree(doc, pdfRef{Num: rootID}, func(name string, val pdfValue) {
-		visited++
+		visits++
 	})
-	_ = visited
+	if visits != 1 {
+		t.Errorf("cycle protection failed: leaf visited %d times, want exactly 1", visits)
+	}
 }
 
 func TestParseDestinationAny_Array(t *testing.T) {
