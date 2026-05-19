@@ -324,6 +324,73 @@ func escapeStringPDF(s string) string {
 	return b.String()
 }
 
+// fontWidthAndAscent returns a per-glyph width function and the ascent
+// factor (ascent / unitsPerEm) for a Font, without any side effects on a
+// Page. Used by measureText (which has no Page) and informs the values
+// returned by resolveFontForPage.
+func fontWidthAndAscent(font Font, size float64) (widthFn, float64, error) {
+	switch f := font.(type) {
+	case standardFont:
+		pdfFontName := "/" + f.name
+		widths, _ := standard14Widths(pdfFontName)
+		encodeRune := func(r rune) (byte, bool) {
+			return encodeRuneForStandardFont(pdfFontName, r)
+		}
+		width := func(r rune) float64 {
+			code, ok := encodeRune(r)
+			if !ok {
+				code = byte('?')
+			}
+			return widths[code] / 1000.0 * size
+		}
+		return width, 0.8, nil
+
+	case *embeddedFont:
+		width := func(r rune) float64 {
+			gid := f.ttf.glyphID(r)
+			if int(gid) >= len(f.ttf.glyphWidths) {
+				return 0
+			}
+			return float64(f.ttf.glyphWidths[gid]) / float64(f.ttf.unitsPerEm) * size
+		}
+		ascentVal := float64(f.ttf.ascent) / float64(f.ttf.unitsPerEm)
+		return width, ascentVal, nil
+
+	default:
+		return nil, 0, fmt.Errorf("font: unsupported type %T", font)
+	}
+}
+
+// measureText returns the number of wrapped lines and the per-line height
+// (in points) that AddText would produce for the given text + style +
+// maxWidth.
+//
+// Used by table rendering to compute auto-fit row heights without first
+// committing the text to the page.
+func measureText(text string, style TextStyle, maxWidth float64) (lines int, lineHeight float64, err error) {
+	if text == "" {
+		return 0, 0, nil
+	}
+	font := style.Font
+	if font == nil {
+		font = FontHelvetica
+	}
+	fontSize := style.Size
+	if fontSize == 0 {
+		fontSize = 12
+	}
+	lineSpacing := style.LineSpacing
+	if lineSpacing == 0 {
+		lineSpacing = 1.2
+	}
+	width, _, err := fontWidthAndAscent(font, fontSize)
+	if err != nil {
+		return 0, 0, err
+	}
+	wrapped := wrapText(text, width, maxWidth)
+	return len(wrapped), fontSize * lineSpacing, nil
+}
+
 // resolveFontForPage handles page-level font registration and returns the
 // callbacks needed by renderTextInBuilder. It is extracted from the
 // original AddText monolith so that AddText becomes a thin wrapper.
