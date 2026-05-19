@@ -949,3 +949,20 @@ func TestAddTable_NoHeaderRepeatByDefault(t *testing.T) {
 		t.Errorf("header without repeat appeared on %d pages; want exactly 1", headerPages)
 	}
 }
+
+func TestAddTable_RowSpanCrossingHeaderBodyErrors(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50})
+	row0 := table.AddRow()
+	row0.AddCell("header tall").SetRowSpan(2) // extends from header into body
+	row0.AddCell("a")
+	table.AddRow().AddCell("b") // col 0 is covered by row 0's rowspan
+	table.SetRepeatingRowsCount(1)
+
+	_, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err == nil {
+		t.Error("expected error: rowspan from header into body")
+	}
+}

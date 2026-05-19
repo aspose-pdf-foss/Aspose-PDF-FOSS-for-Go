@@ -48,6 +48,19 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 		return 0, fmt.Errorf("add table: repeating rows count %d exceeds row count %d",
 			t.repeatingRowsCount, len(t.rows))
 	}
+	// Rowspan crossing the header/body boundary is rejected (Phase 2 hard rule).
+	if t.repeatingRowsCount > 0 {
+		for i := 0; i < t.repeatingRowsCount; i++ {
+			for _, cell := range t.rows[i].cells {
+				rs := cell.RowSpan()
+				if i+rs > t.repeatingRowsCount {
+					return 0, fmt.Errorf(
+						"add table: rowspan at header row %d (span %d) extends into body (rowspan-cross-header not supported)",
+						i, rs)
+				}
+			}
+		}
+	}
 	heights, err := computeRowHeights(t)
 	if err != nil {
 		return 0, fmt.Errorf("add table: %w", err)
