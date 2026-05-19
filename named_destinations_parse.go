@@ -80,3 +80,43 @@ func parseDestinationAny(d *Document, raw pdfValue) Destination {
 	}
 	return nil
 }
+
+// parseNamedDestinations reads /Catalog/Names/Dests (modern name tree)
+// and merges /Catalog/Dests (legacy flat dict). On collision, the
+// /Names/Dests entry wins (matches Adobe Acrobat / pypdf behavior).
+// Always returns a non-nil collection.
+//
+// Per ISO 32000-1 §12.3.2.3.
+func parseNamedDestinations(d *Document) *NamedDestinations {
+	out := &NamedDestinations{doc: d, entries: map[string]Destination{}}
+
+	if d.catalog == nil {
+		return out
+	}
+
+	// 1. Legacy /Catalog/Dests (loaded first so /Names/Dests can override).
+	if destsRaw, ok := d.catalog["/Dests"]; ok {
+		if dict, ok := resolveRefToDict(d.objects, destsRaw); ok {
+			for name, val := range dict {
+				if dest := parseDestinationAny(d, val); dest != nil {
+					out.entries[name] = dest
+				}
+			}
+		}
+	}
+
+	// 2. Modern /Catalog/Names/Dests name tree.
+	if namesRaw, ok := d.catalog["/Names"]; ok {
+		if namesDict, ok := resolveRefToDict(d.objects, namesRaw); ok {
+			if destsRaw, ok := namesDict["/Dests"]; ok {
+				walkNameTree(d, destsRaw, func(name string, val pdfValue) {
+					if dest := parseDestinationAny(d, val); dest != nil {
+						out.entries[name] = dest
+					}
+				})
+			}
+		}
+	}
+
+	return out
+}

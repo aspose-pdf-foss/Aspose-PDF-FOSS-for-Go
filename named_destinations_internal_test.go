@@ -199,3 +199,66 @@ func TestParseDestinationAny_DictWithD(t *testing.T) {
 		t.Errorf("/D-wrapped parsing failed: %v", d)
 	}
 }
+
+func TestParseNamedDestinations_LegacyOnly(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	if doc.catalog == nil {
+		doc.catalog = pdfDict{}
+	}
+	doc.catalog["/Dests"] = pdfDict{
+		"legacyOne": pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/Fit")},
+	}
+	nd := parseNamedDestinations(doc)
+	if !nd.Has("legacyOne") {
+		t.Error("legacy /Dests entry not parsed")
+	}
+}
+
+func TestParseNamedDestinations_ModernOnly(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	if doc.catalog == nil {
+		doc.catalog = pdfDict{}
+	}
+	treeRoot := pdfDict{
+		"/Names": pdfArray{
+			"modernOne", pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/Fit")},
+		},
+	}
+	doc.catalog["/Names"] = pdfDict{
+		"/Dests": treeRoot,
+	}
+	nd := parseNamedDestinations(doc)
+	if !nd.Has("modernOne") {
+		t.Error("modern /Names/Dests entry not parsed")
+	}
+}
+
+func TestParseNamedDestinations_BothFormats_NamesWins(t *testing.T) {
+	doc := NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	if doc.catalog == nil {
+		doc.catalog = pdfDict{}
+	}
+	// Legacy says XYZ.
+	doc.catalog["/Dests"] = pdfDict{
+		"shared": pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/XYZ"), 1.0, 2.0, 3.0},
+	}
+	// Modern says Fit.
+	doc.catalog["/Names"] = pdfDict{
+		"/Dests": pdfDict{
+			"/Names": pdfArray{
+				"shared", pdfArray{pdfRef{Num: page.pageObj().Num}, pdfName("/Fit")},
+			},
+		},
+	}
+	nd := parseNamedDestinations(doc)
+	got := nd.Get("shared")
+	if got == nil {
+		t.Fatal("shared entry not parsed")
+	}
+	if got.DestinationType() != DestinationTypeFit {
+		t.Errorf("collision resolution: got %v, want Fit (modern wins)", got.DestinationType())
+	}
+}

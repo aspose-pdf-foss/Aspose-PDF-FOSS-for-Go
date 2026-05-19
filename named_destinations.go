@@ -143,13 +143,14 @@ func (n *NamedDestinations) Clear() {
 }
 
 // NamedDestinations returns the document's named-destination collection.
-// Always non-nil. Lazy-initialized on first call.
+// Always non-nil. Lazy-initialized on first call from /Catalog/Names/Dests
+// (modern PDF 1.2+ name tree) merged with legacy /Catalog/Dests; on
+// collision the /Names/Dests entry wins.
 //
 // Mirrors Aspose.PDF for .NET's Document.NamedDestinations property.
-// (Task 7 replaces the stub initialization with parseNamedDestinations.)
 func (d *Document) NamedDestinations() *NamedDestinations {
 	if d.namedDests == nil {
-		d.namedDests = &NamedDestinations{doc: d}
+		d.namedDests = parseNamedDestinations(d)
 	}
 	return d.namedDests
 }
