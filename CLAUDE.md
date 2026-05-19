@@ -214,6 +214,19 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `NewJavaScriptAction(script string) *JavaScriptAction` — public constructor for `/JavaScript` actions (parse-only since Subepic 1). Includes documented security warning — embedded JavaScript executes in the recipient's viewer
 - Apply pipeline files: `redact_apply.go` orchestrates; `redact_apply_text.go` rewrites Tj/TJ/'/" with per-glyph filtering; `redact_apply_image.go` clips/drops `Do` invocations using even-odd clip paths; `redact_apply_path.go` clips/drops path-construction sequences buffered until a paint terminator
 
+**`table.go` / `table_render.go`**
+- `pdf.NewTable() *Table` — builder for a tabular layout drawn onto a Page. Mirrors Aspose.PDF for .NET's `Table` class. After `(*Page).AddTable` renders the table, the `*Table` is not held by the document
+- `Table` — `SetColumnWidths([]float64) *Table` (in points), `SetBorder(BorderInfo) *Table` (outer), `SetDefaultCellBorder(BorderInfo) *Table`, `SetDefaultCellMargin(MarginInfo) *Table` (per-cell padding default), `SetDefaultCellStyle(TextStyle) *Table`, `AddRow() *Row`, `Rows() []*Row`, `RowCount() int`. Getters for each setter
+- `Row` — `AddCell(text) *Cell`, `AddCells(texts ...string) []*Cell`, `Cells() []*Cell`, `CellCount() int`, `SetHeight(float64) *Row` (0 = auto-fit), `Height() float64`, `Table() *Table`
+- `Cell` — `SetText`, `SetTextStyle`, `SetBackground(*Color)`, `SetBorder(BorderInfo)`, `SetMargin(MarginInfo)`, `SetHAlign(HAlign)`, `SetVAlign(VAlign)` — all chainable, all paired with getters. Per-cell setters override the table default. `Background()/Border()/Margin()` return nil when the cell inherits the table default
+- `BorderSide` enum — `BorderSideNone`, `BorderSideTop`, `BorderSideRight`, `BorderSideBottom`, `BorderSideLeft`, `BorderSideAll` (bitwise OR of all four)
+- `BorderInfo` struct — `Sides BorderSide`, `Width float64`, `Color *Color` (nil = black). Zero value = no border. Width 0 also = no border regardless of Sides. Mirrors Aspose.PDF for .NET's `BorderInfo`
+- `MarginInfo` struct — `Top`/`Right`/`Bottom`/`Left` in points. Inside a Cell represents the padding between border and content. Mirrors Aspose.PDF for .NET's `MarginInfo`
+- `(*Page).AddTable(t *Table, rect Rectangle) error` — renders the table inside the rectangle. Cell content is drawn via the existing `AddText` machinery (inherits its word-wrap, alignment, font embedding, Unicode handling, clipping). Rows that don't fit are clipped (no multi-page overflow in MVP). Errors on nil table, bad rect, mismatched cell count, or non-positive column width
+- Cell text style resolution: zero `TextStyle` → table.DefaultCellStyle overlay → cell.TextStyle overlay → explicit HAlign/VAlign overrides
+- Border layering: cell backgrounds first, then cell text, then cell borders (so borders appear on top of clipped text edges), then table outer border last (so outer border appears on top of cell-edge overlaps)
+- Out of MVP scope: multi-page overflow, cell merging (rowspan/colspan), image-cells, repeating header rows, auto-fit column widths
+
 **`validate.go`**
 - `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
 - Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`

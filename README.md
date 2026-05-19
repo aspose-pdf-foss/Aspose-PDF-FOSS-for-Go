@@ -34,6 +34,7 @@ doc.Save("merged.pdf")
 - **Metadata** — read and write document Info (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries)
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
+- **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode)
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -310,6 +311,35 @@ doc.Outlines().Add(oic)
 ```
 
 API mirrors Aspose.PDF for .NET's `NamedDestinations` collection and `NamedDestination` class 1:1. Reads both `/Catalog/Dests` (legacy PDF 1.1) and `/Catalog/Names/Dests` (modern PDF 1.2+) — legacy auto-migrates to modern on save.
+
+### Tables
+
+```go
+doc := pdf.NewDocument(595, 842)
+page, _ := doc.Page(1)
+
+table := pdf.NewTable().
+    SetColumnWidths([]float64{120, 200, 80}).
+    SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
+    SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 0.5}).
+    SetDefaultCellMargin(pdf.MarginInfo{Top: 4, Right: 6, Bottom: 4, Left: 6}).
+    SetDefaultCellStyle(pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10})
+
+header := table.AddRow()
+header.AddCells("Name", "Description", "Qty")
+for _, c := range header.Cells() {
+    c.SetBackground(&pdf.Color{R: 0.9, G: 0.9, B: 0.9, A: 1})
+    c.SetHAlign(pdf.HAlignCenter)
+}
+
+row := table.AddRow()
+row.AddCells("Widget", "Standard widget", "5")
+
+page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 750})
+doc.Save("table.pdf")
+```
+
+API mirrors Aspose.PDF for .NET's `Table` / `Row` / `Cell` / `BorderInfo` / `MarginInfo` 1:1 in type names. Cells inherit `DefaultCellBorder` / `DefaultCellMargin` / `DefaultCellStyle` from the table unless overridden per-cell. Tables are positioned by `Rectangle` (consistent with `AddText` and `AddImage`) instead of paragraph flow-layout.
 
 ### Annotations
 
