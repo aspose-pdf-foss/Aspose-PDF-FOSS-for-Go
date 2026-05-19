@@ -574,3 +574,70 @@ func TestAddTable_WithEmbeddedTTF(t *testing.T) {
 		t.Errorf("Greek lost through TTF+table roundtrip: %q", text)
 	}
 }
+
+func TestAddTable_HAlignCenter(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{200}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 2, Right: 2, Bottom: 2, Left: 2})
+	table.AddRow().AddCell("X").SetHAlign(pdf.HAlignCenter)
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 600, URX: 200, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+
+	layout, err := page.ExtractTextWithLayout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layout) == 0 || len(layout[0].Fragments) == 0 {
+		t.Fatal("no text fragments extracted")
+	}
+	f := layout[0].Fragments[0]
+	// For HAlignCenter, the "X" glyph should be near the column midpoint:
+	// column [0, 200], interior [2, 198], midpoint ~100. Glyph width ~6pt at 12pt,
+	// so X should be at ~97.
+	midpoint := (0.0 + 200.0) / 2
+	if f.X < midpoint-30 || f.X > midpoint+30 {
+		t.Errorf("HAlignCenter glyph X = %g, want near midpoint %g (±30)", f.X, midpoint)
+	}
+}
+
+func TestAddTable_CellStyleOverridesDefault(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100, 100}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 10})
+	row := table.AddRow()
+	row.AddCell("default")
+	row.AddCell("big").SetTextStyle(pdf.TextStyle{Size: 18})
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 600, URX: 200, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+
+	layout, err := page.ExtractTextWithLayout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Find fragments for "default" and "big" and check FontSize differs.
+	var defaultSize, bigSize float64
+	for _, line := range layout {
+		for _, f := range line.Fragments {
+			if strings.Contains(f.Text, "default") {
+				defaultSize = f.FontSize
+			}
+			if strings.Contains(f.Text, "big") {
+				bigSize = f.FontSize
+			}
+		}
+	}
+	if defaultSize != 10 {
+		t.Errorf("default cell font size = %g, want 10", defaultSize)
+	}
+	if bigSize != 18 {
+		t.Errorf("override cell font size = %g, want 18", bigSize)
+	}
+}
