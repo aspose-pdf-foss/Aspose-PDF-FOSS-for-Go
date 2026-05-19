@@ -33,7 +33,7 @@ doc.Save("merged.pdf")
 - **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
 - **Metadata** — read and write document Info (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries)
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
-- **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Works alongside encryption + AcroForm + annotations
+- **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -297,6 +297,19 @@ doc.Save("with_bookmarks.pdf")
 ```
 
 API mirrors Aspose.PDF for .NET's `OutlineItemCollection` 1:1 — `Document.Outlines()` is the root collection, `NewOutlineItemCollection(doc)` constructs an unattached entry, and the same `IList<T>`-equivalent surface (`Add`/`Insert`/`Remove`/`RemoveAt`/`At`/`Count`/`All`) lives on every entry for managing children. All 8 PDF destination types are supported (XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV); the `XYZ`, `FitH`, `FitV`, `FitBH`, `FitBV` flavors also have `NewDestinationXxxUnchanged` variants for leaving specific coordinates as "current viewer state". `Action` and `Destination` may both be set per ISO 32000-1 §12.3.3 — viewers honor `/Dest` first.
+
+```go
+// Named destinations — define once, reuse from outlines and links
+doc.NamedDestinations().Add("intro",    pdf.NewDestinationFit(page1))
+doc.NamedDestinations().Add("appendix", pdf.NewDestinationFitH(page2, 500))
+
+oic := pdf.NewOutlineItemCollection(doc)
+oic.SetTitle("Appendix")
+oic.SetDestination(pdf.NewNamedDestination(doc, "appendix"))
+doc.Outlines().Add(oic)
+```
+
+API mirrors Aspose.PDF for .NET's `NamedDestinations` collection and `NamedDestination` class 1:1. Reads both `/Catalog/Dests` (legacy PDF 1.1) and `/Catalog/Names/Dests` (modern PDF 1.2+) — legacy auto-migrates to modern on save.
 
 ### Annotations
 

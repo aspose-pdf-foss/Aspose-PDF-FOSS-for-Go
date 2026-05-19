@@ -148,6 +148,14 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Pages in destinations referenced by `*Page` (resolved to underlying object number at write time). Lazy dict-backed reads with copy-on-mutate: parsed items read from their PDF dict directly; first `SetXxx` call materializes all values into struct fields
 - Encryption-safe: outlines roundtrip cleanly under AES-128, AES-256, and RC4-128
 
+**`named_destinations.go` / `named_destinations_parse.go` / `named_destinations_write.go`**
+- `(*Document).NamedDestinations() *NamedDestinations` — name-to-destination collection. Always non-nil; empty for documents without `/Catalog/Names/Dests` or `/Catalog/Dests`. Lazy-parsed on first call. Mirrors Aspose.PDF for .NET's `Document.NamedDestinations`
+- `NamedDestinations` — collection with `Add(name, dest) error`, `Get(name) Destination`, `Has(name) bool`, `Remove(name) bool`, `Count() int`, `Names() []string` (lex-sorted snapshot), `All() map[string]Destination` (snapshot), `Clear()`, `Document()`. Per ISO 32000-1 §12.3.2.3
+- `NamedDestination` — 9th concrete `Destination` type wrapping a name reference; `DestinationType()` returns `DestinationTypeNamed`. Constructor `NewNamedDestination(doc, name)`. Lazy `Resolve() Destination` and `Page() *Page` look up in the collection at call time (forward references allowed). Mirrors Aspose .NET's `NamedDestination` subtype
+- Read path: `/Catalog/Dests` legacy dict + `/Catalog/Names/Dests` modern name tree merged into one collection; on collision `/Names/Dests` wins. Name tree walker handles arbitrary `/Kids` depth with cycle protection
+- Write path: emit `/Catalog/Names/Dests` as a flat single-root tree (valid for any size per ISO 32000-1 §7.9.6). Legacy `/Catalog/Dests` is dropped on save — automatic migration. Sibling `/Catalog/Names` subentries (JavaScript, EmbeddedFiles, etc.) are preserved through round-trip
+- Outline integration: `OutlineItemCollection.SetDestination(NewNamedDestination(doc, name))` serializes as `/Dest <name>` PDF string; on parse, `Destination()` returns `*NamedDestination` wrapper. Unregistered names still wrap (preserves the reference) — `Resolve()` returns nil to signal missing
+
 **`form.go` / `form_fields.go`**
 - `Form` — AcroForm view; `Fields() []Field`, `Field(name string) Field`, `HasField(name string) bool`, `NeedAppearances() bool`, `SetNeedAppearances(v bool)`
 - `Field` interface — `PartialName() string`, `FullName() string`, `Value() string`, `SetValue(s string) error`, `IsReadOnly() bool`, `IsRequired() bool`, `PageIndex() int`, `Rect() Rectangle`
