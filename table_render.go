@@ -201,6 +201,42 @@ func validateAndCover(t *Table) ([][]bool, error) {
 	return covered, nil
 }
 
+// spanGroup is a contiguous range of rows that must be drawn together (no
+// page break inside). [start, end] are inclusive row indices.
+type spanGroup struct {
+	start, end int
+}
+
+// computeSpanningGroups computes the maximal "atomic" groups of rows starting
+// at startIdx. Within a group, no rowspan extends beyond the group's last row.
+// Each returned group is the unit that page-break logic moves as a whole.
+func computeSpanningGroups(t *Table, startIdx int) []spanGroup {
+	var groups []spanGroup
+	i := startIdx
+	numRows := len(t.rows)
+	for i < numRows {
+		g := spanGroup{start: i, end: i}
+		// Walk j from i upwards, extending g.end whenever a rowspan reaches further.
+		j := i
+		for j <= g.end {
+			for _, cell := range t.rows[j].cells {
+				rs := cell.RowSpan()
+				if rs < 1 {
+					rs = 1
+				}
+				spanEnd := j + rs - 1
+				if spanEnd > g.end {
+					g.end = spanEnd
+				}
+			}
+			j++
+		}
+		groups = append(groups, g)
+		i = g.end + 1
+	}
+	return groups
+}
+
 // computeRowHeights returns the drawn height of each row in t.
 //
 // For rows with an explicit SetHeight > 0, the explicit value is returned.

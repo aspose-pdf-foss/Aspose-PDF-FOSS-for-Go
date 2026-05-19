@@ -284,3 +284,81 @@ func TestComputeRowHeights_RowSpanCellExcludedFromMax(t *testing.T) {
 		t.Errorf("rowspan-excluded heights = %v, want both %g", heights, want)
 	}
 }
+
+func TestComputeSpanningGroups_NoRowSpan_OnePerRow(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("a")
+	table.AddRow().AddCell("b")
+	table.AddRow().AddCell("c")
+	groups := computeSpanningGroups(table, 0)
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3", len(groups))
+	}
+	for i, g := range groups {
+		if g.start != i || g.end != i {
+			t.Errorf("group %d = [%d..%d], want [%d..%d]", i, g.start, g.end, i, i)
+		}
+	}
+}
+
+func TestComputeSpanningGroups_RowSpanExpands(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	row0 := table.AddRow()
+	row0.AddCell("tall").SetRowSpan(3) // covers rows 0..2
+	row0.AddCell("a")
+	table.AddRow().AddCell("b") // col 0 covered
+	table.AddRow().AddCell("c") // col 0 covered
+	table.AddRow().AddCells("d", "e")
+	groups := computeSpanningGroups(table, 0)
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(groups))
+	}
+	if groups[0].start != 0 || groups[0].end != 2 {
+		t.Errorf("group 0 = [%d..%d], want [0..2]", groups[0].start, groups[0].end)
+	}
+	if groups[1].start != 3 || groups[1].end != 3 {
+		t.Errorf("group 1 = [%d..%d], want [3..3]", groups[1].start, groups[1].end)
+	}
+}
+
+func TestComputeSpanningGroups_NestedRowSpans(t *testing.T) {
+	// Row 0: rowspan=2 cell at col 0 (covers rows 0..1)
+	// Row 1: another rowspan=2 cell at col 1 (covers rows 1..2)
+	// Row 2: covered at col 1
+	// Row 3: standalone
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	row0 := table.AddRow()
+	row0.AddCell("r0_0").SetRowSpan(2) // covers rows 0..1 at col 0
+	row0.AddCell("r0_1")
+	row1 := table.AddRow()
+	// col 0 is covered by row 0's rowspan; row1 starts at col 1
+	row1.AddCell("r1_1").SetRowSpan(2) // covers rows 1..2 at col 1
+	row2 := table.AddRow()
+	row2.AddCell("r2_0") // col 1 is covered
+	table.AddRow().AddCells("r3_0", "r3_1")
+	groups := computeSpanningGroups(table, 0)
+	// Expected: group [0..2] (row 0 spans into 1, row 1 spans into 2), then [3..3]
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2: %+v", len(groups), groups)
+	}
+	if groups[0].start != 0 || groups[0].end != 2 {
+		t.Errorf("group 0 = [%d..%d], want [0..2]", groups[0].start, groups[0].end)
+	}
+	if groups[1].start != 3 || groups[1].end != 3 {
+		t.Errorf("group 1 = [%d..%d], want [3..3]", groups[1].start, groups[1].end)
+	}
+}
+
+func TestComputeSpanningGroups_StartIndexSkipsHeaders(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("header")
+	table.AddRow().AddCell("a")
+	table.AddRow().AddCell("b")
+	groups := computeSpanningGroups(table, 1) // skip row 0 (header)
+	if len(groups) != 2 {
+		t.Fatalf("groups starting at 1 = %d, want 2", len(groups))
+	}
+	if groups[0].start != 1 || groups[1].start != 2 {
+		t.Errorf("groups = %+v, want starting at 1 and 2", groups)
+	}
+}
