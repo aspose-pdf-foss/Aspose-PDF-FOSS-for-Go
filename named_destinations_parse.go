@@ -81,6 +81,19 @@ func parseDestinationAny(d *Document, raw pdfValue) Destination {
 	return nil
 }
 
+// resolveNamedDest returns a *NamedDestination wrapper for the given
+// name. Even unregistered names produce a wrapper — preserves the name
+// for round-trip; callers detect unresolved names via wrapper.Resolve()
+// returning nil. Empty name returns nil.
+//
+// Per ISO 32000-1 §12.3.2.3.
+func resolveNamedDest(doc *Document, name string) Destination {
+	if name == "" {
+		return nil
+	}
+	return &NamedDestination{doc: doc, name: name}
+}
+
 // parseNamedDestinations reads /Catalog/Names/Dests (modern name tree)
 // and merges /Catalog/Dests (legacy flat dict). On collision, the
 // /Names/Dests entry wins (matches Adobe Acrobat / pypdf behavior).

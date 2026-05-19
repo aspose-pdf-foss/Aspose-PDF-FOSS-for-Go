@@ -84,11 +84,10 @@ func parseDestination(doc *Document, raw pdfValue) Destination {
 		if obj, ok := doc.objects[v.Num]; ok {
 			return parseDestination(doc, obj.Value)
 		}
-	case string, pdfHexString:
-		// Named destination — Subepic 2 will handle the /Names /Dests
-		// tree. For Subepic 1, return nil (caller's Destination()
-		// returns nil; viewers still navigate via /A if present).
-		return nil
+	case string:
+		return resolveNamedDest(doc, v)
+	case pdfHexString:
+		return resolveNamedDest(doc, string(v))
 	}
 	return nil
 }

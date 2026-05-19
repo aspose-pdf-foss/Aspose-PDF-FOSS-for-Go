@@ -279,3 +279,68 @@ func TestNamedDestinations_OutlineEmitsNameString(t *testing.T) {
 		t.Error("output missing /Dest (chapter1) string literal in outline item")
 	}
 }
+
+func TestNamedDestinations_OutlineParsesNamedRef(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	doc.NamedDestinations().Add("ch1", pdf.NewDestinationFit(page))
+	oic := pdf.NewOutlineItemCollection(doc)
+	oic.SetTitle("Chapter")
+	oic.SetDestination(pdf.NewNamedDestination(doc, "ch1"))
+	doc.Outlines().Add(oic)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := doc2.Outlines()
+	if root.Count() != 1 {
+		t.Fatal("outline lost")
+	}
+	dest := root.At(0).Destination()
+	nd, ok := dest.(*pdf.NamedDestination)
+	if !ok {
+		t.Fatalf("Destination type = %T, want *NamedDestination", dest)
+	}
+	if nd.Name() != "ch1" {
+		t.Errorf("Name = %q, want ch1", nd.Name())
+	}
+	if nd.Resolve() == nil {
+		t.Error("Resolve should return the registered destination")
+	}
+}
+
+func TestNamedDestinations_OutlineUnregisteredNameStillWraps(t *testing.T) {
+	// Outline references "missing" but the name is never added to
+	// NamedDestinations. The parser must still return a *NamedDestination
+	// wrapper; Resolve() returns nil for the unresolved name.
+	doc := pdf.NewDocument(595, 842)
+	oic := pdf.NewOutlineItemCollection(doc)
+	oic.SetTitle("Orphan")
+	oic.SetDestination(pdf.NewNamedDestination(doc, "missing"))
+	doc.Outlines().Add(oic)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := doc2.Outlines().At(0).Destination()
+	nd, ok := dest.(*pdf.NamedDestination)
+	if !ok {
+		t.Fatalf("Destination type = %T, want *NamedDestination", dest)
+	}
+	if nd.Name() != "missing" {
+		t.Errorf("Name = %q, want missing", nd.Name())
+	}
+	if nd.Resolve() != nil {
+		t.Error("Resolve should be nil for unregistered name")
+	}
+}
