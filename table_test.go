@@ -172,3 +172,73 @@ func TestCell_DefaultsAreNil(t *testing.T) {
 		t.Error("default Margin should be nil (inherit)")
 	}
 }
+
+func TestAddTable_NilTable(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.AddTable(nil, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err == nil {
+		t.Error("AddTable(nil) should error")
+	}
+}
+
+func TestAddTable_EmptyTable(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable() // no columns, no rows
+	err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err != nil {
+		t.Errorf("AddTable(empty) = %v, want nil (no-op)", err)
+	}
+}
+
+func TestAddTable_NoRows(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50})
+	err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100})
+	if err != nil {
+		t.Errorf("AddTable(no-rows) = %v, want nil", err)
+	}
+}
+
+func TestAddTable_BadRect(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50})
+	table.AddRow().AddCell("x")
+	// LLX >= URX
+	err := page.AddTable(table, pdf.Rectangle{LLX: 100, LLY: 0, URX: 0, URY: 100})
+	if err == nil {
+		t.Error("AddTable with bad rect should error")
+	}
+}
+
+func TestAddTable_MismatchedCellCount(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50, 50}) // 3 cols
+	table.AddRow().AddCells("a", "b")                              // 2 cells
+	err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100})
+	if err == nil {
+		t.Fatal("AddTable with mismatched cell count should error")
+	}
+}
+
+func TestAddTable_NonPositiveColumnWidth(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 0, 50})
+	table.AddRow().AddCells("a", "b", "c")
+	err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100})
+	if err == nil {
+		t.Fatal("AddTable with zero column width should error")
+	}
+
+	table2 := pdf.NewTable().SetColumnWidths([]float64{50, -1, 50})
+	table2.AddRow().AddCells("a", "b", "c")
+	err2 := page.AddTable(table2, pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100})
+	if err2 == nil {
+		t.Fatal("AddTable with negative column width should error")
+	}
+}
