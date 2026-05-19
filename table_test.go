@@ -502,3 +502,75 @@ func TestAddTable_RowsBeyondRectAreClipped(t *testing.T) {
 		t.Error("rowThree should have been clipped (rect too short)")
 	}
 }
+
+func TestAddTable_AES128Roundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{100, 100})
+	table.AddRow().AddCells("secret", "data")
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES128,
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page2, _ := doc2.Page(1)
+	text, _ := page2.ExtractText()
+	if !strings.Contains(text, "secret") || !strings.Contains(text, "data") {
+		t.Errorf("AES-128 roundtrip lost table text: %q", text)
+	}
+}
+
+func TestAddTable_WithEmbeddedTTF(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	// Use the project's existing TTF fixture.
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatalf("LoadFont: %v", err)
+	}
+
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{120, 120}).
+		SetDefaultCellStyle(pdf.TextStyle{Font: font, Size: 11}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 5, Bottom: 3, Left: 5})
+
+	// Unicode payload — exercises CID/Identity-H path that only embedded fonts handle.
+	table.AddRow().AddCells("Cyrillic Привет", "Greek Γειά")
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 600, URX: 290, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page2, _ := doc2.Page(1)
+	text, err := page2.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Привет") {
+		t.Errorf("Cyrillic lost through TTF+table roundtrip: %q", text)
+	}
+	if !strings.Contains(text, "Γειά") {
+		t.Errorf("Greek lost through TTF+table roundtrip: %q", text)
+	}
+}
