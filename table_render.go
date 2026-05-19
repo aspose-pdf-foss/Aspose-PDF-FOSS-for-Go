@@ -138,10 +138,11 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 				return pagesAdded, fmt.Errorf("add table: append page: %w", err)
 			}
 			pagesAdded++
-			// Construct a Page view directly for the new last page. Using
-			// doc.Page() here would panic if a stale pageCache was lazily
-			// allocated earlier with a shorter length.
-			currentPage = &Page{doc: p.doc, index: len(p.doc.pages) - 1}
+			np, err := p.doc.Page(p.doc.PageCount())
+			if err != nil {
+				return pagesAdded, fmt.Errorf("add table: continuation page: %w", err)
+			}
+			currentPage = np
 			currentRect = continuationRect
 			y = currentRect.URY
 			pageDrawn = 0.0

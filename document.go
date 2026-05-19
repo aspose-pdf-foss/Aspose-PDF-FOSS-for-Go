@@ -208,9 +208,13 @@ func (d *Document) Page(n int) (*Page, error) {
 		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 	}
 	index := n - 1
-	// Lazily allocate and populate the page cache.
-	if d.pageCache == nil {
-		d.pageCache = make([]*Page, len(d.pages))
+	// Lazily allocate and grow the page cache. Pages added after the cache
+	// was first populated (via AddBlankPage etc.) extend len(d.pages) past the
+	// cache length, so we must resize before indexing.
+	if len(d.pageCache) < len(d.pages) {
+		grown := make([]*Page, len(d.pages))
+		copy(grown, d.pageCache)
+		d.pageCache = grown
 	}
 	if d.pageCache[index] == nil {
 		d.pageCache[index] = &Page{doc: d, index: index}
