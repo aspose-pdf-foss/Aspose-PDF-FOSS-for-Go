@@ -445,3 +445,33 @@ func TestAddTable_OuterBorderNoneNoStrokes(t *testing.T) {
 		t.Error("no border configured but stroke present")
 	}
 }
+
+func TestAddTable_OuterBorderClampedToDrawnRows(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+
+	// 3 rows × ~22pt each, but rect height only fits 1 row (~25pt).
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{100}).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideBottom, Width: 1}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 4, Right: 4, Bottom: 4, Left: 4})
+	table.AddRow().AddCell("one")
+	table.AddRow().AddCell("two")
+	table.AddRow().AddCell("three")
+
+	if err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 25}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := renderedContent(t, doc)
+
+	// Outer border bottom stroke should be at Y near rect.URY - drawnRowHeight,
+	// NOT at rect.LLY = 0. The bottom-side stroke is emitted by drawBorderSides
+	// as "URX LLY m LLX LLY l S\n", so with the bug it would be
+	// "100 0 m 0 0 l S\n". With the fix LLY > 0 so that exact sequence must not
+	// appear.
+	if strings.Contains(s, "100 0 m 0 0 l S\n") {
+		t.Error("outer border bottom at rect.LLY=0; expected at drawn-rows boundary")
+	}
+}

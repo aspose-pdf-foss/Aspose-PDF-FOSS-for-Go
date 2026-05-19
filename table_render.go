@@ -45,6 +45,7 @@ func (p *Page) AddTable(t *Table, rect Rectangle) error {
 	// Render cells. For each cell, compute its rect and interior, then call
 	// AddText (which handles font resolution, encoding, wrap, alignment, clipping).
 	y := rect.URY
+	drawnHeight := 0.0
 	for i, row := range t.rows {
 		if y-heights[i] < rect.LLY {
 			// Row doesn't fit — stop drawing further rows (clipping; Task 9
@@ -95,29 +96,25 @@ func (p *Page) AddTable(t *Table, rect Rectangle) error {
 			x += colWidth
 		}
 		y -= heights[i]
+		drawnHeight += heights[i]
 	}
 
 	// Outer table border. Drawn last so it appears on top of cell-edge strokes.
-	totalH := 0.0
-	for _, h := range heights {
-		totalH += h
-	}
-	// If rows were clipped, clamp the outer border height to what was actually drawn.
-	drawnH := totalH
-	if drawnH > rect.URY-rect.LLY {
-		drawnH = rect.URY - rect.LLY
-	}
-	totalW := 0.0
-	for _, w := range t.columnWidths {
-		totalW += w
-	}
-	if ops := drawBorderSides(
-		rect.LLX, rect.URY-drawnH,
-		rect.LLX+totalW, rect.URY,
-		t.border,
-	); ops != "" {
-		if err := p.appendToContentStream([]byte(ops)); err != nil {
-			return fmt.Errorf("add table: outer border: %w", err)
+	// Height equals the sum of rendered rows (not the rect), so the border
+	// tightly wraps the visible content even when later rows were clipped.
+	if drawnHeight > 0 {
+		totalW := 0.0
+		for _, w := range t.columnWidths {
+			totalW += w
+		}
+		if ops := drawBorderSides(
+			rect.LLX, rect.URY-drawnHeight,
+			rect.LLX+totalW, rect.URY,
+			t.border,
+		); ops != "" {
+			if err := p.appendToContentStream([]byte(ops)); err != nil {
+				return fmt.Errorf("add table: outer border: %w", err)
+			}
 		}
 	}
 
