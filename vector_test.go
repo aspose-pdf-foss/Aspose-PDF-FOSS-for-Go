@@ -404,3 +404,51 @@ func TestDrawRoundedRectangle_LargeRadiusClampedToHalfShorterSide(t *testing.T) 
 		t.Errorf("clamped radius should still emit 4 corner arcs, got %d", strings.Count(s, " c\n"))
 	}
 }
+
+func TestDrawLine_AlphaUsesExtGState(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawLine(
+		pdf.Point{}, pdf.Point{X: 100},
+		pdf.LineStyle{
+			Width: 2,
+			Color: &pdf.Color{R: 1, G: 0, B: 0, A: 0.5},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, " gs\n") {
+		t.Errorf("alpha < 1 should emit gs op: %s", s)
+	}
+}
+
+func TestDrawRectangle_FillAlphaUsesExtGState(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawRectangle(
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100},
+		pdf.ShapeStyle{FillColor: &pdf.Color{R: 0, G: 0, B: 1, A: 0.3}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, " gs\n") {
+		t.Errorf("fill alpha < 1 should emit gs op: %s", s)
+	}
+}
+
+func TestDrawLine_FullOpacityNoExtGState(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	_ = page.DrawLine(
+		pdf.Point{}, pdf.Point{X: 100},
+		pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0, G: 0, B: 0, A: 1}},
+	)
+	s := renderedContent(t, doc)
+	if strings.Contains(s, " gs\n") {
+		t.Error("alpha = 1 should not emit gs (no transparency needed)")
+	}
+}

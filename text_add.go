@@ -715,7 +715,10 @@ func nextFontName(fontDict pdfDict) string {
 	}
 }
 
-// ensureExtGState registers an ExtGState with the given fill opacity.
+// ensureExtGState registers an ExtGState with the given opacity for both
+// stroke (/CA) and fill (/ca) — same value for both, matching the common
+// case of "draw this entire shape semi-transparent". For per-property
+// transparency, a future helper can split.
 func (p *Page) ensureExtGState(alpha float64) (string, error) {
 	pageDict := p.pageDict()
 	if pageDict == nil {
@@ -735,7 +738,7 @@ func (p *Page) ensureExtGState(alpha float64) (string, error) {
 		resources["/ExtGState"] = gsDict
 	}
 
-	// Check if an ExtGState with the same /ca already exists.
+	// Check if an ExtGState with matching /ca AND /CA already exists.
 	for name, val := range gsDict {
 		ref, ok := val.(pdfRef)
 		if !ok {
@@ -749,13 +752,24 @@ func (p *Page) ensureExtGState(alpha float64) (string, error) {
 		if !ok {
 			continue
 		}
-		if ca, err := toFloat(dict["/ca"]); err == nil && ca == alpha {
+		caOK, ca := false, 0.0
+		if v, err := toFloat(dict["/ca"]); err == nil {
+			ca = v
+			caOK = true
+		}
+		bigCAOK, bigCA := false, 0.0
+		if v, err := toFloat(dict["/CA"]); err == nil {
+			bigCA = v
+			bigCAOK = true
+		}
+		if caOK && bigCAOK && ca == alpha && bigCA == alpha {
 			return name, nil
 		}
 	}
 
 	gsObjDict := pdfDict{
 		"/ca": alpha,
+		"/CA": alpha,
 	}
 	gsID := p.doc.nextID
 	p.doc.nextID++

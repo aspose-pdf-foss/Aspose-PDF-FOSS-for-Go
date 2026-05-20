@@ -44,6 +44,31 @@ func formatLineStyle(s LineStyle) string {
 	return buf.String()
 }
 
+// applyAlpha registers an ExtGState if either the stroke color or fill color
+// has alpha < 1, and returns the gs op string (with trailing newline) to be
+// inserted into the q-block. Returns "" if no transparency is needed.
+//
+// Uses the most-restrictive alpha among configured colors. If stroke and fill
+// have different alpha values, the smaller one is applied to both (single
+// ExtGState resource — sufficient for MVP).
+func (p *Page) applyAlpha(strokeColor, fillColor *Color) (string, error) {
+	a := 1.0
+	if strokeColor != nil && strokeColor.A < a {
+		a = strokeColor.A
+	}
+	if fillColor != nil && fillColor.A < a {
+		a = fillColor.A
+	}
+	if a >= 1 {
+		return "", nil
+	}
+	name, err := p.ensureExtGState(a)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s gs\n", name), nil
+}
+
 // DrawLine strokes a single line segment from→to with the given style.
 // No-op if style.Width <= 0.
 //
@@ -54,6 +79,11 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.Color, nil)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatLineStyle(style))
 	buf.WriteString(fmt.Sprintf("%s %s m\n", formatFloat(from.X), formatFloat(from.Y)))
 	buf.WriteString(fmt.Sprintf("%s %s l\n", formatFloat(to.X), formatFloat(to.Y)))
@@ -120,6 +150,11 @@ func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
 	h := rect.URY - rect.LLY
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatShapeStyle(style))
 	buf.WriteString(fmt.Sprintf("%s %s %s %s re %s\n",
 		formatFloat(rect.LLX), formatFloat(rect.LLY),
@@ -194,6 +229,11 @@ func (p *Page) DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error
 	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatShapeStyle(style))
 	buf.WriteString(ellipsePathOps(center.X, center.Y, rx, ry))
 	buf.WriteString(op + "\n")
@@ -216,6 +256,11 @@ func (p *Page) DrawPolyline(points []Point, style LineStyle) error {
 	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.Color, nil)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatLineStyle(style))
 	buf.WriteString(fmt.Sprintf("%s %s m\n", formatFloat(points[0].X), formatFloat(points[0].Y)))
 	for _, pt := range points[1:] {
@@ -266,6 +311,11 @@ func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
 	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatShapeStyle(style))
 	buf.WriteString(pathOpsToOperators(path.ops))
 	buf.WriteString(op + "\n")
@@ -344,6 +394,11 @@ func (p *Page) DrawPolygon(points []Point, style ShapeStyle) error {
 	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
+	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
+	if err != nil {
+		return err
+	}
+	buf.WriteString(gsOp)
 	buf.WriteString(formatShapeStyle(style))
 	buf.WriteString(fmt.Sprintf("%s %s m\n", formatFloat(points[0].X), formatFloat(points[0].Y)))
 	for _, pt := range points[1:] {
