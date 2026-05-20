@@ -126,3 +126,76 @@ func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
 	buf.WriteString("Q\n")
 	return p.appendToContentStream([]byte(buf.String()))
 }
+
+// ellipseApproxKappa is the magic constant for cubic Bezier approximation of
+// a quarter-circle: k = (4/3)*tan(π/8) = 4*(√2 - 1)/3 ≈ 0.5522847498.
+const ellipseApproxKappa = 0.5522847498307933
+
+// ellipsePathOps emits the path-construction operators for an axis-aligned
+// ellipse centered at (cx, cy) with horizontal radius rx and vertical radius
+// ry. Composed of four cubic Beziers + close (h). The leading space before
+// "h" ensures the substring " h\n" is present in the output (matches test
+// expectations and aligns with the spacing convention used by other path ops).
+func ellipsePathOps(cx, cy, rx, ry float64) string {
+	kx := rx * ellipseApproxKappa
+	ky := ry * ellipseApproxKappa
+	var buf strings.Builder
+	// Start at right-most point.
+	buf.WriteString(fmt.Sprintf("%s %s m\n",
+		formatFloat(cx+rx), formatFloat(cy)))
+	// Upper-right quadrant.
+	buf.WriteString(fmt.Sprintf("%s %s %s %s %s %s c\n",
+		formatFloat(cx+rx), formatFloat(cy+ky),
+		formatFloat(cx+kx), formatFloat(cy+ry),
+		formatFloat(cx), formatFloat(cy+ry)))
+	// Upper-left.
+	buf.WriteString(fmt.Sprintf("%s %s %s %s %s %s c\n",
+		formatFloat(cx-kx), formatFloat(cy+ry),
+		formatFloat(cx-rx), formatFloat(cy+ky),
+		formatFloat(cx-rx), formatFloat(cy)))
+	// Lower-left.
+	buf.WriteString(fmt.Sprintf("%s %s %s %s %s %s c\n",
+		formatFloat(cx-rx), formatFloat(cy-ky),
+		formatFloat(cx-kx), formatFloat(cy-ry),
+		formatFloat(cx), formatFloat(cy-ry)))
+	// Lower-right.
+	buf.WriteString(fmt.Sprintf("%s %s %s %s %s %s c\n",
+		formatFloat(cx+kx), formatFloat(cy-ry),
+		formatFloat(cx+rx), formatFloat(cy-ky),
+		formatFloat(cx+rx), formatFloat(cy)))
+	buf.WriteString(" h\n")
+	return buf.String()
+}
+
+// DrawCircle strokes and/or fills a circle. Returns error for negative radius.
+// No-op if radius is zero or neither stroke nor fill is configured.
+//
+// Mirrors Aspose.PDF for .NET's Drawing.Circle.
+func (p *Page) DrawCircle(center Point, radius float64, style ShapeStyle) error {
+	if radius < 0 {
+		return fmt.Errorf("draw circle: negative radius %g", radius)
+	}
+	return p.DrawEllipse(center, radius, radius, style)
+}
+
+// DrawEllipse strokes and/or fills an axis-aligned ellipse.
+// Returns error for negative semi-axis. No-op if either semi-axis is zero or
+// neither stroke nor fill is configured.
+//
+// Mirrors Aspose.PDF for .NET's Drawing.Ellipse.
+func (p *Page) DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error {
+	if rx < 0 || ry < 0 {
+		return fmt.Errorf("draw ellipse: negative semi-axis (rx=%g, ry=%g)", rx, ry)
+	}
+	op := paintOp(style)
+	if op == "" || rx == 0 || ry == 0 {
+		return nil
+	}
+	var buf strings.Builder
+	buf.WriteString("q\n")
+	buf.WriteString(formatShapeStyle(style))
+	buf.WriteString(ellipsePathOps(center.X, center.Y, rx, ry))
+	buf.WriteString(op + "\n")
+	buf.WriteString("Q\n")
+	return p.appendToContentStream([]byte(buf.String()))
+}

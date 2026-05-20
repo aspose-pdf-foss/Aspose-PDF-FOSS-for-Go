@@ -182,3 +182,62 @@ func TestDrawRectangle_NoStyleNoOp(t *testing.T) {
 		t.Error("empty ShapeStyle should produce no rectangle output")
 	}
 }
+
+func TestDrawCircle_StrokeOnlyEmitsFourBeziers(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawCircle(
+		pdf.Point{X: 100, Y: 100}, 50,
+		pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	curveCount := strings.Count(s, " c\n")
+	if curveCount != 4 {
+		t.Errorf("curve op count = %d, want 4", curveCount)
+	}
+	if !strings.Contains(s, " h\n") {
+		t.Error("path should be closed (h)")
+	}
+}
+
+func TestDrawCircle_NegativeRadiusErrors(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawCircle(pdf.Point{}, -1, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
+	if err == nil {
+		t.Error("negative radius should error")
+	}
+}
+
+func TestDrawEllipse_Basic(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawEllipse(
+		pdf.Point{X: 100, Y: 100}, 80, 40,
+		pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	curveCount := strings.Count(s, " c\n")
+	if curveCount != 4 {
+		t.Errorf("curve op count = %d, want 4", curveCount)
+	}
+}
+
+func TestDrawEllipse_NegativeAxisErrors(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawEllipse(pdf.Point{}, -1, 1, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
+	if err == nil {
+		t.Error("negative rx should error")
+	}
+	err = page.DrawEllipse(pdf.Point{}, 1, -1, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
+	if err == nil {
+		t.Error("negative ry should error")
+	}
+}
