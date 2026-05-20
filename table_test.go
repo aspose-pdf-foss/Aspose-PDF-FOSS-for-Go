@@ -1397,3 +1397,30 @@ func TestAddTable_DedupResetsBetweenPages(t *testing.T) {
 		t.Errorf("multi-page roundtrip lost rows: got %d, want 6", foundRows)
 	}
 }
+
+func TestAddTable_ImageCellAES128Roundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{200})
+	table.AddRow().AddCell("").SetImage("testdata/Koala.jpg")
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 500, URX: 250, URY: 750}); err != nil {
+		t.Fatal(err)
+	}
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES128,
+	})
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page2, _ := doc2.Page(1)
+	infos, _ := page2.ImageInfos()
+	if len(infos) != 1 {
+		t.Errorf("AES-128 roundtrip lost image: got %d, want 1", len(infos))
+	}
+}
