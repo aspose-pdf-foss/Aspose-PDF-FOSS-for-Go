@@ -310,3 +310,41 @@ func TestDrawPolygon_TwoPointsErrors(t *testing.T) {
 		t.Error("polygon with two points should error")
 	}
 }
+
+func TestDrawPath_NilErrors(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawPath(nil, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
+	if err == nil {
+		t.Error("nil path should error")
+	}
+}
+
+func TestDrawPath_EmptyPathNoOp(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawPath(pdf.NewPath(), pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if strings.Contains(s, " m\n") {
+		t.Error("empty path should emit nothing")
+	}
+}
+
+func TestDrawPath_BuilderChain(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	path := pdf.NewPath().MoveTo(50, 50).LineTo(150, 50).CurveTo(180, 80, 180, 120, 150, 150).Close()
+	err := page.DrawPath(path, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	for _, want := range []string{"50 50 m", " l\n", " c\n", " h\n", "S\n"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}

@@ -225,6 +225,53 @@ func (p *Page) DrawPolyline(points []Point, style LineStyle) error {
 	return p.appendToContentStream([]byte(buf.String()))
 }
 
+// pathOpsToOperators converts a Path's internal ops into a PDF content stream
+// fragment of path-construction operators (m, l, c, h). Does NOT emit a
+// paint operator — the caller appends "S", "f", or "B" as appropriate.
+func pathOpsToOperators(ops []pathOp) string {
+	var buf strings.Builder
+	for _, op := range ops {
+		switch op.kind {
+		case pathOpMoveTo:
+			buf.WriteString(fmt.Sprintf("%s %s m\n", formatFloat(op.x), formatFloat(op.y)))
+		case pathOpLineTo:
+			buf.WriteString(fmt.Sprintf("%s %s l\n", formatFloat(op.x), formatFloat(op.y)))
+		case pathOpCurveTo:
+			buf.WriteString(fmt.Sprintf("%s %s %s %s %s %s c\n",
+				formatFloat(op.c1x), formatFloat(op.c1y),
+				formatFloat(op.c2x), formatFloat(op.c2y),
+				formatFloat(op.x), formatFloat(op.y)))
+		case pathOpClose:
+			buf.WriteString(" h\n") // leading space for consistency with other shape methods
+		}
+	}
+	return buf.String()
+}
+
+// DrawPath strokes and/or fills the previously-built path. Errors if path is
+// nil. No-op if path has no operations or style is empty.
+//
+// Mirrors Aspose.PDF for .NET's Drawing.GraphicsPath / Drawing.Curve.
+func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
+	if path == nil {
+		return fmt.Errorf("draw path: nil path")
+	}
+	if len(path.ops) == 0 {
+		return nil
+	}
+	op := paintOp(style)
+	if op == "" {
+		return nil
+	}
+	var buf strings.Builder
+	buf.WriteString("q\n")
+	buf.WriteString(formatShapeStyle(style))
+	buf.WriteString(pathOpsToOperators(path.ops))
+	buf.WriteString(op + "\n")
+	buf.WriteString("Q\n")
+	return p.appendToContentStream([]byte(buf.String()))
+}
+
 // DrawPolygon strokes and/or fills a closed polygon (last point connects back
 // to the first via `h`). Errors if len(points) < 3. No-op if neither stroke
 // nor fill is configured.
