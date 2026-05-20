@@ -1148,3 +1148,34 @@ func TestAddTable_CellBackgroundWinsOverRow(t *testing.T) {
 		t.Error("cell B's blue override missing")
 	}
 }
+
+func TestTable_AddRows_BatchReturnsRowsInOrder(t *testing.T) {
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50})
+	rows := table.AddRows([][]string{
+		{"a1", "a2"},
+		{"b1", "b2"},
+		{"c1", "c2"},
+	})
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	if table.RowCount() != 3 {
+		t.Errorf("RowCount = %d, want 3", table.RowCount())
+	}
+	if rows[1].Cells()[0].Text() != "b1" {
+		t.Errorf("rows[1][0] = %q, want b1", rows[1].Cells()[0].Text())
+	}
+}
+
+func TestTable_AddRows_EmptyInputs(t *testing.T) {
+	table := pdf.NewTable().SetColumnWidths([]float64{50})
+	if got := table.AddRows(nil); len(got) != 0 {
+		t.Errorf("AddRows(nil) = %d rows, want 0", len(got))
+	}
+	if got := table.AddRows([][]string{}); len(got) != 0 {
+		t.Errorf("AddRows([]) = %d rows, want 0", len(got))
+	}
+	if table.RowCount() != 0 {
+		t.Errorf("RowCount = %d, want 0 (empty inputs add nothing)", table.RowCount())
+	}
+}

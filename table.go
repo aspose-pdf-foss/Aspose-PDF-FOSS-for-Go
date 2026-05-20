@@ -112,6 +112,22 @@ func (t *Table) AddRow() *Row {
 	return r
 }
 
+// AddRows is a convenience that creates one Row per inner slice and one Cell
+// per string in that slice. Returns the rows in insertion order so callers
+// can apply further per-row customization (SetBackground, SetHeight, etc.).
+//
+// Rows added through AddRows have plain cells — no ColSpan/RowSpan. For
+// spanning, use the explicit AddRow + Cell.SetColSpan flow.
+func (t *Table) AddRows(rows [][]string) []*Row {
+	out := make([]*Row, 0, len(rows))
+	for _, texts := range rows {
+		r := t.AddRow()
+		r.AddCells(texts...)
+		out = append(out, r)
+	}
+	return out
+}
+
 // Rows returns the rows in order. The slice is the live backing — do not mutate.
 func (t *Table) Rows() []*Row { return t.rows }
 
