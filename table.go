@@ -51,6 +51,11 @@ type Row struct {
 	table  *Table
 	cells  []*Cell
 	height float64 // 0 = auto-fit
+	// Phase 3: row-level styling layer between table defaults and per-cell overrides.
+	background *Color
+	textStyle  *TextStyle
+	border     *BorderInfo
+	margin     *MarginInfo
 }
 
 // Cell is a single cell within a Row.
@@ -242,3 +247,29 @@ func (t *Table) OverflowMargins() (top, bottom float64) {
 	}
 	return t.overflowTop, t.overflowBottom
 }
+
+// SetBackground sets a row-level background color. Cells in the row inherit
+// this background unless the cell itself calls SetBackground.
+func (r *Row) SetBackground(col *Color) *Row { r.background = col; return r }
+
+// Background returns the row-level background color, or nil if unset.
+func (r *Row) Background() *Color { return r.background }
+
+// SetTextStyle sets a row-level default text style. Cells in the row inherit
+// this style (overlaid on table.DefaultCellStyle) unless overridden per-cell.
+func (r *Row) SetTextStyle(s TextStyle) *Row { r.textStyle = &s; return r }
+
+// TextStyle returns the row-level text style override, or nil if unset.
+func (r *Row) TextStyle() *TextStyle { return r.textStyle }
+
+// SetBorder sets a row-level default border. Cells inherit unless overridden.
+func (r *Row) SetBorder(b BorderInfo) *Row { r.border = &b; return r }
+
+// Border returns the row-level border override, or nil if unset.
+func (r *Row) Border() *BorderInfo { return r.border }
+
+// SetMargin sets a row-level default cell padding. Cells inherit unless overridden.
+func (r *Row) SetMargin(m MarginInfo) *Row { r.margin = &m; return r }
+
+// Margin returns the row-level margin override, or nil if unset.
+func (r *Row) Margin() *MarginInfo { return r.margin }

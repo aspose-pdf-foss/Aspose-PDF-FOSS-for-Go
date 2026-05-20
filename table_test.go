@@ -1075,3 +1075,41 @@ func TestAddTable_OverflowAES128Roundtrip(t *testing.T) {
 		t.Errorf("found %d body rows across pages; want 5", foundRows)
 	}
 }
+
+func TestRow_BackgroundDefault(t *testing.T) {
+	r := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow()
+	if r.Background() != nil {
+		t.Error("default Background should be nil")
+	}
+	if r.TextStyle() != nil {
+		t.Error("default TextStyle should be nil")
+	}
+	if r.Border() != nil {
+		t.Error("default Border should be nil")
+	}
+	if r.Margin() != nil {
+		t.Error("default Margin should be nil")
+	}
+}
+
+func TestRow_SettersAndChaining(t *testing.T) {
+	bg := &pdf.Color{R: 0.9, G: 0.9, B: 0.9, A: 1}
+	r := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().
+		SetBackground(bg).
+		SetTextStyle(pdf.TextStyle{Size: 14}).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideTop, Width: 1}).
+		SetMargin(pdf.MarginInfo{Top: 3, Right: 4, Bottom: 3, Left: 4})
+
+	if r.Background() != bg {
+		t.Error("Background pointer not preserved")
+	}
+	if r.TextStyle() == nil || r.TextStyle().Size != 14 {
+		t.Errorf("TextStyle = %+v", r.TextStyle())
+	}
+	if r.Border() == nil || r.Border().Sides != pdf.BorderSideTop {
+		t.Errorf("Border = %+v", r.Border())
+	}
+	if r.Margin() == nil || r.Margin().Left != 4 {
+		t.Errorf("Margin = %+v", r.Margin())
+	}
+}
