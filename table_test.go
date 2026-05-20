@@ -1179,3 +1179,35 @@ func TestTable_AddRows_EmptyInputs(t *testing.T) {
 		t.Errorf("RowCount = %d, want 0 (empty inputs add nothing)", table.RowCount())
 	}
 }
+
+func TestCell_ImageDefault(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("x")
+	path, hasImage := cell.Image()
+	if path != "" || hasImage {
+		t.Errorf("default Image() = (%q, %v), want ('', false)", path, hasImage)
+	}
+}
+
+func TestCell_SetImageChaining(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("ignored").
+		SetImage("testdata/Koala.jpg")
+	path, hasImage := cell.Image()
+	if !hasImage {
+		t.Error("hasImage should be true after SetImage")
+	}
+	if path != "testdata/Koala.jpg" {
+		t.Errorf("Image() path = %q", path)
+	}
+}
+
+func TestCell_SetImageFromStream(t *testing.T) {
+	cell := pdf.NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("").
+		SetImageFromStream(bytes.NewReader([]byte("dummy")))
+	path, hasImage := cell.Image()
+	if !hasImage {
+		t.Error("hasImage should be true after SetImageFromStream")
+	}
+	if path != "" {
+		t.Errorf("path should be empty for stream-set image, got %q", path)
+	}
+}

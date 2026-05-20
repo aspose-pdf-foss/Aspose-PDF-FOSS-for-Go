@@ -1,5 +1,7 @@
 package asposepdf
 
+import "io"
+
 // BorderSide is a bitmask selecting which sides of a rectangular border are drawn.
 type BorderSide int
 
@@ -72,6 +74,10 @@ type Cell struct {
 	vAlignSet  bool
 	colSpan    int // 0 == default 1
 	rowSpan    int // 0 == default 1
+	// Phase 3: image cells (image overrides text rendering when both set).
+	imagePath   string // file path; empty when image set from stream
+	imageStream []byte // buffered stream bytes; nil when image set from path or unset
+	hasImage    bool
 }
 
 // NewTable returns an empty table. Configure via Set* methods + AddRow.
@@ -289,3 +295,45 @@ func (r *Row) SetMargin(m MarginInfo) *Row { r.margin = &m; return r }
 
 // Margin returns the row-level margin override, or nil if unset.
 func (r *Row) Margin() *MarginInfo { return r.margin }
+
+// SetImage configures the cell to render the named image instead of text.
+// PNG and JPEG supported (format auto-detected by magic bytes).
+//
+// If both SetText and SetImage are configured, the image wins.
+//
+// The image is auto-sized to fit the cell's interior width (sum of spanned
+// column widths minus padding), preserving aspect ratio. Row height auto-fit
+// computes the resulting image height plus margins. Use Row.SetHeight to
+// override row height; the image then scales down to fit if needed.
+//
+// Mirrors Aspose.PDF for .NET's Cell.Image property.
+func (c *Cell) SetImage(path string) *Cell {
+	c.imagePath = path
+	c.imageStream = nil
+	c.hasImage = true
+	return c
+}
+
+// SetImageFromStream is the io.Reader-based counterpart. The full stream is
+// buffered immediately so that the table renderer can measure and draw later.
+func (c *Cell) SetImageFromStream(r io.Reader) *Cell {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		// Defer the error to AddTable time; store a sentinel that triggers
+		// a clean validation error there.
+		c.imagePath = ""
+		c.imageStream = nil
+		c.hasImage = true
+		return c
+	}
+	c.imagePath = ""
+	c.imageStream = data
+	c.hasImage = true
+	return c
+}
+
+// Image returns the configured image source. path is empty when the image
+// was set from a stream. hasImage is true when any image source is set.
+func (c *Cell) Image() (path string, hasImage bool) {
+	return c.imagePath, c.hasImage
+}
