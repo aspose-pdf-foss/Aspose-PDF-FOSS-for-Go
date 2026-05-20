@@ -60,3 +60,69 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 	buf.WriteString("Q\n")
 	return p.appendToContentStream([]byte(buf.String()))
 }
+
+// paintOp returns the PDF painting operator for the given style:
+//
+//	"S"  — stroke only
+//	"f"  — fill only
+//	"B"  — stroke + fill
+//	""   — neither (caller should skip emission entirely)
+func paintOp(s ShapeStyle) string {
+	stroke := s.LineStyle.Width > 0
+	fill := s.FillColor != nil
+	switch {
+	case stroke && fill:
+		return "B"
+	case stroke:
+		return "S"
+	case fill:
+		return "f"
+	default:
+		return ""
+	}
+}
+
+// formatFillColor emits a fill-color (rg) op, or "" if color is nil.
+func formatFillColor(c *Color) string {
+	if c == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s %s %s rg\n",
+		formatFloat(c.R), formatFloat(c.G), formatFloat(c.B))
+}
+
+// formatShapeStyle emits stroke + fill graphics state ops.
+// Returns "" if neither stroke nor fill is configured.
+func formatShapeStyle(s ShapeStyle) string {
+	op := paintOp(s)
+	if op == "" {
+		return ""
+	}
+	var buf strings.Builder
+	if s.LineStyle.Width > 0 {
+		buf.WriteString(formatLineStyle(s.LineStyle))
+	}
+	buf.WriteString(formatFillColor(s.FillColor))
+	return buf.String()
+}
+
+// DrawRectangle strokes and/or fills an axis-aligned rectangle.
+// No-op if neither stroke (Width > 0) nor fill (FillColor != nil) is set.
+//
+// Mirrors Aspose.PDF for .NET's Drawing.Rectangle shape.
+func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
+	op := paintOp(style)
+	if op == "" {
+		return nil
+	}
+	w := rect.URX - rect.LLX
+	h := rect.URY - rect.LLY
+	var buf strings.Builder
+	buf.WriteString("q\n")
+	buf.WriteString(formatShapeStyle(style))
+	buf.WriteString(fmt.Sprintf("%s %s %s %s re %s\n",
+		formatFloat(rect.LLX), formatFloat(rect.LLY),
+		formatFloat(w), formatFloat(h), op))
+	buf.WriteString("Q\n")
+	return p.appendToContentStream([]byte(buf.String()))
+}

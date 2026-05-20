@@ -106,3 +106,79 @@ func TestDrawLine_LineCapRound(t *testing.T) {
 		t.Error("LineCapRound should emit `1 J`")
 	}
 }
+
+func TestDrawRectangle_StrokeOnly(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawRectangle(
+		pdf.Rectangle{LLX: 50, LLY: 50, URX: 150, URY: 100},
+		pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0, G: 0, B: 1, A: 1}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, "50 50 100 50 re") {
+		t.Errorf("missing rect op: %s", s)
+	}
+	if !strings.Contains(s, " S\n") {
+		t.Error("stroke-only should emit S")
+	}
+	if strings.Contains(s, " f\n") || strings.Contains(s, " B\n") {
+		t.Error("stroke-only should not emit f or B")
+	}
+}
+
+func TestDrawRectangle_FillOnly(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawRectangle(
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100},
+		pdf.ShapeStyle{FillColor: &pdf.Color{R: 1, G: 1, B: 0, A: 1}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, "1 1 0 rg") {
+		t.Errorf("missing fill color: %s", s)
+	}
+	if !strings.Contains(s, " f\n") {
+		t.Error("fill-only should emit f")
+	}
+}
+
+func TestDrawRectangle_StrokeAndFill(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawRectangle(
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100},
+		pdf.ShapeStyle{
+			LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 1, G: 0, B: 0, A: 1}},
+			FillColor: &pdf.Color{R: 0, G: 1, B: 0, A: 1},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, " B\n") {
+		t.Errorf("stroke+fill should emit B: %s", s)
+	}
+	if !strings.Contains(s, "1 0 0 RG") || !strings.Contains(s, "0 1 0 rg") {
+		t.Error("both stroke and fill colors should be present")
+	}
+}
+
+func TestDrawRectangle_NoStyleNoOp(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	err := page.DrawRectangle(pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}, pdf.ShapeStyle{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if strings.Contains(s, " re\n") {
+		t.Error("empty ShapeStyle should produce no rectangle output")
+	}
+}
