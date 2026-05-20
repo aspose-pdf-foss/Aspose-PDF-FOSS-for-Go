@@ -1,5 +1,7 @@
 package asposepdf
 
+import "math"
+
 // LineCap and LineJoin enums (LineCapButt/Round/Square, LineJoinMiter/Round/Bevel)
 // are declared in appearance_builder.go. They are reused here for the public
 // vector graphics surface; values match PDF operators J (§8.4.3.3) and j (§8.4.3.4).
@@ -114,4 +116,64 @@ func (p *Path) QuadTo(cx, cy, x, y float64) *Path {
 	c2x := x + (2.0/3.0)*(cx-x)
 	c2y := y + (2.0/3.0)*(cy-y)
 	return p.CurveTo(c1x, c1y, c2x, c2y, x, y)
+}
+
+// Arc adds an arc to the path, approximated by cubic Bezier curves.
+//
+// (cx, cy) is the center; r is the radius. startAngle and sweepAngle are in
+// radians; sweepAngle may be negative (clockwise). The arc is subdivided into
+// segments of ≤90°, each approximated by one cubic Bezier using
+// k = (4/3) * tan(segmentAngle / 4) for the control-point magnitude.
+//
+// If the path has no current point, MoveTo to the arc's start is implicit.
+// After the call, the path's current point is the arc's endpoint.
+//
+// No-op if r <= 0 or sweepAngle == 0.
+func (p *Path) Arc(cx, cy, r, startAngle, sweepAngle float64) *Path {
+	if r <= 0 || sweepAngle == 0 {
+		return p
+	}
+
+	// Add implicit MoveTo if path has no current point.
+	hasCurrent := false
+	for i := len(p.ops) - 1; i >= 0; i-- {
+		k := p.ops[i].kind
+		if k == pathOpMoveTo || k == pathOpLineTo || k == pathOpCurveTo {
+			hasCurrent = true
+			break
+		}
+	}
+	if !hasCurrent {
+		p.MoveTo(cx+r*math.Cos(startAngle), cy+r*math.Sin(startAngle))
+	}
+
+	// Subdivide sweep into ≤90° segments.
+	const maxSegAngle = math.Pi / 2
+	totalAbs := sweepAngle
+	if totalAbs < 0 {
+		totalAbs = -totalAbs
+	}
+	nSegs := int(math.Ceil(totalAbs / maxSegAngle))
+	if nSegs < 1 {
+		nSegs = 1
+	}
+	segAngle := sweepAngle / float64(nSegs)
+	k := (4.0 / 3.0) * math.Tan(segAngle/4.0)
+
+	a0 := startAngle
+	for i := 0; i < nSegs; i++ {
+		a1 := a0 + segAngle
+		cos0, sin0 := math.Cos(a0), math.Sin(a0)
+		cos1, sin1 := math.Cos(a1), math.Sin(a1)
+		// Tangent at a0 is (-sin0, cos0); at a1 is (-sin1, cos1).
+		c1x := cx + r*(cos0-k*sin0)
+		c1y := cy + r*(sin0+k*cos0)
+		c2x := cx + r*(cos1+k*sin1)
+		c2y := cy + r*(sin1-k*cos1)
+		ex := cx + r*cos1
+		ey := cy + r*sin1
+		p.CurveTo(c1x, c1y, c2x, c2y, ex, ey)
+		a0 = a1
+	}
+	return p
 }

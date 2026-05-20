@@ -1,6 +1,9 @@
 package asposepdf
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestPath_NewIsEmpty(t *testing.T) {
 	p := NewPath()
@@ -93,5 +96,71 @@ func TestPath_QuadToNoCurrentPoint_AssumesOrigin(t *testing.T) {
 	op := p.ops[0]
 	if op.kind != pathOpCurveTo {
 		t.Errorf("kind = %v", op.kind)
+	}
+}
+
+func TestPathArc_QuarterCircle(t *testing.T) {
+	// Quarter-circle from (1, 0) to (0, 1) — sweep 90° starting at angle 0.
+	// Should produce exactly 1 CurveTo (plus a MoveTo for the start).
+	p := NewPath().Arc(0, 0, 1, 0, math.Pi/2)
+	curveCount := 0
+	for _, op := range p.ops {
+		if op.kind == pathOpCurveTo {
+			curveCount++
+		}
+	}
+	if curveCount != 1 {
+		t.Errorf("quarter arc curve count = %d, want 1", curveCount)
+	}
+	// Endpoint should be near (0, 1).
+	last := p.ops[len(p.ops)-1]
+	if absFloat(last.x-0) > 1e-9 || absFloat(last.y-1) > 1e-9 {
+		t.Errorf("endpoint = (%g, %g), want (0, 1)", last.x, last.y)
+	}
+}
+
+func TestPathArc_FullCircle(t *testing.T) {
+	// Full circle — 4 cubic Bezier arcs.
+	p := NewPath().Arc(0, 0, 1, 0, 2*math.Pi)
+	curveCount := 0
+	for _, op := range p.ops {
+		if op.kind == pathOpCurveTo {
+			curveCount++
+		}
+	}
+	if curveCount != 4 {
+		t.Errorf("full-circle arc curve count = %d, want 4", curveCount)
+	}
+}
+
+func TestPathArc_270Degrees(t *testing.T) {
+	// 270° → 3 Bezier curves.
+	p := NewPath().Arc(0, 0, 1, 0, 1.5*math.Pi)
+	curveCount := 0
+	for _, op := range p.ops {
+		if op.kind == pathOpCurveTo {
+			curveCount++
+		}
+	}
+	if curveCount != 3 {
+		t.Errorf("270° arc curve count = %d, want 3", curveCount)
+	}
+}
+
+func TestPathArc_NegativeSweep(t *testing.T) {
+	// Clockwise (negative sweep) 90°: should still work, endpoint moves CW.
+	p := NewPath().Arc(0, 0, 1, math.Pi/2, -math.Pi/2)
+	curveCount := 0
+	for _, op := range p.ops {
+		if op.kind == pathOpCurveTo {
+			curveCount++
+		}
+	}
+	if curveCount != 1 {
+		t.Errorf("CW quarter curve count = %d, want 1", curveCount)
+	}
+	last := p.ops[len(p.ops)-1]
+	if absFloat(last.x-1) > 1e-9 || absFloat(last.y-0) > 1e-9 {
+		t.Errorf("CW endpoint = (%g, %g), want (1, 0)", last.x, last.y)
 	}
 }
