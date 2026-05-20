@@ -362,3 +362,84 @@ func TestComputeSpanningGroups_StartIndexSkipsHeaders(t *testing.T) {
 		t.Errorf("groups = %+v, want starting at 1 and 2", groups)
 	}
 }
+
+func TestEffectiveCellStyle_RowLayer(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50}).
+		SetDefaultCellStyle(TextStyle{Font: FontHelvetica, Size: 10})
+	row := table.AddRow().SetTextStyle(TextStyle{Size: 14}) // overrides Size only
+	cell := row.AddCell("x")
+	style := effectiveCellStyle(table, cell)
+	if style.Size != 14 {
+		t.Errorf("row layer override: Size = %g, want 14", style.Size)
+	}
+	if style.Font != FontHelvetica {
+		t.Error("table-default Font should survive row overlay")
+	}
+}
+
+func TestEffectiveCellStyle_CellWinsOverRow(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50}).
+		SetDefaultCellStyle(TextStyle{Size: 10})
+	row := table.AddRow().SetTextStyle(TextStyle{Size: 14})
+	cell := row.AddCell("x").SetTextStyle(TextStyle{Size: 18}) // overrides row
+	style := effectiveCellStyle(table, cell)
+	if style.Size != 18 {
+		t.Errorf("cell wins over row: Size = %g, want 18", style.Size)
+	}
+}
+
+func TestEffectiveCellMargin_RowLayer(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50}).
+		SetDefaultCellMargin(MarginInfo{Top: 1, Right: 1, Bottom: 1, Left: 1})
+	row := table.AddRow().SetMargin(MarginInfo{Top: 5, Right: 5, Bottom: 5, Left: 5})
+	cell := row.AddCell("x")
+	m := effectiveCellMargin(table, cell)
+	if m.Top != 5 || m.Left != 5 {
+		t.Errorf("row layer margin: %+v, want all 5s", m)
+	}
+}
+
+func TestEffectiveCellMargin_CellWinsOverRow(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50}).
+		SetDefaultCellMargin(MarginInfo{Top: 1})
+	row := table.AddRow().SetMargin(MarginInfo{Top: 5})
+	cell := row.AddCell("x").SetMargin(MarginInfo{Top: 9})
+	m := effectiveCellMargin(table, cell)
+	if m.Top != 9 {
+		t.Errorf("cell wins over row: Top = %g, want 9", m.Top)
+	}
+}
+
+func TestEffectiveCellBorder_RowLayer(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{50}).
+		SetDefaultCellBorder(BorderInfo{Sides: BorderSideAll, Width: 0.5})
+	row := table.AddRow().SetBorder(BorderInfo{Sides: BorderSideAll, Width: 2})
+	cell := row.AddCell("x")
+	b := effectiveCellBorder(table, cell)
+	if b.Width != 2 {
+		t.Errorf("row layer border width = %g, want 2", b.Width)
+	}
+}
+
+func TestEffectiveCellBackground_Chain(t *testing.T) {
+	rowBG := &Color{R: 0.9, G: 0.9, B: 0.9, A: 1}
+	cellBG := &Color{R: 1, G: 1, B: 0, A: 1}
+	table := NewTable().SetColumnWidths([]float64{50, 50})
+	row := table.AddRow().SetBackground(rowBG)
+	cellA := row.AddCell("a")                       // inherits row
+	cellB := row.AddCell("b").SetBackground(cellBG) // overrides row
+
+	if got := effectiveCellBackground(cellA); got != rowBG {
+		t.Errorf("cellA bg = %v, want row %v", got, rowBG)
+	}
+	if got := effectiveCellBackground(cellB); got != cellBG {
+		t.Errorf("cellB bg = %v, want cell %v", got, cellBG)
+	}
+}
+
+func TestEffectiveCellBackground_NilWhenUnset(t *testing.T) {
+	cell := NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("x")
+	if got := effectiveCellBackground(cell); got != nil {
+		t.Errorf("default bg = %v, want nil", got)
+	}
+}

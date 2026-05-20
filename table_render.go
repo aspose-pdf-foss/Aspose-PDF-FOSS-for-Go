@@ -356,13 +356,28 @@ func computeRowHeights(t *Table) ([]float64, error) {
 	return heights, nil
 }
 
-// effectiveCellMargin returns the per-cell margin, falling back to the table
-// default if the cell has no override.
+// effectiveCellMargin returns the resolved margin for a cell, walking the
+// per-cell → per-row → table-default chain.
 func effectiveCellMargin(t *Table, c *Cell) MarginInfo {
 	if c.margin != nil {
 		return *c.margin
 	}
+	if c.row != nil && c.row.margin != nil {
+		return *c.row.margin
+	}
 	return t.defaultCellMargin
+}
+
+// effectiveCellBackground walks the per-cell → per-row chain. Returns nil if
+// neither cell nor row sets a background.
+func effectiveCellBackground(c *Cell) *Color {
+	if c.background != nil {
+		return c.background
+	}
+	if c.row != nil && c.row.background != nil {
+		return c.row.background
+	}
+	return nil
 }
 
 // drawCellBackground returns a content-stream fragment that fills the cell
@@ -414,18 +429,25 @@ func drawBorderSides(llx, lly, urx, ury float64, b BorderInfo) string {
 	return buf.String()
 }
 
-// effectiveCellBorder returns the per-cell border, falling back to the table default.
+// effectiveCellBorder returns the resolved border for a cell, walking the
+// per-cell → per-row → table-default chain.
 func effectiveCellBorder(t *Table, c *Cell) BorderInfo {
 	if c.border != nil {
 		return *c.border
+	}
+	if c.row != nil && c.row.border != nil {
+		return *c.row.border
 	}
 	return t.defaultCellBorder
 }
 
 // effectiveCellStyle returns the resolved TextStyle for a cell, layering:
-// table.defaultCellStyle ← cell.style overlay ← cell H/V align overrides.
+// table.defaultCellStyle ← row.textStyle overlay ← cell.style overlay ← cell H/V align overrides.
 func effectiveCellStyle(t *Table, c *Cell) TextStyle {
 	style := t.defaultCellStyle
+	if c.row != nil && c.row.textStyle != nil {
+		style = overlayTextStyle(style, *c.row.textStyle)
+	}
 	if c.style != nil {
 		style = overlayTextStyle(style, *c.style)
 	}
