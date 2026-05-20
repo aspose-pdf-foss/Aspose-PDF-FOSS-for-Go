@@ -115,6 +115,24 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).ApplyRedactions() error` — destructively removes content (text glyphs, image XObjects, paths) inside every `/Redact` annotation's regions, draws overlay text/fill, then deletes the redact annotations
 - `(*Document).ValidateRedactions() error` — pre-flight parseability check on redact-bearing pages; recommended before `ApplyRedactions`
 
+**`vector.go` / `vector_draw.go`**
+- `LineCap` enum — `LineCapButt` (default), `LineCapRound`, `LineCapSquare`. PDF operator J. (Shared with `appearance_builder.go` annotation drawing.)
+- `LineJoin` enum — `LineJoinMiter` (default), `LineJoinRound`, `LineJoinBevel`. PDF operator j.
+- `LineStyle` struct — `Color *Color`, `Width float64`, `DashPattern []float64`, `DashPhase float64`, `Cap`, `Join`, `MiterLimit float64`. Width ≤ 0 → no stroke. Mirrors Aspose.PDF for .NET's GraphInfo stroke fields.
+- `ShapeStyle` struct — embeds `LineStyle` + adds `FillColor *Color`. Either or both may be configured; if neither, draw call is a no-op.
+- `Path` — opaque fluent builder. `NewPath().MoveTo(x, y).LineTo(x, y).CurveTo(c1x, c1y, c2x, c2y, x, y).QuadTo(cx, cy, x, y).Arc(cx, cy, r, startAngle, sweepAngle).Close()`. Arc decomposes into ≤4 cubic Beziers per the Goldapp formula (k = (4/3)·tan(θ/4)).
+- `(*Page).DrawLine(from, to Point, style LineStyle) error` — single line segment.
+- `(*Page).DrawRectangle(rect Rectangle, style ShapeStyle) error` — axis-aligned rect, stroke and/or fill.
+- `(*Page).DrawRoundedRectangle(rect Rectangle, radius float64, style ShapeStyle) error` — radius auto-clamped to half-shorter-side.
+- `(*Page).DrawCircle(center Point, radius float64, style ShapeStyle) error` — 4-Bezier approximation (kappa = 0.5522847498).
+- `(*Page).DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error` — axis-aligned ellipse.
+- `(*Page).DrawPolyline(points []Point, style LineStyle) error` — open path, stroke-only. Errors if len(points) < 2.
+- `(*Page).DrawPolygon(points []Point, style ShapeStyle) error` — closed path, stroke and/or fill. Errors if len(points) < 3.
+- `(*Page).DrawPath(path *Path, style ShapeStyle) error` — arbitrary path. Errors on nil path.
+- Alpha (`Color.A < 1`) for stroke and fill is rendered via the existing `ensureExtGState` (now sets both `/CA` stroke alpha and `/ca` fill alpha). Distinct stroke vs. fill alpha values in the same shape: takes the more-restrictive value (single ExtGState per draw call). For per-property precision, use separate draw calls.
+- Coordinates are PDF user space (Y up, origin at page bottom-left). Drawing outside the page is allowed; PDF viewers clip to MediaBox.
+- Phase 2 will add SVG embedding via `(*Page).AddSVG`; Phase 3 will add gradients, embedded raster in SVG, text matching, etc.
+
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
 - Supported styles: `/D` decimal, `/r`/`/R` roman, `/a`/`/A` alphabetic; optional `/P` prefix and `/St` start value
