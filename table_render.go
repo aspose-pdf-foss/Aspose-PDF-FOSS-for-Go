@@ -124,10 +124,12 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 	currentRect := rect
 	y := currentRect.URY
 	pageDrawn := 0.0
+	// edges is reset on every page so dedup is scoped to a single page.
+	edges := edgeSet{}
 
 	// Headers on the first page.
 	if t.repeatingRowsCount > 0 {
-		h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights)
+		h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights, edges)
 		if err != nil {
 			return pagesAdded, fmt.Errorf("add table: headers: %w", err)
 		}
@@ -143,7 +145,7 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 		}
 		if y-groupH < currentRect.LLY {
 			// Overflow: finish outer border on current page, append a new page.
-			if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets); err != nil {
+			if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets, edges); err != nil {
 				return pagesAdded, fmt.Errorf("add table: outer border (page break): %w", err)
 			}
 
@@ -159,10 +161,11 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 			currentRect = continuationRect
 			y = currentRect.URY
 			pageDrawn = 0.0
+			edges = edgeSet{} // fresh dedup set for the new page
 
 			// Repeat headers on the new page.
 			if t.repeatingRowsCount > 0 {
-				h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights)
+				h, err := drawRowRange(currentPage, t, 0, t.repeatingRowsCount-1, currentRect, y, covered, xOffsets, heights, edges)
 				if err != nil {
 					return pagesAdded, fmt.Errorf("add table: repeated headers: %w", err)
 				}
@@ -171,7 +174,7 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 			}
 		}
 
-		h, err := drawRowRange(currentPage, t, g.start, g.end, currentRect, y, covered, xOffsets, heights)
+		h, err := drawRowRange(currentPage, t, g.start, g.end, currentRect, y, covered, xOffsets, heights, edges)
 		if err != nil {
 			return pagesAdded, fmt.Errorf("add table: group [%d..%d]: %w", g.start, g.end, err)
 		}
@@ -180,7 +183,7 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 	}
 
 	// Final outer border on the last page.
-	if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets); err != nil {
+	if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets, edges); err != nil {
 		return pagesAdded, fmt.Errorf("add table: outer border (final): %w", err)
 	}
 
@@ -425,9 +428,48 @@ func drawCellBackground(cellLLX, cellLLY, cellURX, cellURY float64, col *Color) 
 		formatFloat(w), formatFloat(h))
 }
 
-// drawBorderSides returns stroking operators for each side of a rectangle
-// selected by the bitmask. Returns empty string if no sides or zero width.
-func drawBorderSides(llx, lly, urx, ury float64, b BorderInfo) string {
+// edgeKey identifies a drawn border-line segment by its rounded coordinates
+// (×1000, rounded). Two cells sharing an edge produce identical keys after
+// normalizing endpoint order.
+type edgeKey struct {
+	x1, y1, x2, y2 int64
+}
+
+// edgeStyle is the visual style of a border edge — width + stroke RGB. Two
+// edges with the same coordinates but different style render both (caller
+// intent preserved).
+type edgeStyle struct {
+	width   float64
+	r, g, b float64
+}
+
+// edgeSet tracks edges already emitted on the current page. A nil edgeSet
+// disables dedup (legacy behavior).
+type edgeSet map[edgeKey]edgeStyle
+
+// makeEdgeKey normalises endpoint order (lexicographic) so the same edge
+// drawn from either direction maps to one key, then rounds to 3 decimals.
+func makeEdgeKey(x1, y1, x2, y2 float64) edgeKey {
+	if (x1 > x2) || (x1 == x2 && y1 > y2) {
+		x1, x2 = x2, x1
+		y1, y2 = y2, y1
+	}
+	return edgeKey{
+		x1: int64(x1*1000 + 0.5),
+		y1: int64(y1*1000 + 0.5),
+		x2: int64(x2*1000 + 0.5),
+		y2: int64(y2*1000 + 0.5),
+	}
+}
+
+// drawBorderSides returns content-stream operators for the sides of a rectangle
+// selected by b.Sides. Lines are de-duplicated against the edges set: if an
+// identical-style line with the same coordinates was already emitted on this
+// page, this call skips it. Edges with the same coordinates but different
+// style render both (caller intent preserved).
+//
+// edges may be nil — in that case no dedup is performed.
+func drawBorderSides(llx, lly, urx, ury float64, b BorderInfo, edges edgeSet) string {
 	if b.Sides == BorderSideNone || b.Width <= 0 {
 		return ""
 	}
@@ -435,27 +477,43 @@ func drawBorderSides(llx, lly, urx, ury float64, b BorderInfo) string {
 	if b.Color != nil {
 		col = *b.Color
 	}
+	style := edgeStyle{width: b.Width, r: col.R, g: col.G, b: col.B}
+
+	var sideOps strings.Builder
+	addEdge := func(x1, y1, x2, y2 float64) {
+		if edges != nil {
+			key := makeEdgeKey(x1, y1, x2, y2)
+			if existing, ok := edges[key]; ok && existing == style {
+				return // dedup: identical edge already drawn
+			}
+			edges[key] = style
+		}
+		sideOps.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
+			formatFloat(x1), formatFloat(y1), formatFloat(x2), formatFloat(y2)))
+	}
+
+	if b.Sides&BorderSideTop != 0 {
+		addEdge(llx, ury, urx, ury)
+	}
+	if b.Sides&BorderSideRight != 0 {
+		addEdge(urx, ury, urx, lly)
+	}
+	if b.Sides&BorderSideBottom != 0 {
+		addEdge(urx, lly, llx, lly)
+	}
+	if b.Sides&BorderSideLeft != 0 {
+		addEdge(llx, lly, llx, ury)
+	}
+
+	if sideOps.Len() == 0 {
+		return ""
+	}
 	var buf strings.Builder
 	buf.WriteString("q\n")
 	buf.WriteString(fmt.Sprintf("%s w\n", formatFloat(b.Width)))
 	buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
 		formatFloat(col.R), formatFloat(col.G), formatFloat(col.B)))
-	if b.Sides&BorderSideTop != 0 {
-		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
-			formatFloat(llx), formatFloat(ury), formatFloat(urx), formatFloat(ury)))
-	}
-	if b.Sides&BorderSideRight != 0 {
-		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
-			formatFloat(urx), formatFloat(ury), formatFloat(urx), formatFloat(lly)))
-	}
-	if b.Sides&BorderSideBottom != 0 {
-		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
-			formatFloat(urx), formatFloat(lly), formatFloat(llx), formatFloat(lly)))
-	}
-	if b.Sides&BorderSideLeft != 0 {
-		buf.WriteString(fmt.Sprintf("%s %s m %s %s l S\n",
-			formatFloat(llx), formatFloat(lly), formatFloat(llx), formatFloat(ury)))
-	}
+	buf.WriteString(sideOps.String())
 	buf.WriteString("Q\n")
 	return buf.String()
 }
@@ -498,12 +556,21 @@ func effectiveCellStyle(t *Table, c *Cell) TextStyle {
 // covered:  pre-computed coverage grid from validateAndCover.
 // xOffsets: pre-computed running-sum of columnWidths.
 // heights:  pre-computed row heights.
+// edges:    per-page edge dedup set; identical-style adjacent borders are
+//
+//	emitted only once. May be nil to disable dedup.
+//
+// Border operators for all cells in the range are coalesced into a single
+// appendToContentStream call (after backgrounds and text) so dedup behaves
+// predictably and the content stream isn't bloated by per-cell border objects.
 func drawRowRange(
 	targetPage *Page, t *Table,
 	startRow, endRow int,
 	rect Rectangle, topY float64,
 	covered [][]bool, xOffsets, heights []float64,
+	edges edgeSet,
 ) (drawnHeight float64, err error) {
+	var borderOps strings.Builder
 	y := topY
 	for i := startRow; i <= endRow; i++ {
 		rowH := heights[i]
@@ -551,22 +618,26 @@ func drawRowRange(
 				}
 			}
 			border := effectiveCellBorder(t, cell)
-			if ops := drawBorderSides(cellLLX, cellLLY, cellURX, cellURY, border); ops != "" {
-				if err := targetPage.appendToContentStream([]byte(ops)); err != nil {
-					return drawnHeight, fmt.Errorf("row %d col %d border: %w", i, col, err)
-				}
+			if ops := drawBorderSides(cellLLX, cellLLY, cellURX, cellURY, border, edges); ops != "" {
+				borderOps.WriteString(ops)
 			}
 			col += cs
 		}
 		y -= rowH
 		drawnHeight += rowH
 	}
+	if borderOps.Len() > 0 {
+		if err := targetPage.appendToContentStream([]byte(borderOps.String())); err != nil {
+			return drawnHeight, fmt.Errorf("rows [%d..%d] borders: %w", startRow, endRow, err)
+		}
+	}
 	return drawnHeight, nil
 }
 
 // drawOuterBorder draws the table's outer border around the given drawn area
 // on targetPage. No-op if t.border.Sides is BorderSideNone or width is 0.
-func drawOuterBorder(targetPage *Page, t *Table, rect Rectangle, topY, drawnHeight float64, xOffsets []float64) error {
+// edges is the per-page dedup set (may be nil to disable dedup).
+func drawOuterBorder(targetPage *Page, t *Table, rect Rectangle, topY, drawnHeight float64, xOffsets []float64, edges edgeSet) error {
 	if drawnHeight <= 0 {
 		return nil
 	}
@@ -575,6 +646,7 @@ func drawOuterBorder(targetPage *Page, t *Table, rect Rectangle, topY, drawnHeig
 		rect.LLX, topY-drawnHeight,
 		rect.LLX+totalW, topY,
 		t.border,
+		edges,
 	)
 	if ops == "" {
 		return nil

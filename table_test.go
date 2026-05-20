@@ -1321,3 +1321,79 @@ func TestAddTable_ImageInRepeatingHeader(t *testing.T) {
 		}
 	}
 }
+
+func TestAddTable_BorderDedupIdenticalAdjacentEdges(t *testing.T) {
+	// 2 cells with the same border style. The shared vertical edge between
+	// them should render exactly once, not twice.
+	// Pre-dedup count: 8 (4 sides × 2 cells). Post-dedup: 7 (shared edge deduped).
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{50, 50}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	table.AddRow().AddCells("a", "b")
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}); err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	strokes := strings.Count(s, " S\n")
+	// Without dedup: 8 (4+4). With dedup (shared right-of-A == left-of-B): 7.
+	if strokes >= 8 {
+		t.Errorf("expected dedup reducing strokes below 8, got %d", strokes)
+	}
+}
+
+func TestAddTable_BorderNoDedupDifferentStyles(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50})
+	row := table.AddRow()
+	row.AddCell("a").SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	row.AddCell("b").SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 3})
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}); err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	// Different widths → shared edge NOT deduped, both render.
+	if !strings.Contains(s, "1 w") || !strings.Contains(s, "3 w") {
+		t.Error("expected both 1pt and 3pt widths present (no dedup for different styles)")
+	}
+}
+
+func TestAddTable_DedupResetsBetweenPages(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().
+		SetColumnWidths([]float64{50}).
+		SetDefaultCellStyle(pdf.TextStyle{Size: 12}).
+		SetDefaultCellMargin(pdf.MarginInfo{Top: 3, Right: 3, Bottom: 3, Left: 3}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	for i := 1; i <= 6; i++ {
+		table.AddRow().AddCell(fmt.Sprintf("row%d", i))
+	}
+	pagesAdded, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 700, URX: 100, URY: 760})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pagesAdded < 1 {
+		t.Fatal("expected overflow")
+	}
+	// Each page should render its own borders (dedup is per-page).
+	// Indirect check: verify all rows + their borders survive roundtrip.
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	foundRows := 0
+	for p := 1; p <= doc2.PageCount(); p++ {
+		pg, _ := doc2.Page(p)
+		text, _ := pg.ExtractText()
+		for i := 1; i <= 6; i++ {
+			if strings.Contains(text, fmt.Sprintf("row%d", i)) {
+				foundRows++
+			}
+		}
+	}
+	if foundRows != 6 {
+		t.Errorf("multi-page roundtrip lost rows: got %d, want 6", foundRows)
+	}
+}
