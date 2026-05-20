@@ -485,3 +485,32 @@ func TestMeasureImage_BadDataErrors(t *testing.T) {
 		t.Error("expected error for non-image bytes")
 	}
 }
+
+func TestComputeRowHeights_ImageAutoFit(t *testing.T) {
+	// 200pt column, 0 margins → interior width = 200.
+	// Koala.jpg natural: 1024x768. Scale factor = 200/1024 = 0.1953125.
+	// Scaled height = 768 * 0.1953125 = 150.
+	table := NewTable().SetColumnWidths([]float64{200}).
+		SetDefaultCellMargin(MarginInfo{Top: 0, Right: 0, Bottom: 0, Left: 0})
+	table.AddRow().AddCell("").SetImage("testdata/Koala.jpg")
+	heights, err := computeRowHeights(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 200.0 * 768.0 / 1024.0 // 150
+	if heights[0] != want {
+		t.Errorf("image auto-fit row height = %g, want %g", heights[0], want)
+	}
+}
+
+func TestComputeRowHeights_ImageRespectsExplicitRowHeight(t *testing.T) {
+	table := NewTable().SetColumnWidths([]float64{200})
+	table.AddRow().SetHeight(80).AddCell("").SetImage("testdata/Koala.jpg")
+	heights, err := computeRowHeights(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heights[0] != 80 {
+		t.Errorf("explicit row height = %g, want 80", heights[0])
+	}
+}

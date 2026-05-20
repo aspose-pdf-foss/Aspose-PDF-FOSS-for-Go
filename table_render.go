@@ -324,6 +324,37 @@ func computeRowHeights(t *Table) ([]float64, error) {
 			}
 			cs := cell.ColSpan()
 			rs := cell.RowSpan()
+			// Phase 3: image cells — auto-fit to interior width, scale height proportionally.
+			// rowspan image cells are handled by the same exclusion as rowspan text cells below.
+			if cell.hasImage && rs == 1 {
+				sumW := 0.0
+				for c := 0; c < cs; c++ {
+					sumW += t.columnWidths[col+c]
+				}
+				margin := effectiveCellMargin(t, cell)
+				interiorWidth := sumW - margin.Left - margin.Right
+				if interiorWidth < 0 {
+					interiorWidth = 0
+				}
+				var src []byte
+				if cell.imageStream != nil {
+					src = cell.imageStream
+				}
+				natW, natH, err := measureImage(cell.imagePath, src)
+				if err != nil {
+					return nil, fmt.Errorf("row %d col %d image: %w", i, col, err)
+				}
+				var scaledH float64
+				if natW > 0 {
+					scaledH = natH * (interiorWidth / natW)
+				}
+				cellH := scaledH + margin.Top + margin.Bottom
+				if cellH > maxH {
+					maxH = cellH
+				}
+				col += cs
+				continue
+			}
 			// Skip rowspan cells: their height is checked separately (currently
 			// they're allowed to clip if too tall — matches AddText clip semantics).
 			if rs > 1 {
