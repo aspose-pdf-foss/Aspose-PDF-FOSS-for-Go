@@ -1,6 +1,7 @@
 package asposepdf_test
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -517,5 +518,60 @@ func TestAsposeParity_DrawPathArbitrary(t *testing.T) {
 	err := page.DrawPath(path, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVector_AES128Roundtrip(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	_ = page.DrawCircle(pdf.Point{X: 100, Y: 100}, 50, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 2, Color: &pdf.Color{R: 1, G: 0, B: 0, A: 1}},
+	})
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "x",
+		Algorithm:    pdf.EncryptionAlgAES128,
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page2, _ := doc2.Page(1)
+	if _, err := page2.ExtractText(); err != nil {
+		t.Fatal(err) // Page must at least be parseable.
+	}
+}
+
+func TestVector_MultiplePages(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 1; i <= doc.PageCount(); i++ {
+		page, _ := doc.Page(i)
+		_ = page.DrawCircle(
+			pdf.Point{X: 100, Y: float64(100 + i*50)}, 30,
+			pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 1}},
+		)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc2.PageCount() != 3 {
+		t.Errorf("PageCount after roundtrip = %d, want 3", doc2.PageCount())
 	}
 }
