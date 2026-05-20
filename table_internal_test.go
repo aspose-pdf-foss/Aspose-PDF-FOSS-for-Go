@@ -1,6 +1,9 @@
 package asposepdf
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestMeasureText_SingleLine(t *testing.T) {
 	style := TextStyle{Font: FontHelvetica, Size: 12}
@@ -441,5 +444,44 @@ func TestEffectiveCellBackground_NilWhenUnset(t *testing.T) {
 	cell := NewTable().SetColumnWidths([]float64{50}).AddRow().AddCell("x")
 	if got := effectiveCellBackground(cell); got != nil {
 		t.Errorf("default bg = %v, want nil", got)
+	}
+}
+
+func TestMeasureImage_JPEGFile(t *testing.T) {
+	w, h, err := measureImage("testdata/Koala.jpg", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Koala.jpg is 1024x768 (per Phase 1 image-add code).
+	if w != 1024 || h != 768 {
+		t.Errorf("Koala dims = (%g, %g), want (1024, 768)", w, h)
+	}
+}
+
+func TestMeasureImage_FromStream(t *testing.T) {
+	data, err := os.ReadFile("testdata/Koala.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, h, err := measureImage("", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w != 1024 || h != 768 {
+		t.Errorf("stream dims = (%g, %g), want (1024, 768)", w, h)
+	}
+}
+
+func TestMeasureImage_EmptyPathAndNilStreamErrors(t *testing.T) {
+	_, _, err := measureImage("", nil)
+	if err == nil {
+		t.Error("expected error for empty path + nil stream")
+	}
+}
+
+func TestMeasureImage_BadDataErrors(t *testing.T) {
+	_, _, err := measureImage("", []byte("not an image"))
+	if err == nil {
+		t.Error("expected error for non-image bytes")
 	}
 }
