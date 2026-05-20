@@ -78,3 +78,40 @@ func (p *Path) Close() *Path {
 	p.ops = append(p.ops, pathOp{kind: pathOpClose})
 	return p
 }
+
+// CurveTo adds a cubic Bezier curve from the current point to (x, y) with
+// control points (c1x, c1y) and (c2x, c2y). PDF operator c.
+func (p *Path) CurveTo(c1x, c1y, c2x, c2y, x, y float64) *Path {
+	p.ops = append(p.ops, pathOp{
+		kind: pathOpCurveTo,
+		x:    x, y: y,
+		c1x: c1x, c1y: c1y, c2x: c2x, c2y: c2y,
+	})
+	return p
+}
+
+// QuadTo adds a quadratic Bezier curve (one control point) from the current
+// point to (x, y), automatically converted to the equivalent cubic per the
+// standard quadratic-to-cubic formula:
+//
+//	C1 = P0 + (2/3) * (Q - P0)
+//	C2 = P3 + (2/3) * (Q - P3)
+//
+// If there is no current point, treats (0, 0) as the start (matching PDF
+// path semantics).
+func (p *Path) QuadTo(cx, cy, x, y float64) *Path {
+	// Find current point — last MoveTo/LineTo/CurveTo endpoint, or (0,0).
+	var p0x, p0y float64
+	for i := len(p.ops) - 1; i >= 0; i-- {
+		op := p.ops[i]
+		if op.kind == pathOpMoveTo || op.kind == pathOpLineTo || op.kind == pathOpCurveTo {
+			p0x, p0y = op.x, op.y
+			break
+		}
+	}
+	c1x := p0x + (2.0/3.0)*(cx-p0x)
+	c1y := p0y + (2.0/3.0)*(cy-p0y)
+	c2x := x + (2.0/3.0)*(cx-x)
+	c2y := y + (2.0/3.0)*(cy-y)
+	return p.CurveTo(c1x, c1y, c2x, c2y, x, y)
+}
