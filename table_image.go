@@ -38,3 +38,54 @@ func measureImage(path string, data []byte) (width, height float64, err error) {
 	}
 	return float64(cfg.Width), float64(cfg.Height), nil
 }
+
+// drawImageInCell renders the cell's image into the given interior rectangle,
+// scaling proportionally to fit (width-first; height-constrain if needed)
+// while preserving aspect ratio. HAlign/VAlign place the image within any
+// extra interior space.
+func drawImageInCell(page *Page, cell *Cell, interior Rectangle, style TextStyle) error {
+	var src []byte
+	if cell.imageStream != nil {
+		src = cell.imageStream
+	}
+	natW, natH, err := measureImage(cell.imagePath, src)
+	if err != nil {
+		return err
+	}
+	if natW <= 0 || natH <= 0 {
+		return fmt.Errorf("image has zero dimension")
+	}
+	intW := interior.URX - interior.LLX
+	intH := interior.URY - interior.LLY
+	aspect := natW / natH
+	// Scale by width first, then constrain by height if too tall.
+	scaleW := intW
+	scaleH := intW / aspect
+	if scaleH > intH {
+		scaleH = intH
+		scaleW = intH * aspect
+	}
+	// Position by alignment within (intW × intH).
+	var llx, lly float64
+	switch style.HAlign {
+	case HAlignCenter:
+		llx = interior.LLX + (intW-scaleW)/2
+	case HAlignRight:
+		llx = interior.URX - scaleW
+	default:
+		llx = interior.LLX
+	}
+	switch style.VAlign {
+	case VAlignMiddle:
+		lly = interior.LLY + (intH-scaleH)/2
+	case VAlignTop:
+		lly = interior.URY - scaleH
+	default:
+		lly = interior.LLY
+	}
+	rect := Rectangle{LLX: llx, LLY: lly, URX: llx + scaleW, URY: lly + scaleH}
+	if cell.imageStream != nil {
+		return page.AddImageFromStream(bytes.NewReader(cell.imageStream), rect)
+	}
+	return page.AddImage(cell.imagePath, rect)
+}

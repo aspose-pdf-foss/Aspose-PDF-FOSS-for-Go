@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -1209,5 +1210,60 @@ func TestCell_SetImageFromStream(t *testing.T) {
 	}
 	if path != "" {
 		t.Errorf("path should be empty for stream-set image, got %q", path)
+	}
+}
+
+func TestAddTable_ImageCellRendered(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{200})
+	table.AddRow().AddCell("").SetImage("testdata/Koala.jpg")
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 500, URX: 250, URY: 750}); err != nil {
+		t.Fatal(err)
+	}
+	// Verify via the existing ImageInfos API: the page should now have 1 image.
+	infos, err := page.ImageInfos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Errorf("got %d images, want 1", len(infos))
+	}
+}
+
+func TestAddTable_ImageOverridesText(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{200})
+	table.AddRow().AddCell("ignored-text-should-not-render").
+		SetImage("testdata/Koala.jpg")
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 500, URX: 250, URY: 750}); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := page.ExtractText()
+	if strings.Contains(text, "ignored-text-should-not-render") {
+		t.Errorf("text should not render when image is set; got: %q", text)
+	}
+}
+
+func TestAddTable_ImageFromStreamRoundTrip(t *testing.T) {
+	data, err := os.ReadFile("testdata/Koala.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{200})
+	table.AddRow().AddCell("").SetImageFromStream(bytes.NewReader(data))
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 500, URX: 250, URY: 750}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	page2, _ := doc2.Page(1)
+	infos, _ := page2.ImageInfos()
+	if len(infos) != 1 {
+		t.Errorf("after roundtrip got %d images, want 1", len(infos))
 	}
 }

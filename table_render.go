@@ -539,9 +539,15 @@ func drawRowRange(
 				URX: cellURX - margin.Right,
 				URY: cellURY - margin.Top,
 			}
-			if interior.URX > interior.LLX && interior.URY > interior.LLY && cell.text != "" {
-				if err := targetPage.AddText(cell.text, style, interior); err != nil {
-					return drawnHeight, fmt.Errorf("row %d col %d text: %w", i, col, err)
+			if interior.URX > interior.LLX && interior.URY > interior.LLY {
+				if cell.hasImage {
+					if err := drawImageInCell(targetPage, cell, interior, style); err != nil {
+						return drawnHeight, fmt.Errorf("row %d col %d image: %w", i, col, err)
+					}
+				} else if cell.text != "" {
+					if err := targetPage.AddText(cell.text, style, interior); err != nil {
+						return drawnHeight, fmt.Errorf("row %d col %d text: %w", i, col, err)
+					}
 				}
 			}
 			border := effectiveCellBorder(t, cell)
