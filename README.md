@@ -34,7 +34,7 @@ doc.Save("merged.pdf")
 - **Metadata** — read and write document Info (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries)
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
-- **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`
+- **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -363,6 +363,35 @@ totals.AddCell(fmt.Sprintf("€%.2f", grandTotal))
 
 pagesAdded, _ := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 100, URX: 510, URY: 750})
 fmt.Printf("table flowed to %d additional pages\n", pagesAdded)
+```
+
+Image cells and row-level styling (alternating row backgrounds, header logo):
+
+```go
+table := pdf.NewTable().
+    SetColumnWidths([]float64{60, 200, 80, 80}).
+    SetRepeatingRowsCount(1)
+
+// Header row with logo image + text headers.
+header := table.AddRow().SetBackground(&pdf.Color{R: 0.95, G: 0.95, B: 0.95, A: 1})
+header.AddCell("").SetImage("logo.png")
+header.AddCell("Product")
+header.AddCell("Qty")
+header.AddCell("Total")
+
+// Alternating row colors via Row.SetBackground.
+rows := table.AddRows([][]string{
+    {"", "Widget",   "5", "€25.00"},
+    {"", "Gadget",   "2", "€18.00"},
+    {"", "Sprocket", "9", "€72.00"},
+})
+for i, r := range rows {
+    if i%2 == 1 {
+        r.SetBackground(&pdf.Color{R: 0.97, G: 0.97, B: 0.97, A: 1})
+    }
+}
+
+page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 100, URX: 470, URY: 750})
 ```
 
 API mirrors Aspose.PDF for .NET's `Table` / `Row` / `Cell` / `BorderInfo` / `MarginInfo` 1:1 in type names. Cells inherit `DefaultCellBorder` / `DefaultCellMargin` / `DefaultCellStyle` from the table unless overridden per-cell. Tables are positioned by `Rectangle` (consistent with `AddText` and `AddImage`) instead of paragraph flow-layout.

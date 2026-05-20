@@ -231,7 +231,15 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `Table.SetOverflowMargins(top, bottom) / OverflowMargins()` — top/bottom margins (points) for the continuation rect on auto-appended pages; defaults 50pt each. Same LLX/URX as the original rect; Y range = [bottom, pageHeight - top]
 - `(*Page).AddTable(t, rect) (pagesAdded int, err error)` — now returns the number of continuation pages auto-appended (0 if the table fits in rect). Validation also rejects: ColSpan/RowSpan out of bounds, merge overlaps, rowspan crossing the header/body boundary, header height exceeding rect height, or any spanning group too tall for a continuation page
 - Spanning groups: rows linked by rowspan are atomic — a group never breaks across pages. Each group is the smallest contiguous range [s, e] such that no rowspan in [s, e] extends past e. Page-break decisions operate on groups, not individual rows
-- Out of Phase 2 scope (Phase 3 candidates): image cells, border edge de-duplication, dash patterns, auto-fit column widths, convenience helpers (AddRows, Row.SetBackground), rowspan splitting across page breaks
+- `Cell.SetImage(path) / SetImageFromStream(r) / Image() (path, hasImage)` — cell renders an image instead of text (image wins over text if both set). Auto-fits cell interior width preserving aspect ratio; HAlign/VAlign positions it. PNG and JPEG supported. Mirrors Aspose.PDF for .NET's `Cell.Image`
+- `Row.SetBackground(*Color) / Background() *Color` — row-level background; cells inherit unless they call SetBackground themselves
+- `Row.SetTextStyle(TextStyle) / TextStyle() *TextStyle` — row-level text style overlay between table.DefaultCellStyle and cell.TextStyle in the inheritance chain
+- `Row.SetBorder(BorderInfo) / Border() *BorderInfo` — row-level border default; cells inherit unless overridden
+- `Row.SetMargin(MarginInfo) / Margin() *MarginInfo` — row-level cell padding default
+- `Table.AddRows([][]string) []*Row` — batch row constructor; one row per inner slice, one cell per string. Returns the rows for further per-row styling. Spans not supported in batch flow
+- Border edge de-duplication: identical-style adjacent border lines (cell-cell shared edges, outer border overlapping cell perimeter edges) emit only once per page. Different styles still render both for caller intent. Per-page edge tracking
+- Inheritance chain (4 deep): zero TextStyle/MarginInfo/BorderInfo ← `table.Default*` ← `row.*` ← `cell.*` ← cell.HAlign/VAlign override. Background chain: nil ← `row.Background` ← `cell.Background`
+- Out of Phase 3 scope (Phase 4 candidates): auto-fit column widths (content-driven), dash patterns on borders, per-side border width/color, rowspan splitting across page breaks, image cells with explicit pixel sizing
 
 **`validate.go`**
 - `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
