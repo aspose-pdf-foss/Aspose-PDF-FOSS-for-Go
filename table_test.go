@@ -1113,3 +1113,38 @@ func TestRow_SettersAndChaining(t *testing.T) {
 		t.Errorf("Margin = %+v", r.Margin())
 	}
 }
+
+func TestAddTable_RowBackgroundAppliesToAllCells(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50, 50})
+	row := table.AddRow().SetBackground(&pdf.Color{R: 0.85, G: 0, B: 0, A: 1})
+	row.AddCells("a", "b", "c")
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	// Red fill: 0.85 0 0 rg + re + f — should appear (one or more times for the 3 cells).
+	if !strings.Contains(s, "0.85 0 0 rg") {
+		t.Error("row-level red background not emitted")
+	}
+}
+
+func TestAddTable_CellBackgroundWinsOverRow(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	table := pdf.NewTable().SetColumnWidths([]float64{50, 50})
+	row := table.AddRow().SetBackground(&pdf.Color{R: 0.85, G: 0, B: 0, A: 1}) // red
+	row.AddCell("a")
+	row.AddCell("b").SetBackground(&pdf.Color{R: 0, G: 0, B: 0.85, A: 1}) // blue
+	if _, err := page.AddTable(table, pdf.Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}); err != nil {
+		t.Fatal(err)
+	}
+	s := renderedContent(t, doc)
+	if !strings.Contains(s, "0.85 0 0 rg") {
+		t.Error("row red fill missing for cell A")
+	}
+	if !strings.Contains(s, "0 0 0.85 rg") {
+		t.Error("cell B's blue override missing")
+	}
+}

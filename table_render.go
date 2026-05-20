@@ -495,9 +495,9 @@ func drawRowRange(
 			margin := effectiveCellMargin(t, cell)
 			style := effectiveCellStyle(t, cell)
 
-			if cell.background != nil {
+			if bg := effectiveCellBackground(cell); bg != nil {
 				if err := targetPage.appendToContentStream([]byte(
-					drawCellBackground(cellLLX, cellLLY, cellURX, cellURY, cell.background),
+					drawCellBackground(cellLLX, cellLLY, cellURX, cellURY, bg),
 				)); err != nil {
 					return drawnHeight, fmt.Errorf("row %d col %d background: %w", i, col, err)
 				}
