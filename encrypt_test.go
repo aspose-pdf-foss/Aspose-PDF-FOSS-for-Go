@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	asposepdf "github.com/aspose/pdf-for-go"
+	asposepdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestEncryptSetPassword(t *testing.T) {

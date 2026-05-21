@@ -45,7 +45,7 @@ package asposepdf_test
 import (
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestEncryptionAlgorithmConstants(t *testing.T) {
@@ -1156,7 +1156,7 @@ import (
     "strings"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestSetEncryptionAES128_RoundTrip(t *testing.T) {
@@ -1366,7 +1366,7 @@ import (
     "strings"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestSetEncryptionAES128_WithFileAttachment(t *testing.T) {
@@ -1477,7 +1477,7 @@ import (
     "strings"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func skipIfNoPypdf(t *testing.T) {

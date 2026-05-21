@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 // buildPDFWithInheritedPageAttrs returns bytes of a minimal valid PDF in which

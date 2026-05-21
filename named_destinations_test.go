@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestNamedDestinations_EmptyDoc(t *testing.T) {

@@ -910,7 +910,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	asposepdf "github.com/aspose/pdf-for-go"
+	asposepdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestOptimizeImagesRoundTrip(t *testing.T) {

@@ -222,7 +222,7 @@ package asposepdf_test
 import (
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestNamedDestinations_EmptyDoc(t *testing.T) {
@@ -1424,7 +1424,7 @@ import (
     "bytes"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestNamedDest_WithOutlineRoundTrip(t *testing.T) {
@@ -1517,7 +1517,7 @@ package asposepdf_test
 import (
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 // Aspose .NET sample: register named destinations
@@ -1621,7 +1621,7 @@ import (
     "strings"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func skipIfNoPypdfForNamedDest(t *testing.T) {

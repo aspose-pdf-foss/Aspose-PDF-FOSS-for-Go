@@ -825,7 +825,7 @@ package asposepdf_test
 import (
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestPointConstruction(t *testing.T) {
@@ -3553,7 +3553,7 @@ package main
 import (
 	"log"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func main() {
@@ -3595,9 +3595,9 @@ module check_drawing
 
 go 1.24
 
-require github.com/aspose/pdf-for-go v0.0.0
+require github.com/aspose-pdf-foss/aspose-pdf-foss-for-go v0.0.0
 
-replace github.com/aspose/pdf-for-go => D:/aspose/claude/aspose.pdf-for-go-foss
+replace github.com/aspose-pdf-foss/aspose-pdf-foss-for-go => D:/aspose/claude/aspose.pdf-for-go-foss
 ```
 
 Run:

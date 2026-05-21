@@ -51,7 +51,7 @@ package asposepdf_test
 import (
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestFileAttachmentIconConstants(t *testing.T) {
@@ -871,7 +871,7 @@ import (
     "bytes"
     "testing"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestRedactAnnotationBasicRoundTrip(t *testing.T) {
@@ -1674,7 +1674,7 @@ package main
 import (
     "log"
 
-    pdf "github.com/aspose/pdf-for-go"
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func main() {

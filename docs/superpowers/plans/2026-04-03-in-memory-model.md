@@ -1754,7 +1754,7 @@ doc.SetPassword("user", "owner")
 go test ./...
 ```
 
-Expected: `ok github.com/aspose/pdf-for-go`.
+Expected: `ok github.com/aspose-pdf-foss/aspose-pdf-foss-for-go`.
 
 - [ ] **Step 8: Commit**
 
@@ -1831,7 +1831,7 @@ Run the full test suite including the splitter integration test which validates 
 go test -v ./... 2>&1 | tail -30
 ```
 
-Expected: `ok github.com/aspose/pdf-for-go`.
+Expected: `ok github.com/aspose-pdf-foss/aspose-pdf-foss-for-go`.
 
 - [ ] **Step 2: Run the splitter integration test specifically**
 

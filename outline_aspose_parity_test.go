@@ -3,7 +3,7 @@ package asposepdf_test
 import (
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 // These tests are line-by-line translations of Aspose.PDF for .NET

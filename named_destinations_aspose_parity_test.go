@@ -3,7 +3,7 @@ package asposepdf_test
 import (
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 // Aspose .NET sample: register named destinations

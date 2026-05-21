@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestTextIconConstants(t *testing.T) {

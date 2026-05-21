@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 // renderedContent returns the concatenated, FlateDecoded content stream bytes

@@ -41,7 +41,7 @@ import (
 	"bytes"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestFormAddTextFieldRoundTrip(t *testing.T) {
@@ -1549,7 +1549,7 @@ package main
 import (
 	"log"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func main() {

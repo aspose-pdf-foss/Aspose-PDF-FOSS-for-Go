@@ -41,7 +41,7 @@ package asposepdf_test
 import (
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestDocumentFormNonNilOnPlainPDF(t *testing.T) {
@@ -1883,7 +1883,7 @@ package main
 import (
 	"log"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func main() {

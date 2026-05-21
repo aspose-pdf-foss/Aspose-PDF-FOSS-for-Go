@@ -44,7 +44,7 @@ package asposepdf_test
 import (
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestPageAnnotationsNonNilOnPlainDoc(t *testing.T) {
@@ -2107,7 +2107,7 @@ package main
 import (
 	"log"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func main() {
@@ -2135,9 +2135,9 @@ module check_annotations
 
 go 1.24
 
-require github.com/aspose/pdf-for-go v0.0.0
+require github.com/aspose-pdf-foss/aspose-pdf-foss-for-go v0.0.0
 
-replace github.com/aspose/pdf-for-go => D:/aspose/claude/aspose.pdf-for-go-foss
+replace github.com/aspose-pdf-foss/aspose-pdf-foss-for-go => D:/aspose/claude/aspose.pdf-for-go-foss
 ```
 
 Run:
@@ -2247,7 +2247,7 @@ Supported subtypes in this release: `Link`, `Highlight`, `Underline`, `StrikeOut
 
 - [ ] **Step 4: Verify README compiles**
 
-Extract the new code into `D:/tmp/readme_annot_smoke/main.go` (wrap with package main, import "fmt", "github.com/aspose/pdf-for-go") plus a go.mod with the replace directive. Run `go build ./...`. Cleanup.
+Extract the new code into `D:/tmp/readme_annot_smoke/main.go` (wrap with package main, import "fmt", "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go") plus a go.mod with the replace directive. Run `go build ./...`. Cleanup.
 
 - [ ] **Step 5: Run full suite**
 

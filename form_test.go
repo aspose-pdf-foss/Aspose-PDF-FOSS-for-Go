@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	pdf "github.com/aspose/pdf-for-go"
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
 func TestFormFieldsCount(t *testing.T) {

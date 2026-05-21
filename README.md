@@ -4,10 +4,18 @@ A pure Go library for PDF manipulation — split, merge, rotate, extract text an
 
 Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
 
+## Install
+
+```bash
+go get github.com/aspose-pdf-foss/aspose-pdf-foss-for-go
+```
+
+Requires Go 1.24 or newer. Standard library only — no transitive dependencies.
+
 ## Quick Start
 
 ```go
-import pdf "github.com/aspose/pdf-for-go"
+import pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 
 // Open a PDF
 doc, err := pdf.Open("input.pdf")
