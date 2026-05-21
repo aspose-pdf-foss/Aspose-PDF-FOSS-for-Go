@@ -1,5 +1,10 @@
 # Aspose.PDF FOSS for Go
 
+[![test](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go.svg)](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
+
 A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write metadata, encrypt with RC4-128 / AES-128 / AES-256, fill and build AcroForms, attach and render annotations, create bookmark trees, draw text and apply watermarks, place images, and validate document structure. No external dependencies — standard library only.
 
 Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
