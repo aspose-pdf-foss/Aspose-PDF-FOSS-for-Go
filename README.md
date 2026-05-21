@@ -1,4 +1,4 @@
-# Aspose.PDF for Go FOSS
+# Aspose.PDF FOSS for Go
 
 A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write metadata, encrypt with RC4-128 / AES-128 / AES-256, fill and build AcroForms, attach and render annotations, create bookmark trees, draw text and apply watermarks, place images, and validate document structure. No external dependencies — standard library only.
 
@@ -989,4 +989,4 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Product Page
 
-[Aspose.PDF for Go FOSS](https://products.aspose.com/pdf/) — part of the Aspose family of document processing libraries.
+[Aspose.PDF FOSS for Go](https://products.aspose.com/pdf/) — part of the Aspose family of document processing libraries.
