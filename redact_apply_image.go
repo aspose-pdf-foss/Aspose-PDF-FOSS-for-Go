@@ -2,7 +2,6 @@
 
 package asposepdf
 
-
 // rewriteImageOperatorsInStream removes XObject invocations (Do) whose
 // painted bbox falls entirely inside any redact region, and wraps
 // partially-overlapping invocations in a q...Q with an even-odd clip

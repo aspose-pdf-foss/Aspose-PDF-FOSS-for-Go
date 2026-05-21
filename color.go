@@ -14,7 +14,7 @@ type Color struct {
 type HAlign int
 
 const (
-	HAlignLeft   HAlign = iota // default
+	HAlignLeft HAlign = iota // default
 	HAlignCenter
 	HAlignRight
 )
@@ -23,7 +23,7 @@ const (
 type VAlign int
 
 const (
-	VAlignTop    VAlign = iota // default
+	VAlignTop VAlign = iota // default
 	VAlignMiddle
 	VAlignBottom
 )

@@ -116,4 +116,3 @@ func parseContentArray(l *lexer) (pdfArray, error) {
 	}
 	return arr, nil
 }
-

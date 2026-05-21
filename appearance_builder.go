@@ -218,10 +218,10 @@ func (ab *appearanceBuilder) Ellipse(cx, cy, rx, ry float64) {
 	dy := ry * kappa
 	// Start at right edge, going counter-clockwise.
 	ab.MoveTo(cx+rx, cy)
-	ab.CurveTo(cx+rx, cy+dy, cx+dx, cy+ry, cx, cy+ry)     // right → top
-	ab.CurveTo(cx-dx, cy+ry, cx-rx, cy+dy, cx-rx, cy)     // top → left
-	ab.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry)     // left → bottom
-	ab.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy)     // bottom → right
+	ab.CurveTo(cx+rx, cy+dy, cx+dx, cy+ry, cx, cy+ry) // right → top
+	ab.CurveTo(cx-dx, cy+ry, cx-rx, cy+dy, cx-rx, cy) // top → left
+	ab.CurveTo(cx-rx, cy-dy, cx-dx, cy-ry, cx, cy-ry) // left → bottom
+	ab.CurveTo(cx+dx, cy-ry, cx+rx, cy-dy, cx+rx, cy) // bottom → right
 	ab.ClosePath()
 }
 

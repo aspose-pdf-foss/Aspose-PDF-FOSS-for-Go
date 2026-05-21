@@ -15,11 +15,12 @@ import (
 // .NET code so a .NET migrant can read both side-by-side.
 
 // Aspose .NET sample: "Add bookmark"
-//   OutlineItemCollection chapter = new OutlineItemCollection(doc.Outlines);
-//   chapter.Title = "Chapter 1";
-//   chapter.Bold = true;
-//   chapter.Italic = false;
-//   doc.Outlines.Add(chapter);
+//
+//	OutlineItemCollection chapter = new OutlineItemCollection(doc.Outlines);
+//	chapter.Title = "Chapter 1";
+//	chapter.Bold = true;
+//	chapter.Italic = false;
+//	doc.Outlines.Add(chapter);
 func TestAsposeParity_AddBookmark(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	chapter := pdf.NewOutlineItemCollection(doc)
@@ -35,7 +36,8 @@ func TestAsposeParity_AddBookmark(t *testing.T) {
 }
 
 // Aspose .NET sample: "XYZ destination"
-//   chapter.Destination = new XYZExplicitDestination(doc.Pages[1], 0, 800, 1);
+//
+//	chapter.Destination = new XYZExplicitDestination(doc.Pages[1], 0, 800, 1);
 func TestAsposeParity_DestinationXYZ(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -50,11 +52,12 @@ func TestAsposeParity_DestinationXYZ(t *testing.T) {
 }
 
 // Aspose .NET sample: nested children
-//   OutlineItemCollection chapter = ...;
-//   OutlineItemCollection section = new OutlineItemCollection(doc.Outlines);
-//   section.Title = "Section 1.1";
-//   chapter.Add(section);
-//   doc.Outlines.Add(chapter);
+//
+//	OutlineItemCollection chapter = ...;
+//	OutlineItemCollection section = new OutlineItemCollection(doc.Outlines);
+//	section.Title = "Section 1.1";
+//	chapter.Add(section);
+//	doc.Outlines.Add(chapter);
 func TestAsposeParity_NestedChildren(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	chapter := pdf.NewOutlineItemCollection(doc)
@@ -69,8 +72,9 @@ func TestAsposeParity_NestedChildren(t *testing.T) {
 }
 
 // Aspose .NET sample: Bold + Italic + Color
-//   chapter.Bold = true; chapter.Italic = true;
-//   chapter.Color = System.Drawing.Color.Red;
+//
+//	chapter.Bold = true; chapter.Italic = true;
+//	chapter.Color = System.Drawing.Color.Red;
 func TestAsposeParity_BoldItalicColor(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	chapter := pdf.NewOutlineItemCollection(doc)
@@ -83,7 +87,8 @@ func TestAsposeParity_BoldItalicColor(t *testing.T) {
 }
 
 // Aspose .NET sample: GoToAction
-//   chapter.Action = new GoToAction(doc.Pages[2]);
+//
+//	chapter.Action = new GoToAction(doc.Pages[2]);
 func TestAsposeParity_GoToAction(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	doc.AddBlankPage(595, 842)
@@ -96,8 +101,9 @@ func TestAsposeParity_GoToAction(t *testing.T) {
 }
 
 // Aspose .NET sample: Insert + RemoveAt
-//   doc.Outlines.Insert(0, item);
-//   doc.Outlines.RemoveAt(0);
+//
+//	doc.Outlines.Insert(0, item);
+//	doc.Outlines.RemoveAt(0);
 func TestAsposeParity_InsertRemoveAt(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	item := pdf.NewOutlineItemCollection(doc)

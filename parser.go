@@ -356,7 +356,6 @@ func flateDecode(data []byte) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
-
 func asciiHexDecode(data []byte) ([]byte, error) {
 	// Remove whitespace and '>' terminator
 	var clean strings.Builder

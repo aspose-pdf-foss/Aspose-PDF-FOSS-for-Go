@@ -574,7 +574,7 @@ func TestAddTextRotationUsesPivotRelativeCoords(t *testing.T) {
 	// The clipping rectangle inside the rotation block must start at 0 0,
 	// not at the absolute page coordinates 100 500.
 	if strings.Contains(content, "100 500 100 100 re") {
-		t.Errorf("rotated content uses absolute coords; expected pivot-relative " +
+		t.Errorf("rotated content uses absolute coords; expected pivot-relative "+
 			"(found '100 500 100 100 re' inside cm-wrapped block)\ncontent:\n%s", content)
 	}
 	if !strings.Contains(content, "0 0 100 100 re") {

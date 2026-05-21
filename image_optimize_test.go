@@ -352,18 +352,18 @@ func TestOptimizeImagesSharedXObject(t *testing.T) {
 	csObj2 := &pdfObject{Num: 4, Value: cs2}
 
 	page1Dict := pdfDict{
-		"/Type":     pdfName("/Page"),
-		"/MediaBox": pdfArray{0.0, 0.0, 200.0, 300.0},
+		"/Type":      pdfName("/Page"),
+		"/MediaBox":  pdfArray{0.0, 0.0, 200.0, 300.0},
 		"/Resources": pdfDict{"/XObject": pdfDict{"/Im0": pdfRef{Num: 1}}},
-		"/Contents": pdfRef{Num: 2},
+		"/Contents":  pdfRef{Num: 2},
 	}
 	page1Obj := &pdfObject{Num: 3, Value: page1Dict}
 
 	page2Dict := pdfDict{
-		"/Type":     pdfName("/Page"),
-		"/MediaBox": pdfArray{0.0, 0.0, 200.0, 300.0},
+		"/Type":      pdfName("/Page"),
+		"/MediaBox":  pdfArray{0.0, 0.0, 200.0, 300.0},
 		"/Resources": pdfDict{"/XObject": pdfDict{"/Im0": pdfRef{Num: 1}}},
-		"/Contents": pdfRef{Num: 4},
+		"/Contents":  pdfRef{Num: 4},
 	}
 	page2Obj := &pdfObject{Num: 5, Value: page2Dict}
 

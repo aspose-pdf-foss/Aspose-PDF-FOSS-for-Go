@@ -25,8 +25,8 @@ type fieldNode struct {
 	form     *Form
 	dict     pdfDict
 	fullName string
-	ft       string    // resolved /FT
-	ff       int       // resolved /Ff
+	ft       string // resolved /FT
+	ff       int    // resolved /Ff
 	widgets  []pdfDict
 }
 
@@ -217,7 +217,7 @@ func decodeFormString(v pdfValue) string {
 			if r >= 0xD800 && r <= 0xDBFF && i+3 < len(body) {
 				lo := rune(body[i+2])<<8 | rune(body[i+3])
 				if lo >= 0xDC00 && lo <= 0xDFFF {
-					r = 0x10000 + ((r-0xD800)<<10) + (lo - 0xDC00)
+					r = 0x10000 + ((r - 0xD800) << 10) + (lo - 0xDC00)
 					i += 2
 				}
 			}

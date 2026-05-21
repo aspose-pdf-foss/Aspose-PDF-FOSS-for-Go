@@ -274,10 +274,10 @@ func openDocumentFromBytes(data []byte) (*rawDocument, error) {
 		return nil, err
 	}
 	return &rawDocument{
-		data:      data,
-		xref:      xref,
-		trailer:   trailer,
-		cache:     make(map[int]*pdfObject),
+		data:       data,
+		xref:       xref,
+		trailer:    trailer,
+		cache:      make(map[int]*pdfObject),
 		objStreams: make(map[int][]*pdfObject),
 	}, nil
 }
@@ -285,10 +285,10 @@ func openDocumentFromBytes(data []byte) (*rawDocument, error) {
 // rawDocument is a parsed PDF used internally by Validate and the
 // password-aware Open path. It is distinct from the public Document type.
 type rawDocument struct {
-	data      []byte
-	xref      *xrefTable
-	trailer   pdfDict
-	cache     map[int]*pdfObject
+	data       []byte
+	xref       *xrefTable
+	trailer    pdfDict
+	cache      map[int]*pdfObject
 	objStreams map[int][]*pdfObject
 	// Decryption (set up by the password-aware Open path before any
 	// non-/Encrypt object is fetched). When non-nil, getObject decrypts

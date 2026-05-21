@@ -118,93 +118,93 @@ var standardEncoding = [256]rune{
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	// 32-127
 	' ', '!', '"', '#', '$', '%', '&', '\u2019', // 32-39 (39 = quoteright)
-	'(', ')', '*', '+', ',', '-', '.', '/',       // 40-47
-	'0', '1', '2', '3', '4', '5', '6', '7',       // 48-55
-	'8', '9', ':', ';', '<', '=', '>', '?',        // 56-63
-	'@', 'A', 'B', 'C', 'D', 'E', 'F', 'G',       // 64-71
-	'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',       // 72-79
-	'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W',       // 80-87
-	'X', 'Y', 'Z', '[', '\\', ']', '^', '_',       // 88-95
-	'\u2018', 'a', 'b', 'c', 'd', 'e', 'f', 'g',  // 96-103 (96 = quoteleft)
-	'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',       // 104-111
-	'p', 'q', 'r', 's', 't', 'u', 'v', 'w',       // 112-119
-	'x', 'y', 'z', '{', '|', '}', '~', '\uFFFD',  // 120-127
+	'(', ')', '*', '+', ',', '-', '.', '/', // 40-47
+	'0', '1', '2', '3', '4', '5', '6', '7', // 48-55
+	'8', '9', ':', ';', '<', '=', '>', '?', // 56-63
+	'@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', // 64-71
+	'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', // 72-79
+	'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', // 80-87
+	'X', 'Y', 'Z', '[', '\\', ']', '^', '_', // 88-95
+	'\u2018', 'a', 'b', 'c', 'd', 'e', 'f', 'g', // 96-103 (96 = quoteleft)
+	'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', // 104-111
+	'p', 'q', 'r', 's', 't', 'u', 'v', 'w', // 112-119
+	'x', 'y', 'z', '{', '|', '}', '~', '\uFFFD', // 120-127
 	// 128-160: mostly undefined in StandardEncoding
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
-	'\uFFFD', // 160
-	'\u00A1', // 161 exclamdown
-	'\u00A2', // 162 cent
-	'\u00A3', // 163 sterling
-	'\u2044', // 164 fraction
-	'\u00A5', // 165 yen
-	'\u0192', // 166 florin
-	'\u00A7', // 167 section
-	'\u00A4', // 168 currency
-	'\u0027', // 169 quotesingle
-	'\u201C', // 170 quotedblleft
-	'\u00AB', // 171 guillemotleft
-	'\u2039', // 172 guilsinglleft
-	'\u203A', // 173 guilsinglright
-	'\uFB01', // 174 fi
-	'\uFB02', // 175 fl
-	'\uFFFD', // 176
-	'\u2013', // 177 endash
-	'\u2020', // 178 dagger
-	'\u2021', // 179 daggerdbl
-	'\u00B7', // 180 periodcentered
-	'\uFFFD', // 181
-	'\u00B6', // 182 paragraph
-	'\u2022', // 183 bullet
-	'\u201A', // 184 quotesinglbase
-	'\u201E', // 185 quotedblbase
-	'\u201D', // 186 quotedblright
-	'\u00BB', // 187 guillemotright
-	'\u2026', // 188 ellipsis
-	'\u2030', // 189 perthousand
-	'\uFFFD', // 190
-	'\u00BF', // 191 questiondown
-	'\uFFFD', // 192
-	'\u0060', // 193 grave
-	'\u00B4', // 194 acute
-	'\u02C6', // 195 circumflex
-	'\u02DC', // 196 tilde
-	'\u00AF', // 197 macron
-	'\u02D8', // 198 breve
-	'\u02D9', // 199 dotaccent
-	'\u00A8', // 200 dieresis
-	'\uFFFD', // 201
-	'\u02DA', // 202 ring
-	'\u00B8', // 203 cedilla
-	'\uFFFD', // 204
-	'\u02DD', // 205 hungarumlaut
-	'\u02DB', // 206 ogonek
-	'\u02C7', // 207 caron
-	'\u2014', // 208 emdash
+	'\uFFFD',                                                                       // 160
+	'\u00A1',                                                                       // 161 exclamdown
+	'\u00A2',                                                                       // 162 cent
+	'\u00A3',                                                                       // 163 sterling
+	'\u2044',                                                                       // 164 fraction
+	'\u00A5',                                                                       // 165 yen
+	'\u0192',                                                                       // 166 florin
+	'\u00A7',                                                                       // 167 section
+	'\u00A4',                                                                       // 168 currency
+	'\u0027',                                                                       // 169 quotesingle
+	'\u201C',                                                                       // 170 quotedblleft
+	'\u00AB',                                                                       // 171 guillemotleft
+	'\u2039',                                                                       // 172 guilsinglleft
+	'\u203A',                                                                       // 173 guilsinglright
+	'\uFB01',                                                                       // 174 fi
+	'\uFB02',                                                                       // 175 fl
+	'\uFFFD',                                                                       // 176
+	'\u2013',                                                                       // 177 endash
+	'\u2020',                                                                       // 178 dagger
+	'\u2021',                                                                       // 179 daggerdbl
+	'\u00B7',                                                                       // 180 periodcentered
+	'\uFFFD',                                                                       // 181
+	'\u00B6',                                                                       // 182 paragraph
+	'\u2022',                                                                       // 183 bullet
+	'\u201A',                                                                       // 184 quotesinglbase
+	'\u201E',                                                                       // 185 quotedblbase
+	'\u201D',                                                                       // 186 quotedblright
+	'\u00BB',                                                                       // 187 guillemotright
+	'\u2026',                                                                       // 188 ellipsis
+	'\u2030',                                                                       // 189 perthousand
+	'\uFFFD',                                                                       // 190
+	'\u00BF',                                                                       // 191 questiondown
+	'\uFFFD',                                                                       // 192
+	'\u0060',                                                                       // 193 grave
+	'\u00B4',                                                                       // 194 acute
+	'\u02C6',                                                                       // 195 circumflex
+	'\u02DC',                                                                       // 196 tilde
+	'\u00AF',                                                                       // 197 macron
+	'\u02D8',                                                                       // 198 breve
+	'\u02D9',                                                                       // 199 dotaccent
+	'\u00A8',                                                                       // 200 dieresis
+	'\uFFFD',                                                                       // 201
+	'\u02DA',                                                                       // 202 ring
+	'\u00B8',                                                                       // 203 cedilla
+	'\uFFFD',                                                                       // 204
+	'\u02DD',                                                                       // 205 hungarumlaut
+	'\u02DB',                                                                       // 206 ogonek
+	'\u02C7',                                                                       // 207 caron
+	'\u2014',                                                                       // 208 emdash
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', // 209-216
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', // 217-224
-	'\u00C6', // 225 AE
-	'\uFFFD', // 226
-	'\u00AA', // 227 ordfeminine
+	'\u00C6',                               // 225 AE
+	'\uFFFD',                               // 226
+	'\u00AA',                               // 227 ordfeminine
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', // 228-231
-	'\u0141', // 232 Lslash
-	'\u00D8', // 233 Oslash
-	'\u0152', // 234 OE
-	'\u00BA', // 235 ordmasculine
+	'\u0141',                               // 232 Lslash
+	'\u00D8',                               // 233 Oslash
+	'\u0152',                               // 234 OE
+	'\u00BA',                               // 235 ordmasculine
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', // 236-239
-	'\uFFFD', // 240
-	'\u00E6', // 241 ae
-	'\uFFFD', // 242
-	'\uFFFD', // 243
-	'\uFFFD', // 244
-	'\u0131', // 245 dotlessi
+	'\uFFFD',           // 240
+	'\u00E6',           // 241 ae
+	'\uFFFD',           // 242
+	'\uFFFD',           // 243
+	'\uFFFD',           // 244
+	'\u0131',           // 245 dotlessi
 	'\uFFFD', '\uFFFD', // 246-247
-	'\u0142', // 248 lslash
-	'\u00F8', // 249 oslash
-	'\u0153', // 250 oe
-	'\u00DF', // 251 germandbls
+	'\u0142',                               // 248 lslash
+	'\u00F8',                               // 249 oslash
+	'\u0153',                               // 250 oe
+	'\u00DF',                               // 251 germandbls
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', // 252-255
 }
 
@@ -216,18 +216,18 @@ var symbolEncoding = [256]rune{
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	// 32-127
-	' ', '!', '\u2200', '#', '\u2203', '%', '&', '\u220B',       // 32-39
-	'(', ')', '\u2217', '+', ',', '\u2212', '.', '/',             // 40-47
-	'0', '1', '2', '3', '4', '5', '6', '7',                      // 48-55
-	'8', '9', ':', ';', '<', '=', '>', '?',                       // 56-63
+	' ', '!', '\u2200', '#', '\u2203', '%', '&', '\u220B', // 32-39
+	'(', ')', '\u2217', '+', ',', '\u2212', '.', '/', // 40-47
+	'0', '1', '2', '3', '4', '5', '6', '7', // 48-55
+	'8', '9', ':', ';', '<', '=', '>', '?', // 56-63
 	'\u2245', '\u0391', '\u0392', '\u03A7', '\u0394', '\u0395', '\u03A6', '\u0393', // 64-71
 	'\u0397', '\u0399', '\u03D1', '\u039A', '\u039B', '\u039C', '\u039D', '\u039F', // 72-79
 	'\u03A0', '\u0398', '\u03A1', '\u03A3', '\u03A4', '\u03A5', '\u03C2', '\u03A9', // 80-87
-	'\u039E', '\u03A8', '\u0396', '[', '\u2234', ']', '\u22A5', '_',               // 88-95
+	'\u039E', '\u03A8', '\u0396', '[', '\u2234', ']', '\u22A5', '_', // 88-95
 	'\uF8E5', '\u03B1', '\u03B2', '\u03C7', '\u03B4', '\u03B5', '\u03C6', '\u03B3', // 96-103
 	'\u03B7', '\u03B9', '\u03D5', '\u03BA', '\u03BB', '\u03BC', '\u03BD', '\u03BF', // 104-111
 	'\u03C0', '\u03B8', '\u03C1', '\u03C3', '\u03C4', '\u03C5', '\u03D6', '\u03C9', // 112-119
-	'\u03BE', '\u03C8', '\u03B6', '{', '|', '}', '\u223C', '\uFFFD',               // 120-127
+	'\u03BE', '\u03C8', '\u03B6', '{', '|', '}', '\u223C', '\uFFFD', // 120-127
 	// 128-159: undefined
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
@@ -256,7 +256,7 @@ var zapfDingbatsEncoding = [256]rune{
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	'\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD', '\uFFFD',
 	// 32-127: Dingbats characters
-	' ', '\u2701', '\u2702', '\u2703', '\u2704', '\u260E', '\u2706', '\u2707',       // 32-39
+	' ', '\u2701', '\u2702', '\u2703', '\u2704', '\u260E', '\u2706', '\u2707', // 32-39
 	'\u2708', '\u2709', '\u261B', '\u261E', '\u270C', '\u270D', '\u270E', '\u270F', // 40-47
 	'\u2710', '\u2711', '\u2712', '\u2713', '\u2714', '\u2715', '\u2716', '\u2717', // 48-55
 	'\u2718', '\u2719', '\u271A', '\u271B', '\u271C', '\u271D', '\u271E', '\u271F', // 56-63
@@ -410,13 +410,13 @@ var glyphToRune = map[string]rune{
 	"B": 'B', "Beta": '\u0392',
 	"C": 'C', "Cacute": '\u0106', "Ccaron": '\u010C', "Ccedilla": '\u00C7',
 	"Chi": '\u03A7',
-	"D": 'D', "Dcaron": '\u010E', "Dcroat": '\u0110', "Delta": '\u0394',
+	"D":   'D', "Dcaron": '\u010E', "Dcroat": '\u0110', "Delta": '\u0394',
 	"E": 'E', "Eacute": '\u00C9', "Ecaron": '\u011A', "Ecircumflex": '\u00CA',
 	"Edieresis": '\u00CB', "Egrave": '\u00C8', "Emacron": '\u0112',
 	"Eogonek": '\u0118', "Epsilon": '\u0395', "Eta": '\u0397', "Eth": '\u00D0',
 	"Euro": '\u20AC',
-	"F": 'F',
-	"G": 'G', "Gamma": '\u0393', "Gbreve": '\u011E', "Gcommaaccent": '\u0122',
+	"F":    'F',
+	"G":    'G', "Gamma": '\u0393', "Gbreve": '\u011E', "Gcommaaccent": '\u0122',
 	"H": 'H',
 	"I": 'I', "Iacute": '\u00CD', "Icircumflex": '\u00CE', "Idieresis": '\u00CF',
 	"Idotaccent": '\u0130', "Igrave": '\u00CC', "Imacron": '\u012A',
@@ -436,7 +436,7 @@ var glyphToRune = map[string]rune{
 	"Q": 'Q',
 	"R": 'R', "Racute": '\u0154', "Rcaron": '\u0158', "Rcommaaccent": '\u0156',
 	"Rho": '\u03A1',
-	"S": 'S', "Sacute": '\u015A', "Scaron": '\u0160', "Scedilla": '\u015E',
+	"S":   'S', "Sacute": '\u015A', "Scaron": '\u0160', "Scedilla": '\u015E',
 	"Scommaaccent": '\u0218', "Sigma": '\u03A3',
 	"T": 'T', "Tau": '\u03A4', "Tcaron": '\u0164', "Tcommaaccent": '\u021A',
 	"Theta": '\u0398', "Thorn": '\u00DE',
@@ -449,7 +449,7 @@ var glyphToRune = map[string]rune{
 	"Y": 'Y', "Yacute": '\u00DD', "Ydieresis": '\u0178',
 	"Z": 'Z', "Zacute": '\u0179', "Zcaron": '\u017D', "Zdotaccent": '\u017B',
 	"Zeta": '\u0396',
-	"a": 'a', "aacute": '\u00E1', "abreve": '\u0103', "acircumflex": '\u00E2',
+	"a":    'a', "aacute": '\u00E1', "abreve": '\u0103', "acircumflex": '\u00E2',
 	"acute": '\u00B4', "adieresis": '\u00E4', "ae": '\u00E6',
 	"agrave": '\u00E0', "alpha": '\u03B1', "amacron": '\u0101',
 	"ampersand": '&', "aogonek": '\u0105', "aring": '\u00E5',
@@ -472,7 +472,7 @@ var glyphToRune = map[string]rune{
 	"endash": '\u2013', "eogonek": '\u0119', "epsilon": '\u03B5',
 	"equal": '=', "eta": '\u03B7', "eth": '\u00F0', "exclam": '!',
 	"exclamdown": '\u00A1',
-	"f": 'f', "fi": '\uFB01', "five": '5', "fl": '\uFB02', "florin": '\u0192',
+	"f":          'f', "fi": '\uFB01', "five": '5', "fl": '\uFB02', "florin": '\u0192',
 	"four": '4', "fraction": '\u2044',
 	"g": 'g', "gamma": '\u03B3', "gbreve": '\u011F', "gcommaaccent": '\u0123',
 	"germandbls": '\u00DF', "grave": '`', "greater": '>', "guillemotleft": '\u00AB',
@@ -487,7 +487,7 @@ var glyphToRune = map[string]rune{
 	"lozenge": '\u25CA', "lslash": '\u0142',
 	"m": 'm', "macron": '\u00AF', "minus": '\u2212', "mu": '\u03BC',
 	"multiply": '\u00D7',
-	"n": 'n', "nacute": '\u0144', "ncaron": '\u0148', "ncommaaccent": '\u0146',
+	"n":        'n', "nacute": '\u0144', "ncaron": '\u0148', "ncommaaccent": '\u0146',
 	"nine": '9', "ntilde": '\u00F1', "nu": '\u03BD', "numbersign": '#',
 	"o": 'o', "oacute": '\u00F3', "ocircumflex": '\u00F4', "odieresis": '\u00F6',
 	"oe": '\u0153', "ogonek": '\u02DB', "ograve": '\u00F2',
@@ -503,10 +503,10 @@ var glyphToRune = map[string]rune{
 	"quotedblbase": '\u201E', "quotedblleft": '\u201C', "quotedblright": '\u201D',
 	"quoteleft": '\u2018', "quoteright": '\u2019', "quotesinglbase": '\u201A',
 	"quotesingle": '\'',
-	"r": 'r', "racute": '\u0155', "radical": '\u221A', "rcaron": '\u0159',
+	"r":           'r', "racute": '\u0155', "radical": '\u221A', "rcaron": '\u0159',
 	"rcommaaccent": '\u0157', "registered": '\u00AE', "rho": '\u03C1',
 	"ring": '\u02DA',
-	"s": 's', "sacute": '\u015B', "scaron": '\u0161', "scedilla": '\u015F',
+	"s":    's', "sacute": '\u015B', "scaron": '\u0161', "scedilla": '\u015F',
 	"scommaaccent": '\u0219', "section": '\u00A7', "semicolon": ';',
 	"seven": '7', "sigma": '\u03C3', "six": '6', "slash": '/',
 	"space": ' ', "sterling": '\u00A3',
@@ -518,9 +518,9 @@ var glyphToRune = map[string]rune{
 	"ugrave": '\u00F9', "uhungarumlaut": '\u0171', "umacron": '\u016B',
 	"underscore": '_', "uogonek": '\u0173', "upsilon": '\u03C5',
 	"uring": '\u016F',
-	"v": 'v',
-	"w": 'w',
-	"x": 'x', "xi": '\u03BE',
+	"v":     'v',
+	"w":     'w',
+	"x":     'x', "xi": '\u03BE',
 	"y": 'y', "yacute": '\u00FD', "ydieresis": '\u00FF', "yen": '\u00A5',
 	"z": 'z', "zacute": '\u017A', "zcaron": '\u017E', "zdotaccent": '\u017C',
 	"zero": '0', "zeta": '\u03B6',

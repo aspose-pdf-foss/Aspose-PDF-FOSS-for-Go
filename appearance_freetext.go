@@ -124,10 +124,10 @@ func nearestInnerEdgeMidpoint(inner Rectangle, target Point) Point {
 	midX := (inner.LLX + inner.URX) / 2
 	midY := (inner.LLY + inner.URY) / 2
 	candidates := []Point{
-		{X: midX, Y: inner.LLY},  // bottom
-		{X: inner.URX, Y: midY},  // right
-		{X: midX, Y: inner.URY},  // top
-		{X: inner.LLX, Y: midY},  // left
+		{X: midX, Y: inner.LLY}, // bottom
+		{X: inner.URX, Y: midY}, // right
+		{X: midX, Y: inner.URY}, // top
+		{X: inner.LLX, Y: midY}, // left
 	}
 	bestIdx := 0
 	bestDist := math.Inf(1)

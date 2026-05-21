@@ -10,15 +10,16 @@ import (
 )
 
 // Aspose .NET sample:
-//   Table table = new Table();
-//   table.ColumnWidths = "100 200 100";
-//   table.Border = new BorderInfo(BorderSide.All, 1f);
-//   table.DefaultCellBorder = new BorderInfo(BorderSide.All, 0.5f);
-//   Row row = table.Rows.Add();
-//   row.Cells.Add("Header A");
-//   row.Cells.Add("Header B");
-//   row.Cells.Add("Header C");
-//   page.Paragraphs.Add(table);
+//
+//	Table table = new Table();
+//	table.ColumnWidths = "100 200 100";
+//	table.Border = new BorderInfo(BorderSide.All, 1f);
+//	table.DefaultCellBorder = new BorderInfo(BorderSide.All, 0.5f);
+//	Row row = table.Rows.Add();
+//	row.Cells.Add("Header A");
+//	row.Cells.Add("Header B");
+//	row.Cells.Add("Header C");
+//	page.Paragraphs.Add(table);
 func TestAsposeParity_TableBasic(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -39,11 +40,12 @@ func TestAsposeParity_TableBasic(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Cell cell = row.Cells.Add("colored");
-//   cell.BackgroundColor = Color.Yellow;
-//   cell.Alignment = HorizontalAlignment.Center;
-//   cell.VerticalAlignment = VerticalAlignment.Center;
-//   cell.Margin = new MarginInfo(5, 5, 5, 5);
+//
+//	Cell cell = row.Cells.Add("colored");
+//	cell.BackgroundColor = Color.Yellow;
+//	cell.Alignment = HorizontalAlignment.Center;
+//	cell.VerticalAlignment = VerticalAlignment.Center;
+//	cell.Margin = new MarginInfo(5, 5, 5, 5);
 func TestAsposeParity_CellOverrides(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -61,18 +63,19 @@ func TestAsposeParity_CellOverrides(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Table table = new Table();
-//   table.ColumnWidths = "80 160 80";
-//   table.RepeatingRowsCount = 1;
-//   Row header = table.Rows.Add();
-//   header.Cells.Add("Header A");
-//   header.Cells.Add("Header B");
-//   header.Cells.Add("Header C");
-//   for (int i = 0; i < 30; i++) {
-//       Row r = table.Rows.Add();
-//       r.Cells.Add("a"+i); r.Cells.Add("b"+i); r.Cells.Add("c"+i);
-//   }
-//   page.Paragraphs.Add(table); // auto-flows across pages
+//
+//	Table table = new Table();
+//	table.ColumnWidths = "80 160 80";
+//	table.RepeatingRowsCount = 1;
+//	Row header = table.Rows.Add();
+//	header.Cells.Add("Header A");
+//	header.Cells.Add("Header B");
+//	header.Cells.Add("Header C");
+//	for (int i = 0; i < 30; i++) {
+//	    Row r = table.Rows.Add();
+//	    r.Cells.Add("a"+i); r.Cells.Add("b"+i); r.Cells.Add("c"+i);
+//	}
+//	page.Paragraphs.Add(table); // auto-flows across pages
 func TestAsposeParity_TableRepeatingRows(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -100,9 +103,10 @@ func TestAsposeParity_TableRepeatingRows(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Cell cell = row.Cells.Add("TOTAL");
-//   cell.ColSpan = 2;
-//   cell.Alignment = HorizontalAlignment.Right;
+//
+//	Cell cell = row.Cells.Add("TOTAL");
+//	cell.ColSpan = 2;
+//	cell.Alignment = HorizontalAlignment.Right;
 func TestAsposeParity_CellColSpan(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -119,8 +123,9 @@ func TestAsposeParity_CellColSpan(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Cell cell = row.Cells.Add("Category");
-//   cell.RowSpan = 3;
+//
+//	Cell cell = row.Cells.Add("Category");
+//	cell.RowSpan = 3;
 func TestAsposeParity_CellRowSpan(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -138,8 +143,9 @@ func TestAsposeParity_CellRowSpan(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Cell cell = row.Cells.Add();
-//   cell.Image = new Image { File = "logo.png" };
+//
+//	Cell cell = row.Cells.Add();
+//	cell.Image = new Image { File = "logo.png" };
 func TestAsposeParity_CellImage(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -151,9 +157,10 @@ func TestAsposeParity_CellImage(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Row row = table.Rows.Add();
-//   row.BackgroundColor = Color.LightGray;
-//   row.DefaultCellTextState = new TextState { FontSize = 14 };
+//
+//	Row row = table.Rows.Add();
+//	row.BackgroundColor = Color.LightGray;
+//	row.DefaultCellTextState = new TextState { FontSize = 14 };
 func TestAsposeParity_RowStyling(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)

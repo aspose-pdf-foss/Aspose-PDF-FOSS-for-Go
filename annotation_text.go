@@ -10,7 +10,7 @@ const (
 	TextIconUnknown TextIcon = iota
 	TextIconComment
 	TextIconKey
-	TextIconNote      // PDF default if /Name is absent
+	TextIconNote // PDF default if /Name is absent
 	TextIconHelp
 	TextIconNewParagraph
 	TextIconParagraph

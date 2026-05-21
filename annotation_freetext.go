@@ -13,7 +13,7 @@ import (
 type FreeTextIntent int
 
 const (
-	FreeTextIntentFreeText  FreeTextIntent = iota // /FreeText
+	FreeTextIntentFreeText   FreeTextIntent = iota // /FreeText
 	FreeTextIntentCallout                          // /FreeTextCallout
 	FreeTextIntentTypewriter                       // /FreeTextTypeWriter
 )
@@ -23,7 +23,7 @@ type BorderEffect int
 
 const (
 	BorderEffectNone   BorderEffect = iota // /S = /S (default)
-	BorderEffectCloudy                      // /S = /C — wavy "cloud" border
+	BorderEffectCloudy                     // /S = /C — wavy "cloud" border
 )
 
 // FreeTextAnnotation displays text directly on the page, rendered into

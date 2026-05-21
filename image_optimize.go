@@ -168,7 +168,7 @@ func optimizeImage(info *ImageInfo, opts OptimizeImageOptions, quality int) bool
 	stream := info.stream
 
 	// Compute effective DPI.
-	displayWidth := info.PageWidth  // in points
+	displayWidth := info.PageWidth // in points
 	displayHeight := info.PageHeight
 	if displayWidth <= 0 || displayHeight <= 0 {
 		return false // no CTM info, skip

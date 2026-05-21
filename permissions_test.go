@@ -141,4 +141,3 @@ func TestSetPasswordWithoutSetPermissionsDefaultsAllowAll(t *testing.T) {
 		t.Errorf("expected /P 4294967292 (all-allow default) in saved file")
 	}
 }
-

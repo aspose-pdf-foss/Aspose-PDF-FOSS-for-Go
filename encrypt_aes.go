@@ -5,8 +5,8 @@ package asposepdf
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	cryptorand "crypto/rand"
 	"crypto/md5"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
 )

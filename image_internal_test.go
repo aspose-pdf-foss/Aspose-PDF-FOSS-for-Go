@@ -15,7 +15,7 @@ func TestExtractXObjectImageJPEGPassthrough(t *testing.T) {
 			"/Subtype":          pdfName("/Image"),
 			"/Width":            100,
 			"/Height":           80,
-			"/BitsPerComponent":  8,
+			"/BitsPerComponent": 8,
 			"/ColorSpace":       pdfName("/DeviceRGB"),
 			"/Filter":           pdfName("/DCTDecode"),
 		},
@@ -98,12 +98,12 @@ func TestExtractXObjectImagePNGFlateDecode(t *testing.T) {
 	pixels := make([]byte, 10*10*3) // 10x10 RGB
 	imgStream := &pdfStream{
 		Dict: pdfDict{
-			"/Subtype":         pdfName("/Image"),
-			"/Width":           10,
-			"/Height":          10,
+			"/Subtype":          pdfName("/Image"),
+			"/Width":            10,
+			"/Height":           10,
 			"/BitsPerComponent": 8,
-			"/ColorSpace":      pdfName("/DeviceRGB"),
-			"/Filter":          pdfName("/FlateDecode"),
+			"/ColorSpace":       pdfName("/DeviceRGB"),
+			"/Filter":           pdfName("/FlateDecode"),
 		},
 		Data:    pixels,
 		Decoded: true,
@@ -167,12 +167,12 @@ func TestImageInfoMetadata(t *testing.T) {
 
 	imgStream := &pdfStream{
 		Dict: pdfDict{
-			"/Subtype":         pdfName("/Image"),
-			"/Width":           100,
-			"/Height":          80,
+			"/Subtype":          pdfName("/Image"),
+			"/Width":            100,
+			"/Height":           80,
 			"/BitsPerComponent": 8,
-			"/ColorSpace":      pdfName("/DeviceRGB"),
-			"/Filter":          pdfName("/DCTDecode"),
+			"/ColorSpace":       pdfName("/DeviceRGB"),
+			"/Filter":           pdfName("/DCTDecode"),
 		},
 		Data:    jpegData,
 		Decoded: false,
@@ -230,12 +230,12 @@ func TestImageInfoFlateDecode(t *testing.T) {
 	pixels := make([]byte, 10*10*3)
 	imgStream := &pdfStream{
 		Dict: pdfDict{
-			"/Subtype":         pdfName("/Image"),
-			"/Width":           10,
-			"/Height":          10,
+			"/Subtype":          pdfName("/Image"),
+			"/Width":            10,
+			"/Height":           10,
 			"/BitsPerComponent": 8,
-			"/ColorSpace":      pdfName("/DeviceRGB"),
-			"/Filter":          pdfName("/FlateDecode"),
+			"/ColorSpace":       pdfName("/DeviceRGB"),
+			"/Filter":           pdfName("/FlateDecode"),
 		},
 		Data:    pixels,
 		Decoded: true,

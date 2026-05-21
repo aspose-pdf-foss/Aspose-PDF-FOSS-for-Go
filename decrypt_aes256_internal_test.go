@@ -46,11 +46,11 @@ func TestVerifyPermsV5R6_TamperedBlock(t *testing.T) {
 func TestBuildDecryptStateV5R6_MissingCF(t *testing.T) {
 	encDict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V": 5, "/R": 6, "/Length": 256, "/P": -4,
-		"/O":  string(bytes.Repeat([]byte{0x01}, 48)),
-		"/U":  string(bytes.Repeat([]byte{0x02}, 48)),
-		"/UE": string(bytes.Repeat([]byte{0x03}, 32)),
-		"/OE": string(bytes.Repeat([]byte{0x04}, 32)),
+		"/V":      5, "/R": 6, "/Length": 256, "/P": -4,
+		"/O":     string(bytes.Repeat([]byte{0x01}, 48)),
+		"/U":     string(bytes.Repeat([]byte{0x02}, 48)),
+		"/UE":    string(bytes.Repeat([]byte{0x03}, 32)),
+		"/OE":    string(bytes.Repeat([]byte{0x04}, 32)),
 		"/Perms": string(bytes.Repeat([]byte{0x05}, 16)),
 		// /CF intentionally missing
 	}
@@ -62,11 +62,11 @@ func TestBuildDecryptStateV5R6_MissingCF(t *testing.T) {
 func TestBuildDecryptStateV5R6_WrongCFM(t *testing.T) {
 	encDict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V": 5, "/R": 6, "/Length": 256, "/P": -4,
-		"/O":  string(bytes.Repeat([]byte{0x01}, 48)),
-		"/U":  string(bytes.Repeat([]byte{0x02}, 48)),
-		"/UE": string(bytes.Repeat([]byte{0x03}, 32)),
-		"/OE": string(bytes.Repeat([]byte{0x04}, 32)),
+		"/V":      5, "/R": 6, "/Length": 256, "/P": -4,
+		"/O":     string(bytes.Repeat([]byte{0x01}, 48)),
+		"/U":     string(bytes.Repeat([]byte{0x02}, 48)),
+		"/UE":    string(bytes.Repeat([]byte{0x03}, 32)),
+		"/OE":    string(bytes.Repeat([]byte{0x04}, 32)),
 		"/Perms": string(bytes.Repeat([]byte{0x05}, 16)),
 		"/CF": pdfDict{
 			"/StdCF": pdfDict{
@@ -85,11 +85,11 @@ func TestBuildDecryptStateV5R6_WrongCFM(t *testing.T) {
 func TestBuildDecryptStateV5R6_MissingUE(t *testing.T) {
 	encDict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V": 5, "/R": 6, "/Length": 256, "/P": -4,
-		"/O":  string(bytes.Repeat([]byte{0x01}, 48)),
-		"/U":  string(bytes.Repeat([]byte{0x02}, 48)),
+		"/V":      5, "/R": 6, "/Length": 256, "/P": -4,
+		"/O": string(bytes.Repeat([]byte{0x01}, 48)),
+		"/U": string(bytes.Repeat([]byte{0x02}, 48)),
 		// /UE missing
-		"/OE": string(bytes.Repeat([]byte{0x04}, 32)),
+		"/OE":    string(bytes.Repeat([]byte{0x04}, 32)),
 		"/Perms": string(bytes.Repeat([]byte{0x05}, 16)),
 		"/CF": pdfDict{
 			"/StdCF": pdfDict{
@@ -113,11 +113,11 @@ func TestBuildDecryptStateV5R6_WrongPassword(t *testing.T) {
 	// Construct the /Encrypt dict from this state.
 	encDict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V": 5, "/R": 6, "/Length": 256, "/P": int(uint32(state.permissions)),
-		"/O":  string(state.ownerEntry),
-		"/U":  string(state.userEntry),
-		"/UE": string(state.userKeyEntry),
-		"/OE": string(state.ownerKeyEntry),
+		"/V":      5, "/R": 6, "/Length": 256, "/P": int(uint32(state.permissions)),
+		"/O":     string(state.ownerEntry),
+		"/U":     string(state.userEntry),
+		"/UE":    string(state.userKeyEntry),
+		"/OE":    string(state.ownerKeyEntry),
 		"/Perms": string(state.permsEntry),
 		"/CF": pdfDict{
 			"/StdCF": pdfDict{
@@ -138,11 +138,11 @@ func TestBuildDecryptStateV5R6_CorrectPassword(t *testing.T) {
 	state, _ := newEncryptStateV5R6(cfg)
 	encDict := pdfDict{
 		"/Filter": pdfName("/Standard"),
-		"/V": 5, "/R": 6, "/Length": 256, "/P": int(uint32(state.permissions)),
-		"/O":  string(state.ownerEntry),
-		"/U":  string(state.userEntry),
-		"/UE": string(state.userKeyEntry),
-		"/OE": string(state.ownerKeyEntry),
+		"/V":      5, "/R": 6, "/Length": 256, "/P": int(uint32(state.permissions)),
+		"/O":     string(state.ownerEntry),
+		"/U":     string(state.userEntry),
+		"/UE":    string(state.userKeyEntry),
+		"/OE":    string(state.ownerKeyEntry),
 		"/Perms": string(state.permsEntry),
 		"/CF": pdfDict{
 			"/StdCF": pdfDict{

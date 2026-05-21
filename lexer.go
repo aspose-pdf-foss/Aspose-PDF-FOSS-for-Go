@@ -15,8 +15,8 @@ const (
 	tokBool
 	tokNull
 	tokName
-	tokString  // literal (...)
-	tokHexStr  // hex <...>
+	tokString // literal (...)
+	tokHexStr // hex <...>
 	tokArrayOpen
 	tokArrayClose
 	tokDictOpen  // <<

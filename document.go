@@ -11,16 +11,16 @@ import (
 
 // Document is a PDF document. Operations directly mutate the receiver.
 type Document struct {
-	objects      map[int]*pdfObject // all PDF objects by ID
-	pages        []*pdfObject       // ordered /Page objects
-	pageCache    []*Page            // cached live views by index, lazy-allocated
-	catalog      pdfDict            // /Catalog dict
-	info         pdfDict            // /Info dict; nil = no metadata
-	encrypt      *encryptConfig     // nil = no encryption
-	preserved    *encryptState      // captured verbatim at OpenWithPassword time; nil after any explicit mutation
-	nextID       int                // next available object ID
+	objects      map[int]*pdfObject     // all PDF objects by ID
+	pages        []*pdfObject           // ordered /Page objects
+	pageCache    []*Page                // cached live views by index, lazy-allocated
+	catalog      pdfDict                // /Catalog dict
+	info         pdfDict                // /Info dict; nil = no metadata
+	encrypt      *encryptConfig         // nil = no encryption
+	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
+	nextID       int                    // next available object ID
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
-	namedDests   *NamedDestinations // nil until first NamedDestinations() call
+	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
 }
 
 // Open opens a PDF file and returns a Document.

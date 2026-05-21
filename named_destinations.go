@@ -93,6 +93,7 @@ func (n *NamedDestinations) Get(name string) Destination {
 //   - empty name
 //   - nil dest
 //   - dest is itself a *NamedDestination (would create a name→name loop)
+//
 // If name was already present, the previous value is replaced silently.
 func (n *NamedDestinations) Add(name string, dest Destination) error {
 	if name == "" {

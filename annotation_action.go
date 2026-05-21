@@ -138,7 +138,7 @@ func parseGoToAction(d pdfDict) *GoToAction {
 type NamedActionType int
 
 const (
-	NamedActionUnknown   NamedActionType = iota
+	NamedActionUnknown NamedActionType = iota
 	NamedActionFirstPage
 	NamedActionLastPage
 	NamedActionNextPage

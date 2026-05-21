@@ -52,7 +52,7 @@ func TestParseJPEGHeader(t *testing.T) {
 		0x08,       // precision = 8
 		0x00, 0x50, // height = 80
 		0x00, 0x64, // width = 100
-		0x03,       // 3 components = RGB
+		0x03,             // 3 components = RGB
 		0x01, 0x22, 0x00, // component 1
 		0x02, 0x11, 0x01, // component 2
 		0x03, 0x11, 0x01, // component 3
@@ -77,7 +77,7 @@ func TestParseJPEGHeaderGray(t *testing.T) {
 		0x08,       // precision = 8
 		0x00, 0x20, // height = 32
 		0x00, 0x40, // width = 64
-		0x01,       // 1 component = Gray
+		0x01, // 1 component = Gray
 		0x01, 0x11, 0x00,
 	}
 	info, err := parseJPEGHeader(bytes.NewReader(sof))

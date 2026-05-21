@@ -17,7 +17,9 @@ func outlineFlags(bold, italic bool) int {
 
 // visibleDescendantCount returns the magnitude used for the /Count entry
 // per ISO 32000-1 §12.3.3:
-//   Σ direct children + Σ (over expanded children) of count(child).
+//
+//	Σ direct children + Σ (over expanded children) of count(child).
+//
 // The sign on the RESULT is applied by the caller — encodeOutlineItem
 // negates if !node.IsExpanded() && node is not the root.
 func visibleDescendantCount(node *OutlineItemCollection) int {

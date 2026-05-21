@@ -9,10 +9,11 @@ import (
 )
 
 // Aspose .NET sample: register named destinations
-//   doc.NamedDestinations.Add("ch1",
-//       new XYZExplicitDestination(doc.Pages[1], 0, 800, 1));
-//   doc.NamedDestinations.Add("appendix",
-//       new FitExplicitDestination(doc.Pages[1]));
+//
+//	doc.NamedDestinations.Add("ch1",
+//	    new XYZExplicitDestination(doc.Pages[1], 0, 800, 1));
+//	doc.NamedDestinations.Add("appendix",
+//	    new FitExplicitDestination(doc.Pages[1]));
 func TestAsposeParity_NamedDestinationsAdd(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -29,10 +30,11 @@ func TestAsposeParity_NamedDestinationsAdd(t *testing.T) {
 }
 
 // Aspose .NET sample: outline pointing at named destination
-//   OutlineItemCollection oic = new OutlineItemCollection(doc.Outlines);
-//   oic.Title = "Chapter 1";
-//   oic.Destination = new NamedDestination("ch1");
-//   doc.Outlines.Add(oic);
+//
+//	OutlineItemCollection oic = new OutlineItemCollection(doc.Outlines);
+//	oic.Title = "Chapter 1";
+//	oic.Destination = new NamedDestination("ch1");
+//	doc.Outlines.Add(oic);
 func TestAsposeParity_OutlineWithNamedDest(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -48,7 +50,8 @@ func TestAsposeParity_OutlineWithNamedDest(t *testing.T) {
 }
 
 // Aspose .NET sample: indexer lookup
-//   IAppointment dest = doc.NamedDestinations["ch1"];
+//
+//	IAppointment dest = doc.NamedDestinations["ch1"];
 func TestAsposeParity_IndexerLookup(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -62,8 +65,9 @@ func TestAsposeParity_IndexerLookup(t *testing.T) {
 }
 
 // Aspose .NET sample: ContainsKey + Remove + Count
-//   if (doc.NamedDestinations.ContainsKey("old")) { doc.NamedDestinations.Remove("old"); }
-//   int n = doc.NamedDestinations.Count;
+//
+//	if (doc.NamedDestinations.ContainsKey("old")) { doc.NamedDestinations.Remove("old"); }
+//	int n = doc.NamedDestinations.Count;
 func TestAsposeParity_ContainsRemoveCount(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)

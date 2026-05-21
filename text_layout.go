@@ -10,25 +10,25 @@ import (
 
 // TextFragment represents a contiguous run of text with uniform font.
 type TextFragment struct {
-	Text        string
-	X           float64   // horizontal position in points (from left edge)
-	Y           float64   // vertical position in points (from bottom edge)
-	Width       float64   // width in points
-	FontName    string    // e.g. "Helvetica", "Arial-BoldMT"
-	FontSize    float64   // effective size in points
-	Height      float64   // text height in points (from ascent/descent metrics)
-	Bold        bool
-	Italic      bool
-	CharSpacing  float64   // character spacing (Tc operator) in text space units
-	Color        Color // fill color
-	IsSubscript  bool      // Y is below the line baseline
-	IsSuperscript bool     // Y is above the line baseline
+	Text          string
+	X             float64 // horizontal position in points (from left edge)
+	Y             float64 // vertical position in points (from bottom edge)
+	Width         float64 // width in points
+	FontName      string  // e.g. "Helvetica", "Arial-BoldMT"
+	FontSize      float64 // effective size in points
+	Height        float64 // text height in points (from ascent/descent metrics)
+	Bold          bool
+	Italic        bool
+	CharSpacing   float64 // character spacing (Tc operator) in text space units
+	Color         Color   // fill color
+	IsSubscript   bool    // Y is below the line baseline
+	IsSuperscript bool    // Y is above the line baseline
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
 type TextLine struct {
-	Text      string         // concatenated text of all fragments (with spaces)
-	Y         float64        // vertical position in points (from bottom edge)
+	Text      string  // concatenated text of all fragments (with spaces)
+	Y         float64 // vertical position in points (from bottom edge)
 	Fragments []TextFragment
 }
 

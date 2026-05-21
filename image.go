@@ -13,7 +13,7 @@ import (
 type ImageFormat int
 
 const (
-	ImageFormatPNG  ImageFormat = iota
+	ImageFormatPNG ImageFormat = iota
 	ImageFormatJPEG
 )
 
@@ -21,7 +21,7 @@ const (
 type ImageColorSpace int
 
 const (
-	ColorSpaceDeviceRGB  ImageColorSpace = iota
+	ColorSpaceDeviceRGB ImageColorSpace = iota
 	ColorSpaceDeviceGray
 	ColorSpaceDeviceCMYK
 	ColorSpaceIndexed
@@ -60,8 +60,8 @@ type ImageInfo struct {
 	objects map[int]*pdfObject
 	stream  *pdfStream
 	formVal pdfValue
-	dict    pdfDict  // inline: normalized dict
-	rawData []byte   // inline: raw image bytes
+	dict    pdfDict // inline: normalized dict
+	rawData []byte  // inline: raw image bytes
 	ctm     [6]float64
 	page    *Page // page this image belongs to (for Replace/Remove)
 }
@@ -436,7 +436,6 @@ func componentsByCS(cs ImageColorSpace) int {
 	}
 }
 
-
 // resolveColorSpaceInline resolves color space from an inline image dict.
 func resolveColorSpaceInline(dict pdfDict) ImageColorSpace {
 	csVal, ok := dict["/ColorSpace"]
@@ -708,4 +707,3 @@ func (d *Document) ImageInfos() ([][]ImageInfo, error) {
 	}
 	return result, nil
 }
-

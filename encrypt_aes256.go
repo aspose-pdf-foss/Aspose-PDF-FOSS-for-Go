@@ -198,11 +198,12 @@ func aes256CBCNoPadding(key, plaintext []byte) ([]byte, error) {
 // the FEK and stored as /Perms for tamper-detection.
 //
 // Layout:
-//   bytes 0-3:   /P (little-endian, signed-32 cast to unsigned-32 bytes)
-//   bytes 4-7:   0xFF 0xFF 0xFF 0xFF (high 32 bits of permissions, all 1s)
-//   byte  8:     'T' if encryptMetadata; 'F' otherwise
-//   bytes 9-11:  'a', 'd', 'b' (marker proving decrypt produced valid output)
-//   bytes 12-15: 4 random bytes (entropy/padding)
+//
+//	bytes 0-3:   /P (little-endian, signed-32 cast to unsigned-32 bytes)
+//	bytes 4-7:   0xFF 0xFF 0xFF 0xFF (high 32 bits of permissions, all 1s)
+//	byte  8:     'T' if encryptMetadata; 'F' otherwise
+//	bytes 9-11:  'a', 'd', 'b' (marker proving decrypt produced valid output)
+//	bytes 12-15: 4 random bytes (entropy/padding)
 func buildPermsBlock(permissions int32, encryptMetadata bool) []byte {
 	out := make([]byte, 16)
 	p := uint32(permissions)

@@ -149,7 +149,7 @@ func TestSetEncryptionAES256_PermsTamperDetection(t *testing.T) {
 	doc.SetEncryption(pdf.EncryptionOptions{
 		UserPassword: "x",
 		Algorithm:    pdf.EncryptionAlgAES256,
-		Permissions: &pdf.Permissions{AllowPrint: false},
+		Permissions:  &pdf.Permissions{AllowPrint: false},
 	})
 	var buf bytes.Buffer
 	doc.WriteTo(&buf)

@@ -72,9 +72,9 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 
 // textFragment is a contiguous run of text at a single position.
 type textFragment struct {
-	text     strings.Builder
-	x, y     float64 // device-space position of first rune
-	endX     float64 // device-space x after last glyph advance
+	text        strings.Builder
+	x, y        float64 // device-space position of first rune
+	endX        float64 // device-space x after last glyph advance
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize
@@ -96,7 +96,7 @@ type textExtractor struct {
 	charSpace    float64
 	wordSpace    float64
 	leading      float64
-	horizScaling float64 // Tz / 100; default 1.0
+	horizScaling float64    // Tz / 100; default 1.0
 	tm           [6]float64 // text matrix
 	lm           [6]float64 // line matrix
 	ctm          [6]float64 // current transformation matrix

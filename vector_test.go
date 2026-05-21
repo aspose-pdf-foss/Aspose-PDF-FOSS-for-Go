@@ -457,13 +457,14 @@ func TestDrawLine_FullOpacityNoExtGState(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Graph graph = new Graph(width, height);
-//   Line line = new Line(new float[] {x1, y1, x2, y2});
-//   line.GraphInfo.Color = Color.Red;
-//   line.GraphInfo.LineWidth = 2;
-//   line.GraphInfo.DashArray = new int[] {4, 2};
-//   graph.Shapes.Add(line);
-//   page.Paragraphs.Add(graph);
+//
+//	Graph graph = new Graph(width, height);
+//	Line line = new Line(new float[] {x1, y1, x2, y2});
+//	line.GraphInfo.Color = Color.Red;
+//	line.GraphInfo.LineWidth = 2;
+//	line.GraphInfo.DashArray = new int[] {4, 2};
+//	graph.Shapes.Add(line);
+//	page.Paragraphs.Add(graph);
 //
 // In this library — methods directly on Page (no Graph container needed):
 func TestAsposeParity_DrawLineWithDash(t *testing.T) {
@@ -483,11 +484,12 @@ func TestAsposeParity_DrawLineWithDash(t *testing.T) {
 }
 
 // Aspose .NET sample:
-//   Circle circle = new Circle(cx, cy, radius);
-//   circle.GraphInfo.Color = Color.Blue;
-//   circle.GraphInfo.FillColor = Color.LightBlue;
-//   circle.GraphInfo.LineWidth = 1;
-//   graph.Shapes.Add(circle);
+//
+//	Circle circle = new Circle(cx, cy, radius);
+//	circle.GraphInfo.Color = Color.Blue;
+//	circle.GraphInfo.FillColor = Color.LightBlue;
+//	circle.GraphInfo.LineWidth = 1;
+//	graph.Shapes.Add(circle);
 func TestAsposeParity_DrawCircleWithFill(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)
@@ -507,8 +509,9 @@ func TestAsposeParity_DrawCircleWithFill(t *testing.T) {
 }
 
 // Aspose .NET sample (arbitrary path via line segments + bezier):
-//   Curve curve = new Curve(new float[] {p0x, p0y, c1x, c1y, c2x, c2y, p3x, p3y});
-//   graph.Shapes.Add(curve);
+//
+//	Curve curve = new Curve(new float[] {p0x, p0y, c1x, c1y, c2x, c2y, p3x, p3y});
+//	graph.Shapes.Add(curve);
 func TestAsposeParity_DrawPathArbitrary(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)

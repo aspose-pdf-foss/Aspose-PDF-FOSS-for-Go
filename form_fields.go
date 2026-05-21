@@ -39,7 +39,7 @@ type RadioItem struct {
 type FormFieldType int
 
 const (
-	FormFieldTypeUnknown     FormFieldType = iota
+	FormFieldTypeUnknown FormFieldType = iota
 	FormFieldTypeText
 	FormFieldTypeCheckbox
 	FormFieldTypeRadioButton
@@ -614,4 +614,3 @@ func (f *ComboBoxField) SetReadOnly(v bool) { setFlag(f.node, fieldFlagReadOnly,
 func (f *ComboBoxField) SetRequired(v bool) { setFlag(f.node, fieldFlagRequired, v) }
 func (f *ListBoxField) SetReadOnly(v bool)  { setFlag(f.node, fieldFlagReadOnly, v) }
 func (f *ListBoxField) SetRequired(v bool)  { setFlag(f.node, fieldFlagRequired, v) }
-

@@ -182,4 +182,3 @@ func expandIndexed(indices, palette []byte, baseComponents int) []byte {
 	}
 	return out
 }
-

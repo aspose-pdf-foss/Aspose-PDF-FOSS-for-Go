@@ -24,7 +24,7 @@ const (
 type LineEndingStyle int
 
 const (
-	LineEndingNone         LineEndingStyle = iota
+	LineEndingNone LineEndingStyle = iota
 	LineEndingSquare
 	LineEndingCircle
 	LineEndingDiamond

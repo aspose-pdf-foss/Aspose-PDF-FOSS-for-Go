@@ -226,11 +226,14 @@ func TestOutlines_AddAncestorCycleError(t *testing.T) {
 func TestOutlines_Insert(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	root := doc.Outlines()
-	a := pdf.NewOutlineItemCollection(doc); a.SetTitle("A")
-	c := pdf.NewOutlineItemCollection(doc); c.SetTitle("C")
+	a := pdf.NewOutlineItemCollection(doc)
+	a.SetTitle("A")
+	c := pdf.NewOutlineItemCollection(doc)
+	c.SetTitle("C")
 	root.Add(a)
 	root.Add(c)
-	b := pdf.NewOutlineItemCollection(doc); b.SetTitle("B")
+	b := pdf.NewOutlineItemCollection(doc)
+	b.SetTitle("B")
 	if err := root.Insert(1, b); err != nil {
 		t.Fatal(err)
 	}
@@ -273,9 +276,12 @@ func TestOutlines_Remove(t *testing.T) {
 func TestOutlines_RemoveAt(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	root := doc.Outlines()
-	a := pdf.NewOutlineItemCollection(doc); a.SetTitle("A")
-	b := pdf.NewOutlineItemCollection(doc); b.SetTitle("B")
-	c := pdf.NewOutlineItemCollection(doc); c.SetTitle("C")
+	a := pdf.NewOutlineItemCollection(doc)
+	a.SetTitle("A")
+	b := pdf.NewOutlineItemCollection(doc)
+	b.SetTitle("B")
+	c := pdf.NewOutlineItemCollection(doc)
+	c.SetTitle("C")
 	root.Add(a)
 	root.Add(b)
 	root.Add(c)

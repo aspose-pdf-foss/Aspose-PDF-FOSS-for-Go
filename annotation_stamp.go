@@ -19,7 +19,7 @@ const (
 	StampNameAsIs
 	StampNameConfidential
 	StampNameDepartmental
-	StampNameDraft         // PDF default
+	StampNameDraft // PDF default
 	StampNameExperimental
 	StampNameExpired
 	StampNameFinal

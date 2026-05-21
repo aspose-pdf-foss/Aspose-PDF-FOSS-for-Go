@@ -9,10 +9,10 @@ import (
 
 func TestGroupFragmentsIntoLines(t *testing.T) {
 	frags := []textFragment{
-		{x: 100, y: 50, endX: 150, fontName: "/Helvetica", fontSize: 12},   // footer
-		{x: 100, y: 700, endX: 160, fontName: "/Helvetica", fontSize: 12},  // line 1
-		{x: 170, y: 700, endX: 230, fontName: "/Helvetica", fontSize: 12},  // line 1 continued
-		{x: 100, y: 680, endX: 180, fontName: "/Helvetica", fontSize: 12},  // line 2
+		{x: 100, y: 50, endX: 150, fontName: "/Helvetica", fontSize: 12},  // footer
+		{x: 100, y: 700, endX: 160, fontName: "/Helvetica", fontSize: 12}, // line 1
+		{x: 170, y: 700, endX: 230, fontName: "/Helvetica", fontSize: 12}, // line 1 continued
+		{x: 100, y: 680, endX: 180, fontName: "/Helvetica", fontSize: 12}, // line 2
 	}
 	frags[0].text.WriteString("Footer")
 	frags[1].text.WriteString("Hello")
