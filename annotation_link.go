@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // LinkAnnotation is a clickable region. Its visual is rendered by the

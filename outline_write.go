@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // outlineFlags returns the /F bit field per ISO 32000-1 §12.3.3 Table 153.

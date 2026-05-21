@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // normalizeInlineDict expands abbreviated keys and values in an inline image dict.

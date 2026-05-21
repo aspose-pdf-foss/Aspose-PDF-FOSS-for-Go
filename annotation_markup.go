@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // QuadPoint is one quadrilateral within a markup annotation's

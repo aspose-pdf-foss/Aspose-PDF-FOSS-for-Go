@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // Color represents an RGBA color with values in [0, 1].

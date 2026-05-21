@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // RedactAnnotation marks regions for redaction. Mark mode (this type)

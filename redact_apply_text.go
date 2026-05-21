@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // rewriteTextOperatorsInStream removes glyphs whose center falls inside

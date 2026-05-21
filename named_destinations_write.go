@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // buildNamedDestTree emits the /Names/Dests name tree as a flat

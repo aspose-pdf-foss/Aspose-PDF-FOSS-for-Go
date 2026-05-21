@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // pdfValue is any PDF value: dict, array, string, name, int, float, bool, null, ref, stream.

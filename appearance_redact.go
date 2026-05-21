@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // generateRedactAppearance produces /AP/N for mark-mode display:

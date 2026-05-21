@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // walkNameTree visits every (name, value) pair in a PDF name tree per

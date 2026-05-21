@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // drawRoundedRect adds a closed rounded-rectangle subpath to the

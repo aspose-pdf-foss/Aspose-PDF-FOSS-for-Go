@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // rewritePathOperatorsInStream removes path-construction sequences whose

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // parseOutlines reads /Catalog/Outlines and builds the in-memory tree.

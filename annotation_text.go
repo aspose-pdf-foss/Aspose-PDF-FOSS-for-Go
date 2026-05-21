@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package asposepdf
 
 // TextIcon names per ISO 32000-1 §12.5.6.4 Table 172, used in
