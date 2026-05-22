@@ -173,3 +173,52 @@ func clamp01(x float64) float64 {
 	}
 	return x
 }
+
+// parseSVGLength parses an SVG length value into PDF points.
+// Supports unitless (= px = pt = user units), pt, pc, in, mm, cm, px.
+// Returns (0, false) for em/ex/% (Phase 3) and unrecognized input.
+func parseSVGLength(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	// Find unit suffix (trailing alpha chars or '%')
+	i := len(s)
+	for i > 0 {
+		c := s[i-1]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '%' {
+			i--
+		} else {
+			break
+		}
+	}
+	numStr, unit := s[:i], strings.ToLower(s[i:])
+	n, err := strconv.ParseFloat(strings.TrimSpace(numStr), 64)
+	if err != nil {
+		return 0, false
+	}
+	switch unit {
+	case "", "px", "pt":
+		return n, true
+	case "pc":
+		return n * 12, true
+	case "in":
+		return n * 72, true
+	case "mm":
+		return n * 72 / 25.4, true
+	case "cm":
+		return n * 72 / 2.54, true
+	case "em", "ex", "%":
+		return 0, false
+	}
+	return 0, false
+}
+
+// parseSVGNumber parses a unitless float, used for opacity, stroke-width without units, etc.
+func parseSVGNumber(s string) (float64, bool) {
+	n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}

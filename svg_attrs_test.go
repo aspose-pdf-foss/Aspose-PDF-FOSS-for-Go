@@ -95,3 +95,103 @@ func TestParseSVGColor_Unrecognized(t *testing.T) {
 		t.Errorf("garbage → ok=%v c=%v, want ok=false c=nil", ok, c)
 	}
 }
+
+func TestParseSVGLength_Unitless(t *testing.T) {
+	v, _ := parseSVGLength("42")
+	if v != 42 {
+		t.Errorf("42 → %g", v)
+	}
+}
+
+func TestParseSVGLength_Px(t *testing.T) {
+	v, _ := parseSVGLength("100px")
+	if v != 100 {
+		t.Errorf("100px → %g", v)
+	}
+}
+
+func TestParseSVGLength_Pt(t *testing.T) {
+	v, _ := parseSVGLength("10pt")
+	if v != 10 {
+		t.Errorf("10pt → %g", v)
+	}
+}
+
+func TestParseSVGLength_Pc(t *testing.T) {
+	v, _ := parseSVGLength("1pc")
+	if v != 12 {
+		t.Errorf("1pc → %g, want 12", v)
+	}
+}
+
+func TestParseSVGLength_In(t *testing.T) {
+	v, _ := parseSVGLength("1in")
+	if v != 72 {
+		t.Errorf("1in → %g, want 72", v)
+	}
+}
+
+func TestParseSVGLength_Mm(t *testing.T) {
+	v, _ := parseSVGLength("10mm")
+	want := 10 * 72 / 25.4
+	if math.Abs(v-want) > 1e-9 {
+		t.Errorf("10mm → %g, want %g", v, want)
+	}
+}
+
+func TestParseSVGLength_Cm(t *testing.T) {
+	v, _ := parseSVGLength("1cm")
+	want := 72 / 2.54
+	if math.Abs(v-want) > 1e-9 {
+		t.Errorf("1cm → %g, want %g", v, want)
+	}
+}
+
+func TestParseSVGLength_Decimal(t *testing.T) {
+	v, _ := parseSVGLength("3.14")
+	if math.Abs(v-3.14) > 1e-9 {
+		t.Errorf("3.14 → %g", v)
+	}
+}
+
+func TestParseSVGLength_Negative(t *testing.T) {
+	v, _ := parseSVGLength("-5")
+	if v != -5 {
+		t.Errorf("-5 → %g", v)
+	}
+}
+
+func TestParseSVGLength_ScientificNotation(t *testing.T) {
+	v, _ := parseSVGLength("1e2")
+	if v != 100 {
+		t.Errorf("1e2 → %g", v)
+	}
+}
+
+func TestParseSVGLength_UnsupportedUnitFallsBackToZero(t *testing.T) {
+	v, ok := parseSVGLength("10em")
+	if ok || v != 0 {
+		t.Errorf("10em → v=%g ok=%v, want 0/false", v, ok)
+	}
+}
+
+func TestParseSVGLength_Garbage(t *testing.T) {
+	v, ok := parseSVGLength("not-a-number")
+	if ok || v != 0 {
+		t.Errorf("garbage → v=%g ok=%v", v, ok)
+	}
+}
+
+func TestParseSVGNumber_Basic(t *testing.T) {
+	v, ok := parseSVGNumber("3.14")
+	if !ok || math.Abs(v-3.14) > 1e-9 {
+		t.Errorf("3.14 → %g ok=%v", v, ok)
+	}
+}
+
+func TestParseSVGNumber_Garbage(t *testing.T) {
+	_, ok := parseSVGNumber("not-a-number")
+	if ok {
+		t.Errorf("expected false for garbage")
+	}
+}
