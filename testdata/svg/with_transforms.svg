@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(10, 20)">
+    <rect x="0" y="0" width="50" height="30" transform="rotate(45)"/>
+  </g>
+  <path d="M 0 0 L 100 100" transform="scale(2)"/>
+</svg>

@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad1"><stop offset="0" stop-color="red"/></linearGradient>
+  </defs>
+  <rect x="10" y="10" width="80" height="20" fill="url(#grad1)"/>
+  <text x="10" y="60">Should be skipped</text>
+  <image x="10" y="70" width="20" height="20" href="data:image/png;base64,..."/>
+  <rect x="10" y="80" width="80" height="10" fill="blue"/>
+</svg>
