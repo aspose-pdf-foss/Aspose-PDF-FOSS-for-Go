@@ -151,11 +151,19 @@ func applySingleSVGStyleProp(s *svgStyle, prop, val string) {
 	switch prop {
 	case "fill":
 		if c, ok := parseSVGColor(val); ok {
-			s.fill = c
+			if c == nil {
+				s.fill = nil
+			} else {
+				s.fill = &svgPaint{color: c}
+			}
 		}
 	case "stroke":
 		if c, ok := parseSVGColor(val); ok {
-			s.stroke = c
+			if c == nil {
+				s.stroke = nil
+			} else {
+				s.stroke = &svgPaint{color: c}
+			}
 		}
 	case "stroke-width":
 		if v, ok := parseSVGLength(val); ok {

@@ -32,8 +32,8 @@ type svgPreserveAspect struct {
 
 // svgStyle holds resolved presentation attributes after parent cascade.
 type svgStyle struct {
-	fill          *Color
-	stroke        *Color
+	fill          *svgPaint // was *Color
+	stroke        *svgPaint // was *Color
 	strokeWidth   float64
 	dashArray     []float64
 	dashOffset    float64
@@ -51,7 +51,7 @@ type svgStyle struct {
 // fill = black, no stroke, opacity = 1, fillRule = nonzero, display = true.
 func defaultSVGStyle() svgStyle {
 	return svgStyle{
-		fill:          &Color{R: 0, G: 0, B: 0, A: 1},
+		fill:          &svgPaint{color: &Color{R: 0, G: 0, B: 0, A: 1}},
 		stroke:        nil,
 		strokeWidth:   1,
 		lineCap:       LineCapButt,
@@ -137,9 +137,10 @@ func (*svgPolygon) svgNodeKind() string { return "polygon" }
 
 // SVG is the pre-parsed SVG document.
 type SVG struct {
-	viewBox *svgViewBox
-	width   float64
-	height  float64
-	par     svgPreserveAspect
-	root    *svgGroup
+	viewBox   *svgViewBox
+	width     float64
+	height    float64
+	par       svgPreserveAspect
+	root      *svgGroup
+	gradients map[string]svgGradient // id → gradient definition (collected from <defs>)
 }

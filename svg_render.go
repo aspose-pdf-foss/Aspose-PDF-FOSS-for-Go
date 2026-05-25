@@ -208,8 +208,8 @@ func applyGroupOpacity(buf *bytes.Buffer, p *Page, s svgStyle) error {
 // svgStyleToShapeStyle maps the resolved SVG cascade into Phase 1's ShapeStyle.
 func svgStyleToShapeStyle(s svgStyle) ShapeStyle {
 	ss := ShapeStyle{LineStyle: svgStyleToLineStyle(s)}
-	if s.fill != nil {
-		c := *s.fill
+	if s.fill != nil && s.fill.color != nil {
+		c := *s.fill.color
 		c.A *= s.fillOpacity
 		ss.FillColor = &c
 	}
@@ -227,8 +227,8 @@ func svgStyleToLineStyle(s svgStyle) LineStyle {
 		Join:        s.lineJoin,
 		MiterLimit:  s.miterLimit,
 	}
-	if s.stroke != nil {
-		c := *s.stroke
+	if s.stroke != nil && s.stroke.color != nil {
+		c := *s.stroke.color
 		c.A *= s.strokeOpacity
 		ls.Color = &c
 	} else {
