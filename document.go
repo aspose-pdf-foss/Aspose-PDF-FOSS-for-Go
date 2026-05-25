@@ -21,6 +21,9 @@ type Document struct {
 	nextID       int                    // next available object ID
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
+
+	// Phase 3b: SVG text font resolution callback (nil = heuristic only).
+	svgFontResolver SVGFontResolver
 }
 
 // Open opens a PDF file and returns a Document.

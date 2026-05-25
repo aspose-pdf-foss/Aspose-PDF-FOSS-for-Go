@@ -89,6 +89,21 @@ func (d *Document) AddSVGWatermarkFromStream(r io.Reader, pageNums ...int) error
 	return d.AddSVGObjectWatermark(svg, pageNums...)
 }
 
+// SVGFontResolver maps an SVG font-family + style to a pdf.Font.
+// Return nil to fall back to the library's built-in heuristic
+// (Standard 14 mapping based on family keyword).
+type SVGFontResolver func(family string, bold, italic bool) Font
+
+// SetSVGFontResolver installs a custom resolver. The renderer queries it
+// first for each SVG font-family encountered; on nil return, falls back
+// to the heuristic. Use this to plug in embedded TTF fonts (Cyrillic, etc.)
+// loaded via Document.LoadFont.
+//
+// Pass nil to clear a previously-set resolver (revert to heuristic-only).
+func (d *Document) SetSVGFontResolver(fn SVGFontResolver) {
+	d.svgFontResolver = fn
+}
+
 // AddSVGObjectWatermark uses a pre-parsed *SVG for the watermark content.
 // Renders into each target page's full MediaBox.
 func (d *Document) AddSVGObjectWatermark(svg *SVG, pageNums ...int) error {
