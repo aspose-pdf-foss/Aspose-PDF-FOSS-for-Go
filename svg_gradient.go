@@ -29,10 +29,10 @@ const (
 
 type svgLinearGradient struct {
 	x1, y1, x2, y2 float64
-	stops           []svgGradientStop
-	units           svgGradientUnits
-	spread          svgSpreadMethod
-	transform       *svgMatrix
+	stops          []svgGradientStop
+	units          svgGradientUnits
+	spread         svgSpreadMethod
+	transform      *svgMatrix
 }
 
 func (*svgLinearGradient) gradientKind() string { return "linearGradient" }

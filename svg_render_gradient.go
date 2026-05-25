@@ -130,7 +130,6 @@ func pathOpsBBox(ops []svgPathOp) (x0, y0, x1, y1 float64) {
 	return
 }
 
-
 // buildShadingFunction returns a *pdfObject containing a PDF function that maps t in [0,1]
 // to an RGB color triple, suitable for use as the /Function entry of a PDF shading dictionary.
 //
