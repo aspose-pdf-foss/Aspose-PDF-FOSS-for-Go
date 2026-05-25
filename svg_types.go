@@ -45,6 +45,13 @@ type svgStyle struct {
 	strokeOpacity float64
 	fillRule      string
 	display       bool
+
+	// Text-specific (Phase 3b)
+	fontFamily string
+	fontSize   float64
+	bold       bool
+	italic     bool
+	anchor     svgTextAnchor
 }
 
 // defaultSVGStyle returns the SVG initial value per SVG spec §6.2 table.
@@ -62,6 +69,13 @@ func defaultSVGStyle() svgStyle {
 		strokeOpacity: 1,
 		fillRule:      "nonzero",
 		display:       true,
+
+		// Text defaults (Phase 3b)
+		fontFamily: "",            // empty = inherit / use heuristic
+		fontSize:   16,            // CSS spec default
+		bold:       false,
+		italic:     false,
+		anchor:     svgTextAnchorStart,
 	}
 }
 
