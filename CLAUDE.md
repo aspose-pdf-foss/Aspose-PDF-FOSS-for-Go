@@ -138,7 +138,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Phase 2 will add SVG embedding via `(*Page).AddSVG`; Phase 3 will add gradients, embedded raster in SVG, text matching, etc.
 
 **`svg.go` / `svg_parse.go` / `svg_render.go` / `svg_path.go` / `svg_transform.go` / `svg_viewbox.go` / `svg_attrs.go` / `svg_types.go` / `svg_named_colors.go` / `vector_emit.go`**
-- `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements (text, image, gradients, masks) are skipped silently per Phase 2 scope
+- `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements (image, masks) are skipped silently
 - `(*Page).AddSVGFromStream(r io.Reader, rect)` — io.Reader variant
 - `(*Page).AddSVGObject(svg *SVG, rect)` — renders a pre-parsed `*SVG`
 - `(*Document).LoadSVG(path) (*SVG, error)` — parse once, reuse on many pages
@@ -151,7 +151,10 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*SVG).Size() (width, height float64)` — intrinsic dimensions from `<svg width=... height=...>` attrs
 - **Supported in Phase 2**: basic shapes (`<rect>`/`<circle>`/`<ellipse>`/`<line>`/`<polyline>`/`<polygon>`/`<path>`); full SVG 1.1 path syntax (M/L/H/V/C/S/Q/T/A/Z + lowercase relatives) with elliptical-arc decomposition into cubic Béziers; transforms (`translate`/`rotate`/`scale`/`matrix`/`skewX`/`skewY`); `viewBox` + all 10 `preserveAspectRatio` modes with Y-flip; presentation attrs + inline `style="..."`; hex (3/6/8-digit), `rgb()`/`rgba()`, 147 CSS named colors, `none`/`transparent`/`currentColor`; absolute length units (px/pt/pc/mm/cm/in); group inheritance cascade (resolved at parse time)
 - **Added in Phase 3a**: `<linearGradient>` and `<radialGradient>` rendering via PDF Type 2 (axial) / Type 3 (radial) shading patterns. Supports `<stop>` (offset numeric/percent, stop-color, stop-opacity), `gradientUnits` (both `userSpaceOnUse` and `objectBoundingBox`), `gradientTransform` (full matrix), `spreadMethod=pad`. Multi-stop gradients use Type 3 stitching combining Type 2 exponential interpolations. `fill="url(#id)"` and `stroke="url(#id)"` resolved at render time; missing refs fall back to no fill (best-effort).
-- **Out of scope (Phase 3)**: `<text>`, `<image>` (raster via data-uri), `<defs>`/`<use>`, masks/clipPath, CSS `<style>` blocks + selectors, filters, em/ex/% units
+- **Added in Phase 3b**: `<text>` and `<tspan>` rendering with mixed content (CharData + `<tspan>` + CharData), cursor-based positioning, `dx`/`dy` offsets, absolute `x`/`y` override on `<tspan>`, `text-anchor` (start/middle/end), `font-family`/`font-size`/`font-weight`/`font-style` attributes. Font matching: built-in heuristic mapping Standard 14 keywords (Arial/Helvetica → FontHelvetica, Times → FontTimesRoman, Courier → FontCourier, plus bold/italic variants); pluggable `SVGFontResolver` callback via `(*Document).SetSVGFontResolver` for embedded TTF fonts (Cyrillic etc.). Gradient fills (Phase 3a) work on text via the same `/Pattern cs` mechanism.
+- `SVGFontResolver` — `func(family string, bold, italic bool) Font` — callback signature for font resolution
+- `(*Document).SetSVGFontResolver(fn SVGFontResolver)` — register a custom resolver; the renderer queries it before falling back to the heuristic; pass `nil` to revert
+- **Out of scope (Phase 3)**: `<textPath>`, vertical writing modes, text decoration, `xml:space="preserve"`, `<image>` (raster via data-uri), `<defs>`/`<use>`, masks/clipPath, CSS `<style>` blocks + selectors, filters, em/ex/% units
 - **Best-effort error policy**: unsupported elements skipped silently; only XML parse failures and invalid numeric attrs surface as errors
 - `vector_emit.go` — internal `emit*ToBuf` helpers extracted from Phase 1 `(*Page).Draw*` methods so SVG renderer can reuse the exact byte-emission code (PDF output is byte-identical to hand-written Phase 1 calls)
 

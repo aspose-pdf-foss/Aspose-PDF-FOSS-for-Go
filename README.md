@@ -474,8 +474,25 @@ Supports: basic shapes, full SVG 1.1 path syntax (with elliptical-arc decomposit
 transforms (`translate`/`rotate`/`scale`/`matrix`/`skewX`/`skewY`), viewBox +
 preserveAspectRatio (all 10 modes), 147 CSS named colors, hex/rgb/rgba, absolute length
 units (px/pt/pc/mm/cm/in), group inheritance cascade, gradient fills (linear + radial via
-PDF shading patterns; `gradientUnits` + `gradientTransform`). Unsupported (skipped
-silently): `<text>`, `<image>`, masks, CSS `<style>` blocks.
+PDF shading patterns; `gradientUnits` + `gradientTransform`), `<text>` and `<tspan>`
+with mixed content, cursor positioning, `dx`/`dy`/absolute `x`/`y`, `text-anchor`
+(start/middle/end), font styling (family/size/weight/style), Standard 14 heuristic font
+mapping and pluggable TTF resolver. Unsupported (skipped silently): `<image>`, masks,
+CSS `<style>` blocks, `<textPath>`, vertical writing modes.
+
+For SVG files containing Cyrillic or other non-Latin text, register a font resolver that
+returns your embedded TTF:
+
+```go
+deja, _ := doc.LoadFont("DejaVuSans.ttf")
+doc.SetSVGFontResolver(func(family string, bold, italic bool) pdf.Font {
+    if strings.EqualFold(family, "DejaVu Sans") {
+        return deja
+    }
+    return nil // falls back to heuristic Standard 14 mapping
+})
+page.AddSVG("diagram-with-cyrillic.svg", rect)
+```
 
 ### Annotations
 

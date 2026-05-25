@@ -5,6 +5,7 @@ package asposepdf_test
 import (
 	"bytes"
 	"os"
+	"strings"
 	"testing"
 
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
@@ -318,6 +319,61 @@ func TestAddSVG_GradientAES256Roundtrip(t *testing.T) {
 	})
 	os.MkdirAll("result_files", 0755)
 	out := "result_files/TestAddSVG_GradientAES256Roundtrip.pdf"
+	if err := doc.Save(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pdf.OpenWithPassword(out, "u"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPage_AddSVG_TextWithFontResolver(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	deja, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.SetSVGFontResolver(func(family string, bold, italic bool) pdf.Font {
+		if strings.EqualFold(family, "DejaVu Sans") {
+			return deja
+		}
+		return nil
+	})
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/text_cyrillic.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 400, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("result_files", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Save("result_files/TestPage_AddSVG_TextWithFontResolver.pdf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPage_AddSVG_TextHeuristicWithoutResolver(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/text_basic.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 400, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+	// No resolver — falls back to heuristic (Arial → FontHelvetica)
+}
+
+func TestAddSVG_TextAES128Roundtrip(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	page.AddSVG("testdata/svg/text_tspan.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 400, URY: 700})
+	doc.SetEncryption(pdf.EncryptionOptions{
+		UserPassword: "u", OwnerPassword: "o", Algorithm: pdf.EncryptionAlgAES128,
+	})
+	if err := os.MkdirAll("result_files", 0755); err != nil {
+		t.Fatal(err)
+	}
+	out := "result_files/TestAddSVG_TextAES128Roundtrip.pdf"
 	if err := doc.Save(out); err != nil {
 		t.Fatal(err)
 	}
