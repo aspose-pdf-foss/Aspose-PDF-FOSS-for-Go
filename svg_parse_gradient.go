@@ -7,6 +7,146 @@ import (
 	"strings"
 )
 
+// parseSVGLinearGradient reads a <linearGradient> element. Caller has received the StartElement.
+// On exit, the </linearGradient> end element has been consumed.
+func parseSVGLinearGradient(d *xml.Decoder, start xml.StartElement) *svgLinearGradient {
+	// SVG default: x1=0 y1=0 x2=1 y2=0 (objectBoundingBox units when units default).
+	g := &svgLinearGradient{x2: 1}
+	for _, a := range start.Attr {
+		switch a.Name.Local {
+		case "x1":
+			g.x1, _ = parseSVGLength(a.Value)
+		case "y1":
+			g.y1, _ = parseSVGLength(a.Value)
+		case "x2":
+			g.x2, _ = parseSVGLength(a.Value)
+		case "y2":
+			g.y2, _ = parseSVGLength(a.Value)
+		case "gradientUnits":
+			if strings.TrimSpace(a.Value) == "userSpaceOnUse" {
+				g.units = svgGradientUserSpace
+			} else {
+				g.units = svgGradientObjectBBox
+			}
+		case "gradientTransform":
+			if m, ok := parseSVGTransform(a.Value); ok && m != matrixIdentity() {
+				g.transform = &m
+			}
+		case "spreadMethod":
+			// Phase 3a: only pad supported; reflect/repeat fall back silently
+			g.spread = svgSpreadPad
+		}
+	}
+	g.stops = collectGradientStops(d)
+	return g
+}
+
+// parseSVGRadialGradient reads a <radialGradient> element.
+func parseSVGRadialGradient(d *xml.Decoder, start xml.StartElement) *svgRadialGradient {
+	g := &svgRadialGradient{
+		cx: 0.5, cy: 0.5, r: 0.5, // SVG defaults (in objectBoundingBox units)
+	}
+	hasFx, hasFy := false, false
+	for _, a := range start.Attr {
+		switch a.Name.Local {
+		case "cx":
+			g.cx, _ = parseSVGLength(a.Value)
+		case "cy":
+			g.cy, _ = parseSVGLength(a.Value)
+		case "r":
+			g.r, _ = parseSVGLength(a.Value)
+		case "fx":
+			g.fx, _ = parseSVGLength(a.Value)
+			hasFx = true
+		case "fy":
+			g.fy, _ = parseSVGLength(a.Value)
+			hasFy = true
+		case "gradientUnits":
+			if strings.TrimSpace(a.Value) == "userSpaceOnUse" {
+				g.units = svgGradientUserSpace
+			} else {
+				g.units = svgGradientObjectBBox
+			}
+		case "gradientTransform":
+			if m, ok := parseSVGTransform(a.Value); ok && m != matrixIdentity() {
+				g.transform = &m
+			}
+		}
+	}
+	if !hasFx {
+		g.fx = g.cx
+	}
+	if !hasFy {
+		g.fy = g.cy
+	}
+	g.stops = collectGradientStops(d)
+	return g
+}
+
+// collectGradientStops walks child elements until the end element of the gradient.
+// Skips non-<stop> children silently.
+func collectGradientStops(d *xml.Decoder) []svgGradientStop {
+	var stops []svgGradientStop
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return stops
+		}
+		switch t := tok.(type) {
+		case xml.EndElement:
+			return stops
+		case xml.StartElement:
+			if t.Name.Local == "stop" {
+				stops = append(stops, parseSVGGradientStop(d, t))
+			} else {
+				_ = d.Skip()
+			}
+		}
+	}
+}
+
+// findAttr looks up an XML attribute by local name.
+func findAttr(attrs []xml.Attr, name string) string {
+	for _, a := range attrs {
+		if a.Name.Local == name {
+			return a.Value
+		}
+	}
+	return ""
+}
+
+// parseSVGDefs walks <defs> children, collecting gradient definitions into svg.gradients.
+// Returns once </defs> is consumed.
+func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.EndElement:
+			return nil
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "linearGradient":
+				if id := findAttr(t.Attr, "id"); id != "" {
+					svg.gradients[id] = parseSVGLinearGradient(d, t)
+				} else {
+					_ = d.Skip()
+				}
+			case "radialGradient":
+				if id := findAttr(t.Attr, "id"); id != "" {
+					svg.gradients[id] = parseSVGRadialGradient(d, t)
+				} else {
+					_ = d.Skip()
+				}
+			default:
+				_ = d.Skip()
+			}
+		}
+	}
+}
+
 // parseSVGGradientStop reads a <stop> element. Caller has already received the StartElement.
 // On exit, the </stop> end element has been consumed.
 func parseSVGGradientStop(d *xml.Decoder, start xml.StartElement) svgGradientStop {

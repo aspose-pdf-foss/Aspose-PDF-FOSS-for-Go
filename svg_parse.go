@@ -37,7 +37,10 @@ func parseSVGReader(r io.Reader) (*SVG, error) {
 }
 
 func parseSVGRoot(d *xml.Decoder, start xml.StartElement) (*SVG, error) {
-	svg := &SVG{root: &svgGroup{style: defaultSVGStyle()}}
+	svg := &SVG{
+		root:      &svgGroup{style: defaultSVGStyle()},
+		gradients: make(map[string]svgGradient),
+	}
 	hasParAttr := false
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -62,13 +65,13 @@ func parseSVGRoot(d *xml.Decoder, start xml.StartElement) (*SVG, error) {
 		svg.par = parsePreserveAspect("")
 	}
 	applySVGStyleAttrs(&svg.root.style, start.Attr)
-	if err := parseSVGChildren(d, svg.root); err != nil {
+	if err := parseSVGChildren(d, svg, svg.root); err != nil {
 		return nil, err
 	}
 	return svg, nil
 }
 
-func parseSVGChildren(d *xml.Decoder, parent *svgGroup) error {
+func parseSVGChildren(d *xml.Decoder, svg *SVG, parent *svgGroup) error {
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -81,7 +84,7 @@ func parseSVGChildren(d *xml.Decoder, parent *svgGroup) error {
 		case xml.EndElement:
 			return nil
 		case xml.StartElement:
-			child, err := parseSVGElement(d, parent, t)
+			child, err := parseSVGElement(d, svg, parent, t)
 			if err != nil {
 				return err
 			}
@@ -92,7 +95,7 @@ func parseSVGChildren(d *xml.Decoder, parent *svgGroup) error {
 	}
 }
 
-func parseSVGElement(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	switch start.Name.Local {
 	case "g":
 		g := &svgGroup{style: parent.style}
@@ -104,7 +107,7 @@ func parseSVGElement(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (
 				}
 			}
 		}
-		if err := parseSVGChildren(d, g); err != nil {
+		if err := parseSVGChildren(d, svg, g); err != nil {
 			return nil, err
 		}
 		return g, nil
@@ -122,6 +125,22 @@ func parseSVGElement(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (
 		return parseSVGPolyline(d, parent, start, true)
 	case "path":
 		return parseSVGPath(d, parent, start)
+	case "defs":
+		return nil, parseSVGDefs(d, svg)
+	case "linearGradient":
+		if id := findAttr(start.Attr, "id"); id != "" {
+			svg.gradients[id] = parseSVGLinearGradient(d, start)
+		} else {
+			_ = d.Skip()
+		}
+		return nil, nil
+	case "radialGradient":
+		if id := findAttr(start.Attr, "id"); id != "" {
+			svg.gradients[id] = parseSVGRadialGradient(d, start)
+		} else {
+			_ = d.Skip()
+		}
+		return nil, nil
 	default:
 		if err := d.Skip(); err != nil {
 			return nil, err

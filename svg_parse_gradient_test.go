@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"encoding/xml"
 	"math"
+	"os"
 	"strings"
 	"testing"
 )
@@ -63,3 +64,61 @@ func TestParseSVGStop_DefaultsWhenAbsent(t *testing.T) {
 		t.Errorf("default opacity = %g", s.opacity)
 	}
 }
+
+func TestParseSVG_LinearGradientCollected(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/linear_gradient.svg")
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(svg.gradients) != 1 {
+		t.Fatalf("gradients count = %d", len(svg.gradients))
+	}
+	g, ok := svg.gradients["grad1"].(*svgLinearGradient)
+	if !ok {
+		t.Fatalf("type = %T", svg.gradients["grad1"])
+	}
+	if g.x1 != 0 || g.x2 != 100 || g.y1 != 0 || g.y2 != 0 {
+		t.Errorf("coords = (%g,%g)-(%g,%g)", g.x1, g.y1, g.x2, g.y2)
+	}
+	if len(g.stops) != 2 {
+		t.Errorf("stops count = %d", len(g.stops))
+	}
+	if g.stops[0].color.R != 1 || g.stops[1].color.B != 1 {
+		t.Errorf("stop colors wrong: %+v", g.stops)
+	}
+}
+
+func TestParseSVG_RadialGradientCollected(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/radial_gradient.svg")
+	svg, _ := parseSVGBytes(data)
+	g, ok := svg.gradients["grad2"].(*svgRadialGradient)
+	if !ok {
+		t.Fatalf("type = %T", svg.gradients["grad2"])
+	}
+	if g.cx != 50 || g.r != 50 {
+		t.Errorf("radial coords wrong: cx=%g r=%g", g.cx, g.r)
+	}
+	if len(g.stops) != 3 {
+		t.Errorf("stops = %d", len(g.stops))
+	}
+	if g.units != svgGradientUserSpace {
+		t.Errorf("units = %v", g.units)
+	}
+	// gradientTransform="matrix(1 0 0 1 0 0)" IS identity — transform should be nil
+	if g.transform != nil {
+		t.Errorf("expected nil transform for identity matrix, got %v", g.transform)
+	}
+}
+
+func TestParseSVG_RectWithGradientFillRef(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/linear_gradient.svg")
+	svg, _ := parseSVGBytes(data)
+	r, _ := svg.root.children[0].(*svgRect)
+	if r == nil || r.style.fill == nil || r.style.fill.gradRef != "grad1" {
+		t.Errorf("rect fill = %+v", r.style.fill)
+	}
+}
+
+// Verify math import is used (suppress "imported and not used" if refactored away)
+var _ = math.Abs
