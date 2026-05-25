@@ -22,7 +22,7 @@ func renderSVGText(buf *bytes.Buffer, p *Page, svg *SVG, t *svgText) {
 		if font == nil {
 			continue
 		}
-		emitSVGTextRun(buf, p, run, font)
+		emitSVGTextRun(buf, p, svg, run, font)
 	}
 	buf.WriteString("Q\n")
 }
@@ -41,7 +41,7 @@ func resolveSVGFont(doc *Document, style svgStyle) Font {
 // emitSVGTextRun writes a PDF BT/ET block for a single text run.
 // Uses Tm with matrix [1 0 0 -1 x y] to place text at (x, y) in SVG space
 // while compensating for the outer CTM's Y-flip.
-func emitSVGTextRun(buf *bytes.Buffer, p *Page, run svgTextRun, font Font) {
+func emitSVGTextRun(buf *bytes.Buffer, p *Page, svg *SVG, run svgTextRun, font Font) {
 	fontSize := run.style.fontSize
 	if fontSize <= 0 {
 		fontSize = 16
@@ -70,8 +70,10 @@ func emitSVGTextRun(buf *bytes.Buffer, p *Page, run svgTextRun, font Font) {
 	buf.WriteString("BT\n")
 	fmt.Fprintf(buf, "%s %s Tf\n", resName, formatFloat(fontSize))
 
-	// Fill color from SVG style.
-	if run.style.fill != nil && run.style.fill.color != nil {
+	// Fill: gradient first (Phase 3a /Pattern cs path), then plain color.
+	if name := resolveGradientFill(p, svg, run.style.fill, nil); name != "" {
+		fmt.Fprintf(buf, "/Pattern cs\n%s scn\n", name)
+	} else if run.style.fill != nil && run.style.fill.color != nil {
 		c := run.style.fill.color
 		fmt.Fprintf(buf, "%s %s %s rg\n",
 			formatFloat(c.R), formatFloat(c.G), formatFloat(c.B))

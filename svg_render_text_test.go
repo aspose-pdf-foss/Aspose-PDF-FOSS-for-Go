@@ -118,6 +118,36 @@ func TestRenderSVG_TextDisplayNone(t *testing.T) {
 	}
 }
 
+func TestRenderSVG_TextWithGradientFill(t *testing.T) {
+	svg, err := parseSVGBytes([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+		<defs>
+			<linearGradient id="g1" x1="0" y1="0" x2="100" y2="0" gradientUnits="userSpaceOnUse">
+				<stop offset="0" stop-color="red"/>
+				<stop offset="1" stop-color="blue"/>
+			</linearGradient>
+		</defs>
+		<text x="10" y="50" font-family="Arial" font-size="24" fill="url(#g1)">Gradient Text</text>
+	</svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 400, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := page.contentStreams()
+	if !bytes.Contains(stream, []byte("/Pattern cs")) {
+		t.Errorf("expected /Pattern cs for gradient fill on text:\n%s", stream)
+	}
+	if !bytes.Contains(stream, []byte(" scn")) {
+		t.Error("expected pattern setter (scn op)")
+	}
+	if !bytes.Contains(stream, []byte("BT")) {
+		t.Error("expected BT/ET text block")
+	}
+}
+
 func TestRenderSVG_TextAnchorsProduceDifferentXOffsets(t *testing.T) {
 	data, err := os.ReadFile("testdata/svg/text_anchors.svg")
 	if err != nil {
