@@ -137,6 +137,23 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Coordinates are PDF user space (Y up, origin at page bottom-left). Drawing outside the page is allowed; PDF viewers clip to MediaBox.
 - Phase 2 will add SVG embedding via `(*Page).AddSVG`; Phase 3 will add gradients, embedded raster in SVG, text matching, etc.
 
+**`svg.go` / `svg_parse.go` / `svg_render.go` / `svg_path.go` / `svg_transform.go` / `svg_viewbox.go` / `svg_attrs.go` / `svg_types.go` / `svg_named_colors.go` / `vector_emit.go`**
+- `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements (text, image, gradients, masks) are skipped silently per Phase 2 scope
+- `(*Page).AddSVGFromStream(r io.Reader, rect)` — io.Reader variant
+- `(*Page).AddSVGObject(svg *SVG, rect)` — renders a pre-parsed `*SVG`
+- `(*Document).LoadSVG(path) (*SVG, error)` — parse once, reuse on many pages
+- `(*Document).LoadSVGFromStream(r io.Reader) (*SVG, error)` — io.Reader variant
+- `(*Document).AddSVGWatermark(path string, pageNums ...int) error` — watermark on all (when pageNums empty) or selected pages; uses each page's full MediaBox honoring SVG `preserveAspectRatio`
+- `(*Document).AddSVGWatermarkFromStream(r io.Reader, pageNums ...int) error` — io.Reader variant
+- `(*Document).AddSVGObjectWatermark(svg *SVG, pageNums ...int) error` — pre-parsed watermark
+- `SVG` — opaque pre-parsed type returned by `LoadSVG` / `LoadSVGFromStream`
+- `(*SVG).ViewBox() (x, y, w, h float64)` — viewBox attribute or `(0, 0, intrinsicW, intrinsicH)` fallback
+- `(*SVG).Size() (width, height float64)` — intrinsic dimensions from `<svg width=... height=...>` attrs
+- **Supported in Phase 2**: basic shapes (`<rect>`/`<circle>`/`<ellipse>`/`<line>`/`<polyline>`/`<polygon>`/`<path>`); full SVG 1.1 path syntax (M/L/H/V/C/S/Q/T/A/Z + lowercase relatives) with elliptical-arc decomposition into cubic Béziers; transforms (`translate`/`rotate`/`scale`/`matrix`/`skewX`/`skewY`); `viewBox` + all 10 `preserveAspectRatio` modes with Y-flip; presentation attrs + inline `style="..."`; hex (3/6/8-digit), `rgb()`/`rgba()`, 147 CSS named colors, `none`/`transparent`/`currentColor`; absolute length units (px/pt/pc/mm/cm/in); group inheritance cascade (resolved at parse time)
+- **Out of scope (Phase 3)**: `<text>`, `<image>` (raster via data-uri), gradients (`<linearGradient>`/`<radialGradient>` — `fill="url(#id)"` falls back to inherited color), `<defs>`/`<use>`, masks/clipPath, CSS `<style>` blocks + selectors, filters, em/ex/% units
+- **Best-effort error policy**: unsupported elements skipped silently; only XML parse failures and invalid numeric attrs surface as errors
+- `vector_emit.go` — internal `emit*ToBuf` helpers extracted from Phase 1 `(*Page).Draw*` methods so SVG renderer can reuse the exact byte-emission code (PDF output is byte-identical to hand-written Phase 1 calls)
+
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
 - Supported styles: `/D` decimal, `/r`/`/R` roman, `/a`/`/A` alphabetic; optional `/P` prefix and `/St` start value

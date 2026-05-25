@@ -451,6 +451,31 @@ page.DrawPath(path, pdf.ShapeStyle{
 doc.Save("shapes.pdf")
 ```
 
+### SVG embedding
+
+```go
+// Embed an external SVG file into a page
+doc, _ := pdf.Open("input.pdf")
+page, _ := doc.Page(1)
+page.AddSVG("logo.svg", pdf.Rectangle{LLX: 50, LLY: 700, URX: 250, URY: 800})
+
+// Pre-parse for reuse on many pages
+svg, _ := doc.LoadSVG("watermark.svg")
+for i := 1; i <= doc.PageCount(); i++ {
+    p, _ := doc.Page(i)
+    p.AddSVGObject(svg, pdf.Rectangle{LLX: 0, LLY: 0, URX: 595, URY: 842})
+}
+
+// Or use the watermark helper (covers all pages with full-MediaBox positioning)
+doc.AddSVGWatermark("watermark.svg")
+```
+
+Supports: basic shapes, full SVG 1.1 path syntax (with elliptical-arc decomposition),
+transforms (`translate`/`rotate`/`scale`/`matrix`/`skewX`/`skewY`), viewBox +
+preserveAspectRatio (all 10 modes), 147 CSS named colors, hex/rgb/rgba, absolute length
+units (px/pt/pc/mm/cm/in), group inheritance cascade. Unsupported in Phase 2 (skipped
+silently): `<text>`, `<image>`, gradients, masks, CSS `<style>` blocks.
+
 ### Annotations
 
 ```go
