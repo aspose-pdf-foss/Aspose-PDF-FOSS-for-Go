@@ -135,7 +135,7 @@ func emitPolygonToBuf(buf *bytes.Buffer, p *Page, points []Point, style ShapeSty
 // Stroke-only is "S" in both cases (fill rule irrelevant).
 func paintOpWithFillRule(s ShapeStyle, fillRule string) string {
 	stroke := s.LineStyle.Width > 0
-	fill := s.FillColor != nil
+	fill := s.FillColor != nil || s.FillPattern != ""
 	evenOdd := fillRule == "evenodd"
 	switch {
 	case stroke && fill:

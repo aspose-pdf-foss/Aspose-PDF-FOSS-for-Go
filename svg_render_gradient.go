@@ -2,6 +2,135 @@
 
 package asposepdf
 
+// resolveGradientFill returns a PDF pattern resource name (e.g. "/P0") when
+// the paint value is a gradient reference that can be resolved and registered.
+// Returns "" when paint is nil, is a plain color, or the ref is unknown.
+// Handles gradientUnits + gradientTransform composition.
+func resolveGradientFill(p *Page, svg *SVG, paint *svgPaint, shape svgNode) string {
+	if paint == nil || paint.gradRef == "" || svg == nil {
+		return ""
+	}
+	grad, ok := svg.gradients[paint.gradRef]
+	if !ok {
+		return ""
+	}
+
+	// Start with identity; compose bounding-box scale if objectBoundingBox.
+	matrix := svgMatrix{1, 0, 0, 1, 0, 0} // identity
+	var units svgGradientUnits
+	var transform *svgMatrix
+	switch g := grad.(type) {
+	case *svgLinearGradient:
+		units, transform = g.units, g.transform
+	case *svgRadialGradient:
+		units, transform = g.units, g.transform
+	}
+
+	if units == svgGradientObjectBBox {
+		x0, y0, x1, y1 := svgShapeBBox(shape)
+		bboxMatrix := svgMatrix{x1 - x0, 0, 0, y1 - y0, x0, y0}
+		matrix = matrixMul(matrix, bboxMatrix)
+	}
+	if transform != nil {
+		matrix = matrixMul(matrix, *transform)
+	}
+
+	name, err := p.ensurePatternResource(grad, matrix)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+// svgShapeBBox returns the axis-aligned bounding box of a shape in its local
+// coordinate space. Used for objectBoundingBox gradient unit mapping.
+func svgShapeBBox(n svgNode) (x0, y0, x1, y1 float64) {
+	switch s := n.(type) {
+	case *svgRect:
+		return s.x, s.y, s.x + s.w, s.y + s.h
+	case *svgCircle:
+		return s.cx - s.r, s.cy - s.r, s.cx + s.r, s.cy + s.r
+	case *svgEllipse:
+		return s.cx - s.rx, s.cy - s.ry, s.cx + s.rx, s.cy + s.ry
+	case *svgLine:
+		x0, x1 = bboxMinMax(s.x1, s.x2)
+		y0, y1 = bboxMinMax(s.y1, s.y2)
+		return
+	case *svgPolyline:
+		return pointsBBox(s.points)
+	case *svgPolygon:
+		return pointsBBox(s.points)
+	case *svgPath:
+		return pathOpsBBox(s.commands)
+	}
+	return 0, 0, 0, 0
+}
+
+func bboxMinMax(a, b float64) (float64, float64) {
+	if a < b {
+		return a, b
+	}
+	return b, a
+}
+
+func pointsBBox(pts []Point) (x0, y0, x1, y1 float64) {
+	if len(pts) == 0 {
+		return
+	}
+	x0, y0 = pts[0].X, pts[0].Y
+	x1, y1 = x0, y0
+	for _, p := range pts[1:] {
+		if p.X < x0 {
+			x0 = p.X
+		}
+		if p.X > x1 {
+			x1 = p.X
+		}
+		if p.Y < y0 {
+			y0 = p.Y
+		}
+		if p.Y > y1 {
+			y1 = p.Y
+		}
+	}
+	return
+}
+
+func pathOpsBBox(ops []svgPathOp) (x0, y0, x1, y1 float64) {
+	first := true
+	track := func(x, y float64) {
+		if first {
+			x0, y0, x1, y1 = x, y, x, y
+			first = false
+			return
+		}
+		if x < x0 {
+			x0 = x
+		}
+		if x > x1 {
+			x1 = x
+		}
+		if y < y0 {
+			y0 = y
+		}
+		if y > y1 {
+			y1 = y
+		}
+	}
+	for _, op := range ops {
+		switch op.kind {
+		case 'M', 'L':
+			track(op.args[0], op.args[1])
+		case 'C':
+			track(op.args[4], op.args[5])
+		case 'Q':
+			track(op.args[2], op.args[3])
+		}
+	}
+	return
+}
+
+
 // buildShadingFunction returns a *pdfObject containing a PDF function that maps t in [0,1]
 // to an RGB color triple, suitable for use as the /Function entry of a PDF shading dictionary.
 //

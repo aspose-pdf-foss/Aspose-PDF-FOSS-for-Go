@@ -27,10 +27,15 @@ type LineStyle struct {
 // FillColor nil → no fill (stroke-only). Width ≤ 0 in the embedded LineStyle
 // → no stroke (fill-only). If both are unset, the draw call is a no-op.
 //
+// FillPattern, when non-empty, overrides FillColor: the fill uses a PDF
+// /Pattern colorspace with the named pattern resource (e.g. "/P0"). Used
+// internally by the SVG renderer to wire gradient fills.
+//
 // Mirrors Aspose.PDF for .NET's GraphInfo (stroke + fill).
 type ShapeStyle struct {
 	LineStyle
-	FillColor *Color // nil = no fill
+	FillColor   *Color // nil = no fill
+	FillPattern string // optional PDF pattern resource name (e.g. "/P0"); overrides FillColor when set
 }
 
 // pathOpKind enumerates the kinds of operations a Path can contain.

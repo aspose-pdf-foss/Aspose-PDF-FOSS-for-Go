@@ -99,7 +99,7 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 //	""   — neither (caller should skip emission entirely)
 func paintOp(s ShapeStyle) string {
 	stroke := s.LineStyle.Width > 0
-	fill := s.FillColor != nil
+	fill := s.FillColor != nil || s.FillPattern != ""
 	switch {
 	case stroke && fill:
 		return "B"
@@ -123,6 +123,8 @@ func formatFillColor(c *Color) string {
 
 // formatShapeStyle emits stroke + fill graphics state ops.
 // Returns "" if neither stroke nor fill is configured.
+// When FillPattern is non-empty, emits /Pattern cs + pattern-name scn instead
+// of the plain "r g b rg" fill color operator.
 func formatShapeStyle(s ShapeStyle) string {
 	op := paintOp(s)
 	if op == "" {
@@ -132,7 +134,11 @@ func formatShapeStyle(s ShapeStyle) string {
 	if s.LineStyle.Width > 0 {
 		buf.WriteString(formatLineStyle(s.LineStyle))
 	}
-	buf.WriteString(formatFillColor(s.FillColor))
+	if s.FillPattern != "" {
+		fmt.Fprintf(&buf, "/Pattern cs\n%s scn\n", s.FillPattern)
+	} else {
+		buf.WriteString(formatFillColor(s.FillColor))
+	}
 	return buf.String()
 }
 

@@ -2,7 +2,54 @@
 
 package asposepdf
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+)
+
+func TestRenderSVG_LinearGradientEmitsPattern(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/linear_gradient.svg")
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := page.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stream, []byte("/Pattern cs")) {
+		t.Errorf("expected /Pattern cs in stream:\n%s", stream)
+	}
+	if !bytes.Contains(stream, []byte("scn")) {
+		t.Error("expected pattern setter (scn op)")
+	}
+}
+
+func TestRenderSVG_RadialGradientEmitsPattern(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/radial_gradient.svg")
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := page.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stream, []byte("/Pattern cs")) {
+		t.Errorf("expected /Pattern cs in stream for radial:\n%s", stream)
+	}
+}
 
 // helper: extract the pdfDict from a pdfObject returned by buildShadingFunction.
 func shadingDict(t *testing.T, fn *pdfObject) pdfDict {

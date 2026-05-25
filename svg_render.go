@@ -22,7 +22,7 @@ func renderSVG(p *Page, svg *SVG, rect Rectangle) error {
 
 	buf.WriteString("q\n")
 	writeCMOperator(&buf, outer)
-	renderSVGNodes(&buf, p, svg.root.children, svg.root.style)
+	renderSVGNodes(&buf, p, svg, svg.root.children, svg.root.style)
 	buf.WriteString("Q\n")
 
 	return p.appendToContentStream(buf.Bytes())
@@ -36,34 +36,34 @@ func writeCMOperator(buf *bytes.Buffer, m svgMatrix) {
 		formatFloat(m[4]), formatFloat(m[5]))
 }
 
-func renderSVGNodes(buf *bytes.Buffer, p *Page, nodes []svgNode, parentStyle svgStyle) {
+func renderSVGNodes(buf *bytes.Buffer, p *Page, svg *SVG, nodes []svgNode, parentStyle svgStyle) {
 	for _, n := range nodes {
-		renderSVGNode(buf, p, n, parentStyle)
+		renderSVGNode(buf, p, svg, n, parentStyle)
 	}
 }
 
-func renderSVGNode(buf *bytes.Buffer, p *Page, n svgNode, parentStyle svgStyle) {
+func renderSVGNode(buf *bytes.Buffer, p *Page, svg *SVG, n svgNode, parentStyle svgStyle) {
 	switch node := n.(type) {
 	case *svgGroup:
-		renderSVGGroup(buf, p, node)
+		renderSVGGroup(buf, p, svg, node)
 	case *svgRect:
-		renderSVGRect(buf, p, node)
+		renderSVGRect(buf, p, svg, node)
 	case *svgCircle:
-		renderSVGCircle(buf, p, node)
+		renderSVGCircle(buf, p, svg, node)
 	case *svgEllipse:
-		renderSVGEllipse(buf, p, node)
+		renderSVGEllipse(buf, p, svg, node)
 	case *svgLine:
-		renderSVGLine(buf, p, node)
+		renderSVGLine(buf, p, svg, node)
 	case *svgPolyline:
-		renderSVGPolyline(buf, p, node)
+		renderSVGPolyline(buf, p, svg, node)
 	case *svgPolygon:
-		renderSVGPolygon(buf, p, node)
+		renderSVGPolygon(buf, p, svg, node)
 	case *svgPath:
-		renderSVGPath(buf, p, node)
+		renderSVGPath(buf, p, svg, node)
 	}
 }
 
-func renderSVGGroup(buf *bytes.Buffer, p *Page, g *svgGroup) {
+func renderSVGGroup(buf *bytes.Buffer, p *Page, svg *SVG, g *svgGroup) {
 	if !g.style.display {
 		return
 	}
@@ -75,11 +75,11 @@ func renderSVGGroup(buf *bytes.Buffer, p *Page, g *svgGroup) {
 		// best-effort: skip opacity on error
 		_ = err
 	}
-	renderSVGNodes(buf, p, g.children, g.style)
+	renderSVGNodes(buf, p, svg, g.children, g.style)
 	buf.WriteString("Q\n")
 }
 
-func renderSVGRect(buf *bytes.Buffer, p *Page, r *svgRect) {
+func renderSVGRect(buf *bytes.Buffer, p *Page, svg *SVG, r *svgRect) {
 	if !r.style.display || r.w <= 0 || r.h <= 0 {
 		return
 	}
@@ -88,6 +88,9 @@ func renderSVGRect(buf *bytes.Buffer, p *Page, r *svgRect) {
 		writeCMOperator(buf, *r.transform)
 	}
 	style := svgStyleToShapeStyle(r.style)
+	if name := resolveGradientFill(p, svg, r.style.fill, r); name != "" {
+		style.FillPattern = name
+	}
 	rect := Rectangle{LLX: r.x, LLY: r.y, URX: r.x + r.w, URY: r.y + r.h}
 	if r.rx > 0 || r.ry > 0 {
 		rr := r.rx
@@ -101,7 +104,7 @@ func renderSVGRect(buf *bytes.Buffer, p *Page, r *svgRect) {
 	buf.WriteString("Q\n")
 }
 
-func renderSVGCircle(buf *bytes.Buffer, p *Page, c *svgCircle) {
+func renderSVGCircle(buf *bytes.Buffer, p *Page, svg *SVG, c *svgCircle) {
 	if !c.style.display || c.r <= 0 {
 		return
 	}
@@ -109,11 +112,15 @@ func renderSVGCircle(buf *bytes.Buffer, p *Page, c *svgCircle) {
 	if c.transform != nil {
 		writeCMOperator(buf, *c.transform)
 	}
-	emitCircleToBuf(buf, p, Point{X: c.cx, Y: c.cy}, c.r, svgStyleToShapeStyle(c.style))
+	style := svgStyleToShapeStyle(c.style)
+	if name := resolveGradientFill(p, svg, c.style.fill, c); name != "" {
+		style.FillPattern = name
+	}
+	emitCircleToBuf(buf, p, Point{X: c.cx, Y: c.cy}, c.r, style)
 	buf.WriteString("Q\n")
 }
 
-func renderSVGEllipse(buf *bytes.Buffer, p *Page, e *svgEllipse) {
+func renderSVGEllipse(buf *bytes.Buffer, p *Page, svg *SVG, e *svgEllipse) {
 	if !e.style.display || e.rx <= 0 || e.ry <= 0 {
 		return
 	}
@@ -121,11 +128,15 @@ func renderSVGEllipse(buf *bytes.Buffer, p *Page, e *svgEllipse) {
 	if e.transform != nil {
 		writeCMOperator(buf, *e.transform)
 	}
-	emitEllipseToBuf(buf, p, Point{X: e.cx, Y: e.cy}, e.rx, e.ry, svgStyleToShapeStyle(e.style))
+	style := svgStyleToShapeStyle(e.style)
+	if name := resolveGradientFill(p, svg, e.style.fill, e); name != "" {
+		style.FillPattern = name
+	}
+	emitEllipseToBuf(buf, p, Point{X: e.cx, Y: e.cy}, e.rx, e.ry, style)
 	buf.WriteString("Q\n")
 }
 
-func renderSVGLine(buf *bytes.Buffer, p *Page, l *svgLine) {
+func renderSVGLine(buf *bytes.Buffer, p *Page, svg *SVG, l *svgLine) {
 	if !l.style.display {
 		return
 	}
@@ -137,7 +148,7 @@ func renderSVGLine(buf *bytes.Buffer, p *Page, l *svgLine) {
 	buf.WriteString("Q\n")
 }
 
-func renderSVGPolyline(buf *bytes.Buffer, p *Page, pl *svgPolyline) {
+func renderSVGPolyline(buf *bytes.Buffer, p *Page, svg *SVG, pl *svgPolyline) {
 	if !pl.style.display || len(pl.points) < 2 {
 		return
 	}
@@ -149,7 +160,7 @@ func renderSVGPolyline(buf *bytes.Buffer, p *Page, pl *svgPolyline) {
 	buf.WriteString("Q\n")
 }
 
-func renderSVGPolygon(buf *bytes.Buffer, p *Page, pg *svgPolygon) {
+func renderSVGPolygon(buf *bytes.Buffer, p *Page, svg *SVG, pg *svgPolygon) {
 	if !pg.style.display || len(pg.points) < 3 {
 		return
 	}
@@ -157,14 +168,18 @@ func renderSVGPolygon(buf *bytes.Buffer, p *Page, pg *svgPolygon) {
 	if pg.transform != nil {
 		writeCMOperator(buf, *pg.transform)
 	}
-	emitPolygonToBuf(buf, p, pg.points, svgStyleToShapeStyle(pg.style))
+	style := svgStyleToShapeStyle(pg.style)
+	if name := resolveGradientFill(p, svg, pg.style.fill, pg); name != "" {
+		style.FillPattern = name
+	}
+	emitPolygonToBuf(buf, p, pg.points, style)
 	buf.WriteString("Q\n")
 }
 
 // renderSVGPath renders an SVG <path> element by converting its normalized
 // svgPathOps (M/L/C/Q/Z) into a Phase 1 Path and delegating to emitPathToBuf.
 // The fill-rule from sp.style.fillRule is forwarded ("evenodd" → f*/B*).
-func renderSVGPath(buf *bytes.Buffer, p *Page, sp *svgPath) {
+func renderSVGPath(buf *bytes.Buffer, p *Page, svg *SVG, sp *svgPath) {
 	if !sp.style.display || len(sp.commands) == 0 {
 		return
 	}
@@ -188,7 +203,11 @@ func renderSVGPath(buf *bytes.Buffer, p *Page, sp *svgPath) {
 			path.Close()
 		}
 	}
-	emitPathToBuf(buf, p, path, svgStyleToShapeStyle(sp.style), sp.style.fillRule)
+	style := svgStyleToShapeStyle(sp.style)
+	if name := resolveGradientFill(p, svg, sp.style.fill, sp); name != "" {
+		style.FillPattern = name
+	}
+	emitPathToBuf(buf, p, path, style, sp.style.fillRule)
 	buf.WriteString("Q\n")
 }
 
