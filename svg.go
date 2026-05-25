@@ -51,3 +51,64 @@ func (s *SVG) ViewBox() (x, y, w, h float64) {
 func (s *SVG) Size() (width, height float64) {
 	return s.width, s.height
 }
+
+// LoadSVG reads and parses an SVG file once, returning a *SVG that can be passed
+// to Page.AddSVGObject or Document.AddSVGObjectWatermark multiple times without
+// re-parsing.
+func (d *Document) LoadSVG(path string) (*SVG, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return d.LoadSVGFromStream(f)
+}
+
+// LoadSVGFromStream is the io.Reader variant of LoadSVG.
+func (d *Document) LoadSVGFromStream(r io.Reader) (*SVG, error) {
+	return parseSVGReader(r)
+}
+
+// AddSVGWatermark applies an SVG watermark to all pages (when pageNums is empty)
+// or to the specified 1-based page numbers. The SVG is positioned to fill each
+// page's MediaBox honoring its own preserveAspectRatio attribute.
+func (d *Document) AddSVGWatermark(path string, pageNums ...int) error {
+	svg, err := d.LoadSVG(path)
+	if err != nil {
+		return err
+	}
+	return d.AddSVGObjectWatermark(svg, pageNums...)
+}
+
+// AddSVGWatermarkFromStream is the io.Reader variant of AddSVGWatermark.
+func (d *Document) AddSVGWatermarkFromStream(r io.Reader, pageNums ...int) error {
+	svg, err := d.LoadSVGFromStream(r)
+	if err != nil {
+		return err
+	}
+	return d.AddSVGObjectWatermark(svg, pageNums...)
+}
+
+// AddSVGObjectWatermark uses a pre-parsed *SVG for the watermark content.
+// Renders into each target page's full MediaBox.
+func (d *Document) AddSVGObjectWatermark(svg *SVG, pageNums ...int) error {
+	targets := pageNums
+	if len(targets) == 0 {
+		targets = make([]int, d.PageCount())
+		for i := range targets {
+			targets[i] = i + 1
+		}
+	}
+	for _, n := range targets {
+		page, err := d.Page(n)
+		if err != nil {
+			continue
+		}
+		ps, _ := page.Size()
+		rect := Rectangle{LLX: 0, LLY: 0, URX: ps.Width, URY: ps.Height}
+		if err := page.AddSVGObject(svg, rect); err != nil {
+			return err
+		}
+	}
+	return nil
+}
