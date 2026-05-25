@@ -793,6 +793,92 @@ func nextGSName(gsDict pdfDict) string {
 	}
 }
 
+// ensurePatternResource registers the gradient as a PDF shading pattern in the page's
+// /Resources/Pattern dictionary and returns the resource name (e.g. "/P0").
+//
+// It mirrors ensureExtGState: allocates indirect object numbers via p.doc.nextID,
+// stores objects in p.doc.objects, and inserts pdfRef values into the page resources.
+//
+// The gradient's /Function is registered as one indirect object; the /Shading dict
+// as another; the /Pattern dict as a third. The matrix transforms the shading
+// coordinate space into page user space (passed as the PDF /Matrix entry).
+//
+// Returns "" and an error if the gradient type is unsupported or the page has no dict.
+func (p *Page) ensurePatternResource(grad svgGradient, matrix svgMatrix) (string, error) {
+	pageDict := p.pageDict()
+	if pageDict == nil {
+		return "", fmt.Errorf("ensurePatternResource: page has no dict")
+	}
+
+	resources := p.pageResources()
+	if resources == nil {
+		resources = pdfDict{}
+		pageDict["/Resources"] = resources
+	}
+
+	// Ensure /Pattern subdict exists.
+	patVal := resolveRef(p.doc.objects, resources["/Pattern"])
+	patDict, _ := patVal.(pdfDict)
+	if patDict == nil {
+		patDict = pdfDict{}
+		resources["/Pattern"] = patDict
+	}
+
+	// --- Register the function object as an indirect object. ---
+	var stops []svgGradientStop
+	switch g := grad.(type) {
+	case *svgLinearGradient:
+		stops = g.stops
+	case *svgRadialGradient:
+		stops = g.stops
+	default:
+		return "", fmt.Errorf("ensurePatternResource: unsupported gradient type %T", grad)
+	}
+
+	fnObj := buildShadingFunction(stops)
+	fnID := p.doc.nextID
+	p.doc.nextID++
+	fnObj.Num = fnID
+	p.doc.objects[fnID] = fnObj
+
+	// --- Build and register the /Shading indirect object. ---
+	shadingObj := gradientToShadingObject(grad, pdfRef{Num: fnID})
+	if shadingObj == nil {
+		return "", fmt.Errorf("ensurePatternResource: unsupported gradient type %T", grad)
+	}
+	shadingID := p.doc.nextID
+	p.doc.nextID++
+	shadingObj.Num = shadingID
+	p.doc.objects[shadingID] = shadingObj
+
+	// --- Build and register the /Pattern (shading pattern, PatternType 2) indirect object. ---
+	patternDict := pdfDict{
+		"/Type":        pdfName("/Pattern"),
+		"/PatternType": 2,
+		"/Shading":     pdfRef{Num: shadingID},
+		"/Matrix":      pdfArray{matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]},
+	}
+	patternID := p.doc.nextID
+	p.doc.nextID++
+	p.doc.objects[patternID] = &pdfObject{Num: patternID, Value: patternDict}
+
+	// --- Insert into /Resources/Pattern. ---
+	name := nextPatternName(patDict)
+	patDict[name] = pdfRef{Num: patternID}
+
+	return name, nil
+}
+
+// nextPatternName returns the next available Pattern resource name (/P0, /P1, …).
+func nextPatternName(patDict pdfDict) string {
+	for i := 0; ; i++ {
+		name := fmt.Sprintf("/P%d", i)
+		if _, exists := patDict[name]; !exists {
+			return name
+		}
+	}
+}
+
 // resolveFontForXObject is the fontResolver variant for XObject /AP
 // contexts. Registers the font in the supplied resources dict
 // (resources["/Font"][resName] = pdfRef{...}) instead of the page's

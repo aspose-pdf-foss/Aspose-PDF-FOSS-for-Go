@@ -55,6 +55,35 @@ func buildShadingFunction(stops []svgGradientStop) *pdfObject {
 	return &pdfObject{Value: dict}
 }
 
+// gradientToShadingObject creates a /Shading dictionary indirect object for the gradient.
+// The shading uses gradient coords as-is (no bbox/transform composition — that's the caller's
+// responsibility via the /Matrix entry on the parent /Pattern dict).
+//
+// The /Function entry is stored as a pdfRef to the function object already registered in
+// doc.objects (the caller — ensurePatternResource — handles that registration).
+//
+// Returns nil if grad is an unsupported type or has no document reference.
+// The returned *pdfObject's Num is 0; ensurePatternResource assigns a real number.
+func gradientToShadingObject(grad svgGradient, fnRef pdfRef) *pdfObject {
+	shading := pdfDict{
+		"/ColorSpace": pdfName("/DeviceRGB"),
+		"/Extend":     pdfArray{true, true},
+		"/Function":   fnRef,
+	}
+	switch g := grad.(type) {
+	case *svgLinearGradient:
+		shading["/ShadingType"] = 2
+		shading["/Coords"] = pdfArray{g.x1, g.y1, g.x2, g.y2}
+	case *svgRadialGradient:
+		shading["/ShadingType"] = 3
+		// Coords: [fx fy 0 cx cy r] — focal point as inner circle with radius 0.
+		shading["/Coords"] = pdfArray{g.fx, g.fy, 0.0, g.cx, g.cy, g.r}
+	default:
+		return nil
+	}
+	return &pdfObject{Value: shading}
+}
+
 // exponentialFunctionDict returns an inline pdfDict (not wrapped in pdfObject) for a
 // PDF Type 2 exponential function with N=1 interpolating between c0 and c1 in DeviceRGB.
 func exponentialFunctionDict(c0, c1 *Color) pdfDict {
