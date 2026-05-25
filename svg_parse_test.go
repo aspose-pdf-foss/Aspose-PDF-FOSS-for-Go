@@ -189,3 +189,80 @@ func TestParseSVG_TransformOnPath(t *testing.T) {
 		t.Errorf("scale(2) → %v", *p.transform)
 	}
 }
+
+func TestApplyStyle_TextProperties(t *testing.T) {
+	s := defaultSVGStyle()
+	applySingleSVGStyleProp(&s, "font-family", "Times")
+	applySingleSVGStyleProp(&s, "font-size", "20pt")
+	applySingleSVGStyleProp(&s, "font-weight", "bold")
+	applySingleSVGStyleProp(&s, "font-style", "italic")
+	applySingleSVGStyleProp(&s, "text-anchor", "middle")
+	if s.fontFamily != "Times" {
+		t.Errorf("fontFamily = %q", s.fontFamily)
+	}
+	if s.fontSize != 20 {
+		t.Errorf("fontSize = %g, want 20", s.fontSize)
+	}
+	if !s.bold {
+		t.Error("expected bold")
+	}
+	if !s.italic {
+		t.Error("expected italic")
+	}
+	if s.anchor != svgTextAnchorMiddle {
+		t.Errorf("anchor = %v", s.anchor)
+	}
+}
+
+func TestApplyStyle_FontWeightNumeric(t *testing.T) {
+	tests := []struct {
+		val  string
+		bold bool
+	}{
+		{"100", false},
+		{"400", false},
+		{"500", false},
+		{"600", true},
+		{"700", true},
+		{"900", true},
+		{"normal", false},
+		{"bold", true},
+		{"bolder", true},
+		{"lighter", false},
+	}
+	for _, tt := range tests {
+		s := defaultSVGStyle()
+		applySingleSVGStyleProp(&s, "font-weight", tt.val)
+		if s.bold != tt.bold {
+			t.Errorf("font-weight %q: bold = %v, want %v", tt.val, s.bold, tt.bold)
+		}
+	}
+}
+
+func TestApplyStyle_FontStyleOblique(t *testing.T) {
+	for _, val := range []string{"italic", "oblique"} {
+		s := defaultSVGStyle()
+		applySingleSVGStyleProp(&s, "font-style", val)
+		if !s.italic {
+			t.Errorf("font-style %q: italic = %v", val, s.italic)
+		}
+	}
+}
+
+func TestApplyStyle_TextAnchorAll(t *testing.T) {
+	tests := []struct {
+		val  string
+		want svgTextAnchor
+	}{
+		{"start", svgTextAnchorStart},
+		{"middle", svgTextAnchorMiddle},
+		{"end", svgTextAnchorEnd},
+	}
+	for _, tt := range tests {
+		s := defaultSVGStyle()
+		applySingleSVGStyleProp(&s, "text-anchor", tt.val)
+		if s.anchor != tt.want {
+			t.Errorf("text-anchor %q → %v, want %v", tt.val, s.anchor, tt.want)
+		}
+	}
+}

@@ -235,6 +235,33 @@ func applySingleSVGStyleProp(s *svgStyle, prop, val string) {
 		if v, ok := parseSVGNumber(val); ok {
 			s.miterLimit = v
 		}
+	case "font-family":
+		s.fontFamily = strings.TrimSpace(val)
+	case "font-size":
+		if v, ok := parseSVGLength(val); ok {
+			s.fontSize = v
+		}
+	case "font-weight":
+		v := strings.TrimSpace(strings.ToLower(val))
+		if v == "bold" || v == "bolder" {
+			s.bold = true
+		} else if v == "normal" || v == "lighter" {
+			s.bold = false
+		} else if n, ok := parseSVGNumber(v); ok {
+			s.bold = n >= 600
+		}
+	case "font-style":
+		v := strings.TrimSpace(strings.ToLower(val))
+		s.italic = v == "italic" || v == "oblique"
+	case "text-anchor":
+		switch strings.TrimSpace(strings.ToLower(val)) {
+		case "middle":
+			s.anchor = svgTextAnchorMiddle
+		case "end":
+			s.anchor = svgTextAnchorEnd
+		default:
+			s.anchor = svgTextAnchorStart
+		}
 	}
 }
 
