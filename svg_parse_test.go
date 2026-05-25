@@ -139,9 +139,8 @@ func TestParseSVG_GradientRefFallbacksToFill(t *testing.T) {
 	data, _ := os.ReadFile("testdata/svg/with_unsupported.svg")
 	svg, _ := parseSVGBytes(data)
 	r0, _ := svg.root.children[0].(*svgRect)
-	if r0.style.fill == nil || r0.style.fill.color == nil ||
-		(r0.style.fill.color.R != 0 || r0.style.fill.color.G != 0 || r0.style.fill.color.B != 0) {
-		t.Errorf("gradient-ref rect fill = %+v, want black fallback", r0.style.fill)
+	if r0.style.fill == nil || r0.style.fill.color != nil || r0.style.fill.gradRef != "grad1" {
+		t.Errorf("gradient-ref rect fill = %+v, want gradRef='grad1'", r0.style.fill)
 	}
 }
 

@@ -7,6 +7,40 @@ import (
 	"strings"
 )
 
+// parseSVGPaint parses fill/stroke values: solid colors OR gradient refs.
+// For "none"/"transparent" returns (nil, true). For unrecognized input returns (nil, false).
+// For "url(#id)" returns &svgPaint{gradRef: "id"}.
+// For plain colors returns &svgPaint{color: c}.
+func parseSVGPaint(s string) (*svgPaint, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, false
+	}
+	if strings.HasPrefix(s, "url(") {
+		closeIdx := strings.IndexByte(s, ')')
+		if closeIdx < 0 {
+			return nil, false
+		}
+		body := strings.TrimSpace(s[4:closeIdx])
+		if !strings.HasPrefix(body, "#") {
+			return nil, false
+		}
+		id := strings.TrimSpace(body[1:])
+		if id == "" {
+			return nil, false
+		}
+		return &svgPaint{gradRef: id}, true
+	}
+	c, ok := parseSVGColor(s)
+	if !ok {
+		return nil, false
+	}
+	if c == nil {
+		return nil, true // none/transparent → nil paint with ok=true
+	}
+	return &svgPaint{color: c}, true
+}
+
 // parseSVGColor returns the parsed color and ok=true on success.
 // For "none"/"transparent" returns (nil, true). For unrecognized input returns (nil, false).
 // "currentColor" resolves to opaque black as a fallback (no parent context at parse time).

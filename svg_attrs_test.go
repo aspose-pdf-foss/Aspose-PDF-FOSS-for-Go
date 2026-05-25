@@ -195,3 +195,41 @@ func TestParseSVGNumber_Garbage(t *testing.T) {
 		t.Errorf("expected false for garbage")
 	}
 }
+
+func TestParseSVGPaint_PlainColor(t *testing.T) {
+	p, ok := parseSVGPaint("red")
+	if !ok || p == nil || p.color == nil || p.gradRef != "" {
+		t.Errorf("red → %+v ok=%v", p, ok)
+	}
+	if p.color.R != 1 {
+		t.Errorf("red.R = %g", p.color.R)
+	}
+}
+
+func TestParseSVGPaint_URLReference(t *testing.T) {
+	p, ok := parseSVGPaint("url(#myGrad)")
+	if !ok || p == nil || p.color != nil || p.gradRef != "myGrad" {
+		t.Errorf("url(#myGrad) → %+v ok=%v", p, ok)
+	}
+}
+
+func TestParseSVGPaint_URLWithWhitespace(t *testing.T) {
+	p, _ := parseSVGPaint("url( #abc )")
+	if p == nil || p.gradRef != "abc" {
+		t.Errorf("url( #abc ) → %+v", p)
+	}
+}
+
+func TestParseSVGPaint_None(t *testing.T) {
+	p, ok := parseSVGPaint("none")
+	if !ok || p != nil {
+		t.Errorf("none → %+v ok=%v, want nil/true", p, ok)
+	}
+}
+
+func TestParseSVGPaint_Garbage(t *testing.T) {
+	_, ok := parseSVGPaint("not-a-thing")
+	if ok {
+		t.Error("garbage should fail")
+	}
+}

@@ -150,20 +150,12 @@ func applySVGStyleAttrs(s *svgStyle, attrs []xml.Attr) {
 func applySingleSVGStyleProp(s *svgStyle, prop, val string) {
 	switch prop {
 	case "fill":
-		if c, ok := parseSVGColor(val); ok {
-			if c == nil {
-				s.fill = nil
-			} else {
-				s.fill = &svgPaint{color: c}
-			}
+		if p, ok := parseSVGPaint(val); ok {
+			s.fill = p
 		}
 	case "stroke":
-		if c, ok := parseSVGColor(val); ok {
-			if c == nil {
-				s.stroke = nil
-			} else {
-				s.stroke = &svgPaint{color: c}
-			}
+		if p, ok := parseSVGPaint(val); ok {
+			s.stroke = p
 		}
 	case "stroke-width":
 		if v, ok := parseSVGLength(val); ok {
