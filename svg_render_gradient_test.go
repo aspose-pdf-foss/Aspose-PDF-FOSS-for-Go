@@ -277,6 +277,33 @@ func TestBuildShadingFunction_FourStops_StitchingType3(t *testing.T) {
 	}
 }
 
+// ensureExtGState returns names with a leading slash ("/GS0"). The opacity
+// emitter must use the name as-is — prepending another "/" produces the
+// malformed token "//GS0" that Acrobat rejects (Aspose logo's <g opacity=".6">
+// triggered this).
+func TestRenderSVG_GroupOpacityNoDoubleSlash(t *testing.T) {
+	svg, err := parseSVGBytes([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+		<g opacity="0.5">
+			<rect x="0" y="0" width="50" height="50" fill="red"/>
+		</g>
+	</svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := page.contentStreams()
+	if bytes.Contains(stream, []byte("//GS")) {
+		t.Errorf("content stream contains malformed //GS token (double slash):\n%s", stream)
+	}
+	if !bytes.Contains(stream, []byte("/GS")) {
+		t.Error("expected /GSx gs operator for group opacity")
+	}
+}
+
 // PDF spec §7.10.4 requires /Bounds in a Type 3 stitching function to be
 // strictly increasing. SVG allows duplicate stop offsets (sharp color
 // transitions); we must bump duplicates by epsilon to satisfy the spec.

@@ -213,13 +213,17 @@ func renderSVGPath(buf *bytes.Buffer, p *Page, svg *SVG, sp *svgPath) {
 
 // applyGroupOpacity emits a `/GSx gs` operator if the group has opacity < 1.
 // Returns any error from ensureExtGState.
+//
+// Note: ensureExtGState returns the name WITH a leading slash (e.g. "/GS0"),
+// so we emit it as-is — prepending another "/" would produce a malformed
+// "//GS0" token that Acrobat rejects.
 func applyGroupOpacity(buf *bytes.Buffer, p *Page, s svgStyle) error {
 	if s.opacity < 1 {
 		gsName, err := p.ensureExtGState(s.opacity)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "/%s gs\n", gsName)
+		fmt.Fprintf(buf, "%s gs\n", gsName)
 	}
 	return nil
 }
