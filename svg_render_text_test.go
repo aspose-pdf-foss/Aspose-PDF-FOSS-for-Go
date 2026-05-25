@@ -117,3 +117,40 @@ func TestRenderSVG_TextDisplayNone(t *testing.T) {
 		t.Errorf("display=none text should not emit BT, got:\n%s", stream)
 	}
 }
+
+func TestRenderSVG_TextAnchorsProduceDifferentXOffsets(t *testing.T) {
+	data, err := os.ReadFile("testdata/svg/text_anchors.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 400, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := page.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// All three texts present (as PDF string literals in Tj operators)
+	for _, want := range []string{"(START)", "(MIDDLE)", "(END)"} {
+		if !bytes.Contains(stream, []byte(want)) {
+			t.Errorf("missing %q in stream:\n%s", want, stream)
+		}
+	}
+	// Save a PDF for visual verification
+	if err := os.MkdirAll("result_files", 0755); err != nil {
+		t.Fatal(err)
+	}
+	out := "result_files/TestRenderSVG_TextAnchorsProduceDifferentXOffsets.pdf"
+	if err := doc.Save(out); err != nil {
+		t.Fatal(err)
+	}
+}
