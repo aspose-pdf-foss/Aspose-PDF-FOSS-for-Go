@@ -141,6 +141,8 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 			_ = d.Skip()
 		}
 		return nil, nil
+	case "text":
+		return parseSVGText(d, parent, start)
 	default:
 		if err := d.Skip(); err != nil {
 			return nil, err
