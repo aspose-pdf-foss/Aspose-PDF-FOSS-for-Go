@@ -161,8 +161,36 @@ func renderSVGPolygon(buf *bytes.Buffer, p *Page, pg *svgPolygon) {
 	buf.WriteString("Q\n")
 }
 
-// renderSVGPath is a stub — implemented in Task 13.
-func renderSVGPath(buf *bytes.Buffer, p *Page, sp *svgPath) {}
+// renderSVGPath renders an SVG <path> element by converting its normalized
+// svgPathOps (M/L/C/Q/Z) into a Phase 1 Path and delegating to emitPathToBuf.
+// The fill-rule from sp.style.fillRule is forwarded ("evenodd" → f*/B*).
+func renderSVGPath(buf *bytes.Buffer, p *Page, sp *svgPath) {
+	if !sp.style.display || len(sp.commands) == 0 {
+		return
+	}
+	buf.WriteString("q\n")
+	if sp.transform != nil {
+		writeCMOperator(buf, *sp.transform)
+	}
+	// Build a Phase 1 Path from svgPathOps for reuse of emitPathToBuf.
+	path := NewPath()
+	for _, op := range sp.commands {
+		switch op.kind {
+		case 'M':
+			path.MoveTo(op.args[0], op.args[1])
+		case 'L':
+			path.LineTo(op.args[0], op.args[1])
+		case 'C':
+			path.CurveTo(op.args[0], op.args[1], op.args[2], op.args[3], op.args[4], op.args[5])
+		case 'Q':
+			path.QuadTo(op.args[0], op.args[1], op.args[2], op.args[3])
+		case 'Z':
+			path.Close()
+		}
+	}
+	emitPathToBuf(buf, p, path, svgStyleToShapeStyle(sp.style), sp.style.fillRule)
+	buf.WriteString("Q\n")
+}
 
 // applyGroupOpacity emits a `/GSx gs` operator if the group has opacity < 1.
 // Returns any error from ensureExtGState.

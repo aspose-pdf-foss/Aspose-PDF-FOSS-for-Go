@@ -111,6 +111,40 @@ func TestRenderSVG_PolygonEmitsClose(t *testing.T) {
 	}
 }
 
+func TestRenderSVG_PathWithCubicBeziers(t *testing.T) {
+	svg, _ := parseSVGBytes([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+		<path d="M 10 10 C 20 0 80 0 90 10 Z" fill="red"/>
+	</svg>`))
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := page.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Expect: m operator (moveto), c operator (curveto), h operator (closepath)
+	for _, want := range []string{" m\n", " c\n", "h\n"} {
+		if !bytes.Contains(stream, []byte(want)) {
+			t.Errorf("missing operator %q in stream:\n%s", want, stream)
+		}
+	}
+}
+
+func TestRenderSVG_PathFillRuleEvenOdd(t *testing.T) {
+	svg, _ := parseSVGBytes([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+		<path d="M 10 10 L 50 10 L 50 50 L 10 50 Z" fill="red" fill-rule="evenodd"/>
+	</svg>`))
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200})
+	stream, _ := page.contentStreams()
+	if !bytes.Contains(stream, []byte("f*\n")) && !bytes.Contains(stream, []byte("f* ")) {
+		t.Errorf("expected f* (even-odd fill) operator, got:\n%s", stream)
+	}
+}
+
 func TestRenderSVG_DisplayNoneSkipsShape(t *testing.T) {
 	svgData := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
 		<rect x="10" y="10" width="80" height="80" fill="red" display="none"/>

@@ -126,3 +126,48 @@ func emitPolygonToBuf(buf *bytes.Buffer, p *Page, points []Point, style ShapeSty
 	buf.WriteString(" h\n")
 	buf.WriteString(op + "\n")
 }
+
+// paintOpWithFillRule is like paintOp but respects the SVG/PDF fill-rule:
+//
+//	"evenodd" → use f* (fill even-odd) and B* (fill+stroke even-odd)
+//	anything else → use f (nonzero winding, the PDF/SVG default) and B
+//
+// Stroke-only is "S" in both cases (fill rule irrelevant).
+func paintOpWithFillRule(s ShapeStyle, fillRule string) string {
+	stroke := s.LineStyle.Width > 0
+	fill := s.FillColor != nil
+	evenOdd := fillRule == "evenodd"
+	switch {
+	case stroke && fill:
+		if evenOdd {
+			return "B*"
+		}
+		return "B"
+	case stroke:
+		return "S"
+	case fill:
+		if evenOdd {
+			return "f*"
+		}
+		return "f"
+	default:
+		return ""
+	}
+}
+
+// emitPathToBuf writes the operators for a Path into buf, parameterized by fill rule.
+// fillRule is "evenodd" or anything-else (defaults to nonzero per SVG/PDF spec).
+// Does NOT wrap in q/Q — caller controls that.
+// No-op if path is nil, has no ops, or style has neither stroke nor fill.
+func emitPathToBuf(buf *bytes.Buffer, p *Page, path *Path, style ShapeStyle, fillRule string) {
+	if path == nil || len(path.ops) == 0 {
+		return
+	}
+	op := paintOpWithFillRule(style, fillRule)
+	if op == "" {
+		return
+	}
+	buf.WriteString(formatShapeStyle(style))
+	buf.WriteString(pathOpsToOperators(path.ops))
+	buf.WriteString(op + "\n")
+}

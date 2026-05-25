@@ -303,9 +303,7 @@ func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
 		return err
 	}
 	buf.WriteString(gsOp)
-	buf.WriteString(formatShapeStyle(style))
-	buf.WriteString(pathOpsToOperators(path.ops))
-	buf.WriteString(op + "\n")
+	emitPathToBuf(&buf, p, path, style, "") // "" → nonzero winding (Phase 1 default)
 	buf.WriteString("Q\n")
 	return p.appendToContentStream(buf.Bytes())
 }
