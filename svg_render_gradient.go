@@ -162,9 +162,19 @@ func buildShadingFunction(stops []svgGradientStop) *pdfObject {
 	}
 
 	// /Bounds: internal stop offsets (all except first and last).
+	// PDF spec requires strictly-increasing values. SVG allows duplicate offsets
+	// (sharp color transitions), so we bump each non-increasing bound by a small
+	// epsilon to satisfy the spec while preserving the visual intent.
+	const minBoundGap = 1e-6
 	bounds := make(pdfArray, 0, len(stops)-2)
+	prev := 0.0
 	for i := 1; i < len(stops)-1; i++ {
-		bounds = append(bounds, stops[i].offset)
+		b := stops[i].offset
+		if b <= prev {
+			b = prev + minBoundGap
+		}
+		bounds = append(bounds, b)
+		prev = b
 	}
 
 	// /Encode: each sub-function maps its local [0,1] interval to [0 1].

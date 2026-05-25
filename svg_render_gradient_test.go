@@ -276,3 +276,28 @@ func TestBuildShadingFunction_FourStops_StitchingType3(t *testing.T) {
 		t.Errorf("/Encode: expected 6 entries, got %d", len(encode))
 	}
 }
+
+// PDF spec §7.10.4 requires /Bounds in a Type 3 stitching function to be
+// strictly increasing. SVG allows duplicate stop offsets (sharp color
+// transitions); we must bump duplicates by epsilon to satisfy the spec.
+// Acrobat rejects files with non-monotonic bounds.
+func TestBuildShadingFunction_DuplicateOffsets_BoundsStrictlyIncreasing(t *testing.T) {
+	stops := []svgGradientStop{
+		{offset: 0.0, color: &Color{R: 1, G: 0, B: 0, A: 1}, opacity: 1},
+		{offset: 0.3, color: &Color{R: 0, G: 1, B: 0, A: 1}, opacity: 1},
+		{offset: 0.7, color: &Color{R: 0, G: 0, B: 1, A: 1}, opacity: 1},
+		{offset: 0.7, color: &Color{R: 1, G: 1, B: 0, A: 1}, opacity: 1}, // duplicate
+		{offset: 1.0, color: &Color{R: 1, G: 0, B: 1, A: 1}, opacity: 1},
+	}
+	fn := buildShadingFunction(stops)
+	d := shadingDict(t, fn)
+	bounds := dictArray(t, d, "/Bounds")
+	prev := 0.0
+	for i := 0; i < len(bounds); i++ {
+		b := arrayFloat(t, bounds, i)
+		if b <= prev {
+			t.Errorf("/Bounds[%d] = %v, not strictly greater than previous %v", i, b, prev)
+		}
+		prev = b
+	}
+}
