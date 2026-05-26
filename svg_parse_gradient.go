@@ -145,8 +145,13 @@ func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
 			case "symbol":
 				_, _ = parseSVGSymbol(d, svg, &svgGroup{style: defaultSVGStyle()}, t)
 			case "clipPath":
-				// Task 8 will fill this in; for now, skip
-				_ = d.Skip()
+				cp, err := parseSVGClipPath(d, svg, &svgGroup{style: defaultSVGStyle()}, t)
+				if err != nil {
+					return err
+				}
+				if id != "" {
+					svg.defs[id] = cp
+				}
 			default:
 				if id != "" {
 					// Generic element with id — parse via main dispatcher, store in defs

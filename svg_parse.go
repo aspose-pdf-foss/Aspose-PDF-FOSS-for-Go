@@ -153,6 +153,15 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 		return parseSVGText(d, parent, start)
 	case "image":
 		return parseSVGImage(d, parent, start)
+	case "clipPath":
+		cp, err := parseSVGClipPath(d, svg, parent, start)
+		if err != nil {
+			return nil, err
+		}
+		if id := findAttr(start.Attr, "id"); id != "" {
+			svg.defs[id] = cp
+		}
+		return nil, nil
 	default:
 		if err := d.Skip(); err != nil {
 			return nil, err
