@@ -70,3 +70,70 @@ func TestParseSVGCSS_Empty(t *testing.T) {
 		t.Errorf("got %d", len(rules))
 	}
 }
+
+func TestMatchSVGCSS_ClassMatch(t *testing.T) {
+	rules := parseSVGCSS(`.red { fill: red; }`)
+	s := defaultSVGStyle()
+	s.cssClasses = []string{"red"}
+	matchSVGCSS(&s, rules, "rect")
+	if s.fill == nil || s.fill.color == nil || s.fill.color.R != 1 {
+		t.Errorf("class match failed: %+v", s.fill)
+	}
+}
+
+func TestMatchSVGCSS_IDMatch(t *testing.T) {
+	rules := parseSVGCSS(`#special { fill: blue; }`)
+	s := defaultSVGStyle()
+	s.cssID = "special"
+	matchSVGCSS(&s, rules, "rect")
+	if s.fill == nil || s.fill.color == nil || s.fill.color.B != 1 {
+		t.Errorf("id match failed: %+v", s.fill)
+	}
+}
+
+func TestMatchSVGCSS_ElementMatch(t *testing.T) {
+	rules := parseSVGCSS(`rect { stroke: black; stroke-width: 2; }`)
+	s := defaultSVGStyle()
+	matchSVGCSS(&s, rules, "rect")
+	if s.stroke == nil || s.stroke.color == nil {
+		t.Errorf("element match failed (stroke = %+v)", s.stroke)
+	}
+	if s.strokeWidth != 2 {
+		t.Errorf("strokeWidth = %g, want 2", s.strokeWidth)
+	}
+}
+
+func TestMatchSVGCSS_SpecificityIDWinsOverClass(t *testing.T) {
+	// Class .red gives red; id #special gives green. ID wins.
+	rules := parseSVGCSS(`.red { fill: red; } #special { fill: green; }`)
+	s := defaultSVGStyle()
+	s.cssClasses = []string{"red"}
+	s.cssID = "special"
+	matchSVGCSS(&s, rules, "rect")
+	// "green" → rgb(0, 128, 0) → G ≈ 0.5019607843...
+	if s.fill == nil || s.fill.color == nil || s.fill.color.G < 0.4 || s.fill.color.R > 0.1 {
+		t.Errorf("id should win, got %+v", s.fill.color)
+	}
+}
+
+func TestMatchSVGCSS_DocumentOrderWithinSameSpecificity(t *testing.T) {
+	// Two class rules: later wins.
+	rules := parseSVGCSS(`.red { fill: red; } .red { fill: blue; }`)
+	s := defaultSVGStyle()
+	s.cssClasses = []string{"red"}
+	matchSVGCSS(&s, rules, "rect")
+	if s.fill == nil || s.fill.color == nil || s.fill.color.B != 1 || s.fill.color.R != 0 {
+		t.Errorf("later rule should win, got %+v", s.fill.color)
+	}
+}
+
+func TestMatchSVGCSS_NoMatchNoChange(t *testing.T) {
+	rules := parseSVGCSS(`.red { fill: red; }`)
+	s := defaultSVGStyle()
+	// No classes/id → no match
+	matchSVGCSS(&s, rules, "rect")
+	// Default fill is black, should stay black
+	if s.fill == nil || s.fill.color == nil || s.fill.color.R != 0 {
+		t.Errorf("no match should leave default, got %+v", s.fill.color)
+	}
+}

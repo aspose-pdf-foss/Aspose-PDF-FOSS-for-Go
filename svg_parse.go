@@ -41,6 +41,7 @@ func parseSVGRoot(d *xml.Decoder, start xml.StartElement) (*SVG, error) {
 		root:      &svgGroup{style: defaultSVGStyle()},
 		gradients: make(map[string]svgGradient),
 		defs:      make(map[string]svgNode),
+		cssRules:  nil,
 	}
 	hasParAttr := false
 	for _, a := range start.Attr {

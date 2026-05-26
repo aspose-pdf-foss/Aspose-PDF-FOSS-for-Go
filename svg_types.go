@@ -55,6 +55,10 @@ type svgStyle struct {
 
 	// Phase 3c: clip-path reference (bare id, no #). Empty = no clip.
 	clipPath string
+
+	// Phase 3d: CSS selector matching support
+	cssClasses []string
+	cssID      string
 }
 
 // defaultSVGStyle returns the SVG initial value per SVG spec §6.2 table.
@@ -165,4 +169,7 @@ type SVG struct {
 	// (inside <defs> or top-level) is collected here for <use> reference resolution
 	// and clip-path lookup. Keys are bare ids (no #).
 	defs map[string]svgNode
+
+	// Phase 3d: parsed CSS rules from <style> blocks
+	cssRules []cssRule
 }
