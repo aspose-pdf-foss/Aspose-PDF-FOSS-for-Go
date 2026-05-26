@@ -9,7 +9,7 @@ import (
 )
 
 // renderSVGImage emits the PDF operators to draw an embedded raster image.
-func renderSVGImage(buf *bytes.Buffer, p *Page, im *svgImage) {
+func renderSVGImage(buf *bytes.Buffer, p *Page, svg *SVG, im *svgImage) {
 	if !im.style.display || im.w <= 0 || im.h <= 0 || len(im.data) == 0 {
 		return
 	}
@@ -68,6 +68,7 @@ func renderSVGImage(buf *bytes.Buffer, p *Page, im *svgImage) {
 	if im.transform != nil {
 		writeCMOperator(buf, *im.transform)
 	}
+	applyClipPath(buf, p, svg, im.style)
 	// Place the unit-square image XObject: [renderW 0 0 renderH originX originY] cm
 	fmt.Fprintf(buf, "%s 0 0 %s %s %s cm\n",
 		formatFloat(renderW),
