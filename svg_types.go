@@ -157,4 +157,9 @@ type SVG struct {
 	par       svgPreserveAspect
 	root      *svgGroup
 	gradients map[string]svgGradient // id → gradient definition (collected from <defs>)
+
+	// Phase 3c: generalized definition registry. Any element with `id` attribute
+	// (inside <defs> or top-level) is collected here for <use> reference resolution
+	// and clip-path lookup. Keys are bare ids (no #).
+	defs map[string]svgNode
 }
