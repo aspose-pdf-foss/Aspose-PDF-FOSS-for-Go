@@ -115,7 +115,8 @@ func findAttr(attrs []xml.Attr, name string) string {
 	return ""
 }
 
-// parseSVGDefs walks <defs> children, collecting gradient definitions into svg.gradients.
+// parseSVGDefs walks <defs> children, collecting gradient definitions into svg.gradients,
+// symbol/clipPath into svg.defs, and any other id'd element into svg.defs.
 // Returns once </defs> is consumed.
 func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
 	for {
@@ -127,21 +128,38 @@ func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
 		case xml.EndElement:
 			return nil
 		case xml.StartElement:
+			id := findAttr(t.Attr, "id")
 			switch t.Name.Local {
 			case "linearGradient":
-				if id := findAttr(t.Attr, "id"); id != "" {
+				if id != "" {
 					svg.gradients[id] = parseSVGLinearGradient(d, t)
 				} else {
 					_ = d.Skip()
 				}
 			case "radialGradient":
-				if id := findAttr(t.Attr, "id"); id != "" {
+				if id != "" {
 					svg.gradients[id] = parseSVGRadialGradient(d, t)
 				} else {
 					_ = d.Skip()
 				}
-			default:
+			case "symbol":
+				_, _ = parseSVGSymbol(d, svg, &svgGroup{style: defaultSVGStyle()}, t)
+			case "clipPath":
+				// Task 8 will fill this in; for now, skip
 				_ = d.Skip()
+			default:
+				if id != "" {
+					// Generic element with id — parse via main dispatcher, store in defs
+					child, err := parseSVGElement(d, svg, &svgGroup{style: defaultSVGStyle()}, t)
+					if err != nil {
+						return err
+					}
+					if child != nil {
+						svg.defs[id] = child
+					}
+				} else {
+					_ = d.Skip()
+				}
 			}
 		}
 	}

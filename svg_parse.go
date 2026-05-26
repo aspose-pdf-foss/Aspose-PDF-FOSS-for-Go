@@ -142,6 +142,10 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 			_ = d.Skip()
 		}
 		return nil, nil
+	case "use":
+		return parseSVGUse(d, parent, start)
+	case "symbol":
+		return parseSVGSymbol(d, svg, parent, start)
 	case "text":
 		return parseSVGText(d, parent, start)
 	case "image":
