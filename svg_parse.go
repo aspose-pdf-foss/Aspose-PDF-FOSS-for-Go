@@ -102,9 +102,25 @@ func parseSVGChildren(d *xml.Decoder, svg *SVG, parent *svgGroup) error {
 
 func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	switch start.Name.Local {
+	case "style":
+		var content strings.Builder
+		for {
+			tok, err := d.Token()
+			if err != nil {
+				return nil, err
+			}
+			if _, ok := tok.(xml.EndElement); ok {
+				break
+			}
+			if cd, ok := tok.(xml.CharData); ok {
+				content.Write(cd)
+			}
+		}
+		svg.cssRules = append(svg.cssRules, parseSVGCSS(content.String())...)
+		return nil, nil
 	case "g":
 		g := &svgGroup{style: parent.style}
-		applySVGStyleAttrs(&g.style, start.Attr)
+		applyStyleWithCSS(&g.style, start.Attr, svg, "g")
 		for _, a := range start.Attr {
 			if a.Name.Local == "transform" {
 				if m, ok := parseSVGTransform(a.Value); ok && m != matrixIdentity() {
@@ -117,19 +133,19 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 		}
 		return g, nil
 	case "rect":
-		return parseSVGRect(d, parent, start)
+		return parseSVGRect(d, svg, parent, start)
 	case "circle":
-		return parseSVGCircle(d, parent, start)
+		return parseSVGCircle(d, svg, parent, start)
 	case "ellipse":
-		return parseSVGEllipse(d, parent, start)
+		return parseSVGEllipse(d, svg, parent, start)
 	case "line":
-		return parseSVGLine(d, parent, start)
+		return parseSVGLine(d, svg, parent, start)
 	case "polyline":
-		return parseSVGPolyline(d, parent, start, false)
+		return parseSVGPolyline(d, svg, parent, start, false)
 	case "polygon":
-		return parseSVGPolyline(d, parent, start, true)
+		return parseSVGPolyline(d, svg, parent, start, true)
 	case "path":
-		return parseSVGPath(d, parent, start)
+		return parseSVGPath(d, svg, parent, start)
 	case "defs":
 		return nil, parseSVGDefs(d, svg)
 	case "linearGradient":
@@ -147,13 +163,13 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 		}
 		return nil, nil
 	case "use":
-		return parseSVGUse(d, parent, start)
+		return parseSVGUse(d, svg, parent, start)
 	case "symbol":
 		return parseSVGSymbol(d, svg, parent, start)
 	case "text":
-		return parseSVGText(d, parent, start)
+		return parseSVGText(d, svg, parent, start)
 	case "image":
-		return parseSVGImage(d, parent, start)
+		return parseSVGImage(d, svg, parent, start)
 	case "clipPath":
 		cp, err := parseSVGClipPath(d, svg, parent, start)
 		if err != nil {
@@ -169,6 +185,25 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 		}
 		return nil, nil
 	}
+}
+
+// applyStyleWithCSS captures class/id from attrs, applies any matching CSS rules
+// from svg.cssRules, then applies presentation attrs + inline style (which override CSS).
+// Pass svg=nil to skip CSS matching (fallback to legacy behavior).
+func applyStyleWithCSS(s *svgStyle, attrs []xml.Attr, svg *SVG, elementType string) {
+	// Capture class/id first so matchSVGCSS can use them
+	for _, a := range attrs {
+		switch a.Name.Local {
+		case "class":
+			s.cssClasses = strings.Fields(a.Value)
+		case "id":
+			s.cssID = a.Value
+		}
+	}
+	if svg != nil && len(svg.cssRules) > 0 {
+		matchSVGCSS(s, svg.cssRules, elementType)
+	}
+	applySVGStyleAttrs(s, attrs)
 }
 
 func applySVGStyleAttrs(s *svgStyle, attrs []xml.Attr) {
@@ -298,7 +333,7 @@ func applySingleSVGStyleProp(s *svgStyle, prop, val string) {
 	}
 }
 
-func parseSVGRect(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGRect(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	r := &svgRect{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -320,14 +355,14 @@ func parseSVGRect(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svg
 			}
 		}
 	}
-	applySVGStyleAttrs(&r.style, start.Attr)
+	applyStyleWithCSS(&r.style, start.Attr, svg, "rect")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func parseSVGCircle(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGCircle(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	c := &svgCircle{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -343,14 +378,14 @@ func parseSVGCircle(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (s
 			}
 		}
 	}
-	applySVGStyleAttrs(&c.style, start.Attr)
+	applyStyleWithCSS(&c.style, start.Attr, svg, "circle")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-func parseSVGEllipse(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGEllipse(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	e := &svgEllipse{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -368,14 +403,14 @@ func parseSVGEllipse(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (
 			}
 		}
 	}
-	applySVGStyleAttrs(&e.style, start.Attr)
+	applyStyleWithCSS(&e.style, start.Attr, svg, "ellipse")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}
 	return e, nil
 }
 
-func parseSVGLine(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGLine(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	l := &svgLine{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -393,14 +428,14 @@ func parseSVGLine(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svg
 			}
 		}
 	}
-	applySVGStyleAttrs(&l.style, start.Attr)
+	applyStyleWithCSS(&l.style, start.Attr, svg, "line")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}
 	return l, nil
 }
 
-func parseSVGPolyline(d *xml.Decoder, parent *svgGroup, start xml.StartElement, closed bool) (svgNode, error) {
+func parseSVGPolyline(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement, closed bool) (svgNode, error) {
 	var points []Point
 	var transform *svgMatrix
 	for _, a := range start.Attr {
@@ -421,15 +456,15 @@ func parseSVGPolyline(d *xml.Decoder, parent *svgGroup, start xml.StartElement, 
 	}
 	if closed {
 		p := &svgPolygon{points: points, style: parent.style, transform: transform}
-		applySVGStyleAttrs(&p.style, start.Attr)
+		applyStyleWithCSS(&p.style, start.Attr, svg, "polygon")
 		return p, nil
 	}
 	p := &svgPolyline{points: points, style: parent.style, transform: transform}
-	applySVGStyleAttrs(&p.style, start.Attr)
+	applyStyleWithCSS(&p.style, start.Attr, svg, "polyline")
 	return p, nil
 }
 
-func parseSVGPath(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGPath(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	p := &svgPath{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -446,7 +481,7 @@ func parseSVGPath(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svg
 			}
 		}
 	}
-	applySVGStyleAttrs(&p.style, start.Attr)
+	applyStyleWithCSS(&p.style, start.Attr, svg, "path")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}

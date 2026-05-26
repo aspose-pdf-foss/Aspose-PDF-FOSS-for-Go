@@ -9,9 +9,9 @@ import (
 // parseSVGText reads a <text> element with mixed content (CharData + <tspan>).
 // Maintains a cursor advanced by each run's measured width.
 // On exit, the </text> end element has been consumed.
-func parseSVGText(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (*svgText, error) {
+func parseSVGText(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (*svgText, error) {
 	style := parent.style
-	applySVGStyleAttrs(&style, start.Attr)
+	applyStyleWithCSS(&style, start.Attr, svg, "text")
 
 	t := &svgText{style: style}
 	var cursor textCursor

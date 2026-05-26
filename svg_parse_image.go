@@ -9,7 +9,7 @@ import (
 // parseSVGImage reads an <image> element. Returns nil if href is missing,
 // external (not data:), or has unsupported MIME / bad base64.
 // Caller has received the StartElement; on exit </image> has been consumed.
-func parseSVGImage(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGImage(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	im := &svgImage{
 		style: parent.style,
 		par:   parsePreserveAspect(""),
@@ -44,7 +44,7 @@ func parseSVGImage(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (sv
 			}
 		}
 	}
-	applySVGStyleAttrs(&im.style, start.Attr)
+	applyStyleWithCSS(&im.style, start.Attr, svg, "image")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}

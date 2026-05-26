@@ -9,7 +9,7 @@ import (
 
 // parseSVGUse reads a <use> element into a placeholder. resolveUseReferences
 // (Task 6, called post-parse) replaces the placeholder with the cloned referent.
-func parseSVGUse(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgNode, error) {
+func parseSVGUse(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartElement) (svgNode, error) {
 	u := &svgUse{style: parent.style}
 	for _, a := range start.Attr {
 		switch a.Name.Local {
@@ -25,7 +25,7 @@ func parseSVGUse(d *xml.Decoder, parent *svgGroup, start xml.StartElement) (svgN
 			}
 		}
 	}
-	applySVGStyleAttrs(&u.style, start.Attr)
+	applyStyleWithCSS(&u.style, start.Attr, svg, "use")
 	if err := d.Skip(); err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func parseSVGSymbol(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.StartE
 			}
 		}
 	}
-	applySVGStyleAttrs(&s.style, start.Attr)
+	applyStyleWithCSS(&s.style, start.Attr, svg, "symbol")
 
 	// Walk children into a temporary group
 	tmpGroup := &svgGroup{style: s.style}

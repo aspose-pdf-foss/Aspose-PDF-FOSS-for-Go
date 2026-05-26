@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <style>
+    .red { fill: red; }
+    .thick-stroke { stroke: black; stroke-width: 3; }
+    #special { fill: green; }
+  </style>
+  <rect class="red" x="0" y="0" width="50" height="50"/>
+  <rect class="red thick-stroke" x="50" y="0" width="50" height="50"/>
+  <rect class="red" id="special" x="0" y="50" width="50" height="50"/>
+</svg>

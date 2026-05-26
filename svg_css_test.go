@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestParseSVGCSS_ClassRule(t *testing.T) {
 	rules := parseSVGCSS(`.red { fill: red; stroke: black; }`)
@@ -135,5 +138,57 @@ func TestMatchSVGCSS_NoMatchNoChange(t *testing.T) {
 	// Default fill is black, should stay black
 	if s.fill == nil || s.fill.color == nil || s.fill.color.R != 0 {
 		t.Errorf("no match should leave default, got %+v", s.fill.color)
+	}
+}
+
+func TestParseSVG_CSSClassApplied(t *testing.T) {
+	data, err := os.ReadFile("testdata/svg/style_classes.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r0 := svg.root.children[0].(*svgRect)
+	if r0.style.fill == nil || r0.style.fill.color == nil || r0.style.fill.color.R != 1 {
+		t.Errorf("r0 fill = %+v, want red", r0.style.fill)
+	}
+}
+
+func TestParseSVG_CSSMultiClass(t *testing.T) {
+	data, err := os.ReadFile("testdata/svg/style_classes.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1 := svg.root.children[1].(*svgRect)
+	if r1.style.stroke == nil || r1.style.stroke.color == nil {
+		t.Errorf("r1 stroke missing")
+	}
+	if r1.style.strokeWidth != 3 {
+		t.Errorf("r1 strokeWidth = %g, want 3", r1.style.strokeWidth)
+	}
+}
+
+func TestParseSVG_CSSIDWinsOverClass(t *testing.T) {
+	data, err := os.ReadFile("testdata/svg/style_classes.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2 := svg.root.children[2].(*svgRect)
+	// .red would give red, but #special gives green and wins
+	if r2.style.fill == nil || r2.style.fill.color == nil {
+		t.Fatalf("r2 fill missing")
+	}
+	if r2.style.fill.color.G < 0.4 {
+		t.Errorf("r2 fill should be green (id wins), got %+v", r2.style.fill.color)
 	}
 }
