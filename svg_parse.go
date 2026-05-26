@@ -69,6 +69,9 @@ func parseSVGRoot(d *xml.Decoder, start xml.StartElement) (*SVG, error) {
 	if err := parseSVGChildren(d, svg, svg.root); err != nil {
 		return nil, err
 	}
+	// Resolve all <use> references — replaces *svgUse nodes with deep-cloned referents.
+	visited := make(map[string]bool)
+	_ = resolveUseReferences(svg, svg.root, visited)
 	return svg, nil
 }
 
