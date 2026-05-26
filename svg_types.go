@@ -52,6 +52,9 @@ type svgStyle struct {
 	bold       bool
 	italic     bool
 	anchor     svgTextAnchor
+
+	// Phase 3c: clip-path reference (bare id, no #). Empty = no clip.
+	clipPath string
 }
 
 // defaultSVGStyle returns the SVG initial value per SVG spec §6.2 table.

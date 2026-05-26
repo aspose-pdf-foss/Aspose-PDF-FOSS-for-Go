@@ -266,3 +266,23 @@ func TestApplyStyle_TextAnchorAll(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyStyle_ClipPath(t *testing.T) {
+	s := defaultSVGStyle()
+	applySingleSVGStyleProp(&s, "clip-path", "url(#myclip)")
+	if s.clipPath != "myclip" {
+		t.Errorf("clipPath = %q, want 'myclip'", s.clipPath)
+	}
+	applySingleSVGStyleProp(&s, "clip-path", "none")
+	if s.clipPath != "" {
+		t.Errorf("clipPath should be cleared by 'none', got %q", s.clipPath)
+	}
+	applySingleSVGStyleProp(&s, "clip-path", "url(#another)")
+	if s.clipPath != "another" {
+		t.Errorf("clipPath = %q", s.clipPath)
+	}
+	applySingleSVGStyleProp(&s, "clip-path", "url( # spaced )")
+	if s.clipPath != "spaced" {
+		t.Errorf("clipPath with whitespace = %q, want 'spaced'", s.clipPath)
+	}
+}
