@@ -479,3 +479,65 @@ func TestAddSVG_MaskAES128Roundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPage_AddSVG_StyleClasses(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/style_classes.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll("result_files", 0755)
+	doc.Save("result_files/TestPage_AddSVG_StyleClasses.pdf")
+}
+
+func TestPage_AddSVG_FilterDropShadow(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/filter_dropshadow.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll("result_files", 0755)
+	doc.Save("result_files/TestPage_AddSVG_FilterDropShadow.pdf")
+}
+
+func TestPage_AddSVG_MarkerArrow(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/marker_arrow.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll("result_files", 0755)
+	doc.Save("result_files/TestPage_AddSVG_MarkerArrow.pdf")
+}
+
+func TestAddSVG_Phase3dAES128Roundtrip(t *testing.T) {
+	for _, fixture := range []string{
+		"style_classes.svg",
+		"mask_circle.svg",
+		"filter_dropshadow.svg",
+		"marker_arrow.svg",
+	} {
+		t.Run(fixture, func(t *testing.T) {
+			doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+			page, _ := doc.Page(1)
+			if err := page.AddSVG("testdata/svg/"+fixture,
+				pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+				t.Fatal(err)
+			}
+			doc.SetEncryption(pdf.EncryptionOptions{
+				UserPassword: "u", Algorithm: pdf.EncryptionAlgAES128,
+			})
+			os.MkdirAll("result_files", 0755)
+			out := "result_files/TestAddSVG_3d_AES_" + fixture + ".pdf"
+			if err := doc.Save(out); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pdf.OpenWithPassword(out, "u"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
