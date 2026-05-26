@@ -165,6 +165,7 @@ func renderSVGLine(buf *bytes.Buffer, p *Page, svg *SVG, l *svgLine) {
 	applySVGFilter(buf, p, svg, l.style, l)
 	emitLineToBuf(buf, p, Point{X: l.x1, Y: l.y1}, Point{X: l.x2, Y: l.y2}, svgStyleToLineStyle(l.style))
 	buf.WriteString("Q\n")
+	emitMarkersForLine(buf, p, svg, l)
 }
 
 func renderSVGPolyline(buf *bytes.Buffer, p *Page, svg *SVG, pl *svgPolyline) {
@@ -180,6 +181,7 @@ func renderSVGPolyline(buf *bytes.Buffer, p *Page, svg *SVG, pl *svgPolyline) {
 	applySVGFilter(buf, p, svg, pl.style, pl)
 	emitPolylineToBuf(buf, p, pl.points, svgStyleToLineStyle(pl.style))
 	buf.WriteString("Q\n")
+	emitMarkersForPolyline(buf, p, svg, pl.points, pl.style)
 }
 
 func renderSVGPolygon(buf *bytes.Buffer, p *Page, svg *SVG, pg *svgPolygon) {
@@ -199,6 +201,7 @@ func renderSVGPolygon(buf *bytes.Buffer, p *Page, svg *SVG, pg *svgPolygon) {
 	}
 	emitPolygonToBuf(buf, p, pg.points, style)
 	buf.WriteString("Q\n")
+	emitMarkersForPolyline(buf, p, svg, pg.points, pg.style)
 }
 
 // renderSVGPath renders an SVG <path> element by converting its normalized
@@ -237,6 +240,7 @@ func renderSVGPath(buf *bytes.Buffer, p *Page, svg *SVG, sp *svgPath) {
 	}
 	emitPathToBuf(buf, p, path, style, sp.style.fillRule)
 	buf.WriteString("Q\n")
+	emitMarkersForPath(buf, p, svg, sp.commands, sp.style)
 }
 
 // applyClipPath, when the style has a non-empty clipPath ref, looks up the

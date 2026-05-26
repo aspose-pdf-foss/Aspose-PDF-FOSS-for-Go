@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"bytes"
 	"os"
 	"testing"
 )
@@ -60,5 +61,22 @@ func TestParseSVG_MarkerUserSpaceUnits(t *testing.T) {
 	}
 	if m.units != svgMarkerUserSpace {
 		t.Errorf("units = %v, want userSpaceOnUse", m.units)
+	}
+}
+
+func TestRenderSVG_LineWithMarker(t *testing.T) {
+	data, _ := os.ReadFile("testdata/svg/marker_arrow.svg")
+	svg, _ := parseSVGBytes(data)
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 400, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := page.contentStreams()
+	// The marker's path produces additional path operators.
+	// Count q operators: outer SVG q + line's q + marker's q + marker's child path q = ≥4
+	qCount := bytes.Count(stream, []byte("q\n"))
+	if qCount < 3 {
+		t.Errorf("expected ≥3 q ops (line + marker), got %d", qCount)
 	}
 }
