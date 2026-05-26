@@ -1,7 +1,28 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/Users/Andrey/.claude/projects/d--aspose-claude-pdf-splitter/memory/**)"
+      "Read(//c/Users/Andrey/.claude/projects/d--aspose-claude-pdf-splitter/memory/**)",
+      "Bash(go test *)",
+      "Bash(go build *)",
+      "Bash(go doc *)",
+      "Bash(go vet *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(gofmt -s -l *)",
+      "Bash(gofmt -s -w *)",
+      "Bash(xxd *)",
+      "Bash(bd list)",
+      "Bash(bd list *)",
+      "Bash(bd show *)",
+      "Bash(bd status)",
+      "Bash(bd children *)",
+      "Bash(bd create *)",
+      "Bash(bd update *)",
+      "Bash(bd init)"
+    ],
+    "deny": [
+      "Bash(git push)",
+      "Bash(git push *)"
     ]
   }
 }
