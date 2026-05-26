@@ -3,6 +3,8 @@
 package asposepdf
 
 import (
+	"bytes"
+	"os"
 	"testing"
 )
 
@@ -101,5 +103,25 @@ func TestBuildMaskFormXObject_EmptyChildren(t *testing.T) {
 	}
 	if ref.Num != 0 {
 		t.Errorf("empty mask should return Num==0, got %d", ref.Num)
+	}
+}
+
+func TestRenderSVG_MaskEmitsGS(t *testing.T) {
+	data, err := os.ReadFile("testdata/svg/mask_circle.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svg, err := parseSVGBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := renderSVG(page, svg, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	stream, _ := page.contentStreams()
+	if !bytes.Contains(stream, []byte(" gs\n")) {
+		t.Errorf("expected /GS<n> gs operator for soft mask in stream:\n%s", stream)
 	}
 }

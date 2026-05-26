@@ -18,6 +18,7 @@ func renderSVGText(buf *bytes.Buffer, p *Page, svg *SVG, t *svgText) {
 		writeCMOperator(buf, *t.transform)
 	}
 	applyClipPath(buf, p, svg, t.style)
+	applyMask(buf, p, svg, t.style, t)
 	for _, run := range t.runs {
 		font := resolveSVGFont(p.doc, run.style)
 		if font == nil {
