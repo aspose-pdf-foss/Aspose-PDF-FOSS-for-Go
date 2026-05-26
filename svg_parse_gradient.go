@@ -152,6 +152,14 @@ func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
 				if id != "" {
 					svg.defs[id] = cp
 				}
+			case "mask":
+				mask, err := parseSVGMask(d, svg, &svgGroup{style: defaultSVGStyle()}, t)
+				if err != nil {
+					return err
+				}
+				if id != "" {
+					svg.defs[id] = mask
+				}
 			default:
 				if id != "" {
 					// Generic element with id — parse via main dispatcher, store in defs

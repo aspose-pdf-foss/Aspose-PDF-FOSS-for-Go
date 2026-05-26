@@ -179,6 +179,15 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 			svg.defs[id] = cp
 		}
 		return nil, nil
+	case "mask":
+		mask, err := parseSVGMask(d, svg, parent, start)
+		if err != nil {
+			return nil, err
+		}
+		if id := findAttr(start.Attr, "id"); id != "" {
+			svg.defs[id] = mask
+		}
+		return nil, nil
 	default:
 		if err := d.Skip(); err != nil {
 			return nil, err
