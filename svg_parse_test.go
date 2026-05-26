@@ -286,3 +286,19 @@ func TestApplyStyle_ClipPath(t *testing.T) {
 		t.Errorf("clipPath with whitespace = %q, want 'spaced'", s.clipPath)
 	}
 }
+
+func TestApplyStyle_Mask(t *testing.T) {
+	s := defaultSVGStyle()
+	applySingleSVGStyleProp(&s, "mask", "url(#m1)")
+	if s.mask != "m1" {
+		t.Errorf("mask = %q, want 'm1'", s.mask)
+	}
+	applySingleSVGStyleProp(&s, "mask", "none")
+	if s.mask != "" {
+		t.Errorf("mask should be cleared by 'none', got %q", s.mask)
+	}
+	applySingleSVGStyleProp(&s, "mask", "url(#another)")
+	if s.mask != "another" {
+		t.Errorf("mask = %q", s.mask)
+	}
+}

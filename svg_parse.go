@@ -339,6 +339,17 @@ func applySingleSVGStyleProp(s *svgStyle, prop, val string) {
 				s.clipPath = id
 			}
 		}
+	case "mask":
+		v := strings.TrimSpace(val)
+		if v == "none" || v == "" {
+			s.mask = ""
+		} else if strings.HasPrefix(v, "url(") {
+			end := strings.IndexByte(v, ')')
+			if end > 0 {
+				id := strings.Trim(v[4:end], "# \t")
+				s.mask = id
+			}
+		}
 	}
 }
 

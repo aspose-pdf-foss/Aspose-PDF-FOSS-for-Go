@@ -56,6 +56,9 @@ type svgStyle struct {
 	// Phase 3c: clip-path reference (bare id, no #). Empty = no clip.
 	clipPath string
 
+	// Phase 3d: mask reference (bare id, no #). Empty = no mask.
+	mask string
+
 	// Phase 3d: CSS selector matching support
 	cssClasses []string
 	cssID      string
