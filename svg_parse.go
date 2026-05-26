@@ -197,6 +197,15 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 			svg.defs[id] = f
 		}
 		return nil, nil
+	case "marker":
+		mk, err := parseSVGMarker(d, svg, parent, start)
+		if err != nil {
+			return nil, err
+		}
+		if id := findAttr(start.Attr, "id"); id != "" {
+			svg.defs[id] = mk
+		}
+		return nil, nil
 	default:
 		if err := d.Skip(); err != nil {
 			return nil, err
