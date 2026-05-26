@@ -477,8 +477,11 @@ units (px/pt/pc/mm/cm/in), group inheritance cascade, gradient fills (linear + r
 PDF shading patterns; `gradientUnits` + `gradientTransform`), `<text>` and `<tspan>`
 with mixed content, cursor positioning, `dx`/`dy`/absolute `x`/`y`, `text-anchor`
 (start/middle/end), font styling (family/size/weight/style), Standard 14 heuristic font
-mapping and pluggable TTF resolver. Unsupported (skipped silently): `<image>`, masks,
-CSS `<style>` blocks, `<textPath>`, vertical writing modes.
+mapping and pluggable TTF resolver, `<image>` (data: URI — PNG and JPEG base64 inline),
+`<defs>`/`<use>`/`<symbol>` (reusable elements with forward-ref and cycle detection),
+`<clipPath>` (clipping paths mapped to PDF `W`/`W*` operators; `clip-path="url(#id)"`
+on any shape/text/image). Unsupported (skipped silently): `<mask>`, external `href` in
+`<image>`, CSS `<style>` blocks, `<textPath>`, vertical writing modes.
 
 For SVG files containing Cyrillic or other non-Latin text, register a font resolver that
 returns your embedded TTF:

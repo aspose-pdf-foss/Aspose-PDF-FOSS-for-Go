@@ -138,7 +138,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Phase 2 will add SVG embedding via `(*Page).AddSVG`; Phase 3 will add gradients, embedded raster in SVG, text matching, etc.
 
 **`svg.go` / `svg_parse.go` / `svg_render.go` / `svg_path.go` / `svg_transform.go` / `svg_viewbox.go` / `svg_attrs.go` / `svg_types.go` / `svg_named_colors.go` / `vector_emit.go`**
-- `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements (image, masks) are skipped silently
+- `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements are skipped silently
 - `(*Page).AddSVGFromStream(r io.Reader, rect)` — io.Reader variant
 - `(*Page).AddSVGObject(svg *SVG, rect)` — renders a pre-parsed `*SVG`
 - `(*Document).LoadSVG(path) (*SVG, error)` — parse once, reuse on many pages
@@ -154,7 +154,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - **Added in Phase 3b**: `<text>` and `<tspan>` rendering with mixed content (CharData + `<tspan>` + CharData), cursor-based positioning, `dx`/`dy` offsets, absolute `x`/`y` override on `<tspan>`, `text-anchor` (start/middle/end), `font-family`/`font-size`/`font-weight`/`font-style` attributes. Font matching: built-in heuristic mapping Standard 14 keywords (Arial/Helvetica → FontHelvetica, Times → FontTimesRoman, Courier → FontCourier, plus bold/italic variants); pluggable `SVGFontResolver` callback via `(*Document).SetSVGFontResolver` for embedded TTF fonts (Cyrillic etc.). Gradient fills (Phase 3a) work on text via the same `/Pattern cs` mechanism.
 - `SVGFontResolver` — `func(family string, bold, italic bool) Font` — callback signature for font resolution
 - `(*Document).SetSVGFontResolver(fn SVGFontResolver)` — register a custom resolver; the renderer queries it before falling back to the heuristic; pass `nil` to revert
-- **Out of scope (Phase 3)**: `<textPath>`, vertical writing modes, text decoration, `xml:space="preserve"`, `<image>` (raster via data-uri), `<defs>`/`<use>`, masks/clipPath, CSS `<style>` blocks + selectors, filters, em/ex/% units
+- **Added in Phase 3c**: `<image>` (data:image/png and data:image/jpeg base64 inline — external URLs silently skipped); `<defs>`/`<use>`/`<symbol>` (reusable elements with parse-end deep-clone resolution; forward refs supported; cycle detection); `<clipPath>` (children = shape elements; `clipPathUnits` userSpaceOnUse + objectBoundingBox; multi-child union; maps to PDF `W`/`W*` operators); `clip-path="url(#id)"` presentation attribute on any shape/text/image.
+- **Out of scope (Phase 3)**: `<textPath>`, vertical writing modes, text decoration, `xml:space="preserve"`, `<mask>`, external `href` in `<image>`, `data:image/svg+xml`, CSS shape `clip-path: circle(...)`, CSS `<style>` blocks + selectors, filters, markers, em/ex/% units
 - **Best-effort error policy**: unsupported elements skipped silently; only XML parse failures and invalid numeric attrs surface as errors
 - `vector_emit.go` — internal `emit*ToBuf` helpers extracted from Phase 1 `(*Page).Draw*` methods so SVG renderer can reuse the exact byte-emission code (PDF output is byte-identical to hand-written Phase 1 calls)
 
