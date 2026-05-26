@@ -62,6 +62,8 @@ func renderSVGNode(buf *bytes.Buffer, p *Page, svg *SVG, n svgNode, parentStyle 
 		renderSVGPath(buf, p, svg, node)
 	case *svgText:
 		renderSVGText(buf, p, svg, node)
+	case *svgImage:
+		renderSVGImage(buf, p, node)
 	}
 }
 

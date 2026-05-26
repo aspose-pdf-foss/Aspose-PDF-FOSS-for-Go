@@ -281,10 +281,32 @@ func (p *Page) addImageFromBytes(data []byte, rect Rectangle) error {
 		return err
 	}
 
-	imgStream, smaskStream, err := createImageXObject(data, format)
+	resName, _, _, err := p.addSVGImageXObject(data, format)
 	if err != nil {
 		return err
 	}
+
+	// Append drawing operators to content stream.
+	w := rect.URX - rect.LLX
+	h := rect.URY - rect.LLY
+	ops := fmt.Sprintf("\nq\n%s 0 0 %s %s %s cm\n%s Do\nQ\n",
+		formatFloat(w), formatFloat(h), formatFloat(rect.LLX), formatFloat(rect.LLY), resName)
+
+	return p.appendToContentStream([]byte(ops))
+}
+
+// addSVGImageXObject registers the image as a PDF Image XObject on the page
+// and returns its resource name (e.g. "/Im0") plus intrinsic dimensions in pixels.
+// Does NOT emit any content stream operators — caller handles cm/Do positioning.
+func (p *Page) addSVGImageXObject(data []byte, format ImageFormat) (resName string, intrinsicW, intrinsicH float64, err error) {
+	imgStream, smaskStream, err := createImageXObject(data, format)
+	if err != nil {
+		return "", 0, 0, err
+	}
+
+	// Read intrinsic dimensions from the XObject dict.
+	w, _ := imgStream.Dict["/Width"].(int)
+	h, _ := imgStream.Dict["/Height"].(int)
 
 	// Register SMask if present.
 	if smaskStream != nil {
@@ -302,7 +324,7 @@ func (p *Page) addImageFromBytes(data []byte, rect Rectangle) error {
 	// Add to page resources.
 	pageDict := p.pageDict()
 	if pageDict == nil {
-		return fmt.Errorf("add image: page has no dict")
+		return "", 0, 0, fmt.Errorf("add image: page has no dict")
 	}
 
 	resources := p.pageResources()
@@ -320,13 +342,7 @@ func (p *Page) addImageFromBytes(data []byte, rect Rectangle) error {
 	name := nextXObjectName(xobjDict)
 	xobjDict[name] = pdfRef{Num: imgID}
 
-	// Append drawing operators to content stream.
-	w := rect.URX - rect.LLX
-	h := rect.URY - rect.LLY
-	ops := fmt.Sprintf("\nq\n%s 0 0 %s %s %s cm\n%s Do\nQ\n",
-		formatFloat(w), formatFloat(h), formatFloat(rect.LLX), formatFloat(rect.LLY), name)
-
-	return p.appendToContentStream([]byte(ops))
+	return name, float64(w), float64(h), nil
 }
 
 func nextXObjectName(xobjDict pdfDict) string {
