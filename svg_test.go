@@ -381,3 +381,64 @@ func TestAddSVG_TextAES128Roundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPage_AddSVG_ImageInline(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/image_inline_png.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 750}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("result_files", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.Save("result_files/TestPage_AddSVG_ImageInline.pdf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPage_AddSVG_UseRefs(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/use_simple.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll("result_files", 0755)
+	doc.Save("result_files/TestPage_AddSVG_UseRefs.pdf")
+}
+
+func TestPage_AddSVG_ClipPath(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	if err := page.AddSVG("testdata/svg/clippath_circle.svg",
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll("result_files", 0755)
+	doc.Save("result_files/TestPage_AddSVG_ClipPath.pdf")
+}
+
+func TestAddSVG_DefsImageClipAES128Roundtrip(t *testing.T) {
+	for _, fixture := range []string{"image_inline_png.svg", "use_simple.svg", "clippath_circle.svg"} {
+		t.Run(fixture, func(t *testing.T) {
+			doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+			page, _ := doc.Page(1)
+			if err := page.AddSVG("testdata/svg/"+fixture,
+				pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 800}); err != nil {
+				t.Fatal(err)
+			}
+			doc.SetEncryption(pdf.EncryptionOptions{
+				UserPassword: "u", Algorithm: pdf.EncryptionAlgAES128,
+			})
+			os.MkdirAll("result_files", 0755)
+			out := "result_files/TestAddSVG_AES_" + fixture + ".pdf"
+			if err := doc.Save(out); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pdf.OpenWithPassword(out, "u"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
