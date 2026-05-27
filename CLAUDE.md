@@ -341,6 +341,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - All files produced by examples and manual runs are saved to `result_files/` in the project root.
 - This folder is not committed to the repository.
 
+## Examples
+
+- Standalone runnable example programs live in `_examples/<name>/main.go`. The leading `_` makes the Go toolchain skip these when matching `./...`, so `go build ./...` and `go test ./...` do not touch them. Run individually with e.g. `go run ./_examples/full_scenario`.
+- Short, focused API examples live as `ExampleXxx` functions in `examples_test.go` (package `asposepdf_test`). These appear under "Examples" on pkg.go.dev next to each documented function and are validated by `go test` via their `// Output:` comments.
+
 ## Testing conventions
 
 - Test PDF files are stored flat in `testdata/` (`4pages.pdf`, `Binder1.pdf`, `PdfWithLinks.pdf`, `PdfWithTable.pdf`, `alfa.pdf`, `marketing.pdf`, `Hello world.pdf`, `PdfWithAcroForm.pdf`).

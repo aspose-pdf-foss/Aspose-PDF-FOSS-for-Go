@@ -38,6 +38,8 @@ doc.Append(doc2)
 doc.Save("merged.pdf")
 ```
 
+See [`_examples/`](_examples/) for full runnable programs covering text, forms, annotations, tables, vector graphics, SVG, and the end-to-end `full_scenario` demo. Short focused API snippets also appear under "Examples" on [pkg.go.dev](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go).
+
 ## Features
 
 - **Split** — split a document into individual pages
