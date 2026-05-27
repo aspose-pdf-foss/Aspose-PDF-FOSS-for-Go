@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-27
+
+SVG embedding completes practical coverage (~95% of real-world SVG files) across five sub-phases: shapes & paths, gradients, text, image / defs / use / clipPath, and mask / CSS / filter / marker. All work added internally — no breaking changes to v0.1.0 API.
+
+### Added — public API
+
+- `(*Page).AddSVG(path, rect)` / `AddSVGFromStream(r, rect)` / `AddSVGObject(svg *SVG, rect)` — embed external SVG into a PDF page
+- `(*Document).LoadSVG(path) (*SVG, error)` / `LoadSVGFromStream(r io.Reader) (*SVG, error)` — pre-parse for reuse across many pages
+- `(*Document).AddSVGWatermark(path, pageNums ...int) error` / `AddSVGWatermarkFromStream` / `AddSVGObjectWatermark` — SVG watermarks on all or selected pages
+- `(*SVG).ViewBox() (x, y, w, h float64)` / `(*SVG).Size() (width, height float64)` — inspector accessors on the opaque `*SVG` type
+- `SVGFontResolver func(family string, bold, italic bool) Font` — callback type for font-family resolution
+- `(*Document).SetSVGFontResolver(fn SVGFontResolver)` — register a custom resolver (e.g. for embedded TTF / Cyrillic); falls back to built-in heuristic
+
+### Added — SVG support matrix
+
+**Phase 2 — SVG-lite embedding** (shapes + paths + transforms + viewBox)
+- Basic shapes: `<rect>` (with `rx`/`ry`), `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`
+- Full SVG 1.1 path syntax: M/L/H/V/C/S/Q/T/A/Z + lowercase relatives, with elliptical-arc decomposition into ≤4 cubic Béziers
+- Transforms: `translate` / `rotate` / `scale` / `matrix` / `skewX` / `skewY`
+- `viewBox` + all 10 `preserveAspectRatio` modes with Y-flip
+- Presentation attrs + inline `style="..."` (semicolon-separated)
+- Colors: hex (3/6/8-digit), `rgb()`/`rgba()`, 147 CSS named colors, `none`/`transparent`/`currentColor`
+- Absolute length units: px / pt / pc / mm / cm / in
+- Group inheritance cascade resolved at parse time
+- Best-effort error policy: unsupported elements silently skipped; only XML parse failures surface as errors
+
+**Phase 3a — Gradients**
+- `<linearGradient>` rendered via PDF Type 2 (axial) shading patterns
+- `<radialGradient>` rendered via PDF Type 3 (radial) shading patterns
+- Multi-stop gradients use Type 3 stitching combining Type 2 exponential interpolations
+- Supports `<stop>` (offset numeric/percent, stop-color, stop-opacity), `gradientUnits` (userSpaceOnUse + objectBoundingBox), `gradientTransform` (full matrix), `spreadMethod=pad`
+- `fill="url(#id)"` and `stroke="url(#id)"` resolved at render time; missing refs fall back to no fill
+
+**Phase 3b — Text**
+- `<text>` and `<tspan>` with mixed content (CharData + `<tspan>` + CharData) and cursor-based positioning
+- `dx`/`dy` offsets, absolute `x`/`y` override on `<tspan>`
+- `text-anchor` (start / middle / end) with font-metric-based width measurement
+- `font-family` / `font-size` / `font-weight` / `font-style` attributes
+- Font matching: built-in heuristic mapping Standard 14 keywords (Arial/Helvetica → FontHelvetica, Times → FontTimesRoman, Courier → FontCourier + bold/italic variants); pluggable `SVGFontResolver` callback for embedded TTF fonts
+- Gradient fills (Phase 3a) work on text via the same `/Pattern cs` mechanism
+
+**Phase 3c — Image / defs / use / clipPath**
+- `<image>` with `data:image/png;base64,...` and `data:image/jpeg;base64,...` inline (external URLs silently skipped); `preserveAspectRatio` honored
+- `<defs>` / `<use>` / `<symbol>` — reusable elements with parse-end deep-clone resolution; forward references supported; cycle detection
+- `<clipPath>` with `clipPathUnits` (userSpaceOnUse + objectBoundingBox), multi-child union; maps to PDF `W` / `W*` operators
+- `clip-path="url(#id)"` presentation attribute on any shape/text/image
+
+**Phase 3d — Mask / CSS / filter / marker**
+- `<mask>` via PDF soft masks (Form XObject `/Group /S /Transparency` + ExtGState `/SMask`); supports `maskUnits` and `maskContentUnits`
+- CSS `<style>` blocks with `.class` / `#id` / element selectors; specificity ordering (inline > id > class > type)
+- `<filter>` with `feDropShadow` emulated as offset+alpha bbox duplicate (no blur — PDF has no native Gaussian blur and the library stays stdlib-only; other filter primitives silently skipped)
+- `<marker>` (marker-start / marker-mid / marker-end) on line/polyline/polygon/path; `orient="auto"` rotation along path tangent; `refX`/`refY` anchor; markerUnits (strokeWidth + userSpaceOnUse)
+
+### Added — infrastructure
+
+- GitHub Actions CI workflow (`go build` + `go test` on Linux/Windows/macOS)
+- Go Report Card badge in README
+- `gofmt -s` applied across the entire codebase
+
+### Fixed
+
+- Type 3 stitching function `/Bounds` now strictly increasing — SVG allows duplicate `<stop offset>` values for sharp color transitions, but the PDF spec (§7.10.4) requires strictly-monotonic bounds. Duplicate offsets are now bumped by a 1e-6 epsilon, preserving visual intent while satisfying the spec. Acrobat previously refused to open documents with non-monotonic bounds
+- SVG group opacity emits `/GSx gs` instead of `//GSx gs` — `ensureExtGState` returns names with a leading slash, so prepending another `/` produced a malformed PDF token that Acrobat rejected with a "document contains errors" warning. Affected SVGs with `<g opacity="..."> ` children (notably the Aspose logo's highlight-overlay group)
+
+### Out of scope (future)
+
+The following SVG features are deliberately not in v0.2.0 (low real-world frequency or require capabilities outside the stdlib-only constraint):
+
+- `<textPath>` (text along a path), vertical text (`writing-mode`), `xml:space="preserve"`
+- `em` / `ex` / `%` length units (require font / parent bbox context)
+- `spreadMethod="reflect"` / `"repeat"` (requires PostScript function loops)
+- CSS descendant / pseudo / attribute selectors, `<style>` `@media` / `@import`
+- True Gaussian blur in `<filter>` (no software rasterizer in stdlib)
+- SMIL animation (`<animate>`, `<animateTransform>`)
+- External `href` in `<image>` (security + IO surface area)
+- `data:image/svg+xml` (recursive parsing)
+
 ## [0.1.0] — 2026-05-21
 
 Initial public release. Pure Go PDF library — no external dependencies, standard library only. Requires Go 1.24+. API shape mirrors Aspose.PDF for .NET where natural for migrants. Spec references follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0).
@@ -128,5 +205,6 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/releases/tag/v0.1.0
