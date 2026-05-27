@@ -7,6 +7,105 @@ import (
 	"strings"
 )
 
+// PageLabelStyle is the numbering style applied within a PageLabelRange.
+// Mirrors the /S values from PDF spec §12.4.2 Table 159.
+type PageLabelStyle int
+
+const (
+	PageLabelStyleNone       PageLabelStyle = iota // no /S — only the prefix is rendered
+	PageLabelDecimal                               // /D — 1, 2, 3, …
+	PageLabelRomanLower                            // /r — i, ii, iii, …
+	PageLabelRomanUpper                            // /R — I, II, III, …
+	PageLabelAlphabeticLower                       // /a — a, b, …, z, aa, ab, …
+	PageLabelAlphabeticUpper                       // /A — A, B, …, Z, AA, AB, …
+)
+
+// PageLabelRange describes a contiguous run of pages that share a numbering
+// style. The first range must start at page 1; subsequent ranges inherit
+// every preceding range's style/prefix until overridden. Mirrors the entries
+// of a /PageLabels /Nums leaf per PDF spec §12.4.2.
+type PageLabelRange struct {
+	StartPage int            // 1-based page where this range begins
+	Style     PageLabelStyle // numbering style
+	Prefix    string         // optional label prefix (e.g. "A-")
+	StartNum  int            // first number for this range; treated as 1 if ≤ 0
+}
+
+// SetPageLabels installs the document's /PageLabels number tree so PDF
+// viewers display labels like "i, ii, 1, 2, …" in the navigation pane and
+// page indicators. (*Page).Label() also reads from this tree.
+//
+// Ranges must be sorted by StartPage in strictly ascending order and the
+// first range must begin at page 1; otherwise an error is returned.
+// Passing a nil/empty slice clears any existing labels.
+//
+// Per PDF spec §12.4.2, /PageLabels is a number tree keyed by 0-based page
+// index. This implementation emits a single-leaf number tree with one
+// /Nums array, which is valid for any number of ranges.
+func (d *Document) SetPageLabels(ranges []PageLabelRange) error {
+	if len(ranges) == 0 {
+		d.ClearPageLabels()
+		return nil
+	}
+	if ranges[0].StartPage != 1 {
+		return fmt.Errorf("page labels: first range must start at page 1, got %d", ranges[0].StartPage)
+	}
+	for i := 1; i < len(ranges); i++ {
+		if ranges[i].StartPage <= ranges[i-1].StartPage {
+			return fmt.Errorf("page labels: ranges must be sorted ascending by StartPage (range %d starts at %d, previous at %d)",
+				i, ranges[i].StartPage, ranges[i-1].StartPage)
+		}
+	}
+
+	nums := make(pdfArray, 0, len(ranges)*2)
+	for _, r := range ranges {
+		labelDict := pdfDict{}
+		if name := pageLabelStyleName(r.Style); name != "" {
+			labelDict["/S"] = pdfName(name)
+		}
+		if r.Prefix != "" {
+			labelDict["/P"] = r.Prefix
+		}
+		if r.StartNum > 1 {
+			labelDict["/St"] = r.StartNum
+		}
+		nums = append(nums, r.StartPage-1, labelDict)
+	}
+	if d.catalog == nil {
+		d.catalog = pdfDict{}
+	}
+	d.catalog["/PageLabels"] = pdfDict{"/Nums": nums}
+	return nil
+}
+
+// ClearPageLabels removes the document's /PageLabels entry. (*Page).Label()
+// then falls back to the decimal page number.
+func (d *Document) ClearPageLabels() {
+	if d.catalog == nil {
+		return
+	}
+	delete(d.catalog, "/PageLabels")
+}
+
+// pageLabelStyleName returns the PDF /S name for a style, or "" for
+// PageLabelStyleNone (which means: emit no /S entry; only the prefix
+// appears in the label).
+func pageLabelStyleName(s PageLabelStyle) string {
+	switch s {
+	case PageLabelDecimal:
+		return "/D"
+	case PageLabelRomanLower:
+		return "/r"
+	case PageLabelRomanUpper:
+		return "/R"
+	case PageLabelAlphabeticLower:
+		return "/a"
+	case PageLabelAlphabeticUpper:
+		return "/A"
+	}
+	return ""
+}
+
 // Label returns the formatted page label for this page as defined by the
 // document's /PageLabels number tree (PDF spec §12.4.2).
 //
