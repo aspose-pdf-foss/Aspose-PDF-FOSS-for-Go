@@ -111,6 +111,74 @@ func TestParseSVG_RadialGradientCollected(t *testing.T) {
 	}
 }
 
+// Regression: gradient coords accept '%' (parses as a 0..1 fraction) and
+// gradientUnits defaults to objectBoundingBox per SVG 1.1 §13.2.2 / §13.2.3.
+// Before the fix, parseSVGLength rejected '%' (returning 0) and the default
+// unit was userSpaceOnUse — so the common idiom <radialGradient cx="50%"
+// cy="50%" r="50%"> (no explicit gradientUnits) parsed as a degenerate
+// (0, 0, 0) gradient and the whole shape rendered in the extended last-stop
+// colour.
+func TestParseSVG_GradientPercentInBBoxMode(t *testing.T) {
+	svg, err := parseSVGBytes([]byte(`<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="50%" fx="30%" fy="30%">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="100%" stop-color="blue"/>
+    </radialGradient>
+  </defs>
+</svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, ok := svg.gradients["g"].(*svgRadialGradient)
+	if !ok {
+		t.Fatalf("type = %T", svg.gradients["g"])
+	}
+	// Default units must be objectBoundingBox (SVG spec default).
+	if g.units != svgGradientObjectBBox {
+		t.Errorf("units = %v, want objectBoundingBox (zero-value default was userSpaceOnUse before fix)", g.units)
+	}
+	// Percent coords resolve to 0..1 fractions; bbox matrix scales at render time.
+	const eps = 1e-9
+	if math.Abs(g.cx-0.5) > eps || math.Abs(g.cy-0.5) > eps {
+		t.Errorf("cx,cy = (%g, %g), want (0.5, 0.5) — '50%%' should be parsed", g.cx, g.cy)
+	}
+	if math.Abs(g.r-0.5) > eps {
+		t.Errorf("r = %g, want 0.5", g.r)
+	}
+	if math.Abs(g.fx-0.3) > eps || math.Abs(g.fy-0.3) > eps {
+		t.Errorf("fx,fy = (%g, %g), want (0.3, 0.3)", g.fx, g.fy)
+	}
+}
+
+// userSpaceOnUse with % values resolves against the SVG viewport per
+// SVG 1.1 §7.10: x-axis uses width, y-axis uses height, radius uses
+// sqrt((w²+h²)/2).
+func TestParseSVG_GradientPercentInUserSpace(t *testing.T) {
+	svg, err := parseSVGBytes([]byte(`<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="50%" x2="100%" y2="50%" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="red"/>
+      <stop offset="1" stop-color="blue"/>
+    </linearGradient>
+  </defs>
+</svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := svg.gradients["g"].(*svgLinearGradient)
+	const eps = 1e-9
+	// viewport is 200x100 (from viewBox); x% scales by 200, y% scales by 100.
+	if math.Abs(g.x1-0) > eps || math.Abs(g.y1-50) > eps {
+		t.Errorf("(x1,y1) = (%g, %g), want (0, 50)", g.x1, g.y1)
+	}
+	if math.Abs(g.x2-200) > eps || math.Abs(g.y2-50) > eps {
+		t.Errorf("(x2,y2) = (%g, %g), want (200, 50)", g.x2, g.y2)
+	}
+}
+
 func TestParseSVG_RectWithGradientFillRef(t *testing.T) {
 	data, _ := os.ReadFile("testdata/svg/linear_gradient.svg")
 	svg, _ := parseSVGBytes(data)

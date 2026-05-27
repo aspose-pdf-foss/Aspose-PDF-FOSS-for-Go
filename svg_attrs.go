@@ -208,6 +208,29 @@ func clamp01(x float64) float64 {
 	return x
 }
 
+// parseSVGGradientLength parses a gradient coordinate value (cx/cy/r/fx/fy
+// or x1/y1/x2/y2), handling the percent unit that SVG allows for gradients.
+//
+// Returns (value, isPercent, ok). For "50%" it returns (0.5, true, true) —
+// percent is normalised into a 0..1 fraction. For other inputs it delegates
+// to parseSVGLength and returns isPercent=false. The caller is responsible
+// for resolving the fraction against the right reference: objectBoundingBox
+// keeps it as a fraction (the bbox matrix scales it at render time); for
+// userSpaceOnUse the fraction multiplies the viewport dimension (or
+// sqrt((vw²+vh²)/2) for radius).
+func parseSVGGradientLength(s string) (n float64, isPercent bool, ok bool) {
+	s = strings.TrimSpace(s)
+	if strings.HasSuffix(s, "%") {
+		v, k := parseSVGNumber(strings.TrimSuffix(s, "%"))
+		if !k {
+			return 0, false, false
+		}
+		return v / 100, true, true
+	}
+	v, k := parseSVGLength(s)
+	return v, false, k
+}
+
 // parseSVGLength parses an SVG length value into PDF points.
 // Supports unitless (= px = pt = user units), pt, pc, in, mm, cm, px.
 // Returns (0, false) for em/ex/% (Phase 3) and unrecognized input.

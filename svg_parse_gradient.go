@@ -4,24 +4,98 @@ package asposepdf
 
 import (
 	"encoding/xml"
+	"math"
 	"strings"
 )
 
+// gradAxis distinguishes gradient coordinates by how percent units resolve
+// against the viewport when gradientUnits is userSpaceOnUse:
+//
+//	x-axis coords (cx, fx, x1, x2) scale by viewport width
+//	y-axis coords (cy, fy, y1, y2) scale by viewport height
+//	radius scales by sqrt((vw² + vh²) / 2) per SVG 1.1 §7.10
+type gradAxis int
+
+const (
+	gradAxisX gradAxis = iota
+	gradAxisY
+	gradAxisR
+)
+
+// gradCoord holds a parsed gradient coordinate before it is resolved against
+// the gradient's coordinate system. value is already 0..1 when isPct is true
+// (parseSVGGradientLength normalises percent to fraction).
+type gradCoord struct {
+	value float64
+	isPct bool
+	set   bool
+}
+
+// resolve returns the final gradient-space coordinate. For objectBoundingBox
+// a percent stays as a 0..1 fraction (the bbox matrix at render time scales
+// it). For userSpaceOnUse a percent multiplies the appropriate viewport
+// dimension. Unset coords return the supplied default (interpreted under the
+// same rules as a parsed value).
+func (c gradCoord) resolve(def float64, defIsPct bool, units svgGradientUnits, svg *SVG, axis gradAxis) float64 {
+	v, pct := c.value, c.isPct
+	if !c.set {
+		v, pct = def, defIsPct
+	}
+	if !pct || units == svgGradientObjectBBox {
+		return v
+	}
+	vw, vh := gradientViewportDims(svg)
+	switch axis {
+	case gradAxisX:
+		return v * vw
+	case gradAxisY:
+		return v * vh
+	case gradAxisR:
+		return v * math.Sqrt((vw*vw+vh*vh)/2)
+	}
+	return v
+}
+
+// gradientViewportDims returns the dimensions used to resolve userSpaceOnUse
+// percents — the closest SVG viewport. Prefers viewBox (in user units) over
+// width/height attributes; falls back to 100x100 when neither is set.
+func gradientViewportDims(svg *SVG) (w, h float64) {
+	if svg != nil && svg.viewBox != nil {
+		return svg.viewBox.w, svg.viewBox.h
+	}
+	if svg != nil && svg.width > 0 && svg.height > 0 {
+		return svg.width, svg.height
+	}
+	return 100, 100
+}
+
 // parseSVGLinearGradient reads a <linearGradient> element. Caller has received the StartElement.
 // On exit, the </linearGradient> end element has been consumed.
-func parseSVGLinearGradient(d *xml.Decoder, start xml.StartElement) *svgLinearGradient {
-	// SVG default: x1=0 y1=0 x2=1 y2=0 (objectBoundingBox units when units default).
-	g := &svgLinearGradient{x2: 1}
+//
+// Per SVG 1.1 §13.2.2 the default gradientUnits is objectBoundingBox; default
+// coords are x1=0%, y1=0%, x2=100%, y2=0% (i.e. a horizontal gradient across
+// the shape's bounding box).
+func parseSVGLinearGradient(d *xml.Decoder, start xml.StartElement, svg *SVG) *svgLinearGradient {
+	g := &svgLinearGradient{units: svgGradientObjectBBox}
+	var x1c, y1c, x2c, y2c gradCoord
 	for _, a := range start.Attr {
 		switch a.Name.Local {
 		case "x1":
-			g.x1, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				x1c = gradCoord{v, pct, true}
+			}
 		case "y1":
-			g.y1, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				y1c = gradCoord{v, pct, true}
+			}
 		case "x2":
-			g.x2, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				x2c = gradCoord{v, pct, true}
+			}
 		case "y2":
-			g.y2, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				y2c = gradCoord{v, pct, true}
+			}
 		case "gradientUnits":
 			if strings.TrimSpace(a.Value) == "userSpaceOnUse" {
 				g.units = svgGradientUserSpace
@@ -37,30 +111,43 @@ func parseSVGLinearGradient(d *xml.Decoder, start xml.StartElement) *svgLinearGr
 			g.spread = svgSpreadPad
 		}
 	}
+	g.x1 = x1c.resolve(0, true, g.units, svg, gradAxisX)
+	g.y1 = y1c.resolve(0, true, g.units, svg, gradAxisY)
+	g.x2 = x2c.resolve(1, true, g.units, svg, gradAxisX)
+	g.y2 = y2c.resolve(0, true, g.units, svg, gradAxisY)
 	g.stops = collectGradientStops(d)
 	return g
 }
 
 // parseSVGRadialGradient reads a <radialGradient> element.
-func parseSVGRadialGradient(d *xml.Decoder, start xml.StartElement) *svgRadialGradient {
-	g := &svgRadialGradient{
-		cx: 0.5, cy: 0.5, r: 0.5, // SVG defaults (in objectBoundingBox units)
-	}
-	hasFx, hasFy := false, false
+//
+// Per SVG 1.1 §13.2.3 the default gradientUnits is objectBoundingBox; default
+// coords are cx=50%, cy=50%, r=50%, fx=cx, fy=cy.
+func parseSVGRadialGradient(d *xml.Decoder, start xml.StartElement, svg *SVG) *svgRadialGradient {
+	g := &svgRadialGradient{units: svgGradientObjectBBox}
+	var cxc, cyc, rc, fxc, fyc gradCoord
 	for _, a := range start.Attr {
 		switch a.Name.Local {
 		case "cx":
-			g.cx, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				cxc = gradCoord{v, pct, true}
+			}
 		case "cy":
-			g.cy, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				cyc = gradCoord{v, pct, true}
+			}
 		case "r":
-			g.r, _ = parseSVGLength(a.Value)
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				rc = gradCoord{v, pct, true}
+			}
 		case "fx":
-			g.fx, _ = parseSVGLength(a.Value)
-			hasFx = true
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				fxc = gradCoord{v, pct, true}
+			}
 		case "fy":
-			g.fy, _ = parseSVGLength(a.Value)
-			hasFy = true
+			if v, pct, ok := parseSVGGradientLength(a.Value); ok {
+				fyc = gradCoord{v, pct, true}
+			}
 		case "gradientUnits":
 			if strings.TrimSpace(a.Value) == "userSpaceOnUse" {
 				g.units = svgGradientUserSpace
@@ -73,10 +160,18 @@ func parseSVGRadialGradient(d *xml.Decoder, start xml.StartElement) *svgRadialGr
 			}
 		}
 	}
-	if !hasFx {
+	g.cx = cxc.resolve(0.5, true, g.units, svg, gradAxisX)
+	g.cy = cyc.resolve(0.5, true, g.units, svg, gradAxisY)
+	g.r = rc.resolve(0.5, true, g.units, svg, gradAxisR)
+	// fx/fy default to cx/cy (already resolved).
+	if fxc.set {
+		g.fx = fxc.resolve(0, false, g.units, svg, gradAxisX)
+	} else {
 		g.fx = g.cx
 	}
-	if !hasFy {
+	if fyc.set {
+		g.fy = fyc.resolve(0, false, g.units, svg, gradAxisY)
+	} else {
 		g.fy = g.cy
 	}
 	g.stops = collectGradientStops(d)
@@ -132,13 +227,13 @@ func parseSVGDefs(d *xml.Decoder, svg *SVG) error {
 			switch t.Name.Local {
 			case "linearGradient":
 				if id != "" {
-					svg.gradients[id] = parseSVGLinearGradient(d, t)
+					svg.gradients[id] = parseSVGLinearGradient(d, t, svg)
 				} else {
 					_ = d.Skip()
 				}
 			case "radialGradient":
 				if id != "" {
-					svg.gradients[id] = parseSVGRadialGradient(d, t)
+					svg.gradients[id] = parseSVGRadialGradient(d, t, svg)
 				} else {
 					_ = d.Skip()
 				}

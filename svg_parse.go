@@ -150,14 +150,14 @@ func parseSVGElement(d *xml.Decoder, svg *SVG, parent *svgGroup, start xml.Start
 		return nil, parseSVGDefs(d, svg)
 	case "linearGradient":
 		if id := findAttr(start.Attr, "id"); id != "" {
-			svg.gradients[id] = parseSVGLinearGradient(d, start)
+			svg.gradients[id] = parseSVGLinearGradient(d, start, svg)
 		} else {
 			_ = d.Skip()
 		}
 		return nil, nil
 	case "radialGradient":
 		if id := findAttr(start.Attr, "id"); id != "" {
-			svg.gradients[id] = parseSVGRadialGradient(d, start)
+			svg.gradients[id] = parseSVGRadialGradient(d, start, svg)
 		} else {
 			_ = d.Skip()
 		}

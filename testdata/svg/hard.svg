@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <!-- Complex radial gradient -->
+    <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="30%" fy="30%">
+      <stop offset="0%" stop-color="#3F2B96" />
+      <stop offset="50%" stop-color="#A8C0FF" />
+      <stop offset="100%" stop-color="#1A2980" />
+    </radialGradient>
+
+    <!-- Linear gradient for text -->
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFEFBA" />
+      <stop offset="100%" stop-color="#FFFFFF" />
+    </linearGradient>
+
+    <!-- Repeating-line pattern -->
+    <pattern id="pattern1" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 0 0 L 40 40 M 40 0 L 0 40" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+    </pattern>
+
+    <!-- Drop-shadow blur filter -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="10" dy="15" stdDeviation="8" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+
+    <!-- Path for text-along-path -->
+    <path id="textPath" d="M 150 400 C 250 250, 550 250, 650 400 C 550 550, 250 550, 150 400" />
+  </defs>
+
+  <!-- Patterned background -->
+  <rect width="800" height="800" fill="url(#grad1)" />
+  <rect width="800" height="800" fill="url(#pattern1)" />
+
+  <!-- Complex group with a filter -->
+  <g filter="url(#shadow)">
+    <circle cx="400" cy="400" r="180" fill="none" stroke="url(#grad2)" stroke-width="12" />
+    <polygon points="400,220 555,490 245,490" fill="rgba(255, 255, 255, 0.1)" stroke="#fff" stroke-width="4" />
+    <rect x="310" y="310" width="180" height="180" rx="40" fill="none" stroke="#FFD700" stroke-width="8" transform="rotate(45 400 400)" />
+    <circle cx="400" cy="400" r="50" fill="#FF416C" />
+  </g>
+
+  <!-- Curved text along a path -->
+  <text font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="bold" fill="url(#grad2)">
+    <textPath href="#textPath" startOffset="50%" text-anchor="middle">
+      Hard SVG Test
+    </textPath>
+  </text>
+
+  <!-- Extra small elements to exercise fine-detail rendering -->
+  <circle cx="400" cy="100" r="15" fill="#00b4db" />
+  <circle cx="700" cy="400" r="20" fill="#0083b0" />
+  <circle cx="100" cy="400" r="10" fill="#F39C12" />
+</svg>
