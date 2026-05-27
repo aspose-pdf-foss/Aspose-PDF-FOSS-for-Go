@@ -1,4 +1,4 @@
-// Full library showcase — a small "annual report"-style document that
+// Feature Showcase — a small "annual report"-style document that
 // exercises every major Aspose.PDF for Go feature inside a single narrative.
 //
 // Document layout:
@@ -23,16 +23,21 @@
 //   - Aspose SVG logo stamped on every body page (top-right corner)
 //   - Diagonal "WATERMARK" behind content on body pages (cover/TOC stay clean)
 //   - Unified footer on every body page with the formatted page label
-//   - AES-256 encryption (PDF 2.0) with user password "password"
+//   - AES-256 encryption (PDF 2.0) with an empty user password so any
+//     viewer opens without a prompt; the owner password still protects
+//     modify-document and other permission-gated operations.
 //
-// Output: result_files/full_scenario.pdf
+// Output: docs/feature_showcase.pdf — committed to the repository and linked
+// from README.md. Regenerate after meaningful example changes, but avoid
+// re-committing on every minor tweak to keep git history lean.
 //
-// Run from the repo root: `go run ./_examples/full_scenario`
+// Run from the repo root: `go run ./_examples/feature_showcase`
 package main
 
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,10 +48,11 @@ import (
 )
 
 const (
-	outputPath = "result_files/full_scenario.pdf"
-	docTitle   = "Aspose.PDF for Go — Feature Showcase"
-	docAuthor  = "Aspose"
-	docVersion = "v0.2.0"
+	outputPath  = "docs/feature_showcase.pdf"
+	productName = "Aspose.PDF FOSS for Go"
+	docTitle    = productName + " — Feature Showcase"
+	docAuthor   = "Aspose"
+	docVersion  = "v0.2.0"
 )
 
 // Named destination keys used by the TOC, outlines, and section anchors.
@@ -102,8 +108,16 @@ func main() {
 	addPageText(doc, textPage)
 	addPageImage(imagePage)
 	addFormFields(doc, formPage)
+	// AcroForm widgets in this library are emitted without /AP appearance
+	// streams; setting /AcroForm/NeedAppearances=true normally tells viewers
+	// to regenerate them on display, but Acrobat then treats that
+	// regeneration as a modification and asks to save on close. We suppress
+	// the flag here — the rectangles addFormFields draws in the content
+	// stream keep the form visible, and most viewers still render the field
+	// /V text on top. Trade-off: some viewers will show empty widgets.
+	doc.Form().SetNeedAppearances(false)
 	addAnnotations(annotPage)
-	addRedactionDemo(redactPage)
+	addRedactionDemo(doc, redactPage)
 	addRestaurantBill(billPage)
 
 	// Sales report — append a fresh page, then let the table grow.
@@ -127,14 +141,14 @@ func main() {
 	// destination resolves at view time (and writers serialise
 	// /Catalog/Names/Dests at the end).
 	sections := []section{
-		{destText, "Text Capabilities", "text", textPage},
+		{destText, "Text Capabilities Showcase", "text", textPage},
 		{destImage, "Image Embedding", "image", imagePage},
 		{destForm, "AcroForm Fields", "form", formPage},
-		{destAnnot, "Annotations", "annotations", annotPage},
+		{destAnnot, "Annotation Gallery", "annotations", annotPage},
 		{destRedact, "Redactions", "redaction", redactPage},
 		{destBill, "Restaurant Bill", "bill", billPage},
-		{destSales, "Sales Report", "sales", salesPage},
-		{destLandscape, "Landscape Chart", "landscape", landscapePage},
+		{destSales, "Multi-Page Sales Report", "sales", salesPage},
+		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
 	}
 	named := doc.NamedDestinations()
@@ -147,13 +161,9 @@ func main() {
 	// --- Table of Contents (depends on named destinations) ----------
 	addTOC(doc, tocPage, sections)
 
-	// --- Destructive transforms BEFORE encryption and stamping ------
-	// ApplyRedactions rewrites content streams in place — must happen
-	// before the watermark / logo content streams are appended so the
-	// redactor doesn't see them as paths to clip.
-	if err := doc.ApplyRedactions(); err != nil {
-		log.Fatalf("apply redactions: %v", err)
-	}
+	// Note: ApplyRedactions is called inside addRedactionDemo so it can
+	// run on a SUBSET of that page's /Redact annotations — the demo
+	// preserves two annots in mark-mode by adding them after the call.
 
 	// --- Per-page furniture: footer, logo stamp, watermark ----------
 	// Pre-load the SVG logo once for stamping. Done after content so
@@ -161,14 +171,12 @@ func main() {
 	if err := stampAsposeLogoOnEveryPage(doc, coverPage, tocPage); err != nil {
 		log.Fatalf("svg logo stamp: %v", err)
 	}
-	for _, p := range doc.Pages() {
-		// Cover/TOC are deliberately watermark-free.
-		if p == coverPage || p == tocPage {
-			continue
-		}
-		if err := addCenteredWatermark(p, "WATERMARK"); err != nil {
-			log.Fatalf("watermark: %v", err)
-		}
+	// Watermark — applied only on the Text Capabilities page, where it
+	// doubles as an example of AddText's `Behind: true` mode (text drawn
+	// under the page content) and the AddTextWatermark API surface. Other
+	// body pages are watermark-free so their own content reads cleanly.
+	if err := addCenteredWatermark(textPage, "WATERMARK"); err != nil {
+		log.Fatalf("watermark: %v", err)
 	}
 	// Footer — uses the page label so "1 / 10", "ii / x" stay coherent.
 	for i, p := range doc.Pages() {
@@ -194,34 +202,67 @@ func main() {
 	doc.SetMetadata(pdf.Metadata{
 		Title:        docTitle,
 		Author:       docAuthor,
-		Subject:      "End-to-end showcase of Aspose.PDF for Go capabilities",
+		Subject:      "End-to-end showcase of " + productName + " capabilities",
 		Keywords:     "aspose,pdf,go,golang,acroform,annotations,svg,redaction,encryption",
-		Creator:      "Aspose.PDF for Go " + docVersion,
-		Producer:     "Aspose.PDF for Go " + docVersion,
+		Creator:      productName + " " + docVersion,
+		Producer:     productName + " " + docVersion,
 		CreationDate: now,
 		ModDate:      now,
 		Custom: map[string]string{
-			"AsposeProduct": "Aspose.PDF for Go (FOSS)",
+			"AsposeProduct": productName,
 		},
 	})
 
 	// --- Encryption — AES-256 (PDF 2.0) -----------------------------
+	// Empty user password lets any viewer open the file without a prompt,
+	// while the owner password still gates modify/extract operations under
+	// the configured Permissions. This is the same pattern used by many
+	// commercial PDFs that are "encrypted but freely readable".
 	doc.SetEncryption(pdf.EncryptionOptions{
-		UserPassword:  "password",
-		OwnerPassword: "owner-password",
-		Permissions:   &pdf.Permissions{AllowPrint: true, AllowCopy: true, AllowAccessibility: true},
-		Algorithm:     pdf.EncryptionAlgAES256,
+		UserPassword:  "",
+		OwnerPassword: "owner",
+		Permissions: &pdf.Permissions{
+			AllowPrint:         true,
+			AllowPrintHighRes:  true,
+			AllowCopy:          true,
+			AllowAccessibility: true,
+			AllowFormFill:      true, // fields stay editable for any viewer
+			AllowAnnotations:   true, // sticky-notes / markup stay editable
+		},
+		Algorithm: pdf.EncryptionAlgAES256,
 	})
 
 	if err := doc.Save(outputPath); err != nil {
 		log.Fatalf("save: %v", err)
 	}
-	log.Printf("wrote %s (open with password \"password\")", outputPath)
+	log.Printf("wrote %s", outputPath)
 }
 
 func mustAddPage(err error) {
 	if err != nil {
 		log.Fatalf("add page: %v", err)
+	}
+}
+
+// sectionHeader paints a section's title (and optional subtitle) in the
+// shared body-page style — 26pt navy Helvetica-Bold, centred near the top
+// of the page, with an italic grey subtitle below it. Used by every body
+// section so headings stay typographically consistent.
+func sectionHeader(page *pdf.Page, title, subtitle string) {
+	size, _ := page.Size()
+	mustText(page.AddText(title, pdf.TextStyle{
+		Font:   pdf.FontHelveticaBold,
+		Size:   26,
+		Color:  &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
+		HAlign: pdf.HAlignCenter,
+	}, pdf.Rectangle{LLX: 50, LLY: size.Height - 90, URX: size.Width - 50, URY: size.Height - 55}))
+	if subtitle != "" {
+		mustText(page.AddText(subtitle, pdf.TextStyle{
+			Font:   pdf.FontHelveticaOblique,
+			Size:   11,
+			Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1},
+			HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: 50, LLY: size.Height - 113, URX: size.Width - 50, URY: size.Height - 98}))
 	}
 }
 
@@ -232,29 +273,22 @@ func mustAddPage(err error) {
 func addPageText(doc *pdf.Document, page *pdf.Page) {
 	size, _ := page.Size()
 
-	// ===== Title =====
-	titleStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaBold,
-		Size:   26,
-		Color:  &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Text Capabilities Showcase", titleStyle, pdf.Rectangle{
-		LLX: 50, LLY: size.Height - 90, URX: size.Width - 50, URY: size.Height - 55,
-	}))
+	sectionHeader(page,
+		"Text Capabilities Showcase",
+		"Standard 14 fonts  •  embedded TTF & Unicode  •  decorations  •  colors  •  word-wrap")
 
-	// ===== Subtitle =====
-	subStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaOblique,
-		Size:   11,
-		Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
+	// Honest secondary note: what the library can do for text beyond what
+	// is rendered visually on this page.
 	mustText(page.AddText(
-		"Standard 14 fonts  •  embedded TTF & Unicode  •  decorations  •  colors  •  word-wrap",
-		subStyle, pdf.Rectangle{
-			LLX: 50, LLY: size.Height - 113, URX: size.Width - 50, URY: size.Height - 98,
-		}))
+		"Also available  ·  ExtractText / ExtractTextWithLayout (font, color, position, sub/superscript)  ·  AddTextWatermark on selected pages  ·  destructive removal via ApplyRedactions",
+		pdf.TextStyle{
+			Font:        pdf.FontHelvetica,
+			Size:        9,
+			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign:      pdf.HAlignCenter,
+			LineSpacing: 1.3,
+		},
+		pdf.Rectangle{LLX: 50, LLY: size.Height - 145, URX: size.Width - 50, URY: size.Height - 120}))
 
 	// Section-header helper.
 	sectionStyle := pdf.TextStyle{
@@ -269,7 +303,7 @@ func addPageText(doc *pdf.Document, page *pdf.Page) {
 	}
 
 	// ===== Section 1: Standard 14 PDF Fonts =====
-	section("Standard 14 PDF Fonts", size.Height-140)
+	section("Standard 14 PDF Fonts", size.Height-170)
 
 	sample := "The quick brown fox jumps over 42 lazy dogs."
 	labelStyle := pdf.TextStyle{
@@ -294,7 +328,7 @@ func addPageText(doc *pdf.Document, page *pdf.Page) {
 		{pdf.FontCourierOblique, "Courier-Oblique"},
 		{pdf.FontCourierBoldOblique, "Courier-BoldOblique"},
 	}
-	y := size.Height - 170
+	y := size.Height - 200
 	for _, f := range fonts {
 		mustText(page.AddText(f.label, labelStyle, pdf.Rectangle{
 			LLX: 50, LLY: y - 11, URX: 185, URY: y + 1,
@@ -421,25 +455,47 @@ func addPageText(doc *pdf.Document, page *pdf.Page) {
 func addPageImage(page *pdf.Page) {
 	size, _ := page.Size()
 
-	// Caption above the image.
-	caption := pdf.TextStyle{
-		Font:   pdf.FontHelveticaBold,
-		Size:   16,
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Page 2 — Image", caption,
-		pdf.Rectangle{LLX: 50, LLY: size.Height - 80, URX: size.Width - 50, URY: size.Height - 50}))
+	sectionHeader(page,
+		"Image Embedding",
+		"JPEG / PNG raster images placed with pixel-precise Page.AddImage rectangles")
 
-	// Koala.jpg is 1024x768. Scale to ~60% of page width preserving aspect ratio.
+	// Honest secondary note: what the library can also do with images.
+	mustText(page.AddText(
+		"Also available  ·  ExtractImages (format, colour space, position)  ·  ImageInfo metadata-only inspection  ·  in-place Replace / Remove  ·  ImageToDocument  ·  OptimizeImages",
+		pdf.TextStyle{
+			Font:        pdf.FontHelvetica,
+			Size:        9,
+			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign:      pdf.HAlignCenter,
+			LineSpacing: 1.3,
+		},
+		pdf.Rectangle{LLX: 40, LLY: size.Height - 150, URX: size.Width - 40, URY: size.Height - 120}))
+
+	// Van Gogh's "The Starry Night" (1889) — public domain. The source file
+	// is 1280×1014; we scale to ~60% of page width preserving aspect ratio.
+	const (
+		srcW = 1280.0
+		srcH = 1014.0
+	)
 	imgW := size.Width * 0.6
-	imgH := imgW * 768.0 / 1024.0
+	imgH := imgW * srcH / srcW
 	x := (size.Width - imgW) / 2
 	y := (size.Height - imgH) / 2
-	if err := page.AddImage("testdata/Koala.jpg", pdf.Rectangle{
+	if err := page.AddImage("testdata/starry-night.jpg", pdf.Rectangle{
 		LLX: x, LLY: y, URX: x + imgW, URY: y + imgH,
 	}); err != nil {
 		log.Fatalf("add image: %v", err)
 	}
+
+	// Caption below the painting — tasteful attribution for the artwork.
+	mustText(page.AddText("Vincent van Gogh, The Starry Night (1889) — public domain",
+		pdf.TextStyle{
+			Font:   pdf.FontHelveticaOblique,
+			Size:   10,
+			Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1},
+			HAlign: pdf.HAlignCenter,
+		},
+		pdf.Rectangle{LLX: 50, LLY: y - 22, URX: size.Width - 50, URY: y - 6}))
 }
 
 // ---------------------------------------------------------------------
@@ -458,33 +514,73 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 		}))
 	}
 
-	// Header.
-	mustText(page.AddText("AcroForm Fields",
-		pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 16, HAlign: pdf.HAlignCenter},
-		pdf.Rectangle{LLX: 50, LLY: 770, URX: 545, URY: 800}))
+	sectionHeader(page,
+		"AcroForm Fields",
+		"Text  •  checkbox  •  radio group  •  combo box  •  list box")
 
-	// Row 1: text field.
-	addLabel("Full name:", 720)
-	tb, err := form.AddTextField(pageNum, pdf.Rectangle{LLX: 200, LLY: 720, URX: 450, URY: 740}, "FullName")
+	// Honest secondary note: what the library can also do for forms.
+	size, _ := page.Size()
+	mustText(page.AddText(
+		"Also available  ·  read / write any value  ·  Required & ReadOnly flags  ·  MaxLen, Multiline, Password (text)  ·  MultiSelect (list)  ·  Add / Remove options  ·  RemoveField",
+		pdf.TextStyle{
+			Font:        pdf.FontHelvetica,
+			Size:        9,
+			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign:      pdf.HAlignCenter,
+			LineSpacing: 1.3,
+		},
+		pdf.Rectangle{LLX: 30, LLY: size.Height - 145, URX: size.Width - 30, URY: size.Height - 115}))
+
+	// Each widget below is also accompanied by a thin decoration rectangle
+	// drawn in the content stream. PDF viewers regenerate widget /AP from
+	// /AcroForm/NeedAppearances=true; the decoration is a belt-and-braces
+	// fallback so the form's structure stays visible even when a viewer
+	// doesn't honour the flag.
+	decoStroke := pdf.LineStyle{Color: &pdf.Color{R: 0.7, G: 0.7, B: 0.75, A: 1}, Width: 0.6}
+	decoFill := pdf.ShapeStyle{LineStyle: decoStroke, FillColor: &pdf.Color{R: 0.97, G: 0.97, B: 0.99, A: 1}}
+	deco := func(rect pdf.Rectangle) {
+		mustVector(page.DrawRectangle(rect, decoFill))
+	}
+	circleDeco := func(p pdf.Point, r float64) {
+		mustVector(page.DrawCircle(p, r, decoFill))
+	}
+
+	// Row 1: text field. All rows shifted ~20pt down from the previous
+	// layout so the "Also available" note above has 2 lines of breathing room.
+	addLabel("Full name:", 670)
+	tfRect := pdf.Rectangle{LLX: 200, LLY: 670, URX: 450, URY: 690}
+	deco(tfRect)
+	tb, err := form.AddTextField(pageNum, tfRect, "FullName")
 	if err != nil {
 		log.Fatalf("text field: %v", err)
 	}
 	tb.SetValue("Alice Sample")
 
 	// Row 2: checkbox.
-	addLabel("Subscribe:", 680)
-	cb, err := form.AddCheckbox(pageNum, pdf.Rectangle{LLX: 200, LLY: 680, URX: 218, URY: 698}, "Subscribe")
+	addLabel("Subscribe:", 630)
+	cbRect := pdf.Rectangle{LLX: 200, LLY: 630, URX: 218, URY: 648}
+	deco(cbRect)
+	cb, err := form.AddCheckbox(pageNum, cbRect, "Subscribe")
 	if err != nil {
 		log.Fatalf("checkbox: %v", err)
 	}
 	cb.SetValue("Yes")
 
 	// Row 3: radio group (3 options arranged horizontally).
-	addLabel("Plan:", 640)
+	addLabel("Plan:", 590)
+	rbRects := []pdf.Rectangle{
+		{LLX: 200, LLY: 590, URX: 218, URY: 608},
+		{LLX: 290, LLY: 590, URX: 308, URY: 608},
+		{LLX: 380, LLY: 590, URX: 398, URY: 608},
+	}
+	for _, r := range rbRects {
+		// Radio buttons are drawn as circles to differentiate from checkboxes.
+		circleDeco(pdf.Point{X: (r.LLX + r.URX) / 2, Y: (r.LLY + r.URY) / 2}, (r.URX-r.LLX)/2)
+	}
 	rb, err := form.AddRadioGroup("Plan", []pdf.RadioItem{
-		{PageNum: pageNum, Rect: pdf.Rectangle{LLX: 200, LLY: 640, URX: 218, URY: 658}, Export: "Basic"},
-		{PageNum: pageNum, Rect: pdf.Rectangle{LLX: 290, LLY: 640, URX: 308, URY: 658}, Export: "Pro"},
-		{PageNum: pageNum, Rect: pdf.Rectangle{LLX: 380, LLY: 640, URX: 398, URY: 658}, Export: "Enterprise"},
+		{PageNum: pageNum, Rect: rbRects[0], Export: "Basic"},
+		{PageNum: pageNum, Rect: rbRects[1], Export: "Pro"},
+		{PageNum: pageNum, Rect: rbRects[2], Export: "Enterprise"},
 	})
 	if err != nil {
 		log.Fatalf("radio group: %v", err)
@@ -493,13 +589,23 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 
 	// Inline labels for the radio options.
 	radioLabel := pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10}
-	mustText(page.AddText("Basic", radioLabel, pdf.Rectangle{LLX: 222, LLY: 642, URX: 280, URY: 658}))
-	mustText(page.AddText("Pro", radioLabel, pdf.Rectangle{LLX: 312, LLY: 642, URX: 370, URY: 658}))
-	mustText(page.AddText("Enterprise", radioLabel, pdf.Rectangle{LLX: 402, LLY: 642, URX: 480, URY: 658}))
+	mustText(page.AddText("Basic", radioLabel, pdf.Rectangle{LLX: 222, LLY: 592, URX: 280, URY: 608}))
+	mustText(page.AddText("Pro", radioLabel, pdf.Rectangle{LLX: 312, LLY: 592, URX: 370, URY: 608}))
+	mustText(page.AddText("Enterprise", radioLabel, pdf.Rectangle{LLX: 402, LLY: 592, URX: 480, URY: 608}))
 
 	// Row 4: combo box.
-	addLabel("Country:", 600)
-	combo, err := form.AddComboBox(pageNum, pdf.Rectangle{LLX: 200, LLY: 600, URX: 350, URY: 620}, "Country",
+	addLabel("Country:", 550)
+	cbxRect := pdf.Rectangle{LLX: 200, LLY: 550, URX: 350, URY: 570}
+	deco(cbxRect)
+	// Tiny downward-pointing triangle drawn with DrawPolygon, since the
+	// Unicode arrow glyph (U+25BE) isn't in WinAnsi.
+	{
+		cx, cy := cbxRect.URX-10, (cbxRect.LLY+cbxRect.URY)/2
+		mustVector(page.DrawPolygon([]pdf.Point{
+			{X: cx - 4, Y: cy + 2}, {X: cx + 4, Y: cy + 2}, {X: cx, Y: cy - 3},
+		}, pdf.ShapeStyle{FillColor: &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1}}))
+	}
+	combo, err := form.AddComboBox(pageNum, cbxRect, "Country",
 		[]pdf.ChoiceOption{
 			{Value: "United States", Export: "US"},
 			{Value: "United Kingdom", Export: "UK"},
@@ -512,8 +618,10 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	combo.SetValue("United States")
 
 	// Row 5: list box.
-	addLabel("Interests:", 540)
-	lb, err := form.AddListBox(pageNum, pdf.Rectangle{LLX: 200, LLY: 460, URX: 350, URY: 560}, "Interests",
+	addLabel("Interests:", 490)
+	lbRect := pdf.Rectangle{LLX: 200, LLY: 410, URX: 350, URY: 510}
+	deco(lbRect)
+	lb, err := form.AddListBox(pageNum, lbRect, "Interests",
 		[]pdf.ChoiceOption{
 			{Value: "PDF Engineering", Export: "pdf"},
 			{Value: "Cryptography", Export: "crypto"},
@@ -525,13 +633,6 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	}
 	lb.SetMultiSelect(true)
 	lb.SetValue("PDF Engineering")
-
-	// Row 6: push button.
-	addLabel("Submit:", 420)
-	if _, err := form.AddPushButton(pageNum,
-		pdf.Rectangle{LLX: 200, LLY: 415, URX: 320, URY: 445}, "SubmitBtn", "Submit Form"); err != nil {
-		log.Fatalf("push button: %v", err)
-	}
 }
 
 // ---------------------------------------------------------------------
@@ -539,115 +640,309 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 // ---------------------------------------------------------------------
 
 func addAnnotations(page *pdf.Page) {
-	// Heading.
-	mustText(page.AddText("Page 4 — Annotations",
-		pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 16, HAlign: pdf.HAlignCenter},
-		pdf.Rectangle{LLX: 50, LLY: 770, URX: 545, URY: 800}))
+	sectionHeader(page,
+		"Annotation Gallery",
+		"13 of 15 supported types  ·  Redact has its own page; Widget is shown via AcroForm")
 
-	col := page.Annotations()
+	// Honest secondary note: what the library can also do with annotations.
+	size, _ := page.Size()
+	mustText(page.AddText(
+		"Also available  ·  read existing annotations via Annotations().All() / At(i)  ·  type-asserted setters (SetColor / SetContents / SetRect / per-type props)  ·  Delete / DeleteAt  ·  /AP auto-regenerated on every setter  ·  round-trip safe under AES encryption",
+		pdf.TextStyle{
+			Font:        pdf.FontHelvetica,
+			Size:        9,
+			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign:      pdf.HAlignCenter,
+			LineSpacing: 1.3,
+		},
+		pdf.Rectangle{LLX: 30, LLY: size.Height - 148, URX: size.Width - 30, URY: size.Height - 115}))
 
-	// --- Markup annotations sit on top of underlying text so they're visible. ---
-	mustText(page.AddText("Highlight this sentence and underline this phrase. Squiggle me and strike me through.",
-		pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 12},
-		pdf.Rectangle{LLX: 50, LLY: 720, URX: 545, URY: 745}))
+	annots := page.Annotations()
 
-	hl := pdf.NewHighlightAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 720, URX: 200, URY: 745})
-	hl.SetColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
-	hl.SetContents("Yellow highlight")
-	mustAnnot(col.Add(hl))
+	// Gallery laid out as a 2-column grid of labelled cards: each card
+	// has the annotation name at the top and a small rendering of the
+	// annotation in the body. 7 rows × 2 cols = 14 slots (last slot blank).
+	const (
+		cardW   = 235.0
+		cardH   = 75.0
+		labelH  = 14.0
+		topY    = 685.0 // top of the first row, below the section header + note
+		gapX    = 25.0
+		leftX   = 50.0
+	)
+	rightX := leftX + cardW + gapX
 
-	un := pdf.NewUnderlineAnnotation(page, pdf.Rectangle{LLX: 210, LLY: 720, URX: 320, URY: 745})
-	un.SetColor(&pdf.Color{R: 0, G: 0, B: 1, A: 1})
-	un.SetContents("Underline")
-	mustAnnot(col.Add(un))
-
-	sq := pdf.NewSquigglyAnnotation(page, pdf.Rectangle{LLX: 330, LLY: 720, URX: 420, URY: 745})
-	sq.SetColor(&pdf.Color{R: 1, G: 0.5, B: 0, A: 1})
-	sq.SetContents("Squiggly")
-	mustAnnot(col.Add(sq))
-
-	st := pdf.NewStrikeOutAnnotation(page, pdf.Rectangle{LLX: 430, LLY: 720, URX: 545, URY: 745})
-	st.SetColor(&pdf.Color{R: 1, G: 0, B: 0, A: 1})
-	st.SetContents("Strike-through")
-	mustAnnot(col.Add(st))
-
-	// --- Link with URI action. ---
-	link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 680, URX: 250, URY: 700})
-	link.SetAction(pdf.NewGoToURIAction("https://example.com"))
-	mustAnnot(col.Add(link))
-	mustText(page.AddText("→ Open example.com",
-		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11, Color: &pdf.Color{R: 0, G: 0, B: 1, A: 1}},
-		pdf.Rectangle{LLX: 50, LLY: 682, URX: 250, URY: 698}))
-
-	// --- Drawing primitives: Square, Circle, Line, Ink. ---
-	square := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 580, URX: 150, URY: 650})
-	square.SetColor(&pdf.Color{R: 0.8, G: 0, B: 0, A: 1})
-	square.SetBorderWidth(2)
-	square.SetInteriorColor(&pdf.Color{R: 1, G: 1, B: 0.5, A: 1})
-	mustAnnot(col.Add(square))
-
-	circle := pdf.NewCircleAnnotation(page, pdf.Rectangle{LLX: 170, LLY: 580, URX: 270, URY: 650})
-	circle.SetColor(&pdf.Color{R: 0, G: 0.5, B: 0, A: 1})
-	circle.SetBorderStyle(pdf.BorderDashed)
-	circle.SetDashPattern([]float64{4, 2})
-	circle.SetBorderWidth(2)
-	mustAnnot(col.Add(circle))
-
-	line := pdf.NewLineAnnotation(page, pdf.Point{X: 290, Y: 580}, pdf.Point{X: 390, Y: 650})
-	line.SetColor(&pdf.Color{R: 0, G: 0, B: 0.7, A: 1})
-	line.SetBorderWidth(2)
-	line.SetStartLineEnding(pdf.LineEndingOpenArrow)
-	line.SetEndLineEnding(pdf.LineEndingClosedArrow)
-	mustAnnot(col.Add(line))
-
-	ink := pdf.NewInkAnnotation(page, [][]pdf.Point{{
-		{X: 410, Y: 595}, {X: 425, Y: 615}, {X: 445, Y: 605}, {X: 465, Y: 625}, {X: 485, Y: 615},
-		{X: 505, Y: 635}, {X: 525, Y: 620},
-	}})
-	ink.SetColor(&pdf.Color{R: 0.6, G: 0, B: 0.6, A: 1})
-	ink.SetBorderWidth(2)
-	mustAnnot(col.Add(ink))
-
-	// --- Text-bearing annotations: Text (sticky note), FreeText, Stamp. ---
-	note := pdf.NewTextAnnotation(page, pdf.Point{X: 60, Y: 510})
-	note.SetIcon(pdf.TextIconNote)
-	note.SetTitle("Reviewer")
-	note.SetContents("This is a sticky-note annotation. Click the icon to read.")
-	mustAnnot(col.Add(note))
-
-	freeText := pdf.NewFreeTextAnnotation(page, pdf.Rectangle{LLX: 110, LLY: 480, URX: 300, URY: 540},
-		"FreeText: rendered text\ndrawn directly on page",
-		pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 11,
-			Color:      &pdf.Color{R: 0, G: 0, B: 0, A: 1},
-			Background: &pdf.Color{R: 1, G: 1, B: 0.8, A: 1},
-		})
-	freeText.SetBorderWidth(1)
-	mustAnnot(col.Add(freeText))
-
-	stamp := pdf.NewStampAnnotation(page,
-		pdf.Rectangle{LLX: 320, LLY: 480, URX: 530, URY: 540},
-		pdf.StampNameApproved)
-	mustAnnot(col.Add(stamp))
-
-	// --- FileAttachment: embeds a small text file. ---
-	att := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 60, Y: 420})
-	att.SetIcon(pdf.FileAttachmentIconPaperclip)
-	att.SetTitle("Reviewer")
-	att.SetContents("Quarterly report — see attachment")
-	if err := att.SetFileFromStream(
-		strings.NewReader("Confidential report contents (demonstration only)."),
-		"q3-report.txt"); err != nil {
-		log.Fatalf("attach file: %v", err)
+	labelStyle := pdf.TextStyle{
+		Font:  pdf.FontHelveticaBold,
+		Size:  11,
+		Color: &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
 	}
-	att.SetFileDescription("Q3 financial summary")
-	mustAnnot(col.Add(att))
-	mustText(page.AddText("← Embedded file attachment (open the paperclip icon)",
-		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, Color: &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1}},
-		pdf.Rectangle{LLX: 90, LLY: 415, URX: 545, URY: 430}))
+	captionStyle := pdf.TextStyle{
+		Font:  pdf.FontHelveticaOblique,
+		Size:  8,
+		Color: &pdf.Color{R: 0.55, G: 0.55, B: 0.6, A: 1},
+	}
 
-	// (The /Redact annotation type has its own dedicated demo page —
-	// see addRedactionDemo. Splitting it out lets ApplyRedactions run on
-	// just the demo content without affecting the rest of this showcase.)
+	// renderMarkup is a helper for the four highlight/underline/squiggly/
+	// strikeout markup annots. The annotation itself relies on the viewer
+	// regenerating /AP from /Subtype + /QuadPoints + /C (which Acrobat
+	// does, but MuPDF/PyMuPDF and some others don't), so we ALSO draw the
+	// markup decoration manually in the content stream — the page shows
+	// the right thing in any viewer. `decorate` paints over the sample
+	// text rect with the visual the spec describes.
+	renderMarkup := func(body pdf.Rectangle, sample string, color *pdf.Color, mk func(rect pdf.Rectangle) pdf.Annotation, decorate func(rect pdf.Rectangle)) {
+		yMid := (body.LLY+body.URY)/2 - 6
+		textRect := pdf.Rectangle{LLX: body.LLX + 4, LLY: yMid, URX: body.URX - 4, URY: yMid + 16}
+		// Decoration is drawn FIRST so the text renders on top (matters for
+		// the yellow highlight box especially — text needs to stay readable).
+		decorate(textRect)
+		mustText(page.AddText(sample, pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 12}, textRect))
+		_ = color
+		mustAnnot(annots.Add(mk(textRect)))
+	}
+
+	// Each cell: a renderer that draws into its `body` rect.
+	type cell struct {
+		name    string
+		caption string // small italic line under the label, optional
+		render  func(body pdf.Rectangle)
+	}
+
+	cells := []cell{
+		// --- Markup annotations ---
+		{"Highlight", "yellow background over text", func(body pdf.Rectangle) {
+			yellow := &pdf.Color{R: 1, G: 1, B: 0, A: 1}
+			renderMarkup(body, "Highlight this phrase", yellow,
+				func(r pdf.Rectangle) pdf.Annotation {
+					a := pdf.NewHighlightAnnotation(page, r)
+					a.SetColor(yellow)
+					a.SetContents("Yellow highlight")
+					return a
+				},
+				func(r pdf.Rectangle) {
+					mustVector(page.DrawRectangle(r, pdf.ShapeStyle{FillColor: yellow}))
+				})
+		}},
+		{"Underline", "single line under the text", func(body pdf.Rectangle) {
+			blue := &pdf.Color{R: 0, G: 0, B: 1, A: 1}
+			renderMarkup(body, "Underline this phrase", blue,
+				func(r pdf.Rectangle) pdf.Annotation {
+					a := pdf.NewUnderlineAnnotation(page, r)
+					a.SetColor(blue)
+					return a
+				},
+				func(r pdf.Rectangle) {
+					mustVector(page.DrawLine(
+						pdf.Point{X: r.LLX, Y: r.LLY + 1},
+						pdf.Point{X: r.URX, Y: r.LLY + 1},
+						pdf.LineStyle{Color: blue, Width: 0.8},
+					))
+				})
+		}},
+		{"Squiggly", "wavy underline for proofreaders", func(body pdf.Rectangle) {
+			orange := &pdf.Color{R: 1, G: 0.5, B: 0, A: 1}
+			renderMarkup(body, "Squiggle this phrase", orange,
+				func(r pdf.Rectangle) pdf.Annotation {
+					a := pdf.NewSquigglyAnnotation(page, r)
+					a.SetColor(orange)
+					return a
+				},
+				func(r pdf.Rectangle) {
+					// Wavy line below the text — short zig-zag segments.
+					y := r.LLY + 1
+					var points []pdf.Point
+					for x := r.LLX; x <= r.URX; x += 2 {
+						dy := 1.0
+						if int((x-r.LLX)/2)%2 == 1 {
+							dy = -1
+						}
+						points = append(points, pdf.Point{X: x, Y: y + dy})
+					}
+					mustVector(page.DrawPolyline(points, pdf.LineStyle{
+						Color: orange, Width: 0.7, Cap: pdf.LineCapRound, Join: pdf.LineJoinRound,
+					}))
+				})
+		}},
+		{"StrikeOut", "line through the text", func(body pdf.Rectangle) {
+			red := &pdf.Color{R: 1, G: 0, B: 0, A: 1}
+			renderMarkup(body, "Strike this phrase out", red,
+				func(r pdf.Rectangle) pdf.Annotation {
+					a := pdf.NewStrikeOutAnnotation(page, r)
+					a.SetColor(red)
+					return a
+				},
+				func(r pdf.Rectangle) {
+					midY := (r.LLY + r.URY) / 2
+					mustVector(page.DrawLine(
+						pdf.Point{X: r.LLX, Y: midY},
+						pdf.Point{X: r.URX, Y: midY},
+						pdf.LineStyle{Color: red, Width: 0.8},
+					))
+				})
+		}},
+		// --- Link with URI ---
+		{"Link", "clickable URL with GoToURI action", func(body pdf.Rectangle) {
+			yMid := (body.LLY+body.URY)/2 - 6
+			rect := pdf.Rectangle{LLX: body.LLX + 4, LLY: yMid, URX: body.URX - 4, URY: yMid + 16}
+			mustText(page.AddText("Open example.com",
+				pdf.TextStyle{
+					Font: pdf.FontHelveticaBold, Size: 11,
+					Color:     &pdf.Color{R: 0.1, G: 0.3, B: 0.7, A: 1},
+					Underline: true,
+				}, rect))
+			lnk := pdf.NewLinkAnnotation(page, rect)
+			lnk.SetAction(pdf.NewGoToURIAction("https://example.com"))
+			lnk.SetBorderWidth(0)
+			mustAnnot(annots.Add(lnk))
+		}},
+		// --- Text (sticky-note) ---
+		{"Text — sticky note", "click the icon to read the comment", func(body pdf.Rectangle) {
+			iconX := body.LLX + 12
+			iconY := body.LLY + (body.URY-body.LLY)/2 - 4
+			a := pdf.NewTextAnnotation(page, pdf.Point{X: iconX, Y: iconY})
+			a.SetIcon(pdf.TextIconNote)
+			a.SetTitle("Reviewer")
+			a.SetContents("This is a sticky-note annotation.")
+			mustAnnot(annots.Add(a))
+		}},
+		// --- FreeText ---
+		{"FreeText", "text drawn directly on the page", func(body pdf.Rectangle) {
+			rect := pdf.Rectangle{LLX: body.LLX + 30, LLY: body.LLY + 4, URX: body.URX - 30, URY: body.URY - 4}
+			a := pdf.NewFreeTextAnnotation(page, rect, "FreeText sample",
+				pdf.TextStyle{
+					Font: pdf.FontHelveticaBold, Size: 10,
+					Color:      &pdf.Color{R: 0, G: 0, B: 0, A: 1},
+					Background: &pdf.Color{R: 1, G: 1, B: 0.8, A: 1},
+					HAlign:     pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+				})
+			a.SetBorderWidth(1)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Square ---
+		{"Square", "filled rectangle with border", func(body pdf.Rectangle) {
+			rect := centeredRect(body, 80, 35)
+			a := pdf.NewSquareAnnotation(page, rect)
+			a.SetColor(&pdf.Color{R: 0.8, G: 0, B: 0, A: 1})
+			a.SetBorderWidth(2)
+			a.SetInteriorColor(&pdf.Color{R: 1, G: 1, B: 0.5, A: 1})
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Circle ---
+		{"Circle", "dashed border, no fill", func(body pdf.Rectangle) {
+			rect := centeredRect(body, 80, 35)
+			a := pdf.NewCircleAnnotation(page, rect)
+			a.SetColor(&pdf.Color{R: 0, G: 0.5, B: 0, A: 1})
+			a.SetBorderStyle(pdf.BorderDashed)
+			a.SetDashPattern([]float64{4, 2})
+			a.SetBorderWidth(2)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Line ---
+		{"Line", "line with start/end arrow endings", func(body pdf.Rectangle) {
+			midY := (body.LLY + body.URY) / 2
+			a := pdf.NewLineAnnotation(page,
+				pdf.Point{X: body.LLX + 25, Y: midY},
+				pdf.Point{X: body.URX - 25, Y: midY},
+			)
+			a.SetColor(&pdf.Color{R: 0, G: 0, B: 0.7, A: 1})
+			a.SetBorderWidth(2)
+			a.SetStartLineEnding(pdf.LineEndingOpenArrow)
+			a.SetEndLineEnding(pdf.LineEndingClosedArrow)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Ink ---
+		{"Ink", "free-hand pen strokes (Catmull-Rom smoothed)", func(body pdf.Rectangle) {
+			midY := (body.LLY + body.URY) / 2
+			width := body.URX - body.LLX - 30
+			step := width / 6
+			x0 := body.LLX + 15
+			a := pdf.NewInkAnnotation(page, [][]pdf.Point{{
+				{X: x0 + 0*step, Y: midY - 8},
+				{X: x0 + 1*step, Y: midY + 6},
+				{X: x0 + 2*step, Y: midY - 4},
+				{X: x0 + 3*step, Y: midY + 10},
+				{X: x0 + 4*step, Y: midY - 2},
+				{X: x0 + 5*step, Y: midY + 8},
+				{X: x0 + 6*step, Y: midY - 6},
+			}})
+			a.SetColor(&pdf.Color{R: 0.6, G: 0, B: 0.6, A: 1})
+			a.SetBorderWidth(2)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Stamp ---
+		{"Stamp", "predefined or custom-image stamp", func(body pdf.Rectangle) {
+			rect := centeredRect(body, 110, 35)
+			a := pdf.NewStampAnnotation(page, rect, pdf.StampNameApproved)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- FileAttachment ---
+		{"FileAttachment", "embedded file behind a paperclip icon", func(body pdf.Rectangle) {
+			iconX := body.LLX + 12
+			iconY := body.LLY + (body.URY-body.LLY)/2 - 4
+			a := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: iconX, Y: iconY})
+			a.SetIcon(pdf.FileAttachmentIconPaperclip)
+			a.SetTitle("Reviewer")
+			a.SetContents("Quarterly report — see attachment")
+			if err := a.SetFileFromStream(
+				strings.NewReader("Confidential report contents (demonstration only)."),
+				"q3-report.txt"); err != nil {
+				log.Fatalf("attach file: %v", err)
+			}
+			a.SetFileDescription("Q3 financial summary")
+			mustAnnot(annots.Add(a))
+		}},
+	}
+
+	// Lay out as 2-column grid filled column-by-column (left column first
+	// gets cells 0..6, right column gets 7..12).
+	const rowsPerCol = 7
+	for i, c := range cells {
+		colIdx := i / rowsPerCol
+		rowIdx := i % rowsPerCol
+		cardX := leftX
+		if colIdx == 1 {
+			cardX = rightX
+		}
+		cardTop := topY - float64(rowIdx)*cardH
+		cardBot := cardTop - cardH
+
+		// Thin separator line between rows (skip above the first row).
+		if rowIdx > 0 {
+			mustVector(page.DrawLine(
+				pdf.Point{X: cardX + 4, Y: cardTop - 1},
+				pdf.Point{X: cardX + cardW - 4, Y: cardTop - 1},
+				pdf.LineStyle{Color: &pdf.Color{R: 0.9, G: 0.9, B: 0.93, A: 1}, Width: 0.5},
+			))
+		}
+
+		// Name label.
+		mustText(page.AddText(c.name, labelStyle, pdf.Rectangle{
+			LLX: cardX, LLY: cardTop - labelH, URX: cardX + cardW, URY: cardTop - 2,
+		}))
+
+		// Caption — short italic note under the label.
+		if c.caption != "" {
+			mustText(page.AddText(c.caption, captionStyle, pdf.Rectangle{
+				LLX: cardX, LLY: cardTop - labelH - 11, URX: cardX + cardW, URY: cardTop - labelH - 1,
+			}))
+		}
+
+		// Body — where the annotation renders.
+		body := pdf.Rectangle{
+			LLX: cardX + 4,
+			LLY: cardBot + 4,
+			URX: cardX + cardW - 4,
+			URY: cardTop - labelH - 14,
+		}
+		c.render(body)
+	}
+}
+
+// centeredRect returns a rectangle of given width/height centred inside outer.
+func centeredRect(outer pdf.Rectangle, w, h float64) pdf.Rectangle {
+	cx := (outer.LLX + outer.URX) / 2
+	cy := (outer.LLY + outer.URY) / 2
+	return pdf.Rectangle{LLX: cx - w/2, LLY: cy - h/2, URX: cx + w/2, URY: cy + h/2}
 }
 
 // ---------------------------------------------------------------------
@@ -657,27 +952,9 @@ func addAnnotations(page *pdf.Page) {
 func addRestaurantBill(page *pdf.Page) {
 	size, _ := page.Size()
 
-	// Restaurant name.
-	titleStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaBold,
-		Size:   24,
-		Color:  &pdf.Color{R: 0.6, G: 0.3, B: 0.1, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Trattoria da Marco", titleStyle, pdf.Rectangle{
-		LLX: 50, LLY: size.Height - 90, URX: size.Width - 50, URY: size.Height - 55,
-	}))
-
-	// Tagline.
-	taglineStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaOblique,
-		Size:   12,
-		Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Authentic Italian Cuisine — Receipt", taglineStyle, pdf.Rectangle{
-		LLX: 50, LLY: size.Height - 115, URX: size.Width - 50, URY: size.Height - 95,
-	}))
+	sectionHeader(page,
+		"Restaurant Bill",
+		"Trattoria da Marco — single-page Table with ColSpan summary rows")
 
 	// Order info line.
 	infoStyle := pdf.TextStyle{
@@ -815,27 +1092,9 @@ func addRestaurantBill(page *pdf.Page) {
 func addSalesReport(doc *pdf.Document, page *pdf.Page) {
 	size, _ := page.Size()
 
-	// Title and feature list above the table.
-	titleStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaBold,
-		Size:   22,
-		Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Multi-Page Sales Report", titleStyle, pdf.Rectangle{
-		LLX: 50, LLY: size.Height - 88, URX: size.Width - 50, URY: size.Height - 55,
-	}))
-	subStyle := pdf.TextStyle{
-		Font:   pdf.FontHelveticaOblique,
-		Size:   10,
-		Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText(
-		"image header  •  repeating headers  •  ColSpan  •  Row.SetBackground  •  AddRows batch  •  overflow",
-		subStyle, pdf.Rectangle{
-			LLX: 50, LLY: size.Height - 110, URX: size.Width - 50, URY: size.Height - 95,
-		}))
+	sectionHeader(page,
+		"Multi-Page Sales Report",
+		"image header  •  repeating headers  •  ColSpan  •  Row.SetBackground  •  AddRows batch  •  overflow")
 
 	// Palette.
 	navy := &pdf.Color{R: 0.10, G: 0.15, B: 0.40, A: 1}
@@ -863,7 +1122,7 @@ func addSalesReport(doc *pdf.Document, page *pdf.Page) {
 	logoRow := table.AddRow().SetHeight(54).SetBackground(navy)
 	logoRow.AddCell("").
 		SetColSpan(4).
-		SetImage("testdata/Koala.jpg").
+		SetImage("testdata/sales-banner.jpg").
 		SetHAlign(pdf.HAlignCenter).
 		SetVAlign(pdf.VAlignMiddle)
 
@@ -1015,211 +1274,186 @@ func addSalesReport(doc *pdf.Document, page *pdf.Page) {
 func addVectorShowcase(doc *pdf.Document, page *pdf.Page) {
 	_ = doc // kept for signature symmetry with addPageText / addSalesReport
 
-	size, _ := page.Size()
+	sectionHeader(page,
+		"Vector Graphics",
+		"DrawLine  •  Rectangle  •  Circle  •  Ellipse  •  Polyline  •  Polygon  •  Path with Arc")
 
-	// Title.
-	mustText(page.AddText("Vector Graphics Showcase",
-		pdf.TextStyle{
-			Font: pdf.FontHelveticaBold, Size: 22,
-			Color:  &pdf.Color{R: 0.1, G: 0.5, B: 0.3, A: 1},
-			HAlign: pdf.HAlignCenter,
-		},
-		pdf.Rectangle{LLX: 50, LLY: size.Height - 88, URX: size.Width - 50, URY: size.Height - 55},
-	))
-	mustText(page.AddText(
-		"DrawLine  •  DrawRectangle  •  DrawCircle  •  DrawEllipse  •  DrawPolyline  •  DrawPolygon  •  DrawPath  •  RoundedRectangle  •  Arc",
-		pdf.TextStyle{
-			Font: pdf.FontHelveticaOblique, Size: 10,
-			Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.4, A: 1},
-			HAlign: pdf.HAlignCenter,
-		},
-		pdf.Rectangle{LLX: 50, LLY: size.Height - 112, URX: size.Width - 50, URY: size.Height - 96},
-	))
-
-	// === Bar chart ===
-	chartHeader := pdf.TextStyle{
-		Font: pdf.FontHelveticaBold, Size: 12,
-		Color:  &pdf.Color{R: 0.1, G: 0.5, B: 0.3, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}
-	mustText(page.AddText("Monthly Sales Trend (€ thousands)", chartHeader,
-		pdf.Rectangle{LLX: 50, LLY: 720, URX: size.Width - 50, URY: 738}))
-
+	// === 2×3 gallery of labeled primitive demos ===
+	// Each card shows the API name as a label and a representative figure
+	// drawn with that primitive. Cards share a common frame so the page
+	// reads as one consistent gallery rather than scattered demos.
 	const (
-		chartLeft   = 90.0
-		chartRight  = 530.0
-		chartBottom = 500.0
-		chartTop    = 700.0
+		colCount    = 2
+		rowCount    = 3
+		gridLeft    = 50.0
+		gridRight   = 545.0
+		gridTop     = 705.0
+		gridBottom  = 105.0
+		gapX        = 14.0
+		gapY        = 14.0
+		labelInset  = 12.0
+		labelHeight = 22.0
 	)
-	// Y-axis (dashed).
-	if err := page.DrawLine(
-		pdf.Point{X: chartLeft, Y: chartBottom},
-		pdf.Point{X: chartLeft, Y: chartTop},
-		pdf.LineStyle{
-			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.5, A: 1},
-			Width:       0.75,
-			DashPattern: []float64{3, 2},
-		},
-	); err != nil {
-		log.Fatalf("y-axis: %v", err)
-	}
-	// X-axis (solid).
-	if err := page.DrawLine(
-		pdf.Point{X: chartLeft, Y: chartBottom},
-		pdf.Point{X: chartRight, Y: chartBottom},
-		pdf.LineStyle{
-			Color: &pdf.Color{R: 0.2, G: 0.2, B: 0.2, A: 1},
-			Width: 1.5,
-			Cap:   pdf.LineCapRound,
-		},
-	); err != nil {
-		log.Fatalf("x-axis: %v", err)
-	}
+	cardW := (gridRight - gridLeft - gapX) / float64(colCount)
+	cardH := (gridTop - gridBottom - gapY*float64(rowCount-1)) / float64(rowCount)
 
-	// 7 monthly bars.
-	months := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"}
-	values := []float64{22, 28, 34, 27, 31, 25, 29} // €k
-	barWidth := (chartRight - chartLeft - 30) / float64(len(months))
-	const maxBar = 40.0                                     // scale: 40k = full chart height
-	barColor := &pdf.Color{R: 0.3, G: 0.6, B: 0.9, A: 0.85} // slight transparency
-	barTops := make([]pdf.Point, len(months))
-	bestIdx := 0
-	for i, v := range values {
-		if v > values[bestIdx] {
-			bestIdx = i
+	cardBG := &pdf.Color{R: 0.985, G: 0.985, B: 0.995, A: 1}
+	cardBorder := &pdf.Color{R: 0.83, G: 0.85, B: 0.92, A: 1}
+	labelColor := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+
+	// drawCard paints a card's frame and label, returns the inner drawing
+	// rectangle the caller should target for its primitive.
+	drawCard := func(col, row int, label string) pdf.Rectangle {
+		x := gridLeft + float64(col)*(cardW+gapX)
+		y := gridTop - float64(row+1)*cardH - float64(row)*gapY
+		outer := pdf.Rectangle{LLX: x, LLY: y, URX: x + cardW, URY: y + cardH}
+		mustVector(page.DrawRoundedRectangle(outer, 6, pdf.ShapeStyle{
+			FillColor: cardBG,
+			LineStyle: pdf.LineStyle{Width: 0.5, Color: cardBorder},
+		}))
+		mustText(page.AddText(label, pdf.TextStyle{
+			Font: pdf.FontHelveticaBold, Size: 11, Color: labelColor,
+		}, pdf.Rectangle{
+			LLX: outer.LLX + labelInset, LLY: outer.URY - labelHeight - 2,
+			URX: outer.URX - labelInset, URY: outer.URY - 4,
+		}))
+		// Inner rect leaves room for the label at the top and a small
+		// breathing margin around the figure.
+		return pdf.Rectangle{
+			LLX: outer.LLX + labelInset, LLY: outer.LLY + 10,
+			URX: outer.URX - labelInset, URY: outer.URY - labelHeight - 6,
 		}
-		barH := (v / maxBar) * (chartTop - chartBottom - 20)
-		x := chartLeft + 15 + float64(i)*barWidth
-		barTop := chartBottom + barH
-		if err := page.DrawRectangle(
-			pdf.Rectangle{LLX: x, LLY: chartBottom, URX: x + barWidth - 8, URY: barTop},
-			pdf.ShapeStyle{
-				LineStyle: pdf.LineStyle{Width: 0.5, Color: &pdf.Color{R: 0.1, G: 0.3, B: 0.6, A: 1}},
-				FillColor: barColor,
-			},
-		); err != nil {
-			log.Fatalf("bar %d: %v", i, err)
-		}
-		mustText(page.AddText(months[i],
-			pdf.TextStyle{
-				Font: pdf.FontHelvetica, Size: 9,
-				Color:  &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
-				HAlign: pdf.HAlignCenter,
-			},
-			pdf.Rectangle{LLX: x, LLY: chartBottom - 14, URX: x + barWidth - 8, URY: chartBottom - 2},
-		))
-		// Track center-top of each bar for the trend polyline.
-		barTops[i] = pdf.Point{X: x + (barWidth-8)/2, Y: barTop}
 	}
 
-	// Trend polyline (DrawPolyline).
-	if err := page.DrawPolyline(barTops, pdf.LineStyle{
-		Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1},
-		Width: 1.5,
-		Cap:   pdf.LineCapRound,
-		Join:  pdf.LineJoinRound,
-	}); err != nil {
-		log.Fatalf("trend line: %v", err)
+	mid := func(r pdf.Rectangle) (float64, float64) {
+		return (r.LLX + r.URX) / 2, (r.LLY + r.URY) / 2
 	}
 
-	// Highlight circle on the best month.
-	if err := page.DrawCircle(barTops[bestIdx], 6, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1.5, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1}},
-		FillColor: &pdf.Color{R: 1, G: 1, B: 1, A: 1},
-	}); err != nil {
-		log.Fatalf("highlight circle: %v", err)
-	}
-
-	// === Decorations row at y ≈ 420..460 ===
-	// Rounded-rectangle callout for the peak month.
-	calloutRect := pdf.Rectangle{LLX: 90, LLY: 420, URX: 280, URY: 460}
-	if err := page.DrawRoundedRectangle(calloutRect, 8, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1}},
-		FillColor: &pdf.Color{R: 1, G: 0.97, B: 0.85, A: 1},
-	}); err != nil {
-		log.Fatalf("callout: %v", err)
-	}
-	mustText(page.AddText(
-		fmt.Sprintf("Peak: %s — €%.0fk", months[bestIdx], values[bestIdx]),
-		pdf.TextStyle{
-			Font: pdf.FontHelveticaBold, Size: 12,
-			Color:  &pdf.Color{R: 0.6, G: 0.35, B: 0.05, A: 1},
-			HAlign: pdf.HAlignCenter,
-			VAlign: pdf.VAlignMiddle,
+	// --- Card 1: DrawLine — three stroke variants -----------------------
+	inner := drawCard(0, 0, "DrawLine")
+	_, ymid := mid(inner)
+	mustVector(page.DrawLine(
+		pdf.Point{X: inner.LLX + 8, Y: ymid + 28},
+		pdf.Point{X: inner.URX - 8, Y: ymid + 28},
+		pdf.LineStyle{Width: 2.5, Color: &pdf.Color{R: 0.20, G: 0.30, B: 0.70, A: 1}, Cap: pdf.LineCapRound},
+	))
+	mustVector(page.DrawLine(
+		pdf.Point{X: inner.LLX + 8, Y: ymid},
+		pdf.Point{X: inner.URX - 8, Y: ymid},
+		pdf.LineStyle{Width: 2, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1}, DashPattern: []float64{8, 5}},
+	))
+	mustVector(page.DrawLine(
+		pdf.Point{X: inner.LLX + 8, Y: ymid - 28},
+		pdf.Point{X: inner.URX - 8, Y: ymid - 28},
+		pdf.LineStyle{
+			Width: 3, Color: &pdf.Color{R: 0.10, G: 0.50, B: 0.30, A: 1},
+			Cap: pdf.LineCapRound, DashPattern: []float64{0.5, 6},
 		},
-		calloutRect,
 	))
 
-	// Triangle alert marker.
-	if err := page.DrawPolygon([]pdf.Point{
-		{X: 310, Y: 430}, {X: 350, Y: 430}, {X: 330, Y: 458},
-	}, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0.85, G: 0.10, B: 0.10, A: 1}},
-		FillColor: &pdf.Color{R: 1, G: 0.9, B: 0.4, A: 1},
-	}); err != nil {
-		log.Fatalf("triangle: %v", err)
-	}
-	mustText(page.AddText("!",
-		pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 16,
-			Color: &pdf.Color{R: 0.85, G: 0.10, B: 0.10, A: 1}, HAlign: pdf.HAlignCenter},
-		pdf.Rectangle{LLX: 315, LLY: 438, URX: 345, URY: 456}))
+	// --- Card 2: Rectangle + RoundedRectangle ---------------------------
+	inner = drawCard(1, 0, "Rectangle  •  Rounded")
+	gap := 14.0
+	half := (inner.URX - inner.LLX - gap) / 2
+	rectA := pdf.Rectangle{LLX: inner.LLX, LLY: inner.LLY + 6, URX: inner.LLX + half, URY: inner.URY - 6}
+	rectB := pdf.Rectangle{LLX: rectA.URX + gap, LLY: rectA.LLY, URX: inner.URX, URY: rectA.URY}
+	mustVector(page.DrawRectangle(rectA, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 1.2, Color: &pdf.Color{R: 0.20, G: 0.30, B: 0.70, A: 1}},
+		FillColor: &pdf.Color{R: 0.82, G: 0.88, B: 1.00, A: 1},
+	}))
+	mustVector(page.DrawRoundedRectangle(rectB, 14, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 1.2, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1}},
+		FillColor: &pdf.Color{R: 1.00, G: 0.92, B: 0.78, A: 1},
+	}))
 
-	// Decorative ellipse.
-	if err := page.DrawEllipse(pdf.Point{X: 410, Y: 440}, 30, 16, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0.1, G: 0.5, B: 0.3, A: 1}},
-		FillColor: &pdf.Color{R: 0.85, G: 0.95, B: 0.85, A: 0.7},
-	}); err != nil {
-		log.Fatalf("ellipse: %v", err)
-	}
-
-	// Pie slice using Path with Arc.
-	piePath := pdf.NewPath().
-		MoveTo(490, 440).
-		LineTo(530, 440).
-		Arc(490, 440, 40, 0, 1.0472). // 60° slice
-		Close()
-	if err := page.DrawPath(piePath, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0.6, G: 0.3, B: 0.7, A: 1}},
-		FillColor: &pdf.Color{R: 0.85, G: 0.75, B: 0.95, A: 1},
-	}); err != nil {
-		log.Fatalf("pie slice: %v", err)
-	}
-
-	// === Path showcase: smile-shaped curve at the bottom ===
-	smile := pdf.NewPath().
-		MoveTo(200, 200).
-		CurveTo(220, 170, 280, 170, 300, 200).
-		MoveTo(170, 240).
-		LineTo(170, 260).
-		MoveTo(330, 240).
-		LineTo(330, 260)
-	if err := page.DrawPath(smile, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{
-			Width: 3, Cap: pdf.LineCapRound, Join: pdf.LineJoinRound,
-			Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1},
-		},
-	}); err != nil {
-		log.Fatalf("smile: %v", err)
-	}
-
-	// Semi-transparent watermark-like overlay rectangle (demos alpha).
-	if err := page.DrawRectangle(
-		pdf.Rectangle{LLX: 50, LLY: 120, URX: size.Width - 50, URY: 175},
+	// --- Card 3: Circle + Ellipse ---------------------------------------
+	inner = drawCard(0, 1, "Circle  •  Ellipse")
+	xmid, ymid := mid(inner)
+	cR := 28.0
+	mustVector(page.DrawCircle(
+		pdf.Point{X: inner.LLX + cR + 12, Y: ymid},
+		cR,
 		pdf.ShapeStyle{
-			FillColor: &pdf.Color{R: 0.1, G: 0.5, B: 0.3, A: 0.18},
+			LineStyle: pdf.LineStyle{Width: 1.4, Color: &pdf.Color{R: 0.55, G: 0.25, B: 0.70, A: 1}},
+			FillColor: &pdf.Color{R: 0.92, G: 0.85, B: 0.97, A: 0.92},
 		},
-	); err != nil {
-		log.Fatalf("alpha rect: %v", err)
-	}
-	mustText(page.AddText(
-		"Every primitive above uses vector ops emitted by the new (*Page).DrawX API.",
-		pdf.TextStyle{
-			Font: pdf.FontHelveticaOblique, Size: 11,
-			Color:  &pdf.Color{R: 0.1, G: 0.4, B: 0.25, A: 1},
-			HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
-		},
-		pdf.Rectangle{LLX: 60, LLY: 125, URX: size.Width - 60, URY: 170},
 	))
+	_ = xmid
+	mustVector(page.DrawEllipse(
+		pdf.Point{X: inner.URX - 50, Y: ymid}, 44, 24,
+		pdf.ShapeStyle{
+			LineStyle: pdf.LineStyle{Width: 1.4, Color: &pdf.Color{R: 0.10, G: 0.50, B: 0.30, A: 1}},
+			FillColor: &pdf.Color{R: 0.85, G: 0.95, B: 0.85, A: 0.92},
+		},
+	))
+
+	// --- Card 4: Polyline — open zigzag ---------------------------------
+	inner = drawCard(1, 1, "Polyline")
+	pts := make([]pdf.Point, 0, 9)
+	steps := 8
+	stride := (inner.URX - inner.LLX - 16) / float64(steps)
+	low := inner.LLY + 14
+	high := inner.URY - 14
+	for i := 0; i <= steps; i++ {
+		x := inner.LLX + 8 + float64(i)*stride
+		y := low
+		if i%2 == 1 {
+			y = high
+		}
+		pts = append(pts, pdf.Point{X: x, Y: y})
+	}
+	mustVector(page.DrawPolyline(pts, pdf.LineStyle{
+		Width: 2.5, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1},
+		Cap: pdf.LineCapRound, Join: pdf.LineJoinRound,
+	}))
+
+	// --- Card 5: Polygon — five-point star ------------------------------
+	inner = drawCard(0, 2, "Polygon")
+	xmid, ymid = mid(inner)
+	outerR := 36.0
+	innerR := 15.0
+	star := make([]pdf.Point, 0, 10)
+	for i := 0; i < 10; i++ {
+		ang := math.Pi/2 - float64(i)*math.Pi/5
+		r := outerR
+		if i%2 == 1 {
+			r = innerR
+		}
+		star = append(star, pdf.Point{X: xmid + r*math.Cos(ang), Y: ymid + r*math.Sin(ang)})
+	}
+	mustVector(page.DrawPolygon(star, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 1.3, Color: &pdf.Color{R: 0.78, G: 0.55, B: 0.06, A: 1}, Join: pdf.LineJoinMiter, MiterLimit: 4},
+		FillColor: &pdf.Color{R: 1.00, G: 0.84, B: 0.36, A: 1},
+	}))
+
+	// --- Card 6: Path with Arc — pie slice + bezier wave ----------------
+	inner = drawCard(1, 2, "Path with Arc")
+	// Pie slice on the left half.
+	pcx := inner.LLX + 38
+	pcy := (inner.LLY + inner.URY) / 2
+	pieR := 34.0
+	pie := pdf.NewPath().
+		MoveTo(pcx, pcy).
+		LineTo(pcx+pieR, pcy).
+		Arc(pcx, pcy, pieR, 0, 2.0944). // 120° sweep
+		Close()
+	mustVector(page.DrawPath(pie, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 1.3, Color: &pdf.Color{R: 0.20, G: 0.45, B: 0.78, A: 1}},
+		FillColor: &pdf.Color{R: 0.78, G: 0.88, B: 1.00, A: 1},
+	}))
+	// Cubic Bezier wave on the right half.
+	wx0 := inner.LLX + 88
+	wx1 := inner.URX - 4
+	wave := pdf.NewPath().
+		MoveTo(wx0, pcy).
+		CurveTo(wx0+14, pcy+30, wx0+30, pcy-30, wx0+44, pcy).
+		CurveTo(wx0+58, pcy+30, wx1-14, pcy-30, wx1, pcy)
+	mustVector(page.DrawPath(wave, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{
+			Width: 2.2, Color: &pdf.Color{R: 0.95, G: 0.55, B: 0.05, A: 1},
+			Cap: pdf.LineCapRound, Join: pdf.LineJoinRound,
+		},
+	}))
 
 	// (Unified page footer is added later in main() — addUnifiedFooter.)
 }
@@ -1275,53 +1509,126 @@ func addBookmarks(doc *pdf.Document, sections []section) {
 // Cover page
 // ---------------------------------------------------------------------
 
-// addCoverPage paints the front cover: large Aspose SVG mark, project title,
-// subtitle, version + creation date. Uses no watermark / logo stamp — the
-// cover stays visually clean.
+// addCoverPage paints the front cover: a large pinwheel-only mark from the
+// brand SVG (the wordmark is omitted — the product name beneath the pinwheel
+// is the only place "Aspose" appears), then the product title, then a
+// subtitle. Cover stays watermark-free and logo-stamp-free in main().
 func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 	size, _ := page.Size()
 
-	// Soft background tint band across the centre of the page so the title
-	// sits on a colour stripe rather than empty white.
-	bandRect := pdf.Rectangle{LLX: 0, LLY: size.Height/2 - 80, URX: size.Width, URY: size.Height/2 + 90}
-	mustVector(page.DrawRectangle(bandRect, pdf.ShapeStyle{
-		FillColor: &pdf.Color{R: 0.95, G: 0.96, B: 0.99, A: 1},
-	}))
-
-	// Big Aspose logo, centred horizontally, upper third of the band.
-	if svg, err := doc.LoadSVG("testdata/aspose-logo.svg"); err == nil {
-		const logoW = 360.0
-		logoH := logoW * 100.0 / 314.0 // viewBox aspect 3.14:1
-		x := (size.Width - logoW) / 2
-		y := size.Height/2 + 10
-		mustErr(page.AddSVGObject(svg, pdf.Rectangle{LLX: x, LLY: y, URX: x + logoW, URY: y + logoH}))
+	// Big pinwheel — square, centred, upper-middle of the page.
+	const logoSize = 220.0
+	logoX := (size.Width - logoSize) / 2
+	logoY := size.Height - 100 - logoSize // 100pt margin from the top
+	if svg, err := doc.LoadSVG("testdata/aspose-pinwheel.svg"); err == nil {
+		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
+			LLX: logoX, LLY: logoY, URX: logoX + logoSize, URY: logoY + logoSize,
+		}))
 	}
 
-	// Title — wide rect so AutoText doesn't wrap, generous vertical room
-	// so descenders aren't clipped.
-	mustText(page.AddText(docTitle, pdf.TextStyle{
+	// Product title — sits below the pinwheel with breathing room.
+	titleY := logoY - 80
+	mustText(page.AddText(productName, pdf.TextStyle{
 		Font:   pdf.FontHelveticaBold,
-		Size:   24,
+		Size:   30,
 		Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
 		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 30, LLY: size.Height/2 - 35, URX: size.Width - 30, URY: size.Height/2 - 5}))
+	}, pdf.Rectangle{LLX: 30, LLY: titleY, URX: size.Width - 30, URY: titleY + 40}))
 
 	// Subtitle.
-	mustText(page.AddText("An end-to-end tour of every feature in one document.", pdf.TextStyle{
+	mustText(page.AddText("Feature Showcase", pdf.TextStyle{
 		Font:   pdf.FontHelveticaOblique,
-		Size:   13,
+		Size:   18,
 		Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1},
 		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 50, LLY: size.Height/2 - 65, URX: size.Width - 50, URY: size.Height/2 - 40}))
+	}, pdf.Rectangle{LLX: 50, LLY: titleY - 38, URX: size.Width - 50, URY: titleY - 8}))
 
-	// Footer: version + date, bottom-centre.
-	dateStr := time.Now().Format("January 2, 2006")
-	mustText(page.AddText(docVersion+"  ·  "+dateStr, pdf.TextStyle{
-		Font:   pdf.FontHelvetica,
-		Size:   11,
-		Color:  &pdf.Color{R: 0.5, G: 0.5, B: 0.5, A: 1},
+	// One-liner below the subtitle.
+	mustText(page.AddText("An end-to-end tour of every library capability in one document.",
+		pdf.TextStyle{
+			Font:   pdf.FontHelvetica,
+			Size:   12,
+			Color:  &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: 50, LLY: titleY - 70, URX: size.Width - 50, URY: titleY - 48}))
+
+	// CTA links — one row near the bottom of the page, two clickable groups
+	// separated by a centred bold bullet:
+	//   [github mark] Source code   •   [Go logo] API reference
+	// The bullet sits exactly at the horizontal centre of the page and the
+	// rest of the row is laid out symmetrically around it.
+	const (
+		iconH     = 12.0          // shared icon height; widths follow each viewBox aspect
+		githubAR  = 1.0           // GitHub mark viewBox 16×16
+		goAR      = 207.0 / 78.0  // Go logo viewBox 207×78
+		textGap   = 5.0           // gap between an icon and its label
+		bulletGap = 12.0          // gap between a label and the centre bullet
+		linkY     = 110.0         // y-baseline of the row (well above the footer at y=40)
+		srcW      = 74.0          // approx width of "Source code" at Helvetica-Bold 12pt
+		apiW      = 88.0          // approx width of "API reference"
+		bulletHW  = 5.0           // half-width of the bullet glyph
+	)
+	center := size.Width / 2
+	linkStyle := pdf.TextStyle{
+		Font:      pdf.FontHelveticaBold,
+		Size:      12,
+		Color:     &pdf.Color{R: 0.1, G: 0.3, B: 0.7, A: 1},
+		Underline: true,
+	}
+	bulletStyle := pdf.TextStyle{
+		Font:   pdf.FontHelveticaBold,
+		Size:   14,
+		Color:  &pdf.Color{R: 0.3, G: 0.3, B: 0.35, A: 1},
 		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 50, LLY: 80, URX: size.Width - 50, URY: 100}))
+	}
+	annots := page.Annotations()
+
+	// --- Left group: GitHub mark + "Source code" ---
+	githubW := iconH * githubAR
+	srcEnd := center - bulletHW - bulletGap
+	srcStart := srcEnd - srcW
+	ghEnd := srcStart - textGap
+	ghStart := ghEnd - githubW
+	if svg, err := doc.LoadSVG("testdata/github-mark.svg"); err == nil {
+		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
+			LLX: ghStart, LLY: linkY, URX: ghEnd, URY: linkY + iconH,
+		}))
+	}
+	mustText(page.AddText("Source code", linkStyle, pdf.Rectangle{
+		LLX: srcStart, LLY: linkY - 1, URX: srcEnd, URY: linkY + iconH,
+	}))
+	leftLink := pdf.NewLinkAnnotation(page, pdf.Rectangle{
+		LLX: ghStart - 2, LLY: linkY - 3, URX: srcEnd + 2, URY: linkY + iconH + 3,
+	})
+	leftLink.SetAction(pdf.NewGoToURIAction("https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"))
+	leftLink.SetBorderWidth(0)
+	mustAnnot(annots.Add(leftLink))
+
+	// --- Centre bullet (horizontal page centre) ---
+	mustText(page.AddText("•", bulletStyle, pdf.Rectangle{
+		LLX: center - bulletHW, LLY: linkY - 2, URX: center + bulletHW, URY: linkY + iconH + 2,
+	}))
+
+	// --- Right group: Go logo + "API reference" ---
+	goW := iconH * goAR
+	goStart := center + bulletHW + bulletGap
+	goEnd := goStart + goW
+	apiStart := goEnd + textGap
+	apiEnd := apiStart + apiW
+	if svg, err := doc.LoadSVG("testdata/go-logo.svg"); err == nil {
+		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
+			LLX: goStart, LLY: linkY, URX: goEnd, URY: linkY + iconH,
+		}))
+	}
+	mustText(page.AddText("API reference", linkStyle, pdf.Rectangle{
+		LLX: apiStart, LLY: linkY - 1, URX: apiEnd, URY: linkY + iconH,
+	}))
+	rightLink := pdf.NewLinkAnnotation(page, pdf.Rectangle{
+		LLX: goStart - 2, LLY: linkY - 3, URX: apiEnd + 2, URY: linkY + iconH + 3,
+	})
+	rightLink.SetAction(pdf.NewGoToURIAction("https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"))
+	rightLink.SetBorderWidth(0)
+	mustAnnot(annots.Add(rightLink))
 }
 
 // ---------------------------------------------------------------------
@@ -1357,23 +1664,28 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 	for i, s := range sections {
 		y := yTop - float64(i)*rowH
 
-		// Page label of the destination — uses /PageLabels at view time, but
-		// because we haven't called SetPageLabels yet at this point it falls
-		// back to absolute index. SetPageLabels runs later in main(); the TOC
-		// page-number text reflects the *expected* label here.
-		var label string
-		if i == 0 {
-			label = "1"
-		} else {
-			label = strconv.Itoa(i + 1)
-		}
+		// Each section's page label matches its actual /PageLabels assignment
+		// (set in main: cover/TOC use roman, body restarts at decimal 1). So
+		// the label of body page P is P-2. This stays correct when the sales
+		// report inserts continuation pages between sections — the entries
+		// after sales skip a number, which is what the viewer also shows.
+		label := strconv.Itoa(s.page.Number() - 2)
+
+		// Item number — sequential 1-based index, decoupled from the
+		// destination page label so continuation pages don't create gaps.
+		mustText(page.AddText(fmt.Sprintf("%d.", i+1), pdf.TextStyle{
+			Font:   pdf.FontHelveticaBold,
+			Size:   13,
+			Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
+			HAlign: pdf.HAlignRight,
+		}, pdf.Rectangle{LLX: 72, LLY: y, URX: 95, URY: y + 20}))
 
 		// Title on the left.
 		mustText(page.AddText(s.title, pdf.TextStyle{
 			Font:  pdf.FontHelvetica,
 			Size:  13,
 			Color: &pdf.Color{R: 0.1, G: 0.1, B: 0.15, A: 1},
-		}, pdf.Rectangle{LLX: 100, LLY: y, URX: 380, URY: y + 20}))
+		}, pdf.Rectangle{LLX: 105, LLY: y, URX: 380, URY: y + 20}))
 
 		// Page number on the right.
 		mustText(page.AddText(label, pdf.TextStyle{
@@ -1383,24 +1695,24 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 			HAlign: pdf.HAlignRight,
 		}, pdf.Rectangle{LLX: size.Width - 130, LLY: y, URX: size.Width - 100, URY: y + 20}))
 
-		// Leader dots between title and page number.
+		// Leader dots between title and page number. Start past the widest
+		// title in this list ("Annual Sales — 12 Month Trend" ≈ x=300) so the
+		// dots never overlap title text. URY/LLY centred on title baseline.
 		mustText(page.AddText(strings.Repeat(". ", 80), pdf.TextStyle{
 			Font:  pdf.FontHelvetica,
 			Size:  11,
 			Color: &pdf.Color{R: 0.7, G: 0.7, B: 0.75, A: 1},
-		}, pdf.Rectangle{LLX: 250, LLY: y + 2, URX: size.Width - 135, URY: y + 18}))
+		}, pdf.Rectangle{LLX: 320, LLY: y + 2, URX: size.Width - 135, URY: y + 18}))
 
 		// Clickable link over the whole row → GoTo the section's page.
-		// (LinkAnnotation currently only supports /A action, not /Dest, so we
-		// jump by absolute page number rather than via the named destination.
-		// The named destinations are still emitted into the catalog — the
-		// outline (bookmarks) tree resolves through them.)
+		// /Border [0 0 0] suppresses the default 1pt black rectangle Acrobat
+		// and other viewers draw around link annotations.
 		link := pdf.NewLinkAnnotation(page, pdf.Rectangle{
 			LLX: 95, LLY: y, URX: size.Width - 95, URY: y + 22,
 		})
 		topY, _ := s.page.Size()
 		link.SetAction(pdf.NewGoToAction(s.page.Number(), topY.Height))
-		link.SetHighlight(pdf.LinkHighlightOutline)
+		link.SetBorderWidth(0)
 		mustAnnot(annot.Add(link))
 	}
 
@@ -1417,50 +1729,68 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 // Redaction demo
 // ---------------------------------------------------------------------
 
-// addRedactionDemo lays out a memo whose sensitive fields each sit on their
-// own line with known coordinates, so the /Redact annotations can target
-// each exactly. Document.ApplyRedactions() (called from main before save)
-// destroys the underlying text glyphs inside the quad regions and stamps the
-// overlay text — so by the time the PDF reaches the viewer the redacted
-// version is the *only* version present.
-func addRedactionDemo(page *pdf.Page) {
+// addRedactionDemo lays out a memo that shows BOTH redaction phases on
+// the same page:
+//
+//   - phase 1 (applied): two rows get /Redact annotations, then
+//     Document.ApplyRedactions runs — the underlying glyphs are destroyed
+//     and the annotations are removed from /Annots. In the saved PDF these
+//     rows show only a solid black rectangle with the "[REDACTED]" overlay;
+//     the original value is gone from the content stream.
+//
+//   - phase 2 (mark-mode): two more rows get /Redact annotations added
+//     AFTER the apply call, so they remain as live annotations. The
+//     original value text is intact underneath; the annotation draws a
+//     semi-transparent yellow tint with a "MARK" overlay so the value
+//     reads through. In Acrobat these annots show up in the Comments
+//     panel and can be edited or removed by the user; selecting the text
+//     under them copies the original value.
+//
+// Two extra rows have no /Redact at all to act as a control.
+func addRedactionDemo(doc *pdf.Document, page *pdf.Page) {
 	size, _ := page.Size()
 
-	mustText(page.AddText("Redactions", pdf.TextStyle{
-		Font: pdf.FontHelveticaBold, Size: 26,
-		Color:  &pdf.Color{R: 0, G: 0, B: 0, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 50, LLY: size.Height - 100, URX: size.Width - 50, URY: size.Height - 65}))
+	sectionHeader(page,
+		"Redactions",
+		"Mark-mode  vs  applied — both phases side by side on the same page")
 
-	mustText(page.AddText("Document.ApplyRedactions destructively removes text glyphs, image XObjects, and path operators inside every /Redact annotation. Each sensitive field below is on its own line so the redaction rectangles can target it precisely.",
-		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11, Color: &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, LineSpacing: 1.4},
-		pdf.Rectangle{LLX: 50, LLY: size.Height - 175, URX: size.Width - 50, URY: size.Height - 115}))
+	mustText(page.AddText("Document.ApplyRedactions destructively rewrites the content stream — glyphs inside every targeted /Redact annotation are gone for good. Annotations added after the call stay in mark-mode: the value reads through and is still copy-selectable.",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10.5, Color: &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, LineSpacing: 1.4},
+		pdf.Rectangle{LLX: 50, LLY: size.Height - 180, URX: size.Width - 50, URY: size.Height - 130}))
 
 	// Header line.
 	mustText(page.AddText("Internal memo — Q3 personnel changes",
 		pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 14, Color: &pdf.Color{R: 0, G: 0, B: 0, A: 1}},
-		pdf.Rectangle{LLX: 60, LLY: size.Height - 215, URX: size.Width - 60, URY: size.Height - 195}))
+		pdf.Rectangle{LLX: 60, LLY: size.Height - 220, URX: size.Width - 60, URY: size.Height - 200}))
 
-	// Each row: a label on the left, a value on the right. We give the value
-	// rect a fixed Y range so the redact rectangle below maps to it cleanly.
+	// Each row: label on the left, value on the right, plus a phase tag on
+	// the far right so the reader can connect each rect to the right phase.
 	const (
 		valueLLX = 220.0
-		valueURX = 500.0
+		valueURX = 460.0
 	)
 	labelStyle := pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 12, Color: &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}}
 	valueStyle := pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 12, Color: &pdf.Color{R: 0, G: 0, B: 0, A: 1}}
 
+	type phase int
+	const (
+		phaseNone phase = iota // no redact at all (control)
+		phaseApply             // redact + ApplyRedactions; content destroyed
+		phaseMark              // redact only, no apply; content intact under tint
+	)
 	rows := []struct {
 		label, value string
 		y            float64
+		ph           phase
 	}{
-		{"Employee:", "Maria Castellano (ID 47821)", 580},
-		{"Retention bonus:", "$185,000.00", 550},
-		{"Direct phone:", "+1 (415) 555-0182", 520},
-		{"Bank routing:", "026009593", 490},
-		{"Account number:", "4421-9087-7733-2104", 460},
-		{"Effective date:", "2026-04-15", 430},
+		{"Employee:", "Maria Castellano (ID 47821)", 580, phaseNone},
+		{"Retention bonus:", "$185,000.00", 550, phaseApply},
+		{"Direct phone:", "+1 (415) 555-0182", 520, phaseApply},
+		{"Bank routing:", "026009593", 490, phaseMark},
+		{"Account number:", "4421-9087-7733-2104", 460, phaseMark},
+		{"Effective date:", "2026-04-15", 430, phaseNone},
 	}
+	tagStyle := pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 8, HAlign: pdf.HAlignLeft}
 	for _, r := range rows {
 		mustText(page.AddText(r.label, labelStyle, pdf.Rectangle{
 			LLX: 60, LLY: r.y, URX: 215, URY: r.y + 16,
@@ -1468,28 +1798,84 @@ func addRedactionDemo(page *pdf.Page) {
 		mustText(page.AddText(r.value, valueStyle, pdf.Rectangle{
 			LLX: valueLLX, LLY: r.y, URX: valueURX, URY: r.y + 16,
 		}))
+		// Right-side phase tag.
+		var tagText string
+		var tagColor *pdf.Color
+		switch r.ph {
+		case phaseApply:
+			tagText = "applied"
+			tagColor = &pdf.Color{R: 0.7, G: 0.1, B: 0.1, A: 1}
+		case phaseMark:
+			tagText = "mark-mode"
+			tagColor = &pdf.Color{R: 0.5, G: 0.4, B: 0.0, A: 1}
+		}
+		if tagText != "" {
+			style := tagStyle
+			style.Color = tagColor
+			mustText(page.AddText(tagText, style, pdf.Rectangle{
+				LLX: 475, LLY: r.y + 1, URX: size.Width - 50, URY: r.y + 15,
+			}))
+		}
 	}
 
-	// Redact the four sensitive rows (bonus, phone, routing, account). We
-	// over-extend the rect slightly on each side so all glyphs are covered.
-	redactRows := []float64{550, 520, 490, 460}
 	annots := page.Annotations()
-	overlayStyle := pdf.TextStyle{
+	overlayApplied := pdf.TextStyle{
 		Font: pdf.FontHelveticaBold, Size: 9,
 		Color:  &pdf.Color{R: 1, G: 1, B: 1, A: 1},
 		HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
 	}
-	for _, y := range redactRows {
-		rect := pdf.Rectangle{LLX: valueLLX - 4, LLY: y - 2, URX: valueURX, URY: y + 18}
-		red := pdf.NewRedactAnnotation(page, rect)
+	overlayMark := pdf.TextStyle{
+		Font: pdf.FontHelveticaBold, Size: 9,
+		Color:  &pdf.Color{R: 0.4, G: 0.3, B: 0, A: 1},
+		HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+	}
+	rectFor := func(y float64) pdf.Rectangle {
+		return pdf.Rectangle{LLX: valueLLX - 4, LLY: y - 2, URX: valueURX, URY: y + 18}
+	}
+
+	// Phase 1: add /Redact annotations for rows tagged phaseApply, then run
+	// Document.ApplyRedactions. That rewrites the content stream (destroys
+	// the value glyphs inside each quad) and removes those /Redact annots
+	// from /Annots — by the time the PDF is saved, those rows hold a plain
+	// filled rectangle (no annotation, no recoverable text).
+	for _, r := range rows {
+		if r.ph != phaseApply {
+			continue
+		}
+		red := pdf.NewRedactAnnotation(page, rectFor(r.y))
 		red.SetInteriorColor(&pdf.Color{R: 0, G: 0, B: 0, A: 1})
 		red.SetOverlayText("[REDACTED]")
-		red.SetOverlayTextStyle(overlayStyle)
+		red.SetOverlayTextStyle(overlayApplied)
+		mustAnnot(annots.Add(red))
+	}
+	if err := doc.ApplyRedactions(); err != nil {
+		log.Fatalf("apply redactions: %v", err)
+	}
+
+	// Phase 2: add /Redact annotations AFTER the apply call. These stay
+	// in mark-mode for ever — the annotation is part of the PDF, the
+	// content under it is still alive (just visually covered).
+	//
+	// We use solid yellow /IC (the library's redact appearance always
+	// paints an opaque fill; transparency through /IC is not implemented).
+	// Colour is the discriminator: black + "[REDACTED]" = applied (gone),
+	// yellow + "MARK" = mark-mode (annotation, value preserved beneath).
+	// In Acrobat the user can verify by opening the Comments panel — the
+	// mark-mode rows appear there as Redact annotations; the applied rows
+	// don't, because their annotations were removed by ApplyRedactions.
+	for _, r := range rows {
+		if r.ph != phaseMark {
+			continue
+		}
+		red := pdf.NewRedactAnnotation(page, rectFor(r.y))
+		red.SetInteriorColor(&pdf.Color{R: 0.98, G: 0.82, B: 0.18, A: 1})
+		red.SetOverlayText("MARK — annotation, not applied")
+		red.SetOverlayTextStyle(overlayMark)
 		mustAnnot(annots.Add(red))
 	}
 
-	// Caption below the rows.
-	mustText(page.AddText("Document.ApplyRedactions() runs before save — the original glyphs are not present in the output PDF.",
+	// Caption below the rows explaining how to verify the difference.
+	mustText(page.AddText("Try copying the values: applied rows yield nothing (the glyphs aren't there), mark-mode rows still copy the original text.",
 		pdf.TextStyle{
 			Font: pdf.FontHelveticaOblique, Size: 10,
 			Color:  &pdf.Color{R: 0.5, G: 0.5, B: 0.5, A: 1},
@@ -1509,19 +1895,9 @@ func addRedactionDemo(page *pdf.Page) {
 func addLandscapeChart(page *pdf.Page) {
 	size, _ := page.Size() // 842 x 595 for A4 landscape
 
-	mustText(page.AddText("Annual Sales — 12 Month Trend", pdf.TextStyle{
-		Font: pdf.FontHelveticaBold, Size: 24,
-		Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 50, LLY: size.Height - 80, URX: size.Width - 50, URY: size.Height - 50}))
-
-	mustText(page.AddText("Wide-format chart on a landscape A4 (pdf.PageFormatA4.Landscape())",
-		pdf.TextStyle{
-			Font: pdf.FontHelveticaOblique, Size: 11,
-			Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1},
-			HAlign: pdf.HAlignCenter,
-		},
-		pdf.Rectangle{LLX: 50, LLY: size.Height - 105, URX: size.Width - 50, URY: size.Height - 85}))
+	sectionHeader(page,
+		"Annual Sales — 12 Month Trend",
+		"PageFormatA4.Landscape  •  DrawRectangle (alpha fill)  •  DashPattern grid  •  DrawPolyline trend line  •  AddText labels")
 
 	months := []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 	values := []float64{42, 51, 49, 58, 67, 72, 79, 81, 74, 68, 55, 62}
@@ -1540,7 +1916,19 @@ func addLandscapeChart(page *pdf.Page) {
 			maxVal = v
 		}
 	}
-	scaleY := (chartTop - chartBottom) / (maxVal * 1.15)
+	// Round the Y-axis upper bound up to a nice value so gridline labels read
+	// €20/€40/€60/€80/€100 instead of €19/€37/€56/€75/€93. Pick the smallest
+	// step from a standard set such that step×5 covers maxVal×1.15 headroom.
+	target := maxVal * 1.15
+	yStep := 1.0
+	for _, s := range []float64{1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000} {
+		if s*5 >= target {
+			yStep = s
+			break
+		}
+	}
+	yMax := yStep * 5
+	scaleY := (chartTop - chartBottom) / yMax
 
 	// Y-axis grid lines.
 	for i := 1; i <= 5; i++ {
@@ -1553,7 +1941,7 @@ func addLandscapeChart(page *pdf.Page) {
 				DashPattern: []float64{2, 3},
 			},
 		))
-		mustText(page.AddText(fmt.Sprintf("€%.0fk", maxVal*float64(i)/5*1.15), pdf.TextStyle{
+		mustText(page.AddText(fmt.Sprintf("€%.0fk", yStep*float64(i)), pdf.TextStyle{
 			Font: pdf.FontHelvetica, Size: 8,
 			Color:  &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
 			HAlign: pdf.HAlignRight,
