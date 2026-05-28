@@ -1971,11 +1971,11 @@ func addLandscapeChart(page *pdf.Page) {
 			Color:  &pdf.Color{R: 0.3, G: 0.3, B: 0.35, A: 1},
 			HAlign: pdf.HAlignCenter,
 		}, pdf.Rectangle{LLX: x - 5, LLY: chartBottom - 18, URX: x + barWidth + 5, URY: chartBottom - 5}))
-		mustText(page.AddText(fmt.Sprintf("%.0f", v), pdf.TextStyle{
+		mustText(page.AddText(fmt.Sprintf("€%.0fk", v), pdf.TextStyle{
 			Font: pdf.FontHelveticaBold, Size: 9,
 			Color:  &pdf.Color{R: 0.1, G: 0.3, B: 0.6, A: 1},
 			HAlign: pdf.HAlignCenter,
-		}, pdf.Rectangle{LLX: x - 5, LLY: barTop + 2, URX: x + barWidth + 5, URY: barTop + 14}))
+		}, pdf.Rectangle{LLX: x - 10, LLY: barTop + 2, URX: x + barWidth + 10, URY: barTop + 14}))
 		tops[i] = pdf.Point{X: x + barWidth/2, Y: barTop}
 	}
 
