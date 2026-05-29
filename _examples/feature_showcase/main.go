@@ -508,12 +508,12 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 
 	sectionHeader(page,
 		"AcroForm Fields",
-		"Text  •  checkbox  •  radio group  •  combo box  •  list box")
+		"Text  •  checkbox  •  radio group  •  combo box  •  list box  •  styled via Field.SetStyle")
 
 	// Honest secondary note: what the library can also do for forms.
 	size, _ := page.Size()
 	mustText(page.AddText(
-		"Also available  ·  read / write any value  ·  Required & ReadOnly flags  ·  MaxLen, Multiline, Password (text)  ·  MultiSelect (list)  ·  Add / Remove options  ·  RemoveField",
+		"Fields below are styled with Field.SetStyle (border, background, text colour, font, alignment)  ·  Also available  ·  read / write any value  ·  Required & ReadOnly flags  ·  MaxLen, Multiline, Password (text)  ·  MultiSelect (list)  ·  Add / Remove options  ·  RemoveField",
 		pdf.TextStyle{
 			Font:        pdf.FontHelvetica,
 			Size:        9,
@@ -536,13 +536,29 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	}
 	tb.SetValue("Alice Sample")
 
-	// Row 2: checkbox.
+	// Brand palette for field styling (Field.SetStyle → /MK, /BS, /DA, /Q).
+	navy := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	tint := &pdf.Color{R: 0.95, G: 0.96, B: 1.0, A: 1}
+	green := &pdf.Color{R: 0.10, G: 0.55, B: 0.25, A: 1}
+
+	// Style the text field: navy border, faint tint fill, navy text.
+	mustErr(tb.SetStyle(pdf.FieldStyle{
+		BorderColor:     navy,
+		BackgroundColor: tint,
+		TextColor:       navy,
+		BorderWidth:     1,
+		TextFont:        pdf.FontHelvetica,
+		TextSize:        12,
+	}))
+
+	// Row 2: checkbox — navy box, green check.
 	addLabel("Subscribe:", 630)
 	cbRect := pdf.Rectangle{LLX: 200, LLY: 630, URX: 218, URY: 648}
 	cb, err := form.AddCheckbox(pageNum, cbRect, "Subscribe")
 	if err != nil {
 		log.Fatalf("checkbox: %v", err)
 	}
+	mustErr(cb.SetStyle(pdf.FieldStyle{BorderColor: navy, BorderWidth: 1, TextColor: green}))
 	cb.SetValue("Yes")
 
 	// Row 3: radio group (3 options arranged horizontally).
@@ -560,6 +576,7 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	if err != nil {
 		log.Fatalf("radio group: %v", err)
 	}
+	mustErr(rb.SetStyle(pdf.FieldStyle{BorderColor: navy, BorderWidth: 1, TextColor: navy}))
 	rb.SetValue("Pro")
 
 	// Inline labels for the radio options.
@@ -581,6 +598,7 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	if err != nil {
 		log.Fatalf("combo box: %v", err)
 	}
+	mustErr(combo.SetStyle(pdf.FieldStyle{BorderColor: navy, BackgroundColor: tint, TextColor: navy, BorderWidth: 1}))
 	combo.SetValue("United States")
 
 	// Row 5: list box.
@@ -596,6 +614,7 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	if err != nil {
 		log.Fatalf("list box: %v", err)
 	}
+	mustErr(lb.SetStyle(pdf.FieldStyle{BorderColor: navy, BackgroundColor: tint, TextColor: navy, BorderWidth: 1}))
 	lb.SetMultiSelect(true)
 	lb.SetValue("PDF Engineering")
 }
