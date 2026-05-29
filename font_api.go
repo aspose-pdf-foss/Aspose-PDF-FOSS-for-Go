@@ -76,12 +76,22 @@ func FindFont(name string) (Font, error) {
 type embeddedFont struct {
 	doc          *Document
 	ttf          *ttfFont
-	baseFont     string // PostScript name cache
-	fontObjectID int    // ID of the Type0 font dict in doc.objects
+	baseFont     string          // PostScript name cache
+	fontObjectID int             // ID of the Type0 font dict in doc.objects
+	usedGlyphs   map[uint16]bool // glyph IDs actually emitted to a content stream
 }
 
 func (e *embeddedFont) BaseFont() string { return e.baseFont }
 func (e *embeddedFont) IsEmbedded() bool { return true }
+
+// useGlyph records that glyph gid was emitted to a content stream, so
+// (*Document).SubsetFonts knows to keep it. Called from the text encoders.
+func (e *embeddedFont) useGlyph(gid uint16) {
+	if e.usedGlyphs == nil {
+		e.usedGlyphs = map[uint16]bool{}
+	}
+	e.usedGlyphs[gid] = true
+}
 
 // LoadFont reads a TTF file, parses it, embeds it into the document, and returns
 // a Font that can be used in TextStyle.Font. The full TTF is embedded without
@@ -115,6 +125,8 @@ func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
 		ttf:          ttf,
 		baseFont:     ttf.postScriptName,
 		fontObjectID: fontID,
+		usedGlyphs:   map[uint16]bool{},
 	}
+	d.embeddedFonts = append(d.embeddedFonts, ef)
 	return ef, nil
 }

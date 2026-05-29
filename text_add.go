@@ -449,7 +449,9 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 			var b strings.Builder
 			b.WriteByte('<')
 			for _, r := range s {
-				fmt.Fprintf(&b, "%04X", f.ttf.glyphID(r))
+				gid := f.ttf.glyphID(r)
+				f.useGlyph(gid)
+				fmt.Fprintf(&b, "%04X", gid)
 			}
 			b.WriteByte('>')
 			return b.String()
@@ -983,7 +985,9 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			var b strings.Builder
 			b.WriteByte('<')
 			for _, r := range s {
-				fmt.Fprintf(&b, "%04X", f.ttf.glyphID(r))
+				gid := f.ttf.glyphID(r)
+				f.useGlyph(gid)
+				fmt.Fprintf(&b, "%04X", gid)
 			}
 			b.WriteByte('>')
 			return b.String()

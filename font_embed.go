@@ -12,15 +12,34 @@ import (
 // buildFontFile2Stream creates a /FontFile2 stream with the raw TTF bytes,
 // compressed via FlateDecode. /Length1 holds the uncompressed length.
 func buildFontFile2Stream(f *ttfFont) *pdfStream {
+	return buildFontFile2StreamBytes(f.data)
+}
+
+// buildFontFile2StreamBytes wraps an arbitrary (full or subset) TTF
+// program as a FlateDecode-compressed /FontFile2 stream.
+func buildFontFile2StreamBytes(program []byte) *pdfStream {
 	var buf bytes.Buffer
 	zw := zlib.NewWriter(&buf)
-	_, _ = zw.Write(f.data)
+	_, _ = zw.Write(program)
 	_ = zw.Close()
 	return &pdfStream{
 		Dict: pdfDict{
-			"/Length1": len(f.data),
+			"/Length1": len(program),
 			"/Filter":  pdfName("/FlateDecode"),
 		},
+		Data: buf.Bytes(),
+	}
+}
+
+// buildFlateStream wraps raw bytes as a FlateDecode-compressed stream
+// (used for the /CIDToGIDMap stream produced by subsetting).
+func buildFlateStream(data []byte) *pdfStream {
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	_, _ = zw.Write(data)
+	_ = zw.Close()
+	return &pdfStream{
+		Dict: pdfDict{"/Filter": pdfName("/FlateDecode")},
 		Data: buf.Bytes(),
 	}
 }
@@ -215,6 +234,172 @@ func embedFont(d *Document, f *ttfFont) int {
 		"/ToUnicode":       pdfRef{Num: tuID},
 	}
 	return d.addObject(type0)
+}
+
+// SubsetFonts shrinks every embedded TTF (loaded via LoadFont) to only
+// the glyphs actually drawn, replacing each /FontFile2 with a rebuilt
+// subset program and switching the CIDFont's /CIDToGIDMap from /Identity
+// to a stream that maps the original glyph IDs (still used verbatim as
+// CIDs in content streams) to the compact subset glyph IDs. /W and
+// /ToUnicode are also trimmed to the used glyphs.
+//
+// Call this once, AFTER all text has been added and just before Save /
+// WriteTo: adding more text that introduces new glyphs after subsetting
+// would reference glyphs the subset no longer contains. Fonts with no
+// drawn glyphs are skipped. Returns the number of fonts subsetted.
+//
+// Typical reduction is from ~300-700 KB per embedded font down to a few
+// KB, since only the used outlines survive. Mirrors the post-processing
+// shape of (*Document).OptimizeImages.
+func (d *Document) SubsetFonts() (int, error) {
+	count := 0
+	for _, ef := range d.embeddedFonts {
+		if ef == nil || len(ef.usedGlyphs) == 0 {
+			continue
+		}
+		res, err := subsetTTF(ef.ttf, ef.usedGlyphs)
+		if err != nil {
+			return count, fmt.Errorf("subset %s: %w", ef.baseFont, err)
+		}
+		cidFont, fontFile2ID, ok := d.embeddedFontObjs(ef)
+		if !ok {
+			continue
+		}
+
+		// Replace the embedded font program.
+		d.objects[fontFile2ID].Value = buildFontFile2StreamBytes(res.program)
+
+		// /CIDToGIDMap stream (CID == original GID → subset GID).
+		cidMapID := d.addObject(buildFlateStream(res.cidToGID))
+		cidFont["/CIDToGIDMap"] = pdfRef{Num: cidMapID}
+
+		// Trim /W to the used CIDs.
+		cidFont["/W"] = buildSubsetWArray(ef.ttf, ef.usedGlyphs)
+
+		// Trim /ToUnicode to the used glyphs, reusing the existing stream
+		// object so the Type0 /ToUnicode ref stays valid.
+		if type0, ok := d.objects[ef.fontObjectID].Value.(pdfDict); ok {
+			if tuRef, ok := type0["/ToUnicode"].(pdfRef); ok {
+				if obj, ok := d.objects[tuRef.Num]; ok {
+					obj.Value = buildSubsetToUnicode(ef.ttf, ef.usedGlyphs)
+				}
+			}
+		}
+		count++
+	}
+	return count, nil
+}
+
+// embeddedFontObjs resolves an embedded font's CIDFont dict and the
+// object ID of its /FontFile2 stream by walking Type0 → DescendantFonts
+// → FontDescriptor → FontFile2.
+func (d *Document) embeddedFontObjs(ef *embeddedFont) (cidFont pdfDict, fontFile2ID int, ok bool) {
+	type0, ok := d.objects[ef.fontObjectID].Value.(pdfDict)
+	if !ok {
+		return nil, 0, false
+	}
+	desc, ok := type0["/DescendantFonts"].(pdfArray)
+	if !ok || len(desc) == 0 {
+		return nil, 0, false
+	}
+	cidRef, ok := desc[0].(pdfRef)
+	if !ok {
+		return nil, 0, false
+	}
+	cidObj, ok := d.objects[cidRef.Num]
+	if !ok {
+		return nil, 0, false
+	}
+	cidFont, ok = cidObj.Value.(pdfDict)
+	if !ok {
+		return nil, 0, false
+	}
+	fdRef, ok := cidFont["/FontDescriptor"].(pdfRef)
+	if !ok {
+		return nil, 0, false
+	}
+	fdObj, ok := d.objects[fdRef.Num]
+	if !ok {
+		return nil, 0, false
+	}
+	fd, ok := fdObj.Value.(pdfDict)
+	if !ok {
+		return nil, 0, false
+	}
+	ff2Ref, ok := fd["/FontFile2"].(pdfRef)
+	if !ok {
+		return nil, 0, false
+	}
+	return cidFont, ff2Ref.Num, true
+}
+
+// sortedUsedGlyphs returns the used glyph IDs in ascending order.
+func sortedUsedGlyphs(used map[uint16]bool) []uint16 {
+	gids := make([]uint16, 0, len(used))
+	for g := range used {
+		gids = append(gids, g)
+	}
+	sort.Slice(gids, func(i, j int) bool { return gids[i] < gids[j] })
+	return gids
+}
+
+// buildSubsetWArray emits a /W array with one "cid [width]" entry per
+// used glyph (CIDs stay equal to the original glyph IDs). Compact for the
+// sparse glyph sets a subset produces.
+func buildSubsetWArray(f *ttfFont, used map[uint16]bool) pdfArray {
+	var arr pdfArray
+	for _, gid := range sortedUsedGlyphs(used) {
+		if int(gid) >= len(f.glyphWidths) {
+			continue
+		}
+		w := int(float64(f.glyphWidths[gid])*1000.0/float64(f.unitsPerEm) + 0.5)
+		arr = append(arr, int(gid), pdfArray{w})
+	}
+	return arr
+}
+
+// buildSubsetToUnicode regenerates the /ToUnicode CMap for only the used
+// glyphs. CIDs (== original glyph IDs) map back to their Unicode runes.
+func buildSubsetToUnicode(f *ttfFont, used map[uint16]bool) *pdfStream {
+	// Invert runeToGlyph for the used glyphs (first rune wins on ties).
+	gidToRune := make(map[uint16]rune, len(used))
+	for r, gid := range f.runeToGlyph {
+		if used[gid] {
+			if _, seen := gidToRune[gid]; !seen {
+				gidToRune[gid] = r
+			}
+		}
+	}
+	gids := make([]uint16, 0, len(gidToRune))
+	for gid := range gidToRune {
+		gids = append(gids, gid)
+	}
+	sort.Slice(gids, func(i, j int) bool { return gids[i] < gids[j] })
+
+	var buf bytes.Buffer
+	buf.WriteString("/CIDInit /ProcSet findresource begin\n")
+	buf.WriteString("12 dict begin\n")
+	buf.WriteString("begincmap\n")
+	buf.WriteString("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n")
+	buf.WriteString("/CMapName /Adobe-Identity-UCS def\n")
+	buf.WriteString("/CMapType 2 def\n")
+	buf.WriteString("1 begincodespacerange <0000> <FFFF> endcodespacerange\n")
+	for start := 0; start < len(gids); start += 100 {
+		end := start + 100
+		if end > len(gids) {
+			end = len(gids)
+		}
+		fmt.Fprintf(&buf, "%d beginbfchar\n", end-start)
+		for _, gid := range gids[start:end] {
+			fmt.Fprintf(&buf, "<%04X> <%s>\n", gid, runeToUTF16BEHex(gidToRune[gid]))
+		}
+		buf.WriteString("endbfchar\n")
+	}
+	buf.WriteString("endcmap\n")
+	buf.WriteString("CMapName currentdict /CMap defineresource pop\n")
+	buf.WriteString("end\nend\n")
+
+	return &pdfStream{Dict: pdfDict{}, Data: buf.Bytes(), Decoded: true}
 }
 
 // runeToUTF16BEHex renders r as big-endian UTF-16 in uppercase hex, with

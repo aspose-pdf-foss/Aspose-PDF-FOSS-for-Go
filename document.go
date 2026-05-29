@@ -22,6 +22,11 @@ type Document struct {
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
 
+	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
+	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
+	// only the glyphs that were actually drawn.
+	embeddedFonts []*embeddedFont
+
 	// formFonts maps an /AcroForm/DR/Font resource name (e.g. "Helv") to
 	// the Go Font registered under it, so widget /AP generators can render
 	// a field's styled text with the exact font the caller chose — including
