@@ -239,10 +239,24 @@ func drawWidgetChrome(b *appearanceBuilder, width, height float64) {
 	b.PopState()
 }
 
-// generateTextFieldAppearance renders the value text inside the widget
-// rect with a 3pt inset, honouring /DA size+colour and /Q alignment.
-// Multiline /Ff flag bit 13 lets text wrap; otherwise the first line is
-// clipped by renderTextInBuilder.
+// Helvetica metric fractions used to lay out widget text exactly the way
+// Acrobat does, so that our pre-generated /AP coincides with whatever a
+// viewer would draw (no ghosting if it overlays its own form layer).
+//   - helvLineHeight: Helvetica FontBBox height (1156/1000) — the per-row
+//     advance Acrobat uses for list boxes and the line box for centring.
+//   - helvDescentFrac: Helvetica descent magnitude (207/1000) — the gap
+//     between a row's bottom and the text baseline.
+// Verified against Acrobat-generated /AP streams in testdata/PdfWithAcroForm.pdf.
+const (
+	helvLineHeight  = 1.156
+	helvDescentFrac = 0.207
+)
+
+// generateTextFieldAppearance renders the value into a /Tx-marked
+// appearance stream matching Acrobat's single-line layout: white fill +
+// border, clip to the 1pt-inset interior, value vertically centred via
+// baseline = (h-rowH)/2 + descent. Multiline fields keep the wrapping
+// renderTextInBuilder path (still wrapped in /Tx BMC).
 func generateTextFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 	width, height := widgetSize(widget)
 	if width <= 0 || height <= 0 {
@@ -250,7 +264,6 @@ func generateTextFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 	}
 	fontSize, textColor := parseDA(dictGetString(widget, "/DA"))
 	value := decodeFormString(widget["/V"])
-	halign := widgetQuadAlign(widget)
 	multiline := widgetFieldFlags(form, widget)&fieldFlagMultiline != 0
 
 	b := newAppearanceBuilder()
@@ -260,24 +273,36 @@ func generateTextFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 		return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 	}
 
-	const pad = 3.0
-	inner := Rectangle{LLX: pad, LLY: pad, URX: width - pad, URY: height - pad}
-	style := TextStyle{
-		Font:   FontHelvetica,
-		Size:   fontSize,
-		Color:  &textColor,
-		HAlign: halign,
-	}
-	if multiline {
-		style.VAlign = VAlignTop
-	} else {
-		style.VAlign = VAlignMiddle
-	}
 	resources := pdfDict{}
-	resolve := func(font Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
-		return resolveFontForXObject(font, fontSize, form.doc, resources)
+
+	if multiline {
+		b.BeginMarkedContentText()
+		const pad = 2.0
+		inner := Rectangle{LLX: pad, LLY: pad, URX: width - pad, URY: height - pad}
+		style := TextStyle{Font: FontHelvetica, Size: fontSize, Color: &textColor,
+			HAlign: widgetQuadAlign(widget), VAlign: VAlignTop}
+		resolve := func(font Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
+			return resolveFontForXObject(font, fontSize, form.doc, resources)
+		}
+		_ = renderTextInBuilder(b, resources, value, style, inner, resolve, "", "")
+		b.EndMarkedContent()
+		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
-	_ = renderTextInBuilder(b, resources, value, style, inner, resolve, "", "")
+
+	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	if err != nil {
+		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
+	}
+	rowH := helvLineHeight * fontSize
+	descent := helvDescentFrac * fontSize
+	baseline := (height-rowH)/2 + descent
+
+	b.BeginMarkedContentText()
+	b.PushState()
+	b.ClipRect(1, 1, width-2, height-2)
+	b.TextLine(resName, fontSize, textColor, 2, baseline, encode(value))
+	b.PopState()
+	b.EndMarkedContent()
 	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 }
 
@@ -377,9 +402,12 @@ func drawRadioRing(b *appearanceBuilder, cx, cy, r float64) {
 	b.PopState()
 }
 
-// generateComboBoxAppearance draws the same chrome as a text field
-// plus a dropdown chevron flush with the right edge. Value text is
-// inset to leave room for the chevron.
+// generateComboBoxAppearance renders the selected value as a single
+// centred line, matching Acrobat's combo /AP layout. No dropdown chevron
+// is baked in — the viewer draws the dropdown button itself as widget
+// chrome, so baking one would double it. Mirrors the reference combo /AP
+// in testdata/PdfWithAcroForm.pdf (white fill, /Tx BMC, clipped, value
+// at baseline = (h-rowH)/2 + descent).
 func generateComboBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	width, height := widgetSize(widget)
 	if width <= 0 || height <= 0 {
@@ -390,50 +418,40 @@ func generateComboBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 
 	b := newAppearanceBuilder()
 	drawWidgetChrome(b, width, height)
-	drawDropdownChevron(b, width, height)
 
-	const padLeft = 4.0
-	const chevronZone = 16.0
-	inner := Rectangle{LLX: padLeft, LLY: 2, URX: width - chevronZone, URY: height - 2}
-	if value == "" || inner.URX <= inner.LLX {
+	if value == "" {
 		return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 	}
-	style := TextStyle{
-		Font:   FontHelvetica,
-		Size:   fontSize,
-		Color:  &textColor,
-		HAlign: HAlignLeft,
-		VAlign: VAlignMiddle,
-	}
 	resources := pdfDict{}
-	resolve := func(font Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
-		return resolveFontForXObject(font, fontSize, form.doc, resources)
+	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	if err != nil {
+		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
-	_ = renderTextInBuilder(b, resources, value, style, inner, resolve, "", "")
+	rowH := helvLineHeight * fontSize
+	descent := helvDescentFrac * fontSize
+	baseline := (height-rowH)/2 + descent
+
+	b.BeginMarkedContentText()
+	b.PushState()
+	b.ClipRect(1, 1, width-2, height-2)
+	b.TextLine(resName, fontSize, textColor, 2, baseline, encode(value))
+	b.PopState()
+	b.EndMarkedContent()
 	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 }
 
-// drawDropdownChevron paints a downward-pointing triangle in the right
-// portion of the combobox where the OS native chrome would draw one.
-func drawDropdownChevron(b *appearanceBuilder, width, height float64) {
-	size := math.Min(height*0.45, 9)
-	cx := width - 8
-	cy := height / 2
-	b.PushState()
-	b.SetFillGray(0.3)
-	b.MoveTo(cx-size/2, cy+size/3)
-	b.LineTo(cx+size/2, cy+size/3)
-	b.LineTo(cx, cy-size*2/3)
-	b.ClosePath()
-	b.Fill()
-	b.PopState()
-}
-
-// generateListBoxAppearance lays out each /Opt entry as a row,
-// highlighting the rows whose value or export matches /V (which may be
-// a string or an array for multi-select). Rows that don't fit the
-// widget's vertical space are clipped — this matches viewer behaviour
-// for an over-tall list.
+// generateListBoxAppearance lays out each /Opt entry as a row exactly the
+// way Acrobat does, so the pre-generated /AP coincides with the viewer's
+// own list rendering and never ghosts. Layout (verified against the
+// reference list box /AP in testdata/PdfWithAcroForm.pdf):
+//   - white fill + border, then "/Tx BMC", then clip to the 1pt interior.
+//   - rowH = 1.156*fontSize (Helvetica FontBBox height).
+//   - row i spans y in [h-1-(i+1)*rowH, h-1-i*rowH]; baseline sits
+//     `descent` (0.207*fontSize) above each row's bottom.
+//   - selected rows (from /I, falling back to /V) get a light-blue
+//     0.6/0.757/0.855 highlight band; ALL text is drawn black on top,
+//     matching Acrobat (no white-on-blue).
+// Rows past the bottom of the box are clipped.
 func generateListBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	width, height := widgetSize(widget)
 	if width <= 0 || height <= 0 {
@@ -441,51 +459,75 @@ func generateListBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	}
 	fontSize, textColor := parseDA(dictGetString(widget, "/DA"))
 	options := readChoiceOptions(widget["/Opt"])
-	selected := widgetSelectedValues(widget)
+	selected := widgetSelectedIndexSet(widget, options)
 
 	b := newAppearanceBuilder()
 	drawWidgetChrome(b, width, height)
 
-	rowH := fontSize * 1.25
 	resources := pdfDict{}
-	resolve := func(font Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
-		return resolveFontForXObject(font, fontSize, form.doc, resources)
+	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	if err != nil {
+		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
+	}
+	rowH := helvLineHeight * fontSize
+	descent := helvDescentFrac * fontSize
+	highlight := Color{R: 0.600006, G: 0.756866, B: 0.854904, A: 1}
+
+	b.BeginMarkedContentText()
+	b.PushState()
+	b.ClipRect(1, 1, width-2, height-2)
+
+	// Highlight bands for selected rows first (so text lands on top).
+	for i := range options {
+		if !selected[i] {
+			continue
+		}
+		yBot := height - 1 - float64(i+1)*rowH
+		if yBot >= height-1 || yBot+rowH <= 1 {
+			continue
+		}
+		b.PushState()
+		b.SetFillColorRGB(highlight)
+		b.Rect(1, yBot, width-2, rowH)
+		b.Fill()
+		b.PopState()
 	}
 
-	const padX = 4.0
-	const topInset = 2.0
-	highlight := Color{R: 0.30, G: 0.55, B: 0.85, A: 1}
-	whiteText := Color{R: 1, G: 1, B: 1, A: 1}
-
+	// Option text — black, one BT/ET per row at the Acrobat baseline.
 	for i, opt := range options {
-		yTop := height - topInset - float64(i)*rowH
-		yBot := yTop - rowH
-		if yBot < 1 {
-			break
+		baseline := height - 1 - float64(i+1)*rowH + descent
+		if baseline > height-1 || baseline+rowH < 1 {
+			continue // row fully outside the visible interior
 		}
-		if isOptionSelected(opt, selected) {
-			b.PushState()
-			b.SetFillColorRGB(highlight)
-			b.Rect(1, yBot, width-2, rowH)
-			b.Fill()
-			b.PopState()
-		}
-		rowStyle := TextStyle{
-			Font:   FontHelvetica,
-			Size:   fontSize,
-			HAlign: HAlignLeft,
-			VAlign: VAlignMiddle,
-		}
-		if isOptionSelected(opt, selected) {
-			rowStyle.Color = &whiteText
-		} else {
-			c := textColor
-			rowStyle.Color = &c
-		}
-		rect := Rectangle{LLX: padX, LLY: yBot, URX: width - padX, URY: yTop}
-		_ = renderTextInBuilder(b, resources, opt.Value, rowStyle, rect, resolve, "", "")
+		b.TextLine(resName, fontSize, textColor, 2, baseline, encode(opt.Value))
 	}
+
+	b.PopState()
+	b.EndMarkedContent()
 	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
+}
+
+// widgetSelectedIndexSet returns the set of selected /Opt indices for a
+// choice widget. Prefers the /I (selected-indices) array; falls back to
+// matching /V values against the option list when /I is absent.
+func widgetSelectedIndexSet(widget pdfDict, options []ChoiceOption) map[int]bool {
+	set := map[int]bool{}
+	if iarr, ok := widget["/I"].(pdfArray); ok && len(iarr) > 0 {
+		for _, v := range iarr {
+			idx := toInt(v)
+			if idx >= 0 && idx < len(options) {
+				set[idx] = true
+			}
+		}
+		return set
+	}
+	sel := widgetSelectedValues(widget)
+	for i, opt := range options {
+		if isOptionSelected(opt, sel) {
+			set[i] = true
+		}
+	}
+	return set
 }
 
 // widgetSelectedValues returns the strings in /V — handles string,

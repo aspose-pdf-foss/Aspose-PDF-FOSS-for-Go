@@ -263,3 +263,49 @@ func (ab *appearanceBuilder) DoXObject(name pdfName) {
 	ab.buf.WriteString(string(name))
 	ab.buf.WriteString(" Do\n")
 }
+
+// BeginMarkedContentText opens a "/Tx BMC" marked-content section. PDF
+// form viewers (notably Acrobat) tag a variable-text field's appearance
+// stream with /Tx so they recognise it as the field's own rendered
+// content and render it as-is instead of regenerating a competing
+// layout on top — see ISO 32000-1 §12.7.3.3 and §14.6.
+func (ab *appearanceBuilder) BeginMarkedContentText() {
+	ab.buf.WriteString("/Tx BMC\n")
+}
+
+// EndMarkedContent closes a marked-content section (EMC operator).
+func (ab *appearanceBuilder) EndMarkedContent() {
+	ab.buf.WriteString("EMC\n")
+}
+
+// ClipRect intersects the clip path with the given rectangle (re W n).
+func (ab *appearanceBuilder) ClipRect(x, y, w, h float64) {
+	ab.Rect(x, y, w, h)
+	ab.buf.WriteString("W\nn\n")
+}
+
+// TextLine emits one positioned line of text: BT, font + size, fill
+// colour, an absolute text position, the (already PDF-escaped, paren-
+// wrapped) string, then ET. resName is the font resource name including
+// its leading slash (as returned by the font resolver, e.g. "/F0").
+// encoded must already be in "(...)" or "<...>" form as produced by the
+// font resolver's encode callback.
+func (ab *appearanceBuilder) TextLine(resName string, size float64, fill Color, x, y float64, encoded string) {
+	ab.buf.WriteString("BT\n")
+	ab.buf.WriteString(resName)
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(size))
+	ab.buf.WriteString(" Tf\n")
+	ab.buf.WriteString(formatFloat(fill.R))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(fill.G))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(fill.B))
+	ab.buf.WriteString(" rg\n")
+	ab.buf.WriteString(formatFloat(x))
+	ab.buf.WriteByte(' ')
+	ab.buf.WriteString(formatFloat(y))
+	ab.buf.WriteString(" Td\n")
+	ab.buf.WriteString(encoded)
+	ab.buf.WriteString(" Tj\nET\n")
+}
