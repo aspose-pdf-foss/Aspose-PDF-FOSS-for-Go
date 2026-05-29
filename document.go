@@ -22,6 +22,15 @@ type Document struct {
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
 
+	// formFonts maps an /AcroForm/DR/Font resource name (e.g. "Helv") to
+	// the Go Font registered under it, so widget /AP generators can render
+	// a field's styled text with the exact font the caller chose — including
+	// embedded TTFs that FindFont can't reconstruct from a /BaseFont alone.
+	// Populated by (*Form).ensureFont; nil until the first field is created
+	// or styled. Not persisted: after a Save+Open round-trip it is empty and
+	// generators fall back to resolving Standard 14 fonts from /DR/Font.
+	formFonts map[string]Font
+
 	// Phase 3b: SVG text font resolution callback (nil = heuristic only).
 	svgFontResolver SVGFontResolver
 }

@@ -90,6 +90,10 @@ type Field interface {
 	IsRequired() bool
 	PageIndex() int
 	Rect() Rectangle
+	// SetStyle applies visual styling (colours, border, font, alignment)
+	// and regenerates the widget appearance. Style reads it back.
+	SetStyle(s FieldStyle) error
+	Style() FieldStyle
 }
 
 // walkAcroForm walks /AcroForm/Fields recursively, returning the flat
@@ -400,31 +404,7 @@ func (f *Form) rebuildFieldCache() {
 // ensureFontHelv registers a Helvetica font resource under /AcroForm/DR/
 // Font/Helv and returns its resource name ("Helv"). Idempotent.
 func (f *Form) ensureFontHelv() (string, error) {
-	f.ensureRoot()
-	dr, _ := f.root["/DR"].(pdfDict)
-	if dr == nil {
-		dr = pdfDict{}
-		f.root["/DR"] = dr
-	}
-	fonts, _ := dr["/Font"].(pdfDict)
-	if fonts == nil {
-		fonts = pdfDict{}
-		dr["/Font"] = fonts
-	}
-	if _, ok := fonts["/Helv"]; ok {
-		return "Helv", nil
-	}
-	fontDict := pdfDict{
-		"/Type":     pdfName("/Font"),
-		"/Subtype":  pdfName("/Type1"),
-		"/BaseFont": pdfName("/Helvetica"),
-		"/Encoding": pdfName("/WinAnsiEncoding"),
-	}
-	id := f.doc.nextID
-	f.doc.nextID++
-	f.doc.objects[id] = &pdfObject{Num: id, Value: fontDict}
-	fonts["/Helv"] = pdfRef{Num: id}
-	return "Helv", nil
+	return f.ensureFont(FontHelvetica)
 }
 
 // rectToPDFArray converts a Rectangle to a /Rect pdfArray.

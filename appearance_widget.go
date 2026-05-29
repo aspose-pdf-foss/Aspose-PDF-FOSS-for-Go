@@ -112,26 +112,27 @@ func widgetSize(widget pdfDict) (float64, float64) {
 	return urx - llx, ury - lly
 }
 
-// parseDA extracts the font size and fill colour from a widget's /DA
-// string ("0 g /Helv 12 Tf"). The font NAME inside /DA is intentionally
-// ignored — text rendering inside the /AP XObject embeds whichever font
-// the renderer chose, registered in the XObject's own /Resources via
-// resolveFontForXObject; the /DA name only matters for viewers that
-// synthesise their own appearance.
+// parseDA extracts the font size, fill colour, and font resource name
+// from a widget's /DA string ("0.2 0.2 0.6 rg /Helv 12 Tf"). The font
+// resource name (without the leading slash) lets the generator resolve
+// the caller's chosen font via resolveWidgetFont so the rendered /AP
+// uses it, not just viewers that synthesise their own appearance.
 //
-// Defaults: 12pt black. Supports the two common colour ops: "g" (gray)
-// and "rg" (RGB). Unknown colour space → black.
-func parseDA(da string) (size float64, color Color) {
+// Defaults: 12pt, black, "Helv". Supports the two common colour ops:
+// "g" (gray) and "rg" (RGB). Unknown colour space → black.
+func parseDA(da string) (size float64, color Color, fontRes string) {
 	size = 12
 	color = Color{R: 0, G: 0, B: 0, A: 1}
+	fontRes = "Helv"
 	toks := strings.Fields(da)
 	for i, tok := range toks {
 		switch tok {
 		case "Tf":
-			if i >= 1 {
+			if i >= 2 {
 				if s, err := strconv.ParseFloat(toks[i-1], 64); err == nil && s > 0 {
 					size = s
 				}
+				fontRes = strings.TrimPrefix(toks[i-2], "/")
 			}
 		case "g":
 			if i >= 1 {
@@ -150,7 +151,7 @@ func parseDA(da string) (size float64, color Color) {
 			}
 		}
 	}
-	return size, color
+	return size, color, fontRes
 }
 
 // widgetQuadAlign maps /Q (0 = left, 1 = centred, 2 = right) to HAlign.
@@ -221,22 +222,39 @@ func setWidgetAPN(doc *Document, widget pdfDict, stream *pdfStream, stateName st
 	widget["/AP"] = ap
 }
 
-// drawWidgetChrome paints the background + border that every text-like
-// widget shares: white interior, light grey 0.5pt border inset by half
-// the stroke width so the stroke stays inside the BBox.
-func drawWidgetChrome(b *appearanceBuilder, width, height float64) {
+// drawWidgetChrome paints the background fill and border for a text-like
+// widget. Colours and border come from the widget's /MK (/BG, /BC) and
+// /BS (/W, /S, /D) when present (set via Field.SetStyle); otherwise it
+// falls back to the library default — white interior with a light grey
+// 0.5pt hairline border — so unstyled fields look the same as before.
+func drawWidgetChrome(b *appearanceBuilder, widget pdfDict, width, height float64) {
+	// Background.
 	b.PushState()
-	b.SetFillGray(1)
+	if bg := mkColor(widget, "/BG"); bg != nil {
+		b.SetFillColorRGB(*bg)
+	} else {
+		b.SetFillGray(1)
+	}
 	b.Rect(0, 0, width, height)
 	b.Fill()
 	b.PopState()
 
-	b.PushState()
-	b.SetLineWidth(0.5)
-	b.SetStrokeGray(0.7)
-	b.Rect(0.25, 0.25, width-0.5, height-0.5)
-	b.Stroke()
-	b.PopState()
+	// Border.
+	bc := mkColor(widget, "/BC")
+	bw, bstyle, dash := readBS(widget)
+	if bc != nil {
+		if bw <= 0 {
+			bw = 1
+		}
+		drawStandardRectBorder(b, width, height, bstyle, bw, dash, bc)
+	} else {
+		b.PushState()
+		b.SetLineWidth(0.5)
+		b.SetStrokeGray(0.7)
+		b.Rect(0.25, 0.25, width-0.5, height-0.5)
+		b.Stroke()
+		b.PopState()
+	}
 }
 
 // Helvetica metric fractions used to lay out widget text exactly the way
@@ -262,12 +280,13 @@ func generateTextFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 	if width <= 0 || height <= 0 {
 		return makeFormXObject(nil, Rectangle{})
 	}
-	fontSize, textColor := parseDA(dictGetString(widget, "/DA"))
+	fontSize, textColor, fontRes := parseDA(dictGetString(widget, "/DA"))
+	font := resolveWidgetFont(form, fontRes)
 	value := decodeFormString(widget["/V"])
 	multiline := widgetFieldFlags(form, widget)&fieldFlagMultiline != 0
 
 	b := newAppearanceBuilder()
-	drawWidgetChrome(b, width, height)
+	drawWidgetChrome(b, widget, width, height)
 
 	if value == "" {
 		return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
@@ -279,31 +298,61 @@ func generateTextFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 		b.BeginMarkedContentText()
 		const pad = 2.0
 		inner := Rectangle{LLX: pad, LLY: pad, URX: width - pad, URY: height - pad}
-		style := TextStyle{Font: FontHelvetica, Size: fontSize, Color: &textColor,
+		style := TextStyle{Font: font, Size: fontSize, Color: &textColor,
 			HAlign: widgetQuadAlign(widget), VAlign: VAlignTop}
-		resolve := func(font Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
-			return resolveFontForXObject(font, fontSize, form.doc, resources)
+		resolve := func(fn Font, _ pdfDict) (string, widthFn, encodeFn, float64, float64, error) {
+			return resolveFontForXObject(fn, fontSize, form.doc, resources)
 		}
 		_ = renderTextInBuilder(b, resources, value, style, inner, resolve, "", "")
 		b.EndMarkedContent()
 		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
 
-	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	resName, widthOf, encode, _, _, err := resolveFontForXObject(font, fontSize, form.doc, resources)
 	if err != nil {
 		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
 	rowH := helvLineHeight * fontSize
 	descent := helvDescentFrac * fontSize
 	baseline := (height-rowH)/2 + descent
+	x := widgetTextX(value, widthOf, widgetQuadAlign(widget), 2, width-2)
 
 	b.BeginMarkedContentText()
 	b.PushState()
 	b.ClipRect(1, 1, width-2, height-2)
-	b.TextLine(resName, fontSize, textColor, 2, baseline, encode(value))
+	b.TextLine(resName, fontSize, textColor, x, baseline, encode(value))
 	b.PopState()
 	b.EndMarkedContent()
 	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
+}
+
+// widgetTextX returns the x origin for a single line of text given the
+// alignment, the usable [left,right] band, and a per-rune width function.
+// Left alignment returns left; centre/right measure the string so it sits
+// flush-centre or flush-right within the band.
+func widgetTextX(text string, widthOf widthFn, align HAlign, left, right float64) float64 {
+	if align == HAlignLeft {
+		return left
+	}
+	var w float64
+	for _, r := range text {
+		w += widthOf(r)
+	}
+	switch align {
+	case HAlignCenter:
+		x := left + (right-left-w)/2
+		if x < left {
+			return left
+		}
+		return x
+	case HAlignRight:
+		x := right - w
+		if x < left {
+			return left
+		}
+		return x
+	}
+	return left
 }
 
 // regenerateCheckboxWidget writes both /AP/N/Off and /AP/N/<onName>
@@ -315,13 +364,15 @@ func regenerateCheckboxWidget(form *Form, widget pdfDict) {
 		return
 	}
 
+	fill, stroke, mark := widgetMarkColors(widget)
+
 	off := newAppearanceBuilder()
-	drawCheckboxBox(off, width, height)
+	drawCheckboxBox(off, width, height, fill, stroke)
 	setWidgetAPN(form.doc, widget, makeFormXObject(off.Bytes(), Rectangle{URX: width, URY: height}), "Off")
 
 	on := newAppearanceBuilder()
-	drawCheckboxBox(on, width, height)
-	drawCheckMark(on, width, height)
+	drawCheckboxBox(on, width, height, fill, stroke)
+	drawCheckMark(on, width, height, mark)
 	onName := widgetOnStateName(widget)
 	if onName == "" {
 		onName = "Yes"
@@ -329,17 +380,34 @@ func regenerateCheckboxWidget(form *Form, widget pdfDict) {
 	setWidgetAPN(form.doc, widget, makeFormXObject(on.Bytes(), Rectangle{URX: width, URY: height}), onName)
 }
 
-// drawCheckboxBox draws the white interior + dark grey border that
-// surrounds both states of a checkbox.
-func drawCheckboxBox(b *appearanceBuilder, width, height float64) {
+// widgetMarkColors resolves the fill, border, and mark colours used by
+// checkbox / radio chrome from the widget's /MK (/BG, /BC) and /DA text
+// colour, falling back to the library defaults (white fill, dark grey
+// border, near-black mark) when unstyled.
+func widgetMarkColors(widget pdfDict) (fill, stroke, mark Color) {
+	fill = Color{R: 1, G: 1, B: 1, A: 1}
+	stroke = Color{R: 0.35, G: 0.35, B: 0.35, A: 1}
+	if bg := mkColor(widget, "/BG"); bg != nil {
+		fill = *bg
+	}
+	if bc := mkColor(widget, "/BC"); bc != nil {
+		stroke = *bc
+	}
+	_, mark, _ = parseDA(dictGetString(widget, "/DA"))
+	return fill, stroke, mark
+}
+
+// drawCheckboxBox draws the interior fill + border that surrounds both
+// states of a checkbox.
+func drawCheckboxBox(b *appearanceBuilder, width, height float64, fill, stroke Color) {
 	b.PushState()
-	b.SetFillGray(1)
+	b.SetFillColorRGB(fill)
 	b.Rect(0, 0, width, height)
 	b.Fill()
 	b.PopState()
 	b.PushState()
 	b.SetLineWidth(0.8)
-	b.SetStrokeGray(0.35)
+	b.SetStrokeColorRGB(stroke)
 	b.Rect(0.4, 0.4, width-0.8, height-0.8)
 	b.Stroke()
 	b.PopState()
@@ -348,10 +416,10 @@ func drawCheckboxBox(b *appearanceBuilder, width, height float64) {
 // drawCheckMark paints a two-segment tick across the box from
 // (~20% w, 50% h) to (~42% w, 28% h) to (~80% w, 75% h) — close to the
 // standard Acrobat check geometry.
-func drawCheckMark(b *appearanceBuilder, width, height float64) {
+func drawCheckMark(b *appearanceBuilder, width, height float64, mark Color) {
 	b.PushState()
 	b.SetLineWidth(math.Min(width, height) * 0.12)
-	b.SetStrokeGray(0.1)
+	b.SetStrokeColorRGB(mark)
 	b.SetLineCap(LineCapRound)
 	b.SetLineJoin(LineJoinRound)
 	b.MoveTo(width*0.20, height*0.50)
@@ -371,15 +439,16 @@ func regenerateRadioWidget(form *Form, widget pdfDict) {
 	}
 	cx, cy := width/2, height/2
 	r := math.Min(width, height)/2 - 0.6
+	fill, stroke, mark := widgetMarkColors(widget)
 
 	off := newAppearanceBuilder()
-	drawRadioRing(off, cx, cy, r)
+	drawRadioRing(off, cx, cy, r, fill, stroke)
 	setWidgetAPN(form.doc, widget, makeFormXObject(off.Bytes(), Rectangle{URX: width, URY: height}), "Off")
 
 	on := newAppearanceBuilder()
-	drawRadioRing(on, cx, cy, r)
+	drawRadioRing(on, cx, cy, r, fill, stroke)
 	on.PushState()
-	on.SetFillGray(0.1)
+	on.SetFillColorRGB(mark)
 	on.Ellipse(cx, cy, r*0.5, r*0.5)
 	on.Fill()
 	on.PopState()
@@ -390,13 +459,13 @@ func regenerateRadioWidget(form *Form, widget pdfDict) {
 	setWidgetAPN(form.doc, widget, makeFormXObject(on.Bytes(), Rectangle{URX: width, URY: height}), onName)
 }
 
-// drawRadioRing paints the white-filled, dark-grey-stroked circle that
-// forms the visual base of both radio states.
-func drawRadioRing(b *appearanceBuilder, cx, cy, r float64) {
+// drawRadioRing paints the filled, stroked circle that forms the visual
+// base of both radio states.
+func drawRadioRing(b *appearanceBuilder, cx, cy, r float64, fill, stroke Color) {
 	b.PushState()
 	b.SetLineWidth(0.8)
-	b.SetStrokeGray(0.35)
-	b.SetFillGray(1)
+	b.SetStrokeColorRGB(stroke)
+	b.SetFillColorRGB(fill)
 	b.Ellipse(cx, cy, r, r)
 	b.FillStroke()
 	b.PopState()
@@ -413,28 +482,30 @@ func generateComboBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	if width <= 0 || height <= 0 {
 		return makeFormXObject(nil, Rectangle{})
 	}
-	fontSize, textColor := parseDA(dictGetString(widget, "/DA"))
+	fontSize, textColor, fontRes := parseDA(dictGetString(widget, "/DA"))
+	font := resolveWidgetFont(form, fontRes)
 	value := decodeFormString(widget["/V"])
 
 	b := newAppearanceBuilder()
-	drawWidgetChrome(b, width, height)
+	drawWidgetChrome(b, widget, width, height)
 
 	if value == "" {
 		return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 	}
 	resources := pdfDict{}
-	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	resName, widthOf, encode, _, _, err := resolveFontForXObject(font, fontSize, form.doc, resources)
 	if err != nil {
 		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
 	rowH := helvLineHeight * fontSize
 	descent := helvDescentFrac * fontSize
 	baseline := (height-rowH)/2 + descent
+	x := widgetTextX(value, widthOf, widgetQuadAlign(widget), 2, width-2)
 
 	b.BeginMarkedContentText()
 	b.PushState()
 	b.ClipRect(1, 1, width-2, height-2)
-	b.TextLine(resName, fontSize, textColor, 2, baseline, encode(value))
+	b.TextLine(resName, fontSize, textColor, x, baseline, encode(value))
 	b.PopState()
 	b.EndMarkedContent()
 	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
@@ -457,15 +528,16 @@ func generateListBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	if width <= 0 || height <= 0 {
 		return makeFormXObject(nil, Rectangle{})
 	}
-	fontSize, textColor := parseDA(dictGetString(widget, "/DA"))
+	fontSize, textColor, fontRes := parseDA(dictGetString(widget, "/DA"))
+	font := resolveWidgetFont(form, fontRes)
 	options := readChoiceOptions(widget["/Opt"])
 	selected := widgetSelectedIndexSet(widget, options)
 
 	b := newAppearanceBuilder()
-	drawWidgetChrome(b, width, height)
+	drawWidgetChrome(b, widget, width, height)
 
 	resources := pdfDict{}
-	resName, _, encode, _, _, err := resolveFontForXObject(FontHelvetica, fontSize, form.doc, resources)
+	resName, _, encode, _, _, err := resolveFontForXObject(font, fontSize, form.doc, resources)
 	if err != nil {
 		return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: width, URY: height}, resources)
 	}
