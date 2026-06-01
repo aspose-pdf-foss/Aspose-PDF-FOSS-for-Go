@@ -112,17 +112,25 @@ func createPNGXObject(data []byte) (*pdfStream, *pdfStream, error) {
 			}
 		}
 	default:
-		// Generic fallback: convert to RGB.
+		// Generic fallback for any other color model (e.g. *image.Paletted
+		// from indexed PNGs, *image.NRGBA64, etc.). RGBA() returns 16-bit
+		// premultiplied components; un-premultiply to straight colour and
+		// capture the alpha into a soft mask so transparency is preserved.
 		pixels = make([]byte, w*h*3)
+		alpha = make([]byte, w*h)
 		for y := 0; y < h; y++ {
 			for x := 0; x < w; x++ {
-				r, g, b, _ := img.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
+				r, g, b, a := img.At(x+bounds.Min.X, y+bounds.Min.Y).RGBA()
 				off := (y*w + x) * 3
-				pixels[off] = uint8(r >> 8)
-				pixels[off+1] = uint8(g >> 8)
-				pixels[off+2] = uint8(b >> 8)
+				if a > 0 {
+					pixels[off] = uint8((r * 0xffff / a) >> 8)
+					pixels[off+1] = uint8((g * 0xffff / a) >> 8)
+					pixels[off+2] = uint8((b * 0xffff / a) >> 8)
+				}
+				alpha[y*w+x] = uint8(a >> 8)
 			}
 		}
+		hasAlpha = true
 	}
 
 	imgStream := &pdfStream{
