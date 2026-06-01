@@ -1290,7 +1290,7 @@ func addVectorShowcase(doc *pdf.Document, page *pdf.Page) {
 
 	sectionHeader(page,
 		"Vector Graphics",
-		"DrawLine  •  Rectangle  •  Circle  •  Ellipse  •  Polyline  •  Polygon  •  Path with Arc")
+		"DrawLine  •  Rectangle  •  Circle  •  Ellipse  •  Polyline  •  Polygon  •  Path with Arc  •  gradient fills")
 
 	// === 2×3 gallery of labeled primitive demos ===
 	// Each card shows the API name as a label and a representative figure
@@ -1381,15 +1381,24 @@ func addVectorShowcase(doc *pdf.Document, page *pdf.Page) {
 	}))
 
 	// --- Card 3: Circle + Ellipse ---------------------------------------
-	inner = drawCard(0, 1, "Circle  •  Ellipse")
+	inner = drawCard(0, 1, "Circle  •  radial gradient")
 	xmid, ymid := mid(inner)
 	cR := 28.0
+	cCx := inner.LLX + cR + 12
+	// Radial gradient with an off-centre focal point → a 3D "sphere" look.
 	mustVector(page.DrawCircle(
-		pdf.Point{X: inner.LLX + cR + 12, Y: ymid},
+		pdf.Point{X: cCx, Y: ymid},
 		cR,
 		pdf.ShapeStyle{
-			LineStyle: pdf.LineStyle{Width: 1.4, Color: &pdf.Color{R: 0.55, G: 0.25, B: 0.70, A: 1}},
-			FillColor: &pdf.Color{R: 0.92, G: 0.85, B: 0.97, A: 0.92},
+			LineStyle: pdf.LineStyle{Width: 1.4, Color: &pdf.Color{R: 0.45, G: 0.20, B: 0.62, A: 1}},
+			FillGradient: pdf.RadialGradient{
+				CX: cCx, CY: ymid, R: cR,
+				FX: cCx - cR*0.4, FY: ymid + cR*0.4,
+				Stops: []pdf.GradientStop{
+					{Offset: 0, Color: pdf.Color{R: 0.98, G: 0.95, B: 1.0, A: 1}},
+					{Offset: 1, Color: pdf.Color{R: 0.55, G: 0.25, B: 0.70, A: 1}},
+				},
+			},
 		},
 	))
 	_ = xmid
@@ -1437,7 +1446,9 @@ func addVectorShowcase(doc *pdf.Document, page *pdf.Page) {
 	}
 	mustVector(page.DrawPolygon(star, pdf.ShapeStyle{
 		LineStyle: pdf.LineStyle{Width: 1.3, Color: &pdf.Color{R: 0.78, G: 0.55, B: 0.06, A: 1}, Join: pdf.LineJoinMiter, MiterLimit: 4},
-		FillColor: &pdf.Color{R: 1.00, G: 0.84, B: 0.36, A: 1},
+		FillGradient: pdf.NewRadialGradient(xmid, ymid, outerR,
+			pdf.GradientStop{Offset: 0, Color: pdf.Color{R: 1.00, G: 0.96, B: 0.70, A: 1}},
+			pdf.GradientStop{Offset: 1, Color: pdf.Color{R: 0.96, G: 0.66, B: 0.12, A: 1}}),
 	}))
 
 	// --- Card 6: Path with Arc — pie slice + bezier wave ----------------
