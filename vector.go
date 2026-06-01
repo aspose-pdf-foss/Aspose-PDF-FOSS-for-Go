@@ -31,11 +31,16 @@ type LineStyle struct {
 // /Pattern colorspace with the named pattern resource (e.g. "/P0"). Used
 // internally by the SVG renderer to wire gradient fills.
 //
+// FillGradient, when non-nil, fills the shape with a LinearGradient or
+// RadialGradient. It takes precedence over FillColor; the draw call
+// registers the necessary PDF shading pattern on the page automatically.
+//
 // Mirrors Aspose.PDF for .NET's GraphInfo (stroke + fill).
 type ShapeStyle struct {
 	LineStyle
-	FillColor   *Color // nil = no fill
-	FillPattern string // optional PDF pattern resource name (e.g. "/P0"); overrides FillColor when set
+	FillColor    *Color   // nil = no fill
+	FillPattern  string   // optional PDF pattern resource name (e.g. "/P0"); overrides FillColor when set
+	FillGradient Gradient // optional linear/radial gradient fill; overrides FillColor
 }
 
 // pathOpKind enumerates the kinds of operations a Path can contain.

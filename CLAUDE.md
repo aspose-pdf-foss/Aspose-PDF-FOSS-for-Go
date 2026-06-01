@@ -124,7 +124,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `LineCap` enum — `LineCapButt` (default), `LineCapRound`, `LineCapSquare`. PDF operator J. (Shared with `appearance_builder.go` annotation drawing.)
 - `LineJoin` enum — `LineJoinMiter` (default), `LineJoinRound`, `LineJoinBevel`. PDF operator j.
 - `LineStyle` struct — `Color *Color`, `Width float64`, `DashPattern []float64`, `DashPhase float64`, `Cap`, `Join`, `MiterLimit float64`. Width ≤ 0 → no stroke. Mirrors Aspose.PDF for .NET's GraphInfo stroke fields.
-- `ShapeStyle` struct — embeds `LineStyle` + adds `FillColor *Color`. Either or both may be configured; if neither, draw call is a no-op.
+- `ShapeStyle` struct — embeds `LineStyle` + adds `FillColor *Color`, `FillPattern string` (internal SVG pattern-name hook), and `FillGradient Gradient` (public linear/radial gradient fill). Precedence on fill: `FillGradient` → `FillPattern` → `FillColor`. Either stroke or fill (or both) may be configured; if neither, draw call is a no-op.
 - `Path` — opaque fluent builder. `NewPath().MoveTo(x, y).LineTo(x, y).CurveTo(c1x, c1y, c2x, c2y, x, y).QuadTo(cx, cy, x, y).Arc(cx, cy, r, startAngle, sweepAngle).Close()`. Arc decomposes into ≤4 cubic Beziers per the Goldapp formula (k = (4/3)·tan(θ/4)).
 - `(*Page).DrawLine(from, to Point, style LineStyle) error` — single line segment.
 - `(*Page).DrawRectangle(rect Rectangle, style ShapeStyle) error` — axis-aligned rect, stroke and/or fill.
@@ -134,9 +134,9 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).DrawPolyline(points []Point, style LineStyle) error` — open path, stroke-only. Errors if len(points) < 2.
 - `(*Page).DrawPolygon(points []Point, style ShapeStyle) error` — closed path, stroke and/or fill. Errors if len(points) < 3.
 - `(*Page).DrawPath(path *Path, style ShapeStyle) error` — arbitrary path. Errors on nil path.
+- `Gradient` interface (`LinearGradient` / `RadialGradient`) + `GradientStop{Offset, Color}` (`vector_gradient.go`) — public gradient fills usable as `ShapeStyle.FillGradient` on every fill-capable Draw call. Constructors `NewLinearGradient(x1,y1,x2,y2, stops...)` and `NewRadialGradient(cx,cy,r, stops...)` (focal = centre); set `RadialGradient.FX/FY` for an off-centre highlight. Coordinates are PDF user space. Reuses the SVG shading machinery: `(*Page).resolveShapeGradient` adapts the public type to an internal `svgGradient` and calls `ensurePatternResource` (Type 2 axial / Type 3 stitched / Type 3 radial shading pattern) with an identity matrix; the resulting `/Pattern` resource name is stored in `FillPattern`, so the existing `/Pattern cs … scn` emission paints it. Limitations (mirror SVG Phase 3a): spread = pad, per-stop alpha not rendered (DeviceRGB shadings).
 - Alpha (`Color.A < 1`) for stroke and fill is rendered via the existing `ensureExtGState` (now sets both `/CA` stroke alpha and `/ca` fill alpha). Distinct stroke vs. fill alpha values in the same shape: takes the more-restrictive value (single ExtGState per draw call). For per-property precision, use separate draw calls.
 - Coordinates are PDF user space (Y up, origin at page bottom-left). Drawing outside the page is allowed; PDF viewers clip to MediaBox.
-- Phase 2 will add SVG embedding via `(*Page).AddSVG`; Phase 3 will add gradients, embedded raster in SVG, text matching, etc.
 
 **`svg.go` / `svg_parse.go` / `svg_render.go` / `svg_path.go` / `svg_transform.go` / `svg_viewbox.go` / `svg_attrs.go` / `svg_types.go` / `svg_named_colors.go` / `vector_emit.go`**
 - `(*Page).AddSVG(path, rect)` — reads an SVG file and renders it into the given rectangle on the page; unsupported elements are skipped silently

@@ -99,7 +99,7 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 //	""   — neither (caller should skip emission entirely)
 func paintOp(s ShapeStyle) string {
 	stroke := s.LineStyle.Width > 0
-	fill := s.FillColor != nil || s.FillPattern != ""
+	fill := s.FillColor != nil || s.FillPattern != "" || s.FillGradient != nil
 	switch {
 	case stroke && fill:
 		return "B"
@@ -150,6 +150,9 @@ func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
 	op := paintOp(style)
 	if op == "" {
 		return nil
+	}
+	if err := p.resolveShapeGradient(&style); err != nil {
+		return err
 	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
@@ -227,6 +230,9 @@ func (p *Page) DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error
 	if op == "" || rx == 0 || ry == 0 {
 		return nil
 	}
+	if err := p.resolveShapeGradient(&style); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
 	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
@@ -302,6 +308,9 @@ func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
 	if op == "" {
 		return nil
 	}
+	if err := p.resolveShapeGradient(&style); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
 	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
@@ -334,6 +343,9 @@ func (p *Page) DrawRoundedRectangle(rect Rectangle, radius float64, style ShapeS
 	if w <= 0 || h <= 0 {
 		return nil
 	}
+	if err := p.resolveShapeGradient(&style); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
 	gsOp, err := p.applyAlpha(style.LineStyle.Color, style.FillColor)
@@ -358,6 +370,9 @@ func (p *Page) DrawPolygon(points []Point, style ShapeStyle) error {
 	op := paintOp(style)
 	if op == "" {
 		return nil
+	}
+	if err := p.resolveShapeGradient(&style); err != nil {
+		return err
 	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")

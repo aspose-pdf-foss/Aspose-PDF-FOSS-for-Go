@@ -60,7 +60,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
-- **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
+- **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
 - **Validate** — check structural integrity of a PDF file
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -495,6 +495,21 @@ page.DrawPath(path, pdf.ShapeStyle{
     LineStyle: pdf.LineStyle{Width: 1.5},
     FillColor: &pdf.Color{R: 1, G: 0.9, B: 0.3, A: 1},
 })
+
+// Gradient fills — linear (left→right) and radial (off-centre highlight).
+red := pdf.Color{R: 0.9, G: 0.1, B: 0.1, A: 1}
+blue := pdf.Color{R: 0.1, G: 0.2, B: 0.8, A: 1}
+white := pdf.Color{R: 1, G: 1, B: 1, A: 1}
+
+page.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 200, URX: 250, URY: 280},
+    pdf.ShapeStyle{FillGradient: pdf.NewLinearGradient(50, 0, 250, 0,
+        pdf.GradientStop{Offset: 0, Color: red},
+        pdf.GradientStop{Offset: 1, Color: blue})})
+
+page.DrawCircle(pdf.Point{X: 150, Y: 100}, 60, pdf.ShapeStyle{
+    FillGradient: pdf.RadialGradient{
+        CX: 150, CY: 100, R: 60, FX: 130, FY: 125, // focal up-left → 3D sphere
+        Stops: []pdf.GradientStop{{0, white}, {1, blue}}}})
 
 doc.Save("shapes.pdf")
 ```
