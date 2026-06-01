@@ -75,7 +75,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, strikethrough, rotation, and behind-content mode
 - **Text watermarks** — apply text watermarks to all or selected pages with full styling control
 - **Stream I/O** — open PDFs from any `io.Reader` via `OpenStream`/`OpenStreamWithPassword`; serialize to any `io.Writer` via `Document.WriteTo` (implements `io.WriterTo`)
-- **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`)
+- **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press
 - **Font embedding & subsetting** — embed TrueType fonts with `Document.LoadFont` (CIDFontType2 / Identity-H, full Unicode); `Document.SubsetFonts()` rebuilds each embedded font to keep only the glyphs actually drawn (composite-glyph aware, regenerates `glyf`/`loca`/`hmtx`/`CIDToGIDMap`), typically shrinking a font from hundreds of KB to a few KB
 - **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. Text-bearing types (Text sticky note, FreeText with callout/typewriter/cloudy-border modes, Stamp with 14 predefined visuals + custom image override). FileAttachment with file embedding (path/stream + MIME detection); Redact with mark/apply modes (irreversible content removal of text glyphs, images, and paths via `Document.ApplyRedactions()`); `NewJavaScriptAction` public constructor with security warning. `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
 
@@ -315,7 +315,19 @@ rb, _ := form.AddRadioGroup("plan", []pdf.RadioItem{
 })
 rb.Options()[0].SetSelected(true)
 
-form.AddPushButton(1, pdf.Rectangle{LLX: 50, LLY: 460, URX: 200, URY: 490}, "submit", "Submit")
+submit, _ := form.AddPushButton(1, pdf.Rectangle{LLX: 50, LLY: 460, URX: 200, URY: 490}, "submit", "Submit")
+
+// Rich push-button appearance: hover/press captions + an icon, baked
+// into /AP/N, /AP/R, /AP/D so the button reacts in any viewer.
+submit.SetAppearance(pdf.ButtonAppearance{
+    Caption:      "Submit",
+    RolloverText: "Click to submit",
+    DownText:     "Submitting…",
+    IconPath:     "logo.png",
+    IconPosition: pdf.ButtonIconAboveCaption,
+    TextColor:    &pdf.Color{R: 1, G: 1, B: 1, A: 1},
+    FaceColor:    &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
+})
 
 // Style a field: navy border + tint fill + navy text, all persisted
 // as /MK, /BS, /DA and rendered straight into the widget /AP.
