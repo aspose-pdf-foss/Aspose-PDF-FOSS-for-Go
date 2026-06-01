@@ -647,6 +647,26 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	mustErr(lb.SetStyle(pdf.FieldStyle{BorderColor: navy, BackgroundColor: tint, TextColor: navy, BorderWidth: 1}))
 	lb.SetMultiSelect(true)
 	lb.SetValue("PDF Engineering")
+
+	// Row 6: branded push button with rich appearance — distinct
+	// rollover/down captions and the Aspose logo icon above the caption.
+	// SetAppearance bakes /AP/N, /AP/R, /AP/D so the button reacts to hover
+	// and press in any viewer.
+	addLabel("Submit:", 360)
+	submit, err := form.AddPushButton(pageNum, pdf.Rectangle{LLX: 200, LLY: 320, URX: 320, URY: 388}, "Submit", "Submit")
+	if err != nil {
+		log.Fatalf("push button: %v", err)
+	}
+	mustErr(submit.SetAppearance(pdf.ButtonAppearance{
+		Caption:      "Submit",
+		RolloverText: "Click to submit",
+		DownText:     "Submitting…",
+		IconPath:     "testdata/aspose-logo.png",
+		IconPosition: pdf.ButtonIconAboveCaption,
+		TextColor:    &pdf.Color{R: 1, G: 1, B: 1, A: 1},
+		FaceColor:    navy,
+		BorderColor:  &pdf.Color{R: 0.08, G: 0.12, B: 0.4, A: 1},
+	}))
 }
 
 // ---------------------------------------------------------------------
