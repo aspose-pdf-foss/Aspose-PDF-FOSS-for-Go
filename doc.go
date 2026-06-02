@@ -81,17 +81,36 @@ type inheritedPageAttrs struct {
 }
 
 func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inherited inheritedPageAttrs, result *[]*pdfObject) error {
+	walkPageTreeRec(objects, nodeVal, inherited, result, map[int]bool{}, 0)
+	return nil
+}
+
+// walkPageTreeRec traverses the /Pages tree tolerantly: structurally
+// broken nodes are skipped rather than failing the whole document, so a
+// partially-damaged file still yields the pages that are valid. It guards
+// against cycles (a visited set) and pathological depth. A node carrying
+// /Kids is treated as an intermediate node regardless of its /Type; a
+// leaf with /Type /Page (or none) becomes a page. Missing objects,
+// non-dict nodes, and non-ref kids are silently skipped.
+func walkPageTreeRec(objects map[int]*pdfObject, nodeVal pdfValue, inherited inheritedPageAttrs, result *[]*pdfObject, visited map[int]bool, depth int) {
+	if depth > 256 {
+		return // runaway / cyclic tree backstop
+	}
 	ref, ok := nodeVal.(pdfRef)
 	if !ok {
-		return fmt.Errorf("page tree node is not a ref: %T", nodeVal)
+		return
 	}
+	if visited[ref.Num] {
+		return // cycle
+	}
+	visited[ref.Num] = true
 	obj, ok := objects[ref.Num]
 	if !ok {
-		return fmt.Errorf("object %d not found", ref.Num)
+		return // dangling reference — skip
 	}
 	nodeDict, ok := obj.Value.(pdfDict)
 	if !ok {
-		return fmt.Errorf("page tree object %d is not a dict", ref.Num)
+		return
 	}
 
 	// Any attribute present on this node overrides the value inherited from
@@ -110,32 +129,24 @@ func walkPageTree(objects map[int]*pdfObject, nodeVal pdfValue, inherited inheri
 		inherited.rotate = v
 	}
 
+	// A node with a /Kids array is an intermediate node (even if /Type is
+	// missing or wrong); recurse into each kid, skipping any that fail.
+	if kids, ok := nodeDict["/Kids"].(pdfArray); ok {
+		for _, kid := range kids {
+			walkPageTreeRec(objects, kid, inherited, result, visited, depth+1)
+		}
+		return
+	}
+
+	// Leaf: treat /Page (or an untyped leaf) as a page; skip anything else.
 	switch dictGetName(nodeDict, "/Type") {
-	case "/Pages":
-		kidsVal, ok := nodeDict["/Kids"]
-		if !ok {
-			return fmt.Errorf("Pages node %d missing /Kids", ref.Num)
-		}
-		arr, ok := kidsVal.(pdfArray)
-		if !ok {
-			return fmt.Errorf("/Kids is not an array")
-		}
-		for _, kid := range arr {
-			if err := walkPageTree(objects, kid, inherited, result); err != nil {
-				return err
-			}
-		}
-	case "/Page", "": // empty /Type is tolerated for compatibility with some malformed PDFs
+	case "/Page", "":
 		setIfMissing(nodeDict, "/Resources", inherited.resources)
 		setIfMissing(nodeDict, "/MediaBox", inherited.mediaBox)
 		setIfMissing(nodeDict, "/CropBox", inherited.cropBox)
 		setIfMissing(nodeDict, "/Rotate", inherited.rotate)
 		*result = append(*result, obj)
-	default:
-		return fmt.Errorf("unknown page tree node type: %s at object %d",
-			dictGetName(nodeDict, "/Type"), ref.Num)
 	}
-	return nil
 }
 
 func setIfMissing(d pdfDict, key string, v pdfValue) {
