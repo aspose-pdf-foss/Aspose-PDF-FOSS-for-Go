@@ -277,20 +277,14 @@ func toInt(v pdfValue) int {
 
 // findStartXRef searches backward from end of file for "startxref" and returns the offset.
 func findStartXRef(data []byte) (int64, error) {
-	// Search last 1024 bytes (PDF spec requires it to be near the end).
-	searchArea := data
-	if len(data) > 1024 {
-		searchArea = data[len(data)-1024:]
-	}
-
-	idx := bytes.LastIndex(searchArea, []byte("startxref"))
+	// The spec puts startxref near the end, but some files append data after
+	// %%EOF (incremental updates, embedded signatures/certificates) that
+	// pushes it past the conventional last-1024-byte window. Take the last
+	// "startxref" anywhere in the file; the offset is bounds-checked below,
+	// and a bad value falls through to xref reconstruction.
+	idx := bytes.LastIndex(data, []byte("startxref"))
 	if idx < 0 {
 		return 0, fmt.Errorf("startxref not found")
-	}
-
-	// Adjust index to full data
-	if len(data) > 1024 {
-		idx += len(data) - 1024
 	}
 
 	l := newLexerAt(data, idx+len("startxref"))

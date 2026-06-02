@@ -12,6 +12,11 @@ import (
 // objHeaderRE matches an indirect-object header "N G obj".
 var objHeaderRE = regexp.MustCompile(`(\d+)[ \t]+(\d+)[ \t]+obj\b`)
 
+// isAlphaNum reports whether b is an ASCII letter or digit.
+func isAlphaNum(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
 // reconstructXRef rebuilds a cross-reference table by scanning the raw
 // file for indirect-object headers ("N G obj"), used as a recovery path
 // when the file's own xref is missing, corrupt, or inconsistent (e.g. an
@@ -28,12 +33,14 @@ func reconstructXRef(data []byte) (*xrefTable, pdfDict, error) {
 	table := &xrefTable{entries: map[int]xrefEntry{}}
 	for _, loc := range objHeaderRE.FindAllSubmatchIndex(data, -1) {
 		start := loc[0]
-		// Require a token boundary before the header so digit runs inside
-		// binary stream data aren't mistaken for object headers.
-		if start > 0 {
-			if p := data[start-1]; p != '\n' && p != '\r' && p != ' ' && p != '\t' {
-				continue
-			}
+		// Skip a digit run that is part of a longer token (e.g. inside a
+		// word or a bigger number in binary stream data): a genuine object
+		// header is never preceded by an alphanumeric byte. Delimiters
+		// (>, ], ), }), whitespace, EOL, or start-of-file are all accepted,
+		// which tolerates files that drop the EOL before "N G obj" or wedge
+		// a little garbage (e.g. "…endobj\nGS>4 0 obj") ahead of it.
+		if start > 0 && isAlphaNum(data[start-1]) {
+			continue
 		}
 		num, err := strconv.Atoi(string(data[loc[2]:loc[3]]))
 		if err != nil {
