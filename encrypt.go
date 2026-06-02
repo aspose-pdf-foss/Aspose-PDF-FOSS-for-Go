@@ -249,6 +249,14 @@ func computeOwnerEntry(userPwd, ownerPwd string) []byte {
 
 // computeEncKey computes the document encryption key per PDF Algorithm 2.
 func computeEncKey(userPwd string, ownerEntry []byte, permissions int32, fileID []byte) []byte {
+	return computeEncKeyR(userPwd, ownerEntry, permissions, fileID, 3, encKeyLen)
+}
+
+// computeEncKeyR is the revision/key-length-aware form of computeEncKey
+// (PDF Algorithm 2). r==2 stops after the initial MD5 (40-bit handler);
+// r>=3 applies the 50 extra MD5 passes. keyLen is the key length in bytes
+// (5 for 40-bit, 16 for 128-bit).
+func computeEncKeyR(userPwd string, ownerEntry []byte, permissions int32, fileID []byte, r, keyLen int) []byte {
 	h := md5.New()
 	h.Write(padPassword(userPwd))
 	h.Write(ownerEntry)
@@ -256,17 +264,32 @@ func computeEncKey(userPwd string, ownerEntry []byte, permissions int32, fileID 
 	binary.LittleEndian.PutUint32(p[:], uint32(permissions))
 	h.Write(p[:])
 	h.Write(fileID)
-	key := h.Sum(nil)[:encKeyLen]
-	// For R=3: 50 additional MD5 passes.
-	for i := 0; i < 50; i++ {
-		s := md5.Sum(key)
-		key = s[:encKeyLen]
+	key := h.Sum(nil)[:keyLen]
+	if r >= 3 {
+		for i := 0; i < 50; i++ {
+			s := md5.Sum(key)
+			key = s[:keyLen]
+		}
 	}
 	return key
 }
 
 // computeUserEntry computes the /U encryption dict entry per PDF Algorithm 5 (R=3).
 func computeUserEntry(encKey, fileID []byte) []byte {
+	return computeUserEntryR(encKey, fileID, 3)
+}
+
+// computeUserEntryR computes /U per Algorithm 4 (r==2) or Algorithm 5
+// (r>=3). For r==2, /U is simply the 32-byte password padding string
+// RC4-encrypted with the key. For r>=3 it is MD5(pad||ID) RC4-encrypted
+// with 19 extra XOR'd rounds, then padded back to 32 bytes.
+func computeUserEntryR(encKey, fileID []byte, r int) []byte {
+	if r == 2 {
+		out := make([]byte, 32)
+		copy(out, passwordPadBytes[:])
+		applyRC4(out, encKey)
+		return out
+	}
 	h := md5.New()
 	h.Write(passwordPadBytes[:])
 	h.Write(fileID)
@@ -316,7 +339,10 @@ func (s *encryptState) objectKey(objNum int) []byte {
 	h.Write(s.key)
 	h.Write([]byte{byte(objNum), byte(objNum >> 8), byte(objNum >> 16), 0, 0})
 	out := h.Sum(nil)
-	keyLen := encKeyLen + 5
+	// Per Algorithm 1, the per-object key length is the document key length
+	// plus 5, capped at 16. Use the actual key length so 40-bit (5-byte)
+	// documents get a 10-byte per-object key, not 16.
+	keyLen := len(s.key) + 5
 	if keyLen > 16 {
 		keyLen = 16
 	}
@@ -343,12 +369,23 @@ func xorKey(key []byte, x byte) []byte {
 // permissions must be the /P value read from the /Encrypt dict of the file
 // being verified — the derivation is /P-dependent.
 func verifyUserPassword(password string, ownerEntry, storedU, fileID []byte, permissions int32) bool {
-	key := computeEncKey(password, ownerEntry, permissions, fileID)
-	computed := computeUserEntry(key, fileID)
-	if len(computed) < 16 || len(storedU) < 16 {
+	return verifyUserPasswordR(password, ownerEntry, storedU, fileID, permissions, 3, encKeyLen)
+}
+
+// verifyUserPasswordR is the revision/key-length-aware form. It recomputes
+// /U and compares the first 32 bytes for r==2 (Algorithm 6) or the first
+// 16 bytes for r>=3.
+func verifyUserPasswordR(password string, ownerEntry, storedU, fileID []byte, permissions int32, r, keyLen int) bool {
+	key := computeEncKeyR(password, ownerEntry, permissions, fileID, r, keyLen)
+	computed := computeUserEntryR(key, fileID, r)
+	n := 16
+	if r == 2 {
+		n = 32
+	}
+	if len(computed) < n || len(storedU) < n {
 		return false
 	}
-	for i := 0; i < 16; i++ {
+	for i := 0; i < n; i++ {
 		if computed[i] != storedU[i] {
 			return false
 		}

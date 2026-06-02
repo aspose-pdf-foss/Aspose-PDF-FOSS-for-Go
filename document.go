@@ -169,21 +169,21 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 		}
 		encRef, ok := encVal.(pdfRef)
 		if !ok {
-			return nil, fmt.Errorf("parse PDF: /Encrypt is not an indirect ref")
+			return nil, fmt.Errorf("/Encrypt is not an indirect ref")
 		}
 		// The /Encrypt object itself is never encrypted, so we can fetch
 		// it via getObject before configuring decryption on raw.
 		encObj, err := raw.getObject(encRef.Num)
 		if err != nil {
-			return nil, fmt.Errorf("parse PDF: read /Encrypt: %w", err)
+			return nil, fmt.Errorf("read /Encrypt: %w", err)
 		}
 		encDict, ok := encObj.Value.(pdfDict)
 		if !ok {
-			return nil, fmt.Errorf("parse PDF: /Encrypt is not a dict")
+			return nil, fmt.Errorf("/Encrypt is not a dict")
 		}
 		state, err := buildDecryptState(encDict, trailer, *password)
 		if err != nil {
-			return nil, fmt.Errorf("parse PDF: %w", err)
+			return nil, err
 		}
 		raw.encState = state
 		raw.encryptObjNum = encRef.Num
@@ -207,7 +207,7 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 
 	objects, err := parseAllObjectsFrom(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse PDF: %w", err)
+		return nil, err
 	}
 
 	// /Encrypt object — drop it from the working set; the writer rebuilds
@@ -218,7 +218,7 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 
 	catalog, err := extractCatalog(objects, trailer)
 	if err != nil {
-		return nil, fmt.Errorf("parse PDF: %w", err)
+		return nil, err
 	}
 
 	pages, err := resolvePageTree(objects, catalog)

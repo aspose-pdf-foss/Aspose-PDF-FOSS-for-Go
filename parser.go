@@ -460,38 +460,60 @@ func ascii85Decode(data []byte) ([]byte, error) {
 	return out, nil
 }
 
+// decodeLiteralString decodes a PDF literal string token (including its
+// outer parentheses) into raw bytes, per ISO 32000-1 §7.3.4.2. It handles
+// the named escapes (\n \r \t \b \f \( \) \\), octal escapes \ddd (1–3
+// octal digits, the byte value mod 256), and the backslash-before-EOL line
+// continuation (the backslash and the line break are dropped). A backslash
+// before any other character is dropped, keeping that character.
 func decodeLiteralString(raw []byte) string {
-	// raw includes outer parens
 	if len(raw) < 2 {
 		return ""
 	}
 	inner := raw[1 : len(raw)-1]
 	var buf bytes.Buffer
 	for i := 0; i < len(inner); i++ {
-		if inner[i] == '\\' && i+1 < len(inner) {
-			i++
-			switch inner[i] {
-			case 'n':
-				buf.WriteByte('\n')
-			case 'r':
-				buf.WriteByte('\r')
-			case 't':
-				buf.WriteByte('\t')
-			case 'b':
-				buf.WriteByte('\b')
-			case 'f':
-				buf.WriteByte('\f')
-			case '(':
-				buf.WriteByte('(')
-			case ')':
-				buf.WriteByte(')')
-			case '\\':
-				buf.WriteByte('\\')
-			default:
-				buf.WriteByte(inner[i])
+		c := inner[i]
+		if c != '\\' || i+1 >= len(inner) {
+			buf.WriteByte(c)
+			continue
+		}
+		i++
+		e := inner[i]
+		switch e {
+		case 'n':
+			buf.WriteByte('\n')
+		case 'r':
+			buf.WriteByte('\r')
+		case 't':
+			buf.WriteByte('\t')
+		case 'b':
+			buf.WriteByte('\b')
+		case 'f':
+			buf.WriteByte('\f')
+		case '(':
+			buf.WriteByte('(')
+		case ')':
+			buf.WriteByte(')')
+		case '\\':
+			buf.WriteByte('\\')
+		case '\n':
+			// Line continuation: backslash + LF — emit nothing.
+		case '\r':
+			// Line continuation: backslash + CR, optionally CRLF.
+			if i+1 < len(inner) && inner[i+1] == '\n' {
+				i++
 			}
-		} else {
-			buf.WriteByte(inner[i])
+		case '0', '1', '2', '3', '4', '5', '6', '7':
+			// Octal escape: this digit plus up to two more octal digits.
+			val := int(e - '0')
+			for k := 0; k < 2 && i+1 < len(inner) && inner[i+1] >= '0' && inner[i+1] <= '7'; k++ {
+				i++
+				val = val*8 + int(inner[i]-'0')
+			}
+			buf.WriteByte(byte(val))
+		default:
+			buf.WriteByte(e)
 		}
 	}
 	return buf.String()

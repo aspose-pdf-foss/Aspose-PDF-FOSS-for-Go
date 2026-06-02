@@ -24,8 +24,16 @@ func buildDecryptState(encDict pdfDict, trailer pdfDict, password string) (*encr
 	v := dictGetInt(encDict, "/V")
 	r := dictGetInt(encDict, "/R")
 	switch {
+	case (v == 1 || v == 0) && r == 2:
+		// Original Standard Security Handler: 40-bit RC4 (5-byte key).
+		return buildDecryptStateRC4(encDict, trailer, password, 2, 5)
 	case v == 2 && r == 3:
-		return buildDecryptStateV2R3(encDict, trailer, password)
+		// RC4 with a key length given by /Length (default 128-bit).
+		keyLen := dictGetInt(encDict, "/Length") / 8
+		if keyLen <= 0 || keyLen > 16 {
+			keyLen = 16
+		}
+		return buildDecryptStateRC4(encDict, trailer, password, 3, keyLen)
 	case v == 4 && r == 4:
 		return buildDecryptStateV4R4(encDict, trailer, password)
 	case v == 5 && r == 6:
@@ -35,21 +43,21 @@ func buildDecryptState(encDict pdfDict, trailer pdfDict, password string) (*encr
 	}
 }
 
-// buildDecryptStateV2R3 parses the /Encrypt dict and the trailer's /ID array,
-// verifies the supplied password against /U (user) or /O (owner), and
-// returns an encryptState whose document key is ready to derive per-object
-// keys for decryption.
-//
-// Supports only /Filter /Standard, /V 2, /R 3, RC4-128.
+// buildDecryptStateV2R3 is retained for the AES-128 (V=4 R=4) password
+// path, which reuses the RC4 R=3 / 16-byte-key Algorithms 2/5/7.
 func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*encryptState, error) {
+	return buildDecryptStateRC4(encDict, trailer, password, 3, 16)
+}
+
+// buildDecryptStateRC4 parses the /Encrypt dict and the trailer's /ID array,
+// verifies the supplied password against /U (user) or /O (owner) using the
+// revision-r algorithms with a keyLen-byte key, and returns an encryptState
+// whose document key is ready to derive per-object keys for decryption.
+// r is 2 (original 40-bit handler) or 3 (RC4 with /Length-bit key).
+func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, keyLen int) (*encryptState, error) {
 	filter := dictGetName(encDict, "/Filter")
 	if filter != "/Standard" {
 		return nil, fmt.Errorf("unsupported /Filter %q (only /Standard is implemented)", filter)
-	}
-	v := dictGetInt(encDict, "/V")
-	r := dictGetInt(encDict, "/R")
-	if v != 2 || r != 3 {
-		return nil, fmt.Errorf("unsupported security handler V=%d R=%d (only V=2 R=3 RC4-128 is implemented)", v, r)
 	}
 
 	oVal, ok := encDict["/O"]
@@ -89,8 +97,8 @@ func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*
 	}
 
 	// Try user password first; fall back to owner password.
-	if verifyUserPassword(password, oBytes, uBytes, fileID, permissions) {
-		key := computeEncKey(password, oBytes, permissions, fileID)
+	if verifyUserPasswordR(password, oBytes, uBytes, fileID, permissions, r, keyLen) {
+		key := computeEncKeyR(password, oBytes, permissions, fileID, r, keyLen)
 		return &encryptState{
 			algorithm:   EncryptionAlgRC4_128,
 			key:         key,
@@ -101,9 +109,9 @@ func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*
 		}, nil
 	}
 
-	if userPwd, ok := recoverUserPasswordFromOwner(password, oBytes); ok {
-		if verifyUserPassword(userPwd, oBytes, uBytes, fileID, permissions) {
-			key := computeEncKey(userPwd, oBytes, permissions, fileID)
+	if userPwd, ok := recoverUserPasswordFromOwnerR(password, oBytes, r, keyLen); ok {
+		if verifyUserPasswordR(userPwd, oBytes, uBytes, fileID, permissions, r, keyLen) {
+			key := computeEncKeyR(userPwd, oBytes, permissions, fileID, r, keyLen)
 			return &encryptState{
 				algorithm:   EncryptionAlgRC4_128,
 				key:         key,
@@ -126,25 +134,39 @@ func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*
 // 32 bytes, but we treat the whole 32 bytes as our test password for
 // verifyUserPassword (padding the result a second time would diverge).
 func recoverUserPasswordFromOwner(ownerPwd string, oEntry []byte) (string, bool) {
+	return recoverUserPasswordFromOwnerR(ownerPwd, oEntry, 3, encKeyLen)
+}
+
+// recoverUserPasswordFromOwnerR is the revision-aware form of
+// recoverUserPasswordFromOwner. For r==2 the owner key is a single MD5 of
+// the padded owner password (keyLen bytes) and the padded user password is
+// recovered with a single RC4 pass; for r>=3 the owner key takes 50 extra
+// MD5 rounds and the 20 XOR'd RC4 rounds are inverted.
+func recoverUserPasswordFromOwnerR(ownerPwd string, oEntry []byte, r, keyLen int) (string, bool) {
 	if len(oEntry) != 32 {
 		return "", false
 	}
-	// Step 1: derive owner key from owner password (mirrors computeOwnerEntry).
 	sum := md5.Sum(padPassword(ownerPwd))
 	key := sum[:]
-	for i := 0; i < 50; i++ {
-		s := md5.Sum(key[:encKeyLen])
-		key = s[:]
+	if r >= 3 {
+		for i := 0; i < 50; i++ {
+			s := md5.Sum(key[:keyLen])
+			key = s[:]
+		}
 	}
-	ownerKey := key[:encKeyLen]
+	ownerKey := key[:keyLen]
 
-	// Step 2: invert the 20 RC4 rounds applied to the padded user password.
 	result := make([]byte, len(oEntry))
 	copy(result, oEntry)
-	for i := 19; i >= 1; i-- {
-		applyRC4(result, xorKey(ownerKey, byte(i)))
+	if r == 2 {
+		applyRC4(result, ownerKey)
+	} else {
+		// Invert the 20 RC4 rounds applied to the padded user password.
+		for i := 19; i >= 1; i-- {
+			applyRC4(result, xorKey(ownerKey, byte(i)))
+		}
+		applyRC4(result, ownerKey)
 	}
-	applyRC4(result, ownerKey)
 	// `result` is now the padded user password. Strip trailing pad bytes by
 	// finding the first byte from the end of the password padding constant
 	// that doesn't match — but since verifyUserPassword re-pads the input,
