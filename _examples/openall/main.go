@@ -20,8 +20,12 @@ import (
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
 
-// passwordsToTry are attempted, in order, against encrypted files.
-var passwordsToTry = []string{"password", "pass", "testpassword"}
+// passwordsToTry are attempted, in order, against encrypted files. The
+// empty string comes first to catch the common "encrypted but freely
+// readable" pattern (empty user password, non-empty owner password) —
+// such files are encrypted, so Open returns ErrEncrypted, yet any viewer
+// opens them without a prompt.
+var passwordsToTry = []string{"", "password", "pass", "testpassword"}
 
 type result struct {
 	path     string
