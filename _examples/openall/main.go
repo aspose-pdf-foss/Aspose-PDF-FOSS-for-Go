@@ -1,10 +1,13 @@
-// Diagnostic: open every PDF under a folder with the library and report
-// any failures. Encrypted files are retried with a small list of common
+// Diagnostic: open every PDF in a folder with the library and report any
+// failures. Encrypted files are retried with a small list of common
 // passwords ("password", "pass"); a file that opens with one of them is
 // reported as OK (with the password), otherwise as still-locked (not a
 // bug). Panics are caught per-file so one bad input does not abort the run.
 //
-// Usage:  go run ./_examples/openall <folder>
+// By default only the files directly in <folder> are scanned. Pass
+// --recurse to walk every subdirectory too.
+//
+// Usage:  go run ./_examples/openall [--recurse] <folder>
 package main
 
 import (
@@ -36,34 +39,71 @@ type result struct {
 	elapsed  time.Duration
 }
 
+// collectPDFs returns the .pdf files to scan. By default only the files
+// directly in dir are returned; when recurse is true every subdirectory
+// is walked too. Unreadable entries are skipped rather than aborting.
+func collectPDFs(dir string, recurse bool) ([]string, error) {
+	var files []string
+	if recurse {
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // skip unreadable entries, keep walking
+			}
+			if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
+				files = append(files, path)
+			}
+			return nil
+		})
+		return files, err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range ents {
+		if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".pdf") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files, nil
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: go run ./_examples/openall <folder>")
+	// Parse args: an optional --recurse flag (in any position) plus the
+	// target folder. Kept hand-rolled to avoid a flag-package dependency.
+	var dir string
+	var recurse bool
+	for _, a := range os.Args[1:] {
+		switch a {
+		case "--recurse", "-recurse":
+			recurse = true
+		default:
+			if dir == "" {
+				dir = a
+			}
+		}
+	}
+	if dir == "" {
+		fmt.Fprintln(os.Stderr, "usage: go run ./_examples/openall [--recurse] <folder>")
 		os.Exit(2)
 	}
-	dir := os.Args[1]
 
-	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries, keep walking
-		}
-		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
-			files = append(files, path)
-		}
-		return nil
-	})
+	files, err := collectPDFs(dir, recurse)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "walk %q: %v\n", dir, err)
+		fmt.Fprintf(os.Stderr, "scan %q: %v\n", dir, err)
 		os.Exit(1)
 	}
 	sort.Strings(files)
 
 	if len(files) == 0 {
-		fmt.Printf("No .pdf files found under %q\n", dir)
+		fmt.Printf("No .pdf files found in %q\n", dir)
 		return
 	}
-	fmt.Printf("Opening %d PDF file(s) under %s\n", len(files), dir)
+	scope := "in"
+	if recurse {
+		scope = "under"
+	}
+	fmt.Printf("Opening %d PDF file(s) %s %s\n", len(files), scope, dir)
 	fmt.Printf("Passwords tried on encrypted files: %v\n\n", passwordsToTry)
 
 	var results []result
