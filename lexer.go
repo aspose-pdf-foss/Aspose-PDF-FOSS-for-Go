@@ -39,6 +39,15 @@ type lexer struct {
 
 func newLexer(data []byte) *lexer { return &lexer{data: data} }
 func newLexerAt(data []byte, pos int) *lexer {
+	// Clamp a negative or oversized starting offset to a safe value so a
+	// malformed xref/startxref pointer can never drive a negative index
+	// into l.data (the lexer then simply reads nothing).
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(data) {
+		pos = len(data)
+	}
 	return &lexer{data: data, pos: pos}
 }
 
@@ -54,6 +63,9 @@ func isDelimiter(b byte) bool {
 }
 
 func (l *lexer) skipWS() {
+	if l.pos < 0 {
+		l.pos = 0
+	}
 	for l.pos < len(l.data) {
 		b := l.data[l.pos]
 		if b == '%' {

@@ -134,6 +134,32 @@ func TestOpenReconstructsBrokenXref(t *testing.T) {
 	}
 }
 
+// TestOpenBadStartxrefOffsetNoPanic opens a PDF whose startxref points at a
+// negative offset (-1), as seen in damaged real-world files. The library
+// must not panic dereferencing a negative lexer position; it should fall
+// back to xref reconstruction and recover the page.
+func TestOpenBadStartxrefOffsetNoPanic(t *testing.T) {
+	objects := []string{
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj",
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj",
+	}
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.7\n")
+	for _, body := range objects {
+		buf.WriteString(body + "\n")
+	}
+	buf.WriteString("startxref\r\n-1\r\n%%EOF")
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream with startxref -1: %v", err)
+	}
+	if doc.PageCount() != 1 {
+		t.Errorf("PageCount = %d, want 1", doc.PageCount())
+	}
+}
+
 // TestOpenCROnlyXref opens a PDF whose cross-reference table uses
 // classic-Mac CR-only (\r) line endings. The xref entry reader must treat
 // CR as a line terminator, not just LF.

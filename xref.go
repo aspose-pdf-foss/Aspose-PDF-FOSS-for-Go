@@ -299,5 +299,8 @@ func findStartXRef(data []byte) (int64, error) {
 		return 0, fmt.Errorf("invalid startxref value")
 	}
 	off, _ := strconv.ParseInt(string(tok.raw), 10, 64)
+	if off < 0 || off >= int64(len(data)) {
+		return 0, fmt.Errorf("startxref offset %d out of range", off)
+	}
 	return off, nil
 }
