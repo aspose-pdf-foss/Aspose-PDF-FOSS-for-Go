@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -105,15 +106,56 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		return nil, fmt.Errorf("read PDF: %w", err)
 	}
 
-	startOff, err := findStartXRef(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse PDF: %w", err)
-	}
-	xref, trailer, err := parseXRef(data, startOff)
-	if err != nil {
-		return nil, fmt.Errorf("parse PDF: %w", err)
+	// Primary path: locate and parse the cross-reference table/stream, then
+	// build the document. If anything in that chain fails — a missing or
+	// corrupt xref, or a catalog/page tree that doesn't resolve (e.g. an
+	// off-by-one xref subsection) — fall back to reconstructing the xref by
+	// scanning the file for object headers and retry. ErrEncrypted is not a
+	// failure to recover from: the file parsed fine, it just needs a password.
+	var firstErr error
+	if startOff, err := findStartXRef(data); err == nil {
+		if xref, trailer, perr := parseXRef(data, startOff); perr == nil {
+			doc, derr := buildFromXRef(data, xref, trailer, password)
+			if derr == nil {
+				return doc, nil
+			}
+			if errors.Is(derr, ErrEncrypted) {
+				return nil, derr
+			}
+			firstErr = derr
+		} else {
+			firstErr = perr
+		}
+	} else {
+		firstErr = err
 	}
 
+	xref, trailer, rerr := reconstructXRef(data)
+	if rerr != nil {
+		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, rerr))
+	}
+	doc, derr := buildFromXRef(data, xref, trailer, password)
+	if derr != nil {
+		if errors.Is(derr, ErrEncrypted) {
+			return nil, derr
+		}
+		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, derr))
+	}
+	return doc, nil
+}
+
+// coalesceErr returns the first non-nil error, preferring first.
+func coalesceErr(first, second error) error {
+	if first != nil {
+		return first
+	}
+	return second
+}
+
+// buildFromXRef assembles a Document from a parsed (or reconstructed)
+// cross-reference table and trailer. Returns ErrEncrypted (unwrapped) when
+// the file is encrypted and no password was supplied.
+func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *string) (*Document, error) {
 	raw := newRawDocument(data, xref, trailer)
 
 	// pendingEncrypt is set when the file was opened with a password so

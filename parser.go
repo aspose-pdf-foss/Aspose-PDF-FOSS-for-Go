@@ -159,26 +159,45 @@ func parseDictBody(l *lexer) (pdfDict, error) {
 	return d, nil
 }
 
-// readStreamData reads raw stream bytes using /Length from the dict.
+// readStreamData reads raw stream bytes for the current stream. It uses a
+// direct integer /Length when present and in range; otherwise — when
+// /Length is an indirect reference (valid per ISO 32000-1 §7.3.8.2),
+// missing, or out of range — it falls back to scanning for the
+// "endstream" keyword. The indirect-reference case cannot be resolved
+// here (the lexer has no object table), so the scan is the robust path
+// and also tolerates a wrong /Length.
 func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
-	lengthVal, ok := d["/Length"]
-	if !ok {
-		return nil, fmt.Errorf("stream missing /Length")
-	}
-	var length int
-	switch v := lengthVal.(type) {
+	length := -1
+	switch v := d["/Length"].(type) {
 	case int:
 		length = v
 	case float64:
 		length = int(v)
-	default:
-		return nil, fmt.Errorf("unexpected /Length type %T", lengthVal)
 	}
-	if l.pos+length > len(l.data) {
-		return nil, fmt.Errorf("stream length %d exceeds file size", length)
+
+	// A usable direct /Length is taken verbatim (unchanged behaviour).
+	if length >= 0 && l.pos+length <= len(l.data) {
+		data := l.data[l.pos : l.pos+length]
+		l.pos += length
+		return data, nil
 	}
-	data := l.data[l.pos : l.pos+length]
-	l.pos += length
+
+	// Otherwise /Length is an indirect reference, missing, or out of range:
+	// scan for the "endstream" keyword and take everything up to the single
+	// end-of-line that precedes it.
+	idx := bytes.Index(l.data[l.pos:], []byte("endstream"))
+	if idx < 0 {
+		return nil, fmt.Errorf("stream: no endstream marker found")
+	}
+	dataEnd := l.pos + idx
+	if dataEnd > l.pos && l.data[dataEnd-1] == '\n' {
+		dataEnd--
+	}
+	if dataEnd > l.pos && l.data[dataEnd-1] == '\r' {
+		dataEnd--
+	}
+	data := l.data[l.pos:dataEnd]
+	l.pos = l.pos + idx // leave the lexer at the "endstream" keyword
 	return data, nil
 }
 

@@ -312,6 +312,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 5. **`doc.go`** — document-level logic: object lookup with caching, object streams (ObjStm), page tree traversal, dependency collection
 6. **`types.go`** — type definitions: `pdfValue`, `pdfDict`, `pdfArray`, `pdfStream`, `pdfRef`, `pdfObject`, `xrefEntry`
 
+**Malformed-input tolerance** (`openStreamCore` → `buildFromXRef`, with fallbacks):
+- Stream `/Length` may be an indirect reference (`/Length N 0 R`, ISO 32000-1 §7.3.8.2), missing, or wrong — `readStreamData` (`parser.go`) takes a usable direct integer verbatim, otherwise scans for the `endstream` keyword.
+- xref entry rows are read up to any line terminator (LF, CR, or CRLF), so classic-Mac CR-only xref tables parse.
+- `xref_reconstruct.go` — when the xref is missing/corrupt or the catalog/page tree won't resolve (e.g. an off-by-one subsection start), `reconstructXRef` rebuilds the table by scanning the file for `N G obj` headers (latest revision wins) and recovers the trailer from the last `trailer` dict or the first `/Type /Catalog` object, then `openStreamCore` retries. Limitation: objects only inside compressed object streams (ObjStm) aren't recovered by the scan.
+
 ### PDF writing (`writer.go`)
 
 `buildDocumentPDF(d *Document)` is the sole output function:

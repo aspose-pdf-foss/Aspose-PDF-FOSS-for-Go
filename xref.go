@@ -114,14 +114,19 @@ func parseXRefTable(data []byte, offset int64, table *xrefTable) (pdfDict, error
 
 		for i := 0; i < count; i++ {
 			// Each entry is exactly 20 bytes per spec.
-			// Be lenient: read up to the next newline to handle 20- or 21-byte variants.
+			// Be lenient: read up to the next end-of-line so 20- or 21-byte
+			// variants and any of the three line-ending conventions (LF, CR,
+			// or CRLF — classic-Mac CR-only xrefs occur in the wild) work.
 			lineStart := l.pos
-			for l.pos < len(data) && l.data[l.pos] != '\n' {
+			for l.pos < len(data) && l.data[l.pos] != '\n' && l.data[l.pos] != '\r' {
 				l.pos++
 			}
 			entry := string(data[lineStart:l.pos])
-			if l.pos < len(data) {
-				l.pos++ // skip '\n'
+			if l.pos < len(data) && l.data[l.pos] == '\r' {
+				l.pos++ // skip CR
+			}
+			if l.pos < len(data) && l.data[l.pos] == '\n' {
+				l.pos++ // skip LF (handles both CRLF and lone LF)
 			}
 
 			parts := strings.Fields(entry)
