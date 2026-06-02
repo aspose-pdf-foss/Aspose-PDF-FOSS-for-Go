@@ -40,6 +40,12 @@ func newRawDocument(data []byte, xref *xrefTable, trailer pdfDict) *rawDocument 
 // parseAllObjectsFrom walks the xref and resolves every non-free object,
 // returning the populated objects map. Decryption (if enabled on raw) is
 // applied per-object inside raw.getObject.
+//
+// An object that fails to parse (a corrupt stream, a bad offset, an
+// unreadable dict) is skipped rather than failing the whole document, so a
+// file with one damaged object still opens with everything else intact —
+// the catalog and page tree downstream tolerate the resulting gaps. Valid
+// files are unaffected (every object resolves, so nothing is skipped).
 func parseAllObjectsFrom(raw *rawDocument) (map[int]*pdfObject, error) {
 	objects := make(map[int]*pdfObject, len(raw.xref.entries))
 	for num, entry := range raw.xref.entries {
@@ -48,7 +54,7 @@ func parseAllObjectsFrom(raw *rawDocument) (map[int]*pdfObject, error) {
 		}
 		obj, err := raw.getObject(num)
 		if err != nil {
-			return nil, fmt.Errorf("parse object %d: %w", num, err)
+			continue // skip the unreadable object, keep the rest
 		}
 		objects[num] = obj
 	}
