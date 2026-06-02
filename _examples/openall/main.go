@@ -21,7 +21,7 @@ import (
 )
 
 // passwordsToTry are attempted, in order, against encrypted files.
-var passwordsToTry = []string{"password", "pass"}
+var passwordsToTry = []string{"password", "pass", "testpassword"}
 
 type result struct {
 	path     string
