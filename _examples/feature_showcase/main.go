@@ -66,6 +66,7 @@ const (
 	destSales     = "section.sales"
 	destLandscape = "section.landscape"
 	destVector    = "section.vector"
+	destFlatten   = "section.flatten"
 )
 
 // section is one TOC/outline entry. The page is filled in once the body has
@@ -122,10 +123,16 @@ func main() {
 	landscapePage, _ := doc.Page(doc.PageCount())
 	addLandscapeChart(landscapePage)
 
-	// Vector graphics showcase — last content page.
+	// Vector graphics showcase.
 	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
 	vectorPage, _ := doc.Page(doc.PageCount())
 	addVectorShowcase(doc, vectorPage)
+
+	// Flattening showcase — last content page. Builds interactive fields and
+	// an annotation, then bakes them into static content via Flatten().
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	flattenPage, _ := doc.Page(doc.PageCount())
+	addFlattenDemo(doc, flattenPage)
 
 	// --- Named destinations -----------------------------------------
 	// The TOC links and the outline both target these. Forward
@@ -142,6 +149,7 @@ func main() {
 		{destSales, "Multi-Page Sales Report", "sales", salesPage},
 		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
+		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
 	}
 	named := doc.NamedDestinations()
 	for _, s := range sections {
@@ -672,6 +680,83 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 // ---------------------------------------------------------------------
 // Page 4 — every supported annotation
 // ---------------------------------------------------------------------
+
+// addFlattenDemo builds interactive form fields and a live annotation on the
+// page, then bakes them into static page content via Flatten(). In the saved
+// PDF this page carries no /AcroForm entries and no /Annots — the appearance is
+// permanent and non-editable. Field.Flatten / Annotation.Flatten leave the rest
+// of the document's interactive form (on the AcroForm Fields page) untouched.
+func addFlattenDemo(doc *pdf.Document, page *pdf.Page) {
+	form := doc.Form()
+	pageNum := page.Number()
+	size, _ := page.Size()
+
+	sectionHeader(page,
+		"Form & Annotation Flattening",
+		"Field.Flatten  •  Annotation.Flatten  •  bake interactive content into static content")
+
+	mustText(page.AddText(
+		"The text field, checkbox and note below were created as interactive AcroForm fields and a live annotation, then flattened — baked into the page's content stream. In the saved PDF this page has no /AcroForm entries and no /Annots: the look is permanent and non-editable, while the still-interactive form lives on the AcroForm Fields page.",
+		pdf.TextStyle{
+			Font:        pdf.FontHelvetica,
+			Size:        9,
+			Color:       &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign:      pdf.HAlignCenter,
+			LineSpacing: 1.3,
+		},
+		pdf.Rectangle{LLX: 40, LLY: size.Height - 165, URX: size.Width - 40, URY: size.Height - 115}))
+
+	navy := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	tint := &pdf.Color{R: 0.95, G: 0.96, B: 1.0, A: 1}
+	green := &pdf.Color{R: 0.10, G: 0.55, B: 0.25, A: 1}
+
+	addLabel := func(text string, y float64) {
+		mustText(page.AddText(text, pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 11},
+			pdf.Rectangle{LLX: 60, LLY: y, URX: 200, URY: y + 18}))
+	}
+
+	// --- Interactive elements (created live, flattened below) -----------
+	addLabel("Full name:", 660)
+	tb, err := form.AddTextField(pageNum, pdf.Rectangle{LLX: 210, LLY: 660, URX: 460, URY: 680}, "FlattenName")
+	if err != nil {
+		log.Fatalf("flatten text field: %v", err)
+	}
+	tb.SetValue("Alice Sample")
+	mustErr(tb.SetStyle(pdf.FieldStyle{
+		BorderColor: navy, BackgroundColor: tint, TextColor: navy,
+		BorderWidth: 1, TextFont: pdf.FontHelvetica, TextSize: 12,
+	}))
+
+	addLabel("Subscribe:", 620)
+	cb, err := form.AddCheckbox(pageNum, pdf.Rectangle{LLX: 210, LLY: 620, URX: 238, URY: 638}, "FlattenCheck")
+	if err != nil {
+		log.Fatalf("flatten checkbox: %v", err)
+	}
+	mustErr(cb.SetStyle(pdf.FieldStyle{BorderColor: navy, BorderWidth: 1, TextColor: green}))
+	cb.SetValue("Yes")
+
+	addLabel("Note:", 575)
+	note := pdf.NewFreeTextAnnotation(page,
+		pdf.Rectangle{LLX: 210, LLY: 535, URX: 470, URY: 590},
+		"Sticky note — flattened into the page.",
+		pdf.TextStyle{Font: pdf.FontHelveticaOblique, Size: 11, Color: navy})
+	mustErr(page.Annotations().Add(note))
+
+	// --- Flatten everything on THIS page --------------------------------
+	mustErr(tb.Flatten())
+	mustErr(cb.Flatten())
+	mustErr(note.Flatten())
+
+	mustText(page.AddText(
+		"Now static content — there is nothing to click or edit in a viewer.",
+		pdf.TextStyle{
+			Font:   pdf.FontHelveticaOblique,
+			Size:   10,
+			Color:  &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1},
+			HAlign: pdf.HAlignCenter,
+		},
+		pdf.Rectangle{LLX: 40, LLY: 495, URX: size.Width - 40, URY: 515}))
+}
 
 func addAnnotations(page *pdf.Page) {
 	sectionHeader(page,
