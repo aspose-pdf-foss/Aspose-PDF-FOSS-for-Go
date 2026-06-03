@@ -55,6 +55,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).Info() (DocumentInfo, error)` — returns Info-dictionary metadata read from live in-memory state; mirrors Aspose.PDF for .NET's `Document.Info`
 - `(*Document).ExtractText() ([]string, error)` — returns text for all pages (one entry per page)
 - `(*Document).ExtractTextWithLayout() ([][]TextLine, error)` — returns structured text lines for each page
+- `(*Document).SearchText(query, opts...) ([]TextMatch, error)` — finds occurrences of query across all pages (each match carries its page); mirrors Aspose.PDF for .NET's `TextFragmentAbsorber`
 
 **`document_pages.go`** — page delete/split/extract operations
 - `(*Document).DeletePage(n) error` — removes page n (1-based) in place; mirrors Aspose.PDF for .NET's `Document.Pages.Delete(int)`
@@ -75,6 +76,9 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).ArtBox()` — meaningful content extent; falls back to CropBox then MediaBox
 - `(*Page).ExtractText() (string, error)` — returns the text content of a page in visual reading order; unknown font characters become U+FFFD
 - `(*Page).ExtractTextWithLayout() ([]TextLine, error)` — returns structured text lines in visual reading order with coordinates and font info
+- `(*Page).SearchText(query string, opts ...SearchOptions) ([]TextMatch, error)` — finds occurrences of query on the page in reading order, returning a bounding `Rectangle` per match (`text_search.go`); built on the layout pipeline, matches are located within a single line; literal by default, with optional case-insensitive and RE2-regex modes
+- `SearchOptions` struct — CaseInsensitive bool, Regex bool (zero value = case-sensitive literal, matching Aspose.PDF for .NET's default)
+- `TextMatch` struct — Text string, PageNumber int (1-based), Rect Rectangle (PDF user space)
 - `PageSize` struct — Width, Height in points (1/72 inch)
 - `Color` struct — R, G, B, A float64 (values in [0, 1])
 - `TextLine` struct — Text, Y, Fragments []TextFragment

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `(*Page).SearchText(query, opts...)` / `(*Document).SearchText(query, opts...)` — locate occurrences of a query in reading order, returning a `TextMatch` (text + 1-based page + bounding `Rectangle`) for each. Literal and case-sensitive by default; `SearchOptions{CaseInsensitive, Regex}` enables case-folding and RE2 regular expressions. Built on the layout-extraction pipeline; matches are located within a single line. Mirrors Aspose.PDF for .NET's `TextFragmentAbsorber`.
 - `(*Document).DeletePage(n)` / `(*Document).DeletePages(pageNums...)` — remove pages in place by 1-based number; numbers are de-duplicated and validated before any removal (atomic on error), and removing every page is rejected. Mirrors Aspose.PDF for .NET's `Document.Pages.Delete(int)` / `Delete(int[])`.
 
 ### Changed

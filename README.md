@@ -851,6 +851,30 @@ text, err := page.ExtractText()
 lines, err := page.ExtractTextWithLayout()
 ```
 
+### Text Search
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Literal, case-sensitive by default. Each match carries its page and a
+// bounding rectangle in PDF user space.
+matches, err := doc.SearchText("Invoice")
+for _, m := range matches {
+    fmt.Printf("page %d: %q at [%.0f,%.0f]-[%.0f,%.0f]\n",
+        m.PageNumber, m.Text, m.Rect.LLX, m.Rect.LLY, m.Rect.URX, m.Rect.URY)
+}
+
+// Case-insensitive, and regular-expression (RE2) modes
+hits, _ := doc.SearchText("total", pdf.SearchOptions{CaseInsensitive: true})
+nums, _ := doc.SearchText(`\$\d+\.\d{2}`, pdf.SearchOptions{Regex: true})
+
+// Single page
+page, _ := doc.Page(1)
+onPage, _ := page.SearchText("Summary")
+```
+
+Matches are located within a single text line (a query that straddles a line break is not found).
+
 ### Image Extraction
 
 ```go
