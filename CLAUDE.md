@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This codebase is MIT-licensed (see `LICENSE` at the repo root). Every `.go` file carries an `// SPDX-License-Identifier: MIT` header above its `package` declaration. When adding new `.go` files, preserve this convention — the header on its own line followed by a blank line, then the `package` line.
 
+## API design
+
+When building new functionality, always shape the public API to mirror **Aspose.PDF for .NET**. Its class/method names, types, and call patterns are the reference model: prefer the same concepts (e.g. `Document`, `Page`, `TextFragment`, `Table`/`Row`/`Cell`, `OutlineItemCollection`, `BorderInfo`/`MarginInfo`), the same method names, and the same overall workflow, adapting only where Go idioms require it (error returns instead of exceptions, `io.Reader`/`io.Writer` stream variants, exported funcs over constructors). A Go developer who knows Aspose.PDF for .NET should recognize this API immediately. When a new feature has a counterpart in Aspose.PDF for .NET, check that API first and align with it before inventing a new shape; the existing surface (noted as "Mirrors Aspose.PDF for .NET's …" throughout the Public API section below) shows the pattern to follow.
+
 ## Commands
 
 ```bash
