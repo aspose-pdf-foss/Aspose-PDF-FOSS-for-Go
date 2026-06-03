@@ -158,7 +158,7 @@ func TestXMPClear(t *testing.T) {
 // TestSyncInfoToXMP maps the /Info dictionary into the XMP packet.
 func TestSyncInfoToXMP(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
-	doc.SetMetadata(pdf.Metadata{
+	doc.SetInfo(pdf.DocumentInfo{
 		Title:        "Synced Doc",
 		Author:       "Jane Author",
 		Subject:      "An abstract",

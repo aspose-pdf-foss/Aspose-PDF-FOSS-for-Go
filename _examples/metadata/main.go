@@ -44,9 +44,9 @@ type readableMetadata struct {
 }
 
 func printMetadata(doc *pdf.Document) {
-	meta, err := doc.Metadata()
+	meta, err := doc.Info()
 	if err != nil {
-		log.Fatalf("metadata: %v", err)
+		log.Fatalf("info: %v", err)
 	}
 	out, err := json.MarshalIndent(readableMetadata{
 		Title:        meta.Title,
@@ -71,7 +71,7 @@ func main() {
 		log.Fatalf("open: %v", err)
 	}
 
-	doc.ClearMetadata()
+	doc.ClearInfo()
 
 	printMetadata(doc)
 }

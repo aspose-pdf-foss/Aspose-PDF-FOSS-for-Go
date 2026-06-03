@@ -31,6 +31,12 @@ func (r *ValidationReport) add(code, msg string) {
 // and the page tree. Encrypted documents are flagged with an ENCRYPTED issue
 // but are not treated as invalid.
 //
+// Scope: this is a structural-integrity check (is the file parseable and
+// internally consistent), NOT a standards-conformance check. It does not
+// validate PDF/A or PDF/UA. This differs from Aspose.PDF for .NET's
+// Document.Validate, which checks PDF/A and PDF/UA compliance and writes an
+// XML report; the corresponding capability here is intentionally narrower.
+//
 // A non-nil error is returned only for I/O failures (file not found, etc.).
 // PDF-level problems are reported inside ValidationReport.Issues.
 //

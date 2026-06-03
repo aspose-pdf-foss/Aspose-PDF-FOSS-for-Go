@@ -145,7 +145,7 @@ func (d *Document) ClearXMP() {
 // Title/Author/Subject/Keywords/Creator/Producer/dates map to the
 // corresponding XMP properties. No-op-safe when /Info is absent.
 func (d *Document) SyncInfoToXMP() error {
-	meta, _ := d.Metadata()
+	meta, _ := d.Info()
 	x := XMPMetadata{
 		Title:       meta.Title,
 		Description: meta.Subject,

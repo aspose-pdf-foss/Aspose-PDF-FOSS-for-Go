@@ -52,7 +52,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).RemoveEncryption()` — clears any configured passwords and permissions so the next Save produces a plaintext PDF
 - `(*Document).WriteTo(w) (int64, error)` — writes the document to an `io.Writer` (implements `io.WriterTo`)
 - `(*Document).Save(outputPath) error` — writes the document to a file
-- `(*Document).Metadata() (Metadata, error)` — returns Info metadata read from live in-memory state
+- `(*Document).Info() (DocumentInfo, error)` — returns Info-dictionary metadata read from live in-memory state; mirrors Aspose.PDF for .NET's `Document.Info`
 - `(*Document).ExtractText() ([]string, error)` — returns text for all pages (one entry per page)
 - `(*Document).ExtractTextWithLayout() ([][]TextLine, error)` — returns structured text lines for each page
 
@@ -172,10 +172,11 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 **`page_range.go`**
 - `PageRange` struct — From, To (1-based, inclusive)
 
-**`metadata.go`**
-- `(*Document).SetMetadata(meta)` — replaces the Info dictionary in memory; full replacement, empty fields omitted
-- `(*Document).ClearMetadata()` — removes the Info dictionary; applied on Save/WriteTo
-- `Metadata` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Custom map[string]string
+**`metadata.go`** — Info-dictionary metadata. Naming note: this is the PDF `/Info` dictionary and mirrors Aspose.PDF for .NET's `Document.Info` (`DocumentInfo`). In Aspose.PDF for .NET, `Document.Metadata` is the *XMP* store — which here is `(*Document).XMP` (see `xmp.go`), not this type. We deliberately name the Info surface `Info`/`DocumentInfo` (not `Metadata`) to avoid that collision.
+- `(*Document).Info() (DocumentInfo, error)` — returns the Info-dictionary metadata read from live in-memory state
+- `(*Document).SetInfo(info)` — replaces the Info dictionary in memory; full replacement, empty fields omitted
+- `(*Document).ClearInfo()` — removes the Info dictionary; applied on Save/WriteTo
+- `DocumentInfo` struct — Title, Author, Subject, Keywords, Creator, Producer, CreationDate, ModDate, Custom map[string]string
 
 **`xmp.go`** — XMP metadata (the `/Catalog/Metadata` RDF/XML packet, ISO 32000-1 §14.3.2)
 - `(*Document).XMP() (XMPMetadata, error)` — parse the XMP packet; zero value (`IsEmpty()`) when absent
@@ -239,8 +240,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `LinkAnnotation.Action() Action`, `LinkAnnotation.SetAction(act Action)` — nil clears /A
 - `LinkAnnotation.Highlight() LinkHighlightMode`, `LinkAnnotation.SetHighlight(h LinkHighlightMode)` — controls /H click-feedback (None / Invert / Outline / Push)
 - `LinkHighlightMode` enum — `LinkHighlightInvert` (default), `LinkHighlightNone`, `LinkHighlightOutline`, `LinkHighlightPush`
-- `Action` interface — `ActionType()`; concrete types: `GoToURIAction`, `GoToAction`, `NamedAction`, `SubmitFormAction`, `ResetFormAction`, `JavaScriptAction` (parse-only; access via `Script() string`)
-- Action constructors: `NewGoToURIAction(uri)`, `NewGoToAction(pageNum, top)`, `NewNamedAction(name)`, `NewSubmitFormAction(url, fields, flags)`, `NewResetFormAction(fields)`. JavaScript actions are read-only — there is no `NewJavaScriptAction`
+- `Action` interface — `ActionType()`; concrete types: `GoToURIAction`, `GoToAction`, `NamedAction`, `SubmitFormAction`, `ResetFormAction`, `JavaScriptAction` (parsed from existing PDFs and constructable; read via `Script() string`)
+- Action constructors: `NewGoToURIAction(uri)`, `NewGoToAction(pageNum, top)`, `NewNamedAction(name)`, `NewSubmitFormAction(url, fields, flags)`, `NewResetFormAction(fields)`, `NewJavaScriptAction(script)`
 - `ActionType` enum — `ActionTypeUnknown`, `ActionTypeGoToURI`, `ActionTypeGoTo`, `ActionTypeNamed`, `ActionTypeSubmitForm`, `ActionTypeResetForm`, `ActionTypeJavaScript`
 - `NamedActionType` enum — `NamedActionFirstPage`, `NamedActionLastPage`, `NamedActionNextPage`, `NamedActionPrevPage`, `NamedActionPrint`
 - `SubmitFormFlags` bitfield per ISO 32000-1 Table 237 (`SubmitIncludeNoValueFields`, `SubmitExportFormat`, `SubmitGetMethod`, ...)
@@ -272,7 +273,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `RedactAnnotation` — mark + apply redaction. `QuadPoints()/SetQuadPoints`, `InteriorColor()/SetInteriorColor`, `OverlayText()/SetOverlayText`, `RepeatOverlayText()/SetRepeatOverlayText`, `OverlayTextStyle()/SetOverlayTextStyle`. Border via `drawingAnnotationBase`. Mark-mode `/AP/N` renders quad fills + optional overlay preview; destructive content removal via `(*Document).ApplyRedactions()`. Constructor `NewRedactAnnotation(page, rect)`
 - `(*Document).ApplyRedactions() error` — destructively removes content inside every `/Redact` annotation's `/QuadPoints` (or `/Rect`) regions: text glyphs (per-glyph filter with TJ kerning gaps to preserve surviving positions), `Do` XObject invocations (drop or clip), and drawing paths (drop or clip). After rewrite, fills each quad with `/IC` color and renders `/OverlayText` (centered or tiled if `/Repeat`); then removes the redact annotations from `/Annots`. Best-effort semantics — partial state on failure
 - `(*Document).ValidateRedactions() error` — pre-flight dry-run parseability check on every redact-bearing page; recommended before `ApplyRedactions`
-- `NewJavaScriptAction(script string) *JavaScriptAction` — public constructor for `/JavaScript` actions (parse-only since Subepic 1). Includes documented security warning — embedded JavaScript executes in the recipient's viewer
+- `NewJavaScriptAction(script string) *JavaScriptAction` — public constructor for `/JavaScript` actions; the action is encoded back on Save (JS actions are also parsed from existing PDFs). Includes documented security warning — embedded JavaScript executes in the recipient's viewer
 - Apply pipeline files: `redact_apply.go` orchestrates; `redact_apply_text.go` rewrites Tj/TJ/'/" with per-glyph filtering; `redact_apply_image.go` clips/drops `Do` invocations using even-odd clip paths; `redact_apply_path.go` clips/drops path-construction sequences buffered until a paint terminator
 
 **`table.go` / `table_render.go`**
@@ -303,7 +304,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Out of Phase 3 scope (Phase 4 candidates): auto-fit column widths (content-driven), dash patterns on borders, per-side border width/color, rowspan splitting across page breaks, image cells with explicit pixel sizing
 
 **`validate.go`**
-- `Validate(inputPath)` — checks a PDF for structural integrity; returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message)
+- `Validate(inputPath)` — checks a PDF for **structural integrity** (parseable + internally consistent); returns `*ValidationReport` with a `Valid` flag and a list of `ValidationIssue` (code + message). NOT a standards check: it does not validate PDF/A or PDF/UA. This differs from Aspose.PDF for .NET's `Document.Validate`, which checks PDF/A·PDF/UA conformance — the capability here is intentionally narrower
 - Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`
 - Checks performed: header, xref/trailer, all objects readable, page tree traversal, orphaned `/Pages` nodes, `/Page` → `/Parent` refs resolve to `/Pages`, streams without `/Filter` don't contain compressed data
 

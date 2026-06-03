@@ -359,7 +359,8 @@ func parseResetFormAction(d pdfDict) *ResetFormAction {
 }
 
 // JavaScriptAction holds a JavaScript snippet attached to an annotation.
-// This subepic supports parsing JS actions read from existing PDFs.
+// JS actions are both parsed from existing PDFs and constructable via
+// NewJavaScriptAction; a constructed action is encoded back on Save.
 type JavaScriptAction struct {
 	script string
 }
@@ -385,12 +386,11 @@ func NewJavaScriptAction(script string) *JavaScriptAction {
 	return &JavaScriptAction{script: script}
 }
 
-// encode is required by the Action interface but not used (no
-// constructor). Returns a minimal /JavaScript dict so re-saving a file
-// with a parsed JS action preserves the script text. Stream-form /JS
-// in the input is emitted back as a literal string — the spec permits
-// either form (ISO 32000-1 §7.9.2), but the original storage form is
-// not round-tripped exactly.
+// encode returns a minimal /JavaScript dict so a parsed or constructed
+// JS action preserves its script text on Save. Stream-form /JS in the
+// input is emitted back as a literal string — the spec permits either
+// form (ISO 32000-1 §7.9.2), but the original storage form is not
+// round-tripped exactly.
 func (a *JavaScriptAction) encode() pdfDict {
 	return pdfDict{
 		"/Type": pdfName("/Action"),

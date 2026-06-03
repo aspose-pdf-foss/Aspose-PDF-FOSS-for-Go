@@ -55,7 +55,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Merge** — combine multiple PDFs into a single document
 - **Rotate** — rotate pages by 90°, 180°, or 270°
 - **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
-- **Metadata** — read and write document Info (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries)
+- **Info metadata** — read and write the document `/Info` dictionary (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries) via `Document.Info()/SetInfo()/ClearInfo()` and the `DocumentInfo` struct; mirrors Aspose.PDF for .NET's `Document.Info`. (In Aspose.PDF for .NET, `Document.Metadata` is the XMP store — here `Document.XMP()`.)
 - **XMP metadata** — full CRUD of the `/Catalog/Metadata` RDF/XML packet (ISO 32000-1 §14.3.2) via `Document.XMP()/SetXMP()/ClearXMP()` and a raw `XMPRaw()/SetXMPRaw()` escape hatch. `XMPMetadata` models Dublin Core / XMP Basic / PDF schemas (title, authors, description, keywords, creator tool, producer, create/modify/metadata dates) plus arbitrary namespaced custom properties; parser handles both attribute and `rdf:Alt`/`Seq`/`Bag` element forms. `SyncInfoToXMP()` mirrors the `/Info` dictionary into XMP as the spec recommends
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
@@ -147,13 +147,13 @@ for i, s := range sizes {
 ### Metadata
 
 ```go
-// Read
+// Read (the /Info dictionary; mirrors Aspose.PDF for .NET's Document.Info)
 doc, _ := pdf.Open("input.pdf")
-meta, _ := doc.Metadata()
-fmt.Println(meta.Title, meta.Author, meta.CreationDate)
+info, _ := doc.Info()
+fmt.Println(info.Title, info.Author, info.CreationDate)
 
 // Write (full replacement — unset fields are omitted from the PDF)
-doc.SetMetadata(pdf.Metadata{
+doc.SetInfo(pdf.DocumentInfo{
     Title:  "My Document",
     Author: "Jane Smith",
     Custom: map[string]string{"Department": "Legal"},
@@ -161,12 +161,12 @@ doc.SetMetadata(pdf.Metadata{
 doc.Save("output.pdf")
 
 // Update a single field: read → modify → write
-meta, _ = doc.Metadata()
-meta.Title = "Updated Title"
-doc.SetMetadata(meta)
+info, _ = doc.Info()
+info.Title = "Updated Title"
+doc.SetInfo(info)
 
 // Strip all metadata
-doc.ClearMetadata()
+doc.ClearInfo()
 doc.Save("clean.pdf")
 ```
 
@@ -804,6 +804,8 @@ if !report.Valid {
 
 Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`.
 
+`Validate` is a **structural-integrity** check (is the file parseable and internally consistent). It is **not** a standards-conformance check — it does not validate PDF/A or PDF/UA (unlike Aspose.PDF for .NET's `Document.Validate`).
+
 ### Text Extraction
 
 ```go
@@ -1079,7 +1081,7 @@ doc.Save("output.pdf")
 doc, err := pdf.Open("input.pdf")
 
 fmt.Println(doc.PageCount())   // total pages
-fmt.Println(doc.Metadata())    // Info dictionary
+fmt.Println(doc.Info())        // Info dictionary
 
 // Rotate pages (mutates in place; rotation accumulates)
 err = doc.Rotate(pdf.Rotate90, 1, 2)

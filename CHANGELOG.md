@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the Info-dictionary API to mirror Aspose.PDF for .NET's `Document.Info`: `(*Document).Metadata()` → `Info()`, `SetMetadata()` → `SetInfo()`, `ClearMetadata()` → `ClearInfo()`, and the `Metadata` struct → `DocumentInfo`. In Aspose.PDF for .NET, `Document.Metadata` is the XMP store (here `(*Document).XMP`), so the previous name collided.
+
+### Documentation
+
+- Clarified that `Validate` is a structural-integrity check, not a PDF/A·PDF/UA conformance check (unlike Aspose.PDF for .NET's `Document.Validate`).
+- Corrected `JavaScriptAction` docs: it is constructable via `NewJavaScriptAction` (and encoded back on Save), not parse-only.
+
 ## [0.2.0] — 2026-05-27
 
 SVG embedding completes practical coverage (~95% of real-world SVG files) across five sub-phases: shapes & paths, gradients, text, image / defs / use / clipPath, and mask / CSS / filter / marker. All work added internally — no breaking changes to v0.1.0 API.

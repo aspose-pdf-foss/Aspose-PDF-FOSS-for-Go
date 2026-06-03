@@ -189,9 +189,9 @@ func main() {
 		log.Fatalf("page labels: %v", err)
 	}
 
-	// --- Metadata ---------------------------------------------------
+	// --- Document info (/Info) --------------------------------------
 	now := time.Now().UTC().Format("D:20060102150405Z")
-	doc.SetMetadata(pdf.Metadata{
+	doc.SetInfo(pdf.DocumentInfo{
 		Title:        docTitle,
 		Author:       docAuthor,
 		Subject:      "End-to-end showcase of " + productName + " capabilities",

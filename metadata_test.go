@@ -14,7 +14,7 @@ func TestMetadataCustomFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	meta, err := doc.Metadata()
+	meta, err := doc.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestDocumentMetadataFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	meta, err := doc.Metadata()
+	meta, err := doc.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestDocumentMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	meta, err := doc.Metadata()
+	meta, err := doc.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestDocumentMetadataAfterAppend(t *testing.T) {
 	}
 	doc1.Append(doc2)
 
-	meta, err := doc1.Metadata()
+	meta, err := doc1.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -99,15 +99,15 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	want := asposepdf.Metadata{
+	want := asposepdf.DocumentInfo{
 		Title:   "Test Title",
 		Author:  "Test Author",
 		Subject: "Test Subject",
 	}
-	doc.SetMetadata(want)
+	doc.SetInfo(want)
 
-	// Metadata() reads live from doc.info — no save/reload needed.
-	got, err := doc.Metadata()
+	// Info() reads live from doc.info — no save/reload needed.
+	got, err := doc.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSetMetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open saved: %v", err)
 	}
-	got2, err := doc2.Metadata()
+	got2, err := doc2.Info()
 	if err != nil {
 		t.Fatalf("Metadata after reload: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestSetMetadataCustomFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc.SetMetadata(asposepdf.Metadata{
+	doc.SetInfo(asposepdf.DocumentInfo{
 		Title:  "Doc",
 		Custom: map[string]string{"Department": "Legal", "Version": "2.0"},
 	})
@@ -163,7 +163,7 @@ func TestSetMetadataCustomFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open saved: %v", err)
 	}
-	got, err := doc2.Metadata()
+	got, err := doc2.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestSetMetadataReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc.SetMetadata(asposepdf.Metadata{Author: "New Author"})
+	doc.SetInfo(asposepdf.DocumentInfo{Author: "New Author"})
 
 	tmp := filepath.Join(t.TempDir(), "out.pdf")
 	if err := doc.Save(tmp); err != nil {
@@ -190,16 +190,16 @@ func TestSetMetadataReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open saved: %v", err)
 	}
-	got, err := doc2.Metadata()
+	got, err := doc2.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
 	if got.Author != "New Author" {
 		t.Errorf("Author: got %q, want %q", got.Author, "New Author")
 	}
-	// Title from source must NOT appear — SetMetadata is a full replacement.
+	// Title from source must NOT appear — SetInfo is a full replacement.
 	if got.Title != "" {
-		t.Errorf("Title must be absent after SetMetadata without Title, got %q", got.Title)
+		t.Errorf("Title must be absent after SetInfo without Title, got %q", got.Title)
 	}
 }
 
@@ -208,7 +208,7 @@ func TestClearMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	doc.ClearMetadata()
+	doc.ClearInfo()
 
 	tmp := filepath.Join(t.TempDir(), "out.pdf")
 	if err := doc.Save(tmp); err != nil {
@@ -218,13 +218,13 @@ func TestClearMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open saved: %v", err)
 	}
-	got, err := doc2.Metadata()
+	got, err := doc2.Info()
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
 	if got.Title != "" || got.Author != "" || got.Subject != "" ||
 		got.Keywords != "" || got.Creator != "" || got.Producer != "" ||
 		got.CreationDate != "" || got.ModDate != "" || len(got.Custom) != 0 {
-		t.Errorf("expected empty Metadata after ClearMetadata, got %+v", got)
+		t.Errorf("expected empty Info after ClearInfo, got %+v", got)
 	}
 }
