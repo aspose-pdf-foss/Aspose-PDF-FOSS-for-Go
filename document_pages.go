@@ -79,6 +79,60 @@ func (d *Document) Reorder(order []int) error {
 	return nil
 }
 
+// DeletePage removes the page at the given 1-based number.
+// Mirrors Aspose.PDF for .NET's Document.Pages.Delete(int).
+//
+// Example:
+//
+//	err = doc.DeletePage(2) // drop the second page
+func (d *Document) DeletePage(n int) error {
+	return d.DeletePages(n)
+}
+
+// DeletePages removes the pages at the given 1-based page numbers. Repeated
+// numbers are de-duplicated and argument order does not matter; the surviving
+// pages keep their relative order. Every number is validated before any page
+// is removed, so on error the document is left unchanged.
+// Mirrors Aspose.PDF for .NET's Document.Pages.Delete(int[]).
+//
+// A document must keep at least one page: a call that would remove every page
+// returns an error and changes nothing. Passing no page numbers is an error
+// (unlike .NET's parameterless Pages.Delete(), which clears all pages — that
+// would leave an unusable zero-page document).
+//
+// Removed pages no longer appear in the document or in saved output. The
+// underlying objects are not eagerly reclaimed (matching Reorder); they fall
+// out of the written page tree and can be garbage-collected by the writer's
+// reachability pass.
+//
+// Example:
+//
+//	err = doc.DeletePages(1, 3) // drop the first and third pages
+func (d *Document) DeletePages(pageNums ...int) error {
+	if len(pageNums) == 0 {
+		return fmt.Errorf("no page numbers specified")
+	}
+	remove := make(map[int]bool, len(pageNums))
+	for _, n := range pageNums {
+		if n < 1 || n > len(d.pages) {
+			return fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
+		}
+		remove[n] = true
+	}
+	if len(remove) >= len(d.pages) {
+		return fmt.Errorf("cannot delete all %d page(s); a document must keep at least one page", len(d.pages))
+	}
+	kept := make([]*pdfObject, 0, len(d.pages)-len(remove))
+	for i, p := range d.pages {
+		if !remove[i+1] {
+			kept = append(kept, p)
+		}
+	}
+	d.pages = kept
+	d.pageCache = nil // page positions shifted; drop stale cached views
+	return nil
+}
+
 // Split returns each page of the document as a separate *Document.
 //
 // Example:

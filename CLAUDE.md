@@ -56,7 +56,9 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).ExtractText() ([]string, error)` — returns text for all pages (one entry per page)
 - `(*Document).ExtractTextWithLayout() ([][]TextLine, error)` — returns structured text lines for each page
 
-**`document_pages.go`** — split/extract operations
+**`document_pages.go`** — page delete/split/extract operations
+- `(*Document).DeletePage(n) error` — removes page n (1-based) in place; mirrors Aspose.PDF for .NET's `Document.Pages.Delete(int)`
+- `(*Document).DeletePages(pageNums...) error` — removes the given 1-based pages in place; numbers are de-duplicated and validated before any removal (atomic on error); errors on no numbers or on removing every page; mirrors `Document.Pages.Delete(int[])`
 - `(*Document).Split() ([]*Document, error)` — returns each page as a separate `*Document`
 - `(*Document).Extract(ranges...) (*Document, error)` — returns a new `*Document` with the selected page ranges
 
