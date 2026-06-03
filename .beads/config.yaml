@@ -44,6 +44,13 @@
 #   git-push: false    # Disable git push (export locally only)
 #   git-repo: ""       # Separate git repo for backups (default: project repo)
 
+# Project moved to GitHub; the old Dolt backup remote (git.saltov.dynabic.com)
+# is dead and every mutating bd command hung ~21s retrying it. Keep the issue
+# DB local (it is committed to the GitHub repo under .beads/ with the code) and
+# disable the remote push.
+backup:
+  git-push: false
+
 # Integration settings (access with 'bd config get/set')
 # These are stored in the database, not in this file:
 # - jira.url
