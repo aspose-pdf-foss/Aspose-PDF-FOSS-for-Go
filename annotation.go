@@ -43,6 +43,11 @@ type Annotation interface {
 	SetContents(s string)
 	PageIndex() int
 
+	// Flatten bakes this annotation's normal appearance into the page
+	// content and removes the annotation, making it non-interactive. See
+	// (*annotationBase).Flatten in flatten.go.
+	Flatten() error
+
 	// seals the interface — external packages cannot implement Annotation directly.
 	annotationBaseRef() *annotationBase
 }

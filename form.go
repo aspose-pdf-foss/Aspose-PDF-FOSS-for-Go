@@ -94,6 +94,10 @@ type Field interface {
 	// and regenerates the widget appearance. Style reads it back.
 	SetStyle(s FieldStyle) error
 	Style() FieldStyle
+	// Flatten bakes this single field's appearance into its page content
+	// and removes the field, leaving other fields and the /AcroForm intact.
+	// See (*fieldBase).Flatten in flatten.go.
+	Flatten() error
 }
 
 // walkAcroForm walks /AcroForm/Fields recursively, returning the flat
