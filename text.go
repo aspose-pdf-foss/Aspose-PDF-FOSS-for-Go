@@ -73,8 +73,9 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 // textFragment is a contiguous run of text at a single position.
 type textFragment struct {
 	text        strings.Builder
-	x, y        float64 // device-space position of first rune
-	endX        float64 // device-space x after last glyph advance
+	x, y        float64   // device-space position of first rune
+	runeX       []float64 // device-space x at the start of each rune (len == rune count)
+	endX        float64   // device-space x after last glyph advance
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize
@@ -493,6 +494,7 @@ func (e *textExtractor) emitRune(r rune) {
 	}
 
 	e.curFrag.text.WriteRune(r)
+	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
 	e.lastX = x
 	e.lastY = y
 	e.hasPos = true

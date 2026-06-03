@@ -143,6 +143,37 @@ func TestSearchTextErrors(t *testing.T) {
 	}
 }
 
+func TestSearchTextRealGlyphWidths(t *testing.T) {
+	// "iiiimmmm" extracts as one fragment. The left half ("iiii") and right
+	// half ("mmmm") have the same rune count, so a uniform-advance estimate
+	// would size them identically. Real glyph metrics make "mmmm" far wider —
+	// this guards the per-glyph (runeX) positioning against regressing to
+	// interpolation.
+	doc := pageWithText(t, "iiiimmmm")
+	p, _ := doc.Page(1)
+
+	narrow, err := p.SearchText("iiii")
+	if err != nil {
+		t.Fatalf("SearchText: %v", err)
+	}
+	wide, err := p.SearchText("mmmm")
+	if err != nil {
+		t.Fatalf("SearchText: %v", err)
+	}
+	if len(narrow) != 1 || len(wide) != 1 {
+		t.Fatalf("got %d narrow, %d wide matches; want 1 each", len(narrow), len(wide))
+	}
+	wn := narrow[0].Rect.URX - narrow[0].Rect.LLX
+	wm := wide[0].Rect.URX - wide[0].Rect.LLX
+	if !(wm > wn*1.5) {
+		t.Errorf("expected %q (%.2f) much wider than %q (%.2f); boxes not using real glyph widths", "mmmm", wm, "iiii", wn)
+	}
+	// The two halves must not overlap and must sit left-to-right.
+	if narrow[0].Rect.URX > wide[0].Rect.LLX+0.5 {
+		t.Errorf("halves overlap: iiii ends at %.2f, mmmm starts at %.2f", narrow[0].Rect.URX, wide[0].Rect.LLX)
+	}
+}
+
 func TestDocumentSearchTextAcrossPages(t *testing.T) {
 	doc := asposepdf.NewDocument(searchPageW, searchPageH)
 	p1, _ := doc.Page(1)

@@ -873,7 +873,7 @@ page, _ := doc.Page(1)
 onPage, _ := page.SearchText("Summary")
 ```
 
-Matches are located within a single text line (a query that straddles a line break is not found).
+Each match's `Rect` is built from the per-glyph positions recorded during extraction, so the box hugs the matched text rather than being interpolated. Matches are located within a single text line (a query that straddles a line break is not found).
 
 ### Image Extraction
 

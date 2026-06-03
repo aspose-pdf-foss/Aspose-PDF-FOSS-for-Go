@@ -23,6 +23,11 @@ type TextFragment struct {
 	Color         Color   // fill color
 	IsSubscript   bool    // Y is below the line baseline
 	IsSuperscript bool    // Y is above the line baseline
+
+	// runeX holds the exact device-space start X of each rune (len == rune
+	// count of Text). Unexported: used by SearchText for precise sub-fragment
+	// match rectangles. Empty when positions were not recorded.
+	runeX []float64
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
@@ -127,6 +132,7 @@ func assembleLine(frags []textFragment) TextLine {
 			Italic:      f.italic,
 			CharSpacing: f.charSpacing,
 			Color:       Color{R: f.colorR, G: f.colorG, B: f.colorB, A: 1},
+			runeX:       f.runeX,
 		}
 		// Detect sub/superscript: smaller font with Y offset from baseline.
 		if f.fontSize < maxFontSize*0.85 {

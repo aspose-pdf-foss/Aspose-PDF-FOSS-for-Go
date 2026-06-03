@@ -27,6 +27,14 @@ type TextMatch struct {
 	Rect       Rectangle // bounding box of the match in PDF user space (points)
 }
 
+// Rect precision: horizontal edges are taken from the recorded per-glyph start
+// positions captured during extraction — exact for the left edge of any match
+// and the right edge of any match that does not end at a fragment's final
+// glyph (the common case for a word inside a line). When a match ends exactly
+// on a fragment's last glyph, the right edge falls back to the fragment end
+// and may be short by up to one glyph. Vertical edges come from the fragment's
+// font ascent/descent.
+
 // SearchText finds every occurrence of query on the page and returns the
 // matches in visual reading order (top-to-bottom, left-to-right). Each match
 // carries the matched text and a bounding rectangle in PDF user space.
@@ -181,9 +189,12 @@ func searchLine(line *TextLine, re *regexp.Regexp, pageNum int) []TextMatch {
 }
 
 // matchRect unions the per-rune cells of the match span [r0, r1) into one
-// rectangle. Within a fragment, a rune's horizontal extent is interpolated
-// from the fragment width by rune index (uniform-advance approximation);
-// inserted-space runes (owner < 0) contribute nothing.
+// rectangle. A rune's horizontal extent comes from the fragment's recorded
+// per-glyph start positions (runeX) when available — exact for the left edge
+// of any rune and the right edge of any non-final rune; the final rune of a
+// fragment falls back to the fragment end (X+Width). When runeX is absent the
+// extent is interpolated uniformly from the fragment width. Inserted-space
+// runes (owner < 0) contribute nothing.
 func matchRect(frags []TextFragment, owner, local, runeCounts []int, r0, r1 int) (Rectangle, bool) {
 	var (
 		minX, minY, maxX, maxY float64
@@ -200,8 +211,18 @@ func matchRect(frags []TextFragment, owner, local, runeCounts []int, r0, r1 int)
 			continue
 		}
 		li := local[k]
-		x0 := f.X + float64(li)/float64(n)*f.Width
-		x1 := f.X + float64(li+1)/float64(n)*f.Width
+		var x0, x1 float64
+		if len(f.runeX) == n {
+			x0 = f.runeX[li]
+			if li+1 < n {
+				x1 = f.runeX[li+1]
+			} else {
+				x1 = f.X + f.Width // fragment end (last glyph)
+			}
+		} else {
+			x0 = f.X + float64(li)/float64(n)*f.Width
+			x1 = f.X + float64(li+1)/float64(n)*f.Width
+		}
 		y0 := f.Y
 		y1 := f.Y + f.Height
 		if !found {
