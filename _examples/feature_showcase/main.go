@@ -1355,11 +1355,14 @@ func addSalesReport(doc *pdf.Document, page *pdf.Page) {
 		SetBackground(totalBG).
 		SetMargin(pdf.MarginInfo{Top: 6, Right: 8, Bottom: 6, Left: 8})
 	totalRow.AddCell("GRAND TOTAL").
-		SetColSpan(3).
+		SetColSpan(2).
 		SetTextStyle(pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 13, Color: navy}).
 		SetHAlign(pdf.HAlignRight).
 		SetVAlign(pdf.VAlignMiddle)
+	// Span the last two columns so the formatted total (e.g. "€15433.00")
+	// has room — a single 80pt column clips it at this font size.
 	totalRow.AddCell(fmt.Sprintf("€%.2f", grandTotal)).
+		SetColSpan(2).
 		SetTextStyle(pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 14, Color: navy}).
 		SetHAlign(pdf.HAlignRight).
 		SetVAlign(pdf.VAlignMiddle)
