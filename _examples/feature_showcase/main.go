@@ -35,6 +35,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"math"
@@ -67,6 +68,7 @@ const (
 	destLandscape = "section.landscape"
 	destVector    = "section.vector"
 	destFlatten   = "section.flatten"
+	destRender    = "section.render"
 )
 
 // section is one TOC/outline entry. The page is filled in once the body has
@@ -134,6 +136,13 @@ func main() {
 	flattenPage, _ := doc.Page(doc.PageCount())
 	addFlattenDemo(doc, flattenPage)
 
+	// Page Rendering — a meta page whose thumbnails are renders of other pages
+	// of this very document, produced by the pure-Go renderer. Its content is
+	// filled in below, after the per-page furniture so the thumbnails show the
+	// finished pages (logo, footer, watermark and all).
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	renderPage, _ := doc.Page(doc.PageCount())
+
 	// --- Named destinations -----------------------------------------
 	// The TOC links and the outline both target these. Forward
 	// references through NewNamedDestination work because the named
@@ -150,6 +159,7 @@ func main() {
 		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
+		{destRender, "Page Rendering", "image", renderPage},
 	}
 	named := doc.NamedDestinations()
 	for _, s := range sections {
@@ -182,6 +192,15 @@ func main() {
 	for i, p := range doc.Pages() {
 		addUnifiedFooter(p, i+1, doc.PageCount())
 	}
+
+	// Page Rendering thumbnails — render a few finished pages of this very
+	// document (now complete with logo/footer/watermark) and embed them.
+	addRenderShowcase(renderPage, []renderThumb{
+		{textPage, "Text Capabilities"},
+		{imagePage, "Image Embedding"},
+		{annotPage, "Annotation Gallery"},
+		{vectorPage, "Vector Graphics"},
+	})
 
 	// --- Outline (bookmarks) ----------------------------------------
 	// Nested: top-level entries point at each section; the Sales Report
@@ -271,6 +290,55 @@ func main() {
 func mustAddPage(err error) {
 	if err != nil {
 		log.Fatalf("add page: %v", err)
+	}
+}
+
+// renderThumb is one page to rasterize into the Page Rendering grid.
+type renderThumb struct {
+	page  *pdf.Page
+	label string
+}
+
+// addRenderShowcase fills the Page Rendering meta page: it rasterizes each
+// thumb's page with the library's own pure-Go renderer (RenderPNG) and embeds
+// the result, laid out as a 2×2 grid of framed, captioned thumbnails. This page
+// literally shows the renderer drawing the rest of the document.
+func addRenderShowcase(page *pdf.Page, thumbs []renderThumb) {
+	sectionHeader(page, "Page Rendering",
+		"Pages of this very document, rasterized by the dependency-free pure-Go renderer")
+
+	const (
+		thumbH   = 280.0
+		gapX     = 40.0
+		gapY     = 22.0
+		captionH = 16.0
+		topY     = 700.0
+	)
+	thumbW := thumbH * pdf.PageFormatA4.Width / pdf.PageFormatA4.Height
+	leftX := (pdf.PageFormatA4.Width - (2*thumbW + gapX)) / 2
+	border := pdf.Color{R: 0.72, G: 0.72, B: 0.74, A: 1}
+
+	for i, th := range thumbs {
+		col := float64(i % 2)
+		row := float64(i / 2)
+		x := leftX + col*(thumbW+gapX)
+		yTop := topY - row*(thumbH+captionH+gapY)
+		rect := pdf.Rectangle{LLX: x, LLY: yTop - thumbH, URX: x + thumbW, URY: yTop}
+
+		var buf bytes.Buffer
+		if err := th.page.RenderPNG(&buf, pdf.RenderOptions{DPI: 96}); err != nil {
+			log.Fatalf("render thumbnail %q: %v", th.label, err)
+		}
+		mustVector(page.AddImageFromStream(&buf, rect))
+		mustVector(page.DrawRectangle(rect, pdf.ShapeStyle{
+			LineStyle: pdf.LineStyle{Width: 0.8, Color: &border},
+		}))
+		mustText(page.AddText(th.label, pdf.TextStyle{
+			Font:   pdf.FontHelvetica,
+			Size:   9,
+			Color:  &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
+			HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: x, LLY: rect.LLY - captionH, URX: x + thumbW, URY: rect.LLY - 3}))
 	}
 }
 
