@@ -126,7 +126,11 @@ func parseSFNTAt(data []byte, off uint32) (*ttfFont, error) {
 		}
 	}
 
-	required := []string{"head", "hhea", "hmtx", "maxp", "name", "cmap", "OS/2", "post"}
+	// Tables needed for glyph metrics and outlines. cmap/OS-2/post/name are
+	// optional: a subsetted CIDFontType2 embedded for rendering (see
+	// font_subset.go) drops them — its glyphs are selected via /CIDToGIDMap, not
+	// a cmap — so requiring them would make embedded subset fonts unparseable.
+	required := []string{"head", "hhea", "hmtx", "maxp"}
 	for _, tag := range required {
 		if _, ok := tables[tag]; !ok {
 			return nil, fmt.Errorf("parse ttf: missing required table %q", tag)
@@ -147,17 +151,26 @@ func parseSFNTAt(data []byte, off uint32) (*ttfFont, error) {
 	if err := parseHmtx(f, tables); err != nil {
 		return nil, err
 	}
-	if err := parseCmap(f, tables); err != nil {
-		return nil, err
+	// Optional tables — parse only when present.
+	if _, ok := tables["cmap"]; ok {
+		if err := parseCmap(f, tables); err != nil {
+			return nil, err
+		}
 	}
-	if err := parseOS2(f, tables); err != nil {
-		return nil, err
+	if _, ok := tables["OS/2"]; ok {
+		if err := parseOS2(f, tables); err != nil {
+			return nil, err
+		}
 	}
-	if err := parsePost(f, tables); err != nil {
-		return nil, err
+	if _, ok := tables["post"]; ok {
+		if err := parsePost(f, tables); err != nil {
+			return nil, err
+		}
 	}
-	if err := parseName(f, tables); err != nil {
-		return nil, err
+	if _, ok := tables["name"]; ok {
+		if err := parseName(f, tables); err != nil {
+			return nil, err
+		}
 	}
 
 	return f, nil
