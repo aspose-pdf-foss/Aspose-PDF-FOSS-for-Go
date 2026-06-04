@@ -309,8 +309,12 @@ func (rd *renderer) exec(ops []contentOp) {
 			if len(o) >= 1 {
 				rd.ts.rise = f(o[0])
 			}
-		case "Tr", "Tk":
-			// rendering mode / knockout — fill mode only for now
+		case "Tr":
+			if len(o) >= 1 {
+				rd.ts.renderMode = int(f(o[0]))
+			}
+		case "Tk":
+			// text knockout — not modelled
 		case "Tj":
 			if len(o) >= 1 {
 				if s, ok := o[0].(string); ok {

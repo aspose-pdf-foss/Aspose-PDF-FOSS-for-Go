@@ -2,16 +2,19 @@
 
 package asposepdf
 
+import "math"
+
 // textState holds the PDF text-object state used while rendering.
 type textState struct {
-	tm, lm    [6]float64 // text matrix, line matrix
-	font      *renderFont
-	fontSize  float64
-	charSpace float64 // Tc
-	wordSpace float64 // Tw
-	hScale    float64 // Th = Tz/100
-	leading   float64 // TL
-	rise      float64 // Ts
+	tm, lm     [6]float64 // text matrix, line matrix
+	font       *renderFont
+	fontSize   float64
+	charSpace  float64 // Tc
+	wordSpace  float64 // Tw
+	hScale     float64 // Th = Tz/100
+	leading    float64 // TL
+	rise       float64 // Ts
+	renderMode int     // Tr (0 fill, 1 stroke, 2 fill+stroke, 3 invisible, 4-7 add clip)
 }
 
 // renderFont carries what the renderer needs to draw glyphs of one font: the
@@ -191,8 +194,8 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
-	if f != nil && f.prog != nil && !rd.gs.fillPattern {
-		rd.fillGlyph(f, f.gid(code))
+	if f != nil && f.prog != nil && textHasPaint(rd.ts.renderMode) {
+		rd.paintGlyph(f, f.gid(code))
 	}
 
 	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
@@ -232,8 +235,17 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 	return 0
 }
 
-// fillGlyph rasterizes the glyph outline into the page with the fill colour.
-func (rd *renderer) fillGlyph(f *renderFont, gid uint16) {
+// Text rendering modes (Tr, ISO 32000-1 §9.3.6). Fill modes paint with the fill
+// colour; stroke modes outline with the stroke colour; modes 3/7 paint nothing
+// (3 = invisible, used for the hidden OCR layer over scanned pages).
+func textFills(m int) bool    { return m == 0 || m == 2 || m == 4 || m == 6 }
+func textStrokes(m int) bool  { return m == 1 || m == 2 || m == 5 || m == 6 }
+func textHasPaint(m int) bool { return textFills(m) || textStrokes(m) }
+
+// paintGlyph rasterizes the glyph outline, filling and/or stroking it per the
+// current text rendering mode (Tr). Text clipping (modes 4-7) is not yet
+// accumulated; those modes still paint their fill/stroke component.
+func (rd *renderer) paintGlyph(f *renderFont, gid uint16) {
 	contours := f.prog.glyphContours(gid)
 	if len(contours) == 0 {
 		return
@@ -247,7 +259,22 @@ func (rd *renderer) fillGlyph(f *renderFont, gid uint16) {
 	for _, c := range contours {
 		renderGlyphContour(fl, c, m, f.em)
 	}
-	rd.compositePath(fl.path(), fillNonZero, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
+	path := fl.path()
+	mode := rd.ts.renderMode
+
+	if textFills(mode) && !rd.gs.fillPattern {
+		rd.compositePath(path, fillNonZero, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
+	}
+	if textStrokes(mode) {
+		dm := rd.dmat()
+		scale := math.Sqrt(math.Abs(dm[0]*dm[3] - dm[1]*dm[2]))
+		dw := rd.gs.lineWidth * scale
+		if dw < 1 {
+			dw = 1
+		}
+		st := strokeStyle{hw: dw / 2, cap: rd.gs.lineCap, join: rd.gs.lineJoin, miterLimit: rd.gs.miterLimit}
+		rd.compositePath(strokeToFill(path, st), fillNonZero, rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokeA)
+	}
 }
 
 // renderGlyphContour emits one TrueType contour (on/off-curve quadratics) into
