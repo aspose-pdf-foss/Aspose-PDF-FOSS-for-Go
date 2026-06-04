@@ -247,8 +247,7 @@ func (rd *renderer) fillGlyph(f *renderFont, gid uint16) {
 	for _, c := range contours {
 		renderGlyphContour(fl, c, m, f.em)
 	}
-	cov := rd.ras.coverage(fl.path(), fillNonZero)
-	compositeCoverage(rd.img, rd.w, cov, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA, rd.gs.clip)
+	rd.compositePath(fl.path(), fillNonZero, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 }
 
 // renderGlyphContour emits one TrueType contour (on/off-curve quadratics) into

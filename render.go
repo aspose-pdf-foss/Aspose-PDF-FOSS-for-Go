@@ -380,6 +380,17 @@ func (rd *renderer) resolveShadingPattern(name string) (*shading, [6]float64) {
 	return s, m
 }
 
+// compositePath rasterizes dp's coverage over just its bounding box and paints
+// it with the given colour and alpha (honouring the clip). This is the hot path
+// for fills, strokes and glyphs — bbox-scoped work instead of whole-frame.
+func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, alpha float64) {
+	cov, x0, y0, x1, y1 := rd.ras.coverageBBox(dp, rule)
+	if cov == nil {
+		return
+	}
+	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.gs.clip)
+}
+
 func (rd *renderer) fill(rule fillRule) {
 	rd.fillKeep(rule)
 	rd.resetPath()
@@ -395,8 +406,7 @@ func (rd *renderer) fillKeep(rule fillRule) {
 		}
 		return // tiling/unsupported patterns: skip
 	}
-	cov := rd.ras.coverage(rd.fl.path(), rule)
-	compositeCoverage(rd.img, rd.w, cov, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA, rd.gs.clip)
+	rd.compositePath(rd.fl.path(), rule, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 }
 
 func (rd *renderer) resetPath() { rd.fl = newFlattener(0.2) }
@@ -417,8 +427,7 @@ func (rd *renderer) stroke() {
 		dw = 1
 	}
 	outline := strokeToFill(dp, dw/2)
-	cov := rd.ras.coverage(outline, fillNonZero)
-	compositeCoverage(rd.img, rd.w, cov, rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokeA, rd.gs.clip)
+	rd.compositePath(outline, fillNonZero, rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokeA)
 }
 
 func f(v pdfValue) float64    { return operandFloat(v) }
