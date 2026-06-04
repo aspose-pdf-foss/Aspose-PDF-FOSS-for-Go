@@ -1553,10 +1553,10 @@ func addVectorShowcase(doc *pdf.Document, page *pdf.Page) {
 		star = append(star, pdf.Point{X: xmid + r*math.Cos(ang), Y: ymid + r*math.Sin(ang)})
 	}
 	mustVector(page.DrawPolygon(star, pdf.ShapeStyle{
-		LineStyle: pdf.LineStyle{Width: 1.3, Color: &pdf.Color{R: 0.78, G: 0.55, B: 0.06, A: 1}, Join: pdf.LineJoinMiter, MiterLimit: 4},
+		LineStyle: pdf.LineStyle{Width: 1.3, Color: &pdf.Color{R: 0.55, G: 0.0, B: 0.0, A: 1}, Join: pdf.LineJoinMiter, MiterLimit: 4},
 		FillGradient: pdf.NewRadialGradient(xmid, ymid, outerR,
-			pdf.GradientStop{Offset: 0, Color: pdf.Color{R: 1.00, G: 0.96, B: 0.70, A: 1}},
-			pdf.GradientStop{Offset: 1, Color: pdf.Color{R: 0.96, G: 0.66, B: 0.12, A: 1}}),
+			pdf.GradientStop{Offset: 0, Color: pdf.Color{R: 0.95, G: 0.25, B: 0.20, A: 1}},
+			pdf.GradientStop{Offset: 1, Color: pdf.Color{R: 0.75, G: 0.04, B: 0.04, A: 1}}),
 	}))
 
 	// --- Card 6: Path with Arc — pie slice + bezier wave ----------------
