@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"image"
 	"math"
 	"sort"
 )
@@ -163,6 +164,48 @@ func addSpanRow(cov []float32, w, py int, xa, xb, weight float64) {
 	if ix1 < w {
 		cov[base+ix1] += float32(weight * (xb - float64(ix1))) // last partial cell
 	}
+}
+
+// compositeCoverage paints a straight (non-premultiplied) source colour
+// (sr,sg,sb) with base alpha srcA in [0,1], modulated per pixel by cov and an
+// optional clip mask, over dst using src-over compositing. dst is an
+// *image.RGBA whose pixels are stored alpha-premultiplied; cov is indexed
+// y*w+x for a dst created at origin (0,0) with width w (stride w*4).
+func compositeCoverage(dst *image.RGBA, w int, cov []float32, sr, sg, sb uint8, srcA float64, clip []float32) {
+	for i := range cov {
+		a := float64(cov[i]) * srcA
+		if clip != nil {
+			a *= float64(clip[i])
+		}
+		if a <= 0 {
+			continue
+		}
+		if a > 1 {
+			a = 1
+		}
+		off := i * 4
+		inv := 1 - a
+		dst.Pix[off+0] = uint8(float64(sr)*a + float64(dst.Pix[off+0])*inv + 0.5)
+		dst.Pix[off+1] = uint8(float64(sg)*a + float64(dst.Pix[off+1])*inv + 0.5)
+		dst.Pix[off+2] = uint8(float64(sb)*a + float64(dst.Pix[off+2])*inv + 0.5)
+		dst.Pix[off+3] = uint8(a*255 + float64(dst.Pix[off+3])*inv + 0.5)
+	}
+}
+
+// intersectClip multiplies two coverage masks elementwise. A nil mask means
+// "no clip" (all ones), so intersecting with nil returns the other.
+func intersectClip(a, b []float32) []float32 {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	out := make([]float32, len(a))
+	for i := range a {
+		out[i] = a[i] * b[i]
+	}
+	return out
 }
 
 // fillPolygon is a small test/utility helper: it flattens a closed polygon and

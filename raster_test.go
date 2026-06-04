@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"image"
 	"math"
 	"testing"
 )
@@ -136,4 +137,43 @@ func TestEvenOddVsNonZeroStar(t *testing.T) {
 	if eo[center] > 0.01 {
 		t.Errorf("even-odd star centre = %.3f, want ~0 (hole)", eo[center])
 	}
+}
+
+func TestCompositeOverWhite(t *testing.T) {
+	const w, h = 2, 2
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range dst.Pix {
+		dst.Pix[i] = 255 // opaque white
+	}
+	cov := []float32{0.5, 0.5, 0.5, 0.5}
+	compositeCoverage(dst, w, cov, 255, 0, 0, 1.0, nil) // red at 50% coverage
+
+	// red over white at 50% → (255,127,127)
+	r, g, b, a := dst.Pix[0], dst.Pix[1], dst.Pix[2], dst.Pix[3]
+	if r != 255 || abs8(g, 127) > 1 || abs8(b, 127) > 1 || a != 255 {
+		t.Errorf("composited pixel = (%d,%d,%d,%d), want ~(255,127,127,255)", r, g, b, a)
+	}
+}
+
+func TestClipMaskIntersect(t *testing.T) {
+	a := []float32{1, 0.5, 0, 1}
+	b := []float32{0.5, 0.5, 1, 0}
+	got := intersectClip(a, b)
+	want := []float32{0.5, 0.25, 0, 0}
+	for i := range want {
+		if math.Abs(float64(got[i]-want[i])) > 1e-6 {
+			t.Errorf("intersectClip[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+	if intersectClip(nil, b)[2] != 1 {
+		t.Error("intersectClip(nil, b) should return b")
+	}
+}
+
+func abs8(a, b uint8) int {
+	d := int(a) - int(b)
+	if d < 0 {
+		return -d
+	}
+	return d
 }
