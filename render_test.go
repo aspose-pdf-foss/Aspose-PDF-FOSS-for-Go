@@ -68,3 +68,21 @@ func TestRenderBackgroundOption(t *testing.T) {
 	}
 	pixNear(t, img, 25, 25, 0, 0, 255, 1) // blue backdrop
 }
+
+func TestRenderStrokedLine(t *testing.T) {
+	doc := asposepdf.NewDocument(100, 100)
+	p, _ := doc.Page(1)
+	if err := p.DrawLine(
+		asposepdf.Point{X: 10, Y: 50}, asposepdf.Point{X: 90, Y: 50},
+		asposepdf.LineStyle{Color: &asposepdf.Color{A: 1}, Width: 6},
+	); err != nil {
+		t.Fatalf("DrawLine: %v", err)
+	}
+	img, err := p.RenderImage(asposepdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	// Line at device y=50, ~6px tall band → (50,50) black, (50,30) white.
+	pixNear(t, img, 50, 50, 0, 0, 0, 4)
+	pixNear(t, img, 50, 30, 255, 255, 255, 1)
+}

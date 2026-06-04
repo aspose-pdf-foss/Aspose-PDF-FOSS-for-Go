@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "image"
+import (
+	"image"
+	"math"
+)
 
 // gstate is the subset of the PDF graphics state the renderer tracks.
 type gstate struct {
@@ -254,9 +257,25 @@ func (rd *renderer) fillKeep(rule fillRule) {
 
 func (rd *renderer) resetPath() { rd.fl = newFlattener(0.2) }
 
-// stroke is implemented in P1.3 (raster_stroke.go). For now it consumes the
-// current path without drawing, so fill-only pages render correctly.
-func (rd *renderer) stroke() { rd.resetPath() }
+// stroke paints the current path's outline with the stroke colour, then clears
+// the path. Line width is converted from user space to device pixels via the
+// CTM's linear scale, with a 1px floor (covers lineWidth 0 = thinnest line).
+func (rd *renderer) stroke() {
+	dp := rd.fl.path()
+	defer rd.resetPath()
+	if rd.gs.strokePattern {
+		return
+	}
+	m := rd.dmat()
+	scale := math.Sqrt(math.Abs(m[0]*m[3] - m[1]*m[2]))
+	dw := rd.gs.lineWidth * scale
+	if dw < 1 {
+		dw = 1
+	}
+	outline := strokeToFill(dp, dw/2)
+	cov := rd.ras.coverage(outline, fillNonZero)
+	compositeCoverage(rd.img, rd.w, cov, rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokeA, rd.gs.clip)
+}
 
 func f(v pdfValue) float64    { return operandFloat(v) }
 func o0(o []pdfValue) pdfValue {
