@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Page geometry setters — `(*Page).SetMediaBox/SetCropBox/SetTrimBox/SetBleedBox/SetArtBox(Rectangle)` write a box directly on the page (validated, overriding inherited/referenced values), and `(*Page).SetPageSize(width, height)` resizes the page via its MediaBox (content is not scaled). New `(*Page).MediaBox() (Rectangle, error)` getter. Mirrors Aspose.PDF for .NET's `Page.*Box` setters and `Page.SetPageSize`.
 - Flattening — bake interactive content into static page content: `(*Document).Flatten()` / `(*Form).Flatten()` (all form fields + drop `/AcroForm`), `(Field).Flatten()` (a single field, leaving the rest of the form intact), `(Annotation).Flatten()` (one annotation), and `(*AnnotationCollection).Flatten()` (all non-widget annotations on a page). Appearances (`/AP/N`, honoring `/AS`) are drawn into the page content at the annotation `/Rect` per ISO 32000-1 §12.5.5, then the interactive objects are removed. Mirrors Aspose.PDF for .NET's `Document.Flatten` / `Form.Flatten` / `Field.Flatten` / `Annotation.Flatten`.
 - `(*Page).SearchText(query, opts...)` / `(*Document).SearchText(query, opts...)` — locate occurrences of a query in reading order, returning a `TextMatch` (text + 1-based page + bounding `Rectangle`) for each. Literal and case-sensitive by default; `SearchOptions{CaseInsensitive, Regex}` enables case-folding and RE2 regular expressions. Built on the layout-extraction pipeline; matches are located within a single line. Match rectangles use per-glyph start positions recorded during extraction, so sub-fragment boxes are accurate (not interpolated). Mirrors Aspose.PDF for .NET's `TextFragmentAbsorber`.
 - `(*Document).DeletePage(n)` / `(*Document).DeletePages(pageNums...)` — remove pages in place by 1-based number; numbers are de-duplicated and validated before any removal (atomic on error), and removing every page is rejected. Mirrors Aspose.PDF for .NET's `Document.Pages.Delete(int)` / `Delete(int[])`.
 
 ### Changed
 
+- `(*Page).CropBox/TrimBox/BleedBox/ArtBox` now return a `Rectangle` (full box coordinates) instead of a `PageSize` (width/height), mirroring Aspose.PDF for .NET's box properties. Use `Size()` for width/height, or compute from the rectangle. `(*Page).Size()` is unchanged.
 - Renamed the Info-dictionary API to mirror Aspose.PDF for .NET's `Document.Info`: `(*Document).Metadata()` → `Info()`, `SetMetadata()` → `SetInfo()`, `ClearMetadata()` → `ClearInfo()`, and the `Metadata` struct → `DocumentInfo`. In Aspose.PDF for .NET, `Document.Metadata` is the XMP store (here `(*Document).XMP`), so the previous name collided.
 
 ### Documentation

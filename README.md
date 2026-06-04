@@ -54,7 +54,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Extract** — build a new Document from selected page ranges without mutating the source
 - **Merge** — combine multiple PDFs into a single document
 - **Rotate** — rotate pages by 90°, 180°, or 270°
-- **Page info** — read page count, dimensions, all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox), and page labels
+- **Page geometry** — read page count, dimensions, and all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox) as `Rectangle`s with spec fallback chains, plus page labels; set any box or resize a page via `SetMediaBox`/`SetCropBox`/… and `SetPageSize`
 - **Info metadata** — read and write the document `/Info` dictionary (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries) via `Document.Info()/SetInfo()/ClearInfo()` and the `DocumentInfo` struct; mirrors Aspose.PDF for .NET's `Document.Info`. (In Aspose.PDF for .NET, `Document.Metadata` is the XMP store — here `Document.XMP()`.)
 - **XMP metadata** — full CRUD of the `/Catalog/Metadata` RDF/XML packet (ISO 32000-1 §14.3.2) via `Document.XMP()/SetXMP()/ClearXMP()` and a raw `XMPRaw()/SetXMPRaw()` escape hatch. `XMPMetadata` models Dublin Core / XMP Basic / PDF schemas (title, authors, description, keywords, creator tool, producer, create/modify/metadata dates) plus arbitrary namespaced custom properties; parser handles both attribute and `rdf:Alt`/`Seq`/`Bag` element forms. `SyncInfoToXMP()` mirrors the `/Info` dictionary into XMP as the spec recommends
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
@@ -1188,14 +1188,16 @@ for _, p := range pages {
         p.Number(), size.Width, size.Height, p.Rotation(), p.Label())
 }
 
-// PDF boxes — each falls back to the next in the chain if not set:
+// PDF boxes are Rectangles; each falls back to the next if not set:
 // ArtBox/TrimBox/BleedBox → CropBox → MediaBox
 p, _ := doc.Page(1)
-mediaBox, _ := p.Size()
-cropBox,  _ := p.CropBox()
-trimBox,  _ := p.TrimBox()
-bleedBox, _ := p.BleedBox()
-artBox,   _ := p.ArtBox()
+media, _ := p.MediaBox()
+crop,  _ := p.CropBox()
+fmt.Printf("media %.0fx%.0f, crop %+v\n", media.URX-media.LLX, media.URY-media.LLY, crop)
+
+// Resize a page, or set any box directly (content is not scaled)
+p.SetPageSize(595, 842) // MediaBox = [0 0 595 842]
+p.SetCropBox(pdf.Rectangle{LLX: 10, LLY: 10, URX: 585, URY: 832})
 ```
 
 ## License

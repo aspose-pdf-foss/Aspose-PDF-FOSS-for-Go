@@ -81,9 +81,9 @@ func TestInheritedCropBox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CropBox: %v", err)
 	}
-	// CropBox dims from [10 10 585 832] → 575 x 822
-	if crop.Width != 575 || crop.Height != 822 {
-		t.Errorf("CropBox = %+v, want {Width:575 Height:822}", crop)
+	// CropBox is [10 10 585 832] (575 x 822).
+	if crop.LLX != 10 || crop.LLY != 10 || crop.URX != 585 || crop.URY != 832 {
+		t.Errorf("CropBox = %+v, want {LLX:10 LLY:10 URX:585 URY:832}", crop)
 	}
 }
 

@@ -77,28 +77,73 @@ func (p *Page) Rotation() RotationAngle {
 	return RotationAngle(dictGetInt(d, "/Rotate"))
 }
 
-// CropBox returns the crop box of the page.
-// Falls back to MediaBox if not set.
-func (p *Page) CropBox() (PageSize, error) {
-	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/CropBox")
+// MediaBox returns the page's MediaBox as a Rectangle in PDF user space.
+// If not set on the page itself, it is inherited from the page tree.
+// Mirrors Aspose.PDF for .NET's Page.MediaBox.
+func (p *Page) MediaBox() (Rectangle, error) {
+	return mediaBoxRect(p.doc.objects, p.pageObj().Num)
 }
 
-// TrimBox returns the trim box of the page.
-// Falls back to CropBox, then MediaBox if not set.
-func (p *Page) TrimBox() (PageSize, error) {
-	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/TrimBox", "/CropBox")
+// CropBox returns the crop box of the page as a Rectangle.
+// Falls back to MediaBox if not set. Mirrors Aspose.PDF for .NET's Page.CropBox.
+func (p *Page) CropBox() (Rectangle, error) {
+	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/CropBox")
 }
 
-// BleedBox returns the bleed box of the page.
+// TrimBox returns the trim box of the page as a Rectangle.
 // Falls back to CropBox, then MediaBox if not set.
-func (p *Page) BleedBox() (PageSize, error) {
-	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/BleedBox", "/CropBox")
+func (p *Page) TrimBox() (Rectangle, error) {
+	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/TrimBox", "/CropBox")
 }
 
-// ArtBox returns the art box of the page.
+// BleedBox returns the bleed box of the page as a Rectangle.
 // Falls back to CropBox, then MediaBox if not set.
-func (p *Page) ArtBox() (PageSize, error) {
-	return pageBoxWithFallback(p.doc.objects, p.pageObj().Num, "/ArtBox", "/CropBox")
+func (p *Page) BleedBox() (Rectangle, error) {
+	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/BleedBox", "/CropBox")
+}
+
+// ArtBox returns the art box of the page as a Rectangle.
+// Falls back to CropBox, then MediaBox if not set.
+func (p *Page) ArtBox() (Rectangle, error) {
+	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/ArtBox", "/CropBox")
+}
+
+// SetMediaBox sets the page's MediaBox (the full page rectangle) in PDF user
+// space. The box is written directly on the page, overriding any inherited or
+// referenced value. Mirrors Aspose.PDF for .NET's Page.MediaBox setter.
+func (p *Page) SetMediaBox(rect Rectangle) error { return p.setBox("/MediaBox", rect) }
+
+// SetCropBox sets the page's CropBox (the visible region). Mirrors Page.CropBox.
+func (p *Page) SetCropBox(rect Rectangle) error { return p.setBox("/CropBox", rect) }
+
+// SetTrimBox sets the page's TrimBox (intended finished dimensions).
+func (p *Page) SetTrimBox(rect Rectangle) error { return p.setBox("/TrimBox", rect) }
+
+// SetBleedBox sets the page's BleedBox (production bleed region).
+func (p *Page) SetBleedBox(rect Rectangle) error { return p.setBox("/BleedBox", rect) }
+
+// SetArtBox sets the page's ArtBox (meaningful content extent).
+func (p *Page) SetArtBox(rect Rectangle) error { return p.setBox("/ArtBox", rect) }
+
+// SetPageSize resizes the page by setting its MediaBox to [0 0 width height]
+// (points). Existing content is not scaled or moved — only the page rectangle
+// changes. Mirrors Aspose.PDF for .NET's Page.SetPageSize.
+func (p *Page) SetPageSize(width, height float64) error {
+	return p.SetMediaBox(Rectangle{LLX: 0, LLY: 0, URX: width, URY: height})
+}
+
+// setBox validates rect and writes it as a [llx lly urx ury] array directly on
+// the page dict under the given box name.
+func (p *Page) setBox(name string, rect Rectangle) error {
+	if err := rect.validate(); err != nil {
+		return err
+	}
+	d := p.pageDict()
+	if d == nil {
+		return fmt.Errorf("page %d has no dict", p.Number())
+	}
+	d[name] = pdfArray{rect.LLX, rect.LLY, rect.URX, rect.URY}
+	return nil
 }
 
 // contentStreams returns the concatenated decoded content stream bytes for this page.
@@ -168,83 +213,93 @@ func PageSizes(inputPath string) ([]PageSize, error) {
 	return sizes, nil
 }
 
-// pageBoxWithFallback reads the first named box that exists on the page dict.
-// If none of the requested boxes are found, it falls back to the MediaBox.
-func pageBoxWithFallback(objects map[int]*pdfObject, objNum int, boxes ...string) (PageSize, error) {
+// pageBoxRect reads the first named box that exists on the page dict, returning
+// it as a Rectangle. If none of the requested boxes are found, it falls back to
+// the MediaBox.
+func pageBoxRect(objects map[int]*pdfObject, objNum int, boxes ...string) (Rectangle, error) {
 	obj, ok := objects[objNum]
 	if !ok {
-		return PageSize{}, fmt.Errorf("object %d not found", objNum)
+		return Rectangle{}, fmt.Errorf("object %d not found", objNum)
 	}
 	d, ok := obj.Value.(pdfDict)
 	if !ok {
-		return PageSize{}, fmt.Errorf("object %d is not a dict", objNum)
+		return Rectangle{}, fmt.Errorf("object %d is not a dict", objNum)
 	}
 	for _, name := range boxes {
 		if v, ok := d[name]; ok {
-			arr, ok := resolveRefToArray(objects, v)
-			if !ok {
-				continue
+			if arr, ok := resolveRefToArray(objects, v); ok {
+				return rectFromArray(arr)
 			}
-			return mediaBoxFromArray(arr)
 		}
 	}
-	return mediaBoxSize(objects, objNum)
+	return mediaBoxRect(objects, objNum)
 }
 
-// mediaBoxSize reads the /MediaBox of the page object at objNum,
+// mediaBoxRect reads the /MediaBox of the page object at objNum as a Rectangle,
 // walking up the /Parent chain if needed (inheritance).
-func mediaBoxSize(objects map[int]*pdfObject, objNum int) (PageSize, error) {
+func mediaBoxRect(objects map[int]*pdfObject, objNum int) (Rectangle, error) {
 	visited := make(map[int]bool)
 	for {
 		if visited[objNum] {
-			return PageSize{}, fmt.Errorf("cycle in page tree at object %d", objNum)
+			return Rectangle{}, fmt.Errorf("cycle in page tree at object %d", objNum)
 		}
 		visited[objNum] = true
 
 		obj, ok := objects[objNum]
 		if !ok {
-			return PageSize{}, fmt.Errorf("object %d not found", objNum)
+			return Rectangle{}, fmt.Errorf("object %d not found", objNum)
 		}
 		d, ok := obj.Value.(pdfDict)
 		if !ok {
-			return PageSize{}, fmt.Errorf("object %d is not a dict", objNum)
+			return Rectangle{}, fmt.Errorf("object %d is not a dict", objNum)
 		}
 
 		if mb, ok := d["/MediaBox"]; ok {
 			arr, ok := resolveRefToArray(objects, mb)
 			if !ok {
-				return PageSize{}, fmt.Errorf("invalid /MediaBox")
+				return Rectangle{}, fmt.Errorf("invalid /MediaBox")
 			}
-			return mediaBoxFromArray(arr)
+			return rectFromArray(arr)
 		}
 
 		parentVal, ok := d["/Parent"]
 		if !ok {
-			return PageSize{}, fmt.Errorf("no /MediaBox found for object %d", objNum)
+			return Rectangle{}, fmt.Errorf("no /MediaBox found for object %d", objNum)
 		}
 		parentRef, ok := parentVal.(pdfRef)
 		if !ok {
-			return PageSize{}, fmt.Errorf("unexpected /Parent type %T", parentVal)
+			return Rectangle{}, fmt.Errorf("unexpected /Parent type %T", parentVal)
 		}
 		objNum = parentRef.Num
 	}
 }
 
-// mediaBoxFromArray converts a [x1 y1 x2 y2] PDF array to PageSize.
-func mediaBoxFromArray(arr pdfArray) (PageSize, error) {
+// mediaBoxSize reads the /MediaBox of the page object at objNum as width/height.
+func mediaBoxSize(objects map[int]*pdfObject, objNum int) (PageSize, error) {
+	r, err := mediaBoxRect(objects, objNum)
+	if err != nil {
+		return PageSize{}, err
+	}
+	return PageSize{Width: r.URX - r.LLX, Height: r.URY - r.LLY}, nil
+}
+
+// rectFromArray converts a [x1 y1 x2 y2] PDF array to a normalized Rectangle
+// (lower-left / upper-right corners), tolerating arrays given in either corner
+// order.
+func rectFromArray(arr pdfArray) (Rectangle, error) {
 	if len(arr) != 4 {
-		return PageSize{}, fmt.Errorf("MediaBox must have 4 elements, got %d", len(arr))
+		return Rectangle{}, fmt.Errorf("box must have 4 elements, got %d", len(arr))
 	}
-	vals := make([]float64, 4)
-	for i, v := range arr {
-		f, err := toFloat(v)
+	v := make([]float64, 4)
+	for i, e := range arr {
+		f, err := toFloat(e)
 		if err != nil {
-			return PageSize{}, fmt.Errorf("MediaBox[%d]: %w", i, err)
+			return Rectangle{}, fmt.Errorf("box[%d]: %w", i, err)
 		}
-		vals[i] = f
+		v[i] = f
 	}
-	return PageSize{
-		Width:  vals[2] - vals[0],
-		Height: vals[3] - vals[1],
+	return Rectangle{
+		LLX: minF(v[0], v[2]), LLY: minF(v[1], v[3]),
+		URX: maxF(v[0], v[2]), URY: maxF(v[1], v[3]),
 	}, nil
 }

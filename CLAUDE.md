@@ -68,12 +68,15 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 **`page.go`** — Page and PageSize types
 - `PageSizes(inputPath)` — returns dimensions of every page in a PDF file
 - `(*Page).Number()` — 1-based page number within the document
-- `(*Page).Size()` — page dimensions from MediaBox (with inheritance from page tree)
+- `(*Page).Size() (PageSize, error)` — page dimensions (width/height) from MediaBox (with inheritance from page tree)
 - `(*Page).Rotation()` — effective rotation in degrees (0, 90, 180, 270); reflects Document.Rotate patches
-- `(*Page).CropBox()` — visible region; falls back to MediaBox if not set
-- `(*Page).TrimBox()` — intended trim dimensions; falls back to CropBox then MediaBox
-- `(*Page).BleedBox()` — production bleed region; falls back to CropBox then MediaBox
-- `(*Page).ArtBox()` — meaningful content extent; falls back to CropBox then MediaBox
+- `(*Page).MediaBox() (Rectangle, error)` — full page rectangle (with inheritance); mirrors Aspose.PDF for .NET's `Page.MediaBox`
+- `(*Page).CropBox() (Rectangle, error)` — visible region as a `Rectangle`; falls back to MediaBox if not set
+- `(*Page).TrimBox() (Rectangle, error)` — intended trim dimensions; falls back to CropBox then MediaBox
+- `(*Page).BleedBox() (Rectangle, error)` — production bleed region; falls back to CropBox then MediaBox
+- `(*Page).ArtBox() (Rectangle, error)` — meaningful content extent; falls back to CropBox then MediaBox
+- `(*Page).SetMediaBox/SetCropBox/SetTrimBox/SetBleedBox/SetArtBox(Rectangle) error` — set the respective box directly on the page (validated, overrides inherited/referenced values); mirror Aspose.PDF for .NET's `Page.*Box` setters
+- `(*Page).SetPageSize(width, height float64) error` — resize the page by setting its MediaBox to `[0 0 width height]` (content is not scaled); mirrors `Page.SetPageSize`
 - `(*Page).ExtractText() (string, error)` — returns the text content of a page in visual reading order; unknown font characters become U+FFFD
 - `(*Page).ExtractTextWithLayout() ([]TextLine, error)` — returns structured text lines in visual reading order with coordinates and font info
 - `(*Page).SearchText(query string, opts ...SearchOptions) ([]TextMatch, error)` — finds occurrences of query on the page in reading order, returning a bounding `Rectangle` per match (`text_search.go`); built on the layout pipeline, matches are located within a single line; literal by default, with optional case-insensitive and RE2-regex modes. Match rectangles use the per-glyph start positions recorded during extraction (`textFragment.runeX` → unexported `TextFragment.runeX`), so sub-fragment boxes are accurate rather than interpolated (right edge approximate only when a match ends a fragment's last glyph)

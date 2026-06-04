@@ -118,7 +118,7 @@ func TestPageBoxesFallbackToMediaBox(t *testing.T) {
 
 	checks := []struct {
 		name string
-		fn   func() (asposepdf.PageSize, error)
+		fn   func() (asposepdf.Rectangle, error)
 	}{
 		{"CropBox", p.CropBox},
 		{"TrimBox", p.TrimBox},
@@ -126,14 +126,14 @@ func TestPageBoxesFallbackToMediaBox(t *testing.T) {
 		{"ArtBox", p.ArtBox},
 	}
 	for _, c := range checks {
-		sz, err := c.fn()
+		r, err := c.fn()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)
 			continue
 		}
-		if sz.Width != letterWidth || sz.Height != letterHeight {
+		if w, h := r.URX-r.LLX, r.URY-r.LLY; w != letterWidth || h != letterHeight {
 			t.Errorf("%s: expected %.0fx%.0f, got %.2fx%.2f",
-				c.name, letterWidth, letterHeight, sz.Width, sz.Height)
+				c.name, letterWidth, letterHeight, w, h)
 		}
 	}
 }
