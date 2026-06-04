@@ -58,7 +58,7 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	if rd.depth >= 12 {
 		return
 	}
-	ops, err := parseContentStream(stream.Data)
+	ops, err := parseContentStream(decodedStreamData(stream))
 	if err != nil {
 		return
 	}

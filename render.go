@@ -74,15 +74,14 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 // run parses and executes the page content. Parse failures and unsupported
 // operators are tolerated: the page renders what it can rather than erroring.
 func (rd *renderer) run() {
-	data, err := rd.page.contentStreams()
-	if err != nil || len(data) == 0 {
-		return
+	if data, err := rd.page.contentStreams(); err == nil && len(data) > 0 {
+		if ops, err := parseContentStream(data); err == nil {
+			rd.exec(ops)
+		}
 	}
-	ops, err := parseContentStream(data)
-	if err != nil {
-		return
-	}
-	rd.exec(ops)
+	// Annotation appearances (form-field widgets, stamps, highlights, …) live in
+	// /Annots, not the page content stream, so a viewer paints them on top.
+	rd.renderAnnotations()
 }
 
 // dmat returns the current user-space → device matrix.
