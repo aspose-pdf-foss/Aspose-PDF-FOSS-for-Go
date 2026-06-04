@@ -898,7 +898,7 @@ dev := pdf.NewPngDevice(pdf.NewResolution(300))
 dev.Process(page, out)
 ```
 
-> **Status:** the renderer ships in phases. Today it draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK colour) and **images** (Image XObjects with soft-mask alpha). **Text, shadings, and clipping** land in upcoming phases — until then those elements are skipped, so a page always renders (you'll see it fill in over releases). PNG/JPEG/GIF/BMP output; DPI defaults to 150; the rendered region is the CropBox.
+> **Status:** the renderer ships in phases. Today it draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK colour), **images** (Image XObjects with soft-mask alpha), and **text** (embedded TrueType fonts, and Standard-14 via a bundled fallback font — correct layout, approximate letterforms). **Shadings and clipping** land in upcoming phases — until then those elements are skipped, so a page always renders (you'll see it fill in over releases). PNG/JPEG/GIF/BMP output; DPI defaults to 150; the rendered region is the CropBox.
 
 ### Text Search
 
