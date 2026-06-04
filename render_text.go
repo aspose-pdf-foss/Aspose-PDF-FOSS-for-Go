@@ -186,7 +186,7 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
 	if f != nil && f.prog != nil && !rd.gs.fillPattern {
-		rd.fillGlyph(f, f.gid(code), w0)
+		rd.fillGlyph(f, f.gid(code))
 	}
 
 	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
@@ -203,6 +203,17 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 	if f == nil {
 		return 0
 	}
+	if f.fallback && f.prog != nil {
+		// Substitute font: advance by its own natural glyph width so letterforms
+		// and spacing stay self-consistent. The document's Standard-14 metrics do
+		// not match these (DejaVu) shapes — matching them instead distorts narrow
+		// glyphs (i, l) and their side bearings. Exact metrics await a
+		// metric-compatible bundled family (backlog).
+		gid := f.gid(code)
+		if int(gid) < len(f.prog.glyphWidths) {
+			return float64(f.prog.glyphWidths[gid]) / f.em * 1000
+		}
+	}
 	if f.isType0 {
 		if w, ok := f.fi.cidWidths[uint16(code)]; ok {
 			return w
@@ -216,24 +227,14 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 }
 
 // fillGlyph rasterizes the glyph outline into the page with the fill colour.
-// w0 is the font's advance width for this code (1/1000 em); for a substitute
-// (fallback) font the glyph is horizontally scaled so its own advance matches
-// w0, keeping inter-letter spacing aligned to the document's real metrics.
-func (rd *renderer) fillGlyph(f *renderFont, gid uint16, w0 float64) {
+func (rd *renderer) fillGlyph(f *renderFont, gid uint16) {
 	contours := f.prog.glyphContours(gid)
 	if len(contours) == 0 {
 		return
 	}
-	scaleX := 1.0
-	if f.fallback && w0 > 0 && int(gid) < len(f.prog.glyphWidths) {
-		if adv := float64(f.prog.glyphWidths[gid]); adv > 0 {
-			scaleX = (w0 / 1000) / (adv / f.em)
-		}
-	}
 	// Glyph design units → device: scale by 1/em, then text-rendering matrix
-	// (font size, horizontal scaling, width-match, rise) · text matrix · CTM ·
-	// device base.
-	trm := matMul([6]float64{rd.ts.fontSize * rd.ts.hScale * scaleX, 0, 0, rd.ts.fontSize, 0, rd.ts.rise}, rd.ts.tm)
+	// (font size, horizontal scaling, rise) · text matrix · CTM · device base.
+	trm := matMul([6]float64{rd.ts.fontSize * rd.ts.hScale, 0, 0, rd.ts.fontSize, 0, rd.ts.rise}, rd.ts.tm)
 	m := matMul(trm, matMul(rd.gs.ctm, rd.base))
 
 	fl := newFlattener(0.2)
