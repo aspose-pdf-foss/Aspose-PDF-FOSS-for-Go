@@ -103,6 +103,10 @@ func (rd *renderer) exec(ops []contentOp) {
 			if len(o) >= 1 {
 				rd.gs.lineWidth = f(o[0])
 			}
+		case "gs":
+			if len(o) >= 1 {
+				rd.applyExtGState(operandName(o[0]))
+			}
 
 		// --- path construction (transformed to device space immediately) ---
 		case "m":
@@ -302,8 +306,8 @@ func (rd *renderer) exec(ops []contentOp) {
 			}
 
 		default:
-			// Inline images (BI…EI), shadings (sh), ExtGState (gs), etc.
-			// arrive in later phases — skipped for now.
+			// Inline images (BI…EI) and shadings (sh) arrive later in P5;
+			// anything still unsupported is skipped so the page renders.
 		}
 	}
 }
