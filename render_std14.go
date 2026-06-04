@@ -3,38 +3,78 @@
 package asposepdf
 
 import (
-	_ "embed"
+	"embed"
+	"strings"
 	"sync"
 )
 
-// fallbackFontData is the glyph-outline font bundled for rendering text in
-// non-embedded fonts (the Standard 14: Helvetica/Times/Courier/…). PDF only
-// references these fonts by name and ships no outlines, so a renderer must
-// supply substitute shapes. We reuse the DejaVu Sans program already in the
-// repository: text is positioned with the font's real Standard-14 AFM metrics
-// (resolved into fontInfo.widths) and only the glyph *shapes* come from this
-// fallback, so layout is correct while letterforms are an approximation.
+// PDF references the "Standard 14" fonts (Helvetica/Times/Courier families,
+// plus Symbol and ZapfDingbats) by name only and ships no outlines, so a
+// renderer must supply substitute glyph shapes. We bundle metric-compatible
+// open families so positioning and letterforms both match:
 //
-// Follow-up: bundle metric-compatible families (Liberation/Nimbus) and serif/
-// mono variants for exact Helvetica/Times/Courier shapes. DejaVu Sans is
-// distributed under the Bitstream Vera / DejaVu license (permissive); binary
-// redistributions should include that license text.
+//	Helvetica/Arial → Arimo, Times → Tinos, Courier → Cousine
 //
-//go:embed testdata/DejaVuSans.ttf
-var fallbackFontData []byte
+// These (Apache-2.0) have the same advance widths as the fonts they replace,
+// so word-wrapped layout is preserved and narrow glyphs aren't distorted.
+// Symbol/ZapfDingbats have no metric-compatible free substitute and currently
+// fall back to Arimo (most symbols won't map).
+//
+//go:embed fonts/Arimo-Regular.ttf fonts/Arimo-Bold.ttf fonts/Arimo-Italic.ttf fonts/Arimo-BoldItalic.ttf
+//go:embed fonts/Tinos-Regular.ttf fonts/Tinos-Bold.ttf fonts/Tinos-Italic.ttf fonts/Tinos-BoldItalic.ttf
+//go:embed fonts/Cousine-Regular.ttf fonts/Cousine-Bold.ttf fonts/Cousine-Italic.ttf fonts/Cousine-BoldItalic.ttf
+var stdFontsFS embed.FS
 
 var (
-	fallbackOnce   sync.Once
-	fallbackParsed *ttfFont
+	stdFontMu    sync.Mutex
+	stdFontCache = map[string]*ttfFont{}
 )
 
-// fallbackFont returns the parsed bundled fallback font (nil if it failed to
-// parse, in which case non-embedded text is skipped).
-func fallbackFont() *ttfFont {
-	fallbackOnce.Do(func() {
-		if f, err := parseTTF(fallbackFontData); err == nil {
-			fallbackParsed = f
+// loadStdFont parses and caches a bundled substitute font by file name.
+func loadStdFont(file string) *ttfFont {
+	stdFontMu.Lock()
+	defer stdFontMu.Unlock()
+	if f, ok := stdFontCache[file]; ok {
+		return f
+	}
+	var parsed *ttfFont
+	if data, err := stdFontsFS.ReadFile("fonts/" + file); err == nil {
+		if f, err := parseTTF(data); err == nil {
+			parsed = f
 		}
-	})
-	return fallbackParsed
+	}
+	stdFontCache[file] = parsed
+	return parsed
+}
+
+// fallbackFontFor picks a metric-compatible substitute for a non-embedded font,
+// choosing the family from the base font name and the style from the resolved
+// bold/italic flags (and the name, as a backstop).
+func fallbackFontFor(fi fontInfo) *ttfFont {
+	name := strings.ToLower(fi.name)
+
+	family := "Arimo" // Helvetica / Arial / sans / default
+	switch {
+	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
+		family = "Tinos"
+	case strings.Contains(name, "courier") || strings.Contains(name, "mono") || strings.Contains(name, "consol"):
+		family = "Cousine"
+	}
+
+	bold := fi.bold || strings.Contains(name, "bold")
+	italic := fi.italic || strings.Contains(name, "italic") || strings.Contains(name, "oblique")
+	style := "Regular"
+	switch {
+	case bold && italic:
+		style = "BoldItalic"
+	case bold:
+		style = "Bold"
+	case italic:
+		style = "Italic"
+	}
+
+	if f := loadStdFont(family + "-" + style + ".ttf"); f != nil {
+		return f
+	}
+	return loadStdFont(family + "-Regular.ttf")
 }
