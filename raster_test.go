@@ -64,3 +64,76 @@ func TestFlattenClose(t *testing.T) {
 		t.Errorf("closed subpath should end at start; got %v", pts[len(pts)-1])
 	}
 }
+
+func TestFillSolidRect(t *testing.T) {
+	r := newRasterizer(10, 10)
+	cov := r.fillPolygon([]point{{2, 2}, {8, 2}, {8, 8}, {2, 8}}, fillNonZero)
+	if c := cov[5*10+5]; c < 0.99 {
+		t.Errorf("interior (5,5) coverage = %.3f, want ~1", c)
+	}
+	if c := cov[0]; c > 0.01 {
+		t.Errorf("exterior (0,0) coverage = %.3f, want ~0", c)
+	}
+	// Total coverage equals the 6x6 area within AA tolerance.
+	var sum float64
+	for _, c := range cov {
+		sum += float64(c)
+	}
+	if math.Abs(sum-36) > 0.5 {
+		t.Errorf("total coverage = %.2f, want ~36 (6x6)", sum)
+	}
+}
+
+func TestFillCircleCoverageArea(t *testing.T) {
+	const n = 128
+	cx, cy, rad := 25.0, 25.0, 15.0
+	pts := make([]point, n)
+	for i := 0; i < n; i++ {
+		a := 2 * math.Pi * float64(i) / float64(n)
+		pts[i] = point{cx + rad*math.Cos(a), cy + rad*math.Sin(a)}
+	}
+	r := newRasterizer(50, 50)
+	cov := r.fillPolygon(pts, fillNonZero)
+
+	if c := cov[25*50+25]; c < 0.99 {
+		t.Errorf("disc centre coverage = %.3f, want ~1", c)
+	}
+	if c := cov[2*50+2]; c > 0.01 {
+		t.Errorf("far-outside coverage = %.3f, want ~0", c)
+	}
+	var sum float64
+	for _, c := range cov {
+		sum += float64(c)
+	}
+	want := math.Pi * rad * rad
+	if rel := math.Abs(sum-want) / want; rel > 0.02 {
+		t.Errorf("total coverage = %.1f, want ~%.1f (rel err %.3f)", sum, want, rel)
+	}
+}
+
+// pentagram returns the 5 outer vertices of a self-intersecting star; drawing
+// them in order 0,1,2,3,4 with implicit close winds the centre twice.
+func pentagram(cx, cy, rad float64) []point {
+	idx := []int{0, 2, 4, 1, 3}
+	pts := make([]point, 5)
+	for i, k := range idx {
+		a := -math.Pi/2 + 2*math.Pi*float64(k)/5
+		pts[i] = point{cx + rad*math.Cos(a), cy + rad*math.Sin(a)}
+	}
+	return pts
+}
+
+func TestEvenOddVsNonZeroStar(t *testing.T) {
+	pts := pentagram(25, 25, 20)
+	r := newRasterizer(50, 50)
+	center := 25*50 + 25
+
+	nz := r.fillPolygon(pts, fillNonZero)
+	if nz[center] < 0.99 {
+		t.Errorf("nonzero star centre = %.3f, want ~1 (doubly wound)", nz[center])
+	}
+	eo := r.fillPolygon(pts, fillEvenOdd)
+	if eo[center] > 0.01 {
+		t.Errorf("even-odd star centre = %.3f, want ~0 (hole)", eo[center])
+	}
+}
