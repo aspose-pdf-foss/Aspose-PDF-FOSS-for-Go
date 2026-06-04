@@ -255,3 +255,34 @@ func TestRenderStandard14Text(t *testing.T) {
 		t.Errorf("Standard-14 Helvetica text produced only %d dark pixels (fallback not rendering?)", dark)
 	}
 }
+
+func TestFontRepositoryUsesRegisteredFont(t *testing.T) {
+	// Register the DejaVu test font, then render Helvetica text. The repository
+	// match should be preferred over the bundled Arimo substitute.
+	asposepdf.AddFontFile("testdata/DejaVuSans.ttf")
+	defer asposepdf.ClearFontSources()
+
+	doc := asposepdf.NewDocument(220, 90)
+	p, _ := doc.Page(1)
+	if err := p.AddText("Repo Font Test",
+		asposepdf.TextStyle{Font: asposepdf.FontHelvetica, Size: 30, Color: &asposepdf.Color{A: 1}},
+		asposepdf.Rectangle{LLX: 10, LLY: 20, URX: 210, URY: 80}); err != nil {
+		t.Fatalf("AddText: %v", err)
+	}
+	img, err := p.RenderImage(asposepdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	dark := 0
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if r, g, bl, _ := img.At(x, y).RGBA(); r>>8 < 100 && g>>8 < 100 && bl>>8 < 100 {
+				dark++
+			}
+		}
+	}
+	if dark < 100 {
+		t.Errorf("registered font text produced only %d dark pixels", dark)
+	}
+}

@@ -143,7 +143,13 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 	// keeping the resolved AFM metrics for positioning. Type0 fonts map codes
 	// to GIDs that only match their own program, so they are left unrendered.
 	if !fi.isType0 {
-		if fb := fallbackFontFor(fi); fb != nil {
+		// Resolution order: a caller-registered or system font (exact), then
+		// the bundled metric-compatible substitute.
+		fb := fontRepo.find(fi)
+		if fb == nil {
+			fb = fallbackFontFor(fi)
+		}
+		if fb != nil {
 			rf.prog = fb
 			rf.fallback = true
 			if fb.unitsPerEm != 0 {
