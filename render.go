@@ -32,6 +32,8 @@ type renderer struct {
 	gs    gstate
 	stack []gstate
 	fl    *flattener // current path, accumulated in device space
+	res   pdfDict    // current /Resources (page, or a form XObject's)
+	depth int        // form XObject recursion depth
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -48,7 +50,8 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 			strokeA:   1,
 			lineWidth: 1,
 		},
-		fl: newFlattener(0.2),
+		fl:  newFlattener(0.2),
+		res: p.pageResources(),
 	}
 }
 
@@ -201,9 +204,15 @@ func (rd *renderer) exec(ops []contentOp) {
 		case "SC", "SCN":
 			rd.setColor(o, true)
 
+		// --- XObjects ---
+		case "Do":
+			if len(o) >= 1 {
+				rd.doXObject(operandName(o[0]))
+			}
+
 		default:
-			// Text (BT…ET), images (Do, BI…EI), shadings (sh), ExtGState (gs),
-			// etc. arrive in later phases — skipped for now.
+			// Text (BT…ET), inline images (BI…EI), shadings (sh), ExtGState
+			// (gs), etc. arrive in later phases — skipped for now.
 		}
 	}
 }

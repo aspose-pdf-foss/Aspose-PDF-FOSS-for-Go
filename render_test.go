@@ -4,6 +4,7 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/gif"
 	"image/jpeg"
@@ -141,4 +142,58 @@ func TestRenderEncodersDecode(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestRenderImageXObject(t *testing.T) {
+	// An 8x8 solid green PNG.
+	src := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	for i := 0; i < len(src.Pix); i += 4 {
+		src.Pix[i+0], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = 0, 180, 0, 255
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, src); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := asposepdf.NewDocument(100, 100)
+	p, _ := doc.Page(1)
+	if err := p.AddImageFromStream(&pngBuf, asposepdf.Rectangle{LLX: 20, LLY: 20, URX: 80, URY: 80}); err != nil {
+		t.Fatalf("AddImageFromStream: %v", err)
+	}
+	img, err := p.RenderImage(asposepdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	pixNear(t, img, 50, 50, 0, 180, 0, 6)   // image interior → green
+	pixNear(t, img, 5, 5, 255, 255, 255, 1) // outside → white
+}
+
+func TestRenderBMP(t *testing.T) {
+	doc := asposepdf.NewDocument(10, 10)
+	p, _ := doc.Page(1)
+	p.DrawRectangle(asposepdf.Rectangle{LLX: 0, LLY: 0, URX: 10, URY: 10},
+		asposepdf.ShapeStyle{FillColor: &asposepdf.Color{R: 1, A: 1}}) // red page
+
+	var buf bytes.Buffer
+	if err := p.RenderBMP(&buf, asposepdf.RenderOptions{DPI: 72}); err != nil {
+		t.Fatalf("RenderBMP: %v", err)
+	}
+	d := buf.Bytes()
+	if len(d) < 54 || d[0] != 'B' || d[1] != 'M' {
+		t.Fatalf("not a BMP (magic %q)", d[:2])
+	}
+	w := int(binary.LittleEndian.Uint32(d[18:22]))
+	h := int(binary.LittleEndian.Uint32(d[22:26]))
+	if w != 10 || h != 10 {
+		t.Errorf("BMP size = %dx%d, want 10x10", w, h)
+	}
+	bpp := int(binary.LittleEndian.Uint16(d[28:30]))
+	if bpp != 24 {
+		t.Errorf("BMP bpp = %d, want 24", bpp)
+	}
+	// First pixel of pixel data (bottom-left) is red → BGR (0,0,255).
+	px := d[54:]
+	if px[0] != 0 || px[1] != 0 || px[2] != 255 {
+		t.Errorf("first pixel BGR = (%d,%d,%d), want (0,0,255)", px[0], px[1], px[2])
+	}
 }
