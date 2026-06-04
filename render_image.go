@@ -52,6 +52,34 @@ func (rd *renderer) drawImageXObject(name string, stream *pdfStream) {
 	rd.blitImage(m)
 }
 
+// drawInlineImage decodes an inline image (BI…ID…EI) and blits it into the
+// unit square transformed by the current matrix, reusing the same decode
+// pipeline as extraction. operands are [normalized dict, raw data] from the BI
+// content op. Stencil image masks are skipped (painted with fill colour — later).
+func (rd *renderer) drawInlineImage(operands []pdfValue) {
+	if len(operands) < 2 {
+		return
+	}
+	if dict, ok := operands[0].(pdfDict); ok {
+		if b, _ := dict["/ImageMask"].(bool); b {
+			return
+		}
+	}
+	info, ok := inlineImageInfo(operands[0], operands[1], identityMatrix())
+	if !ok {
+		return
+	}
+	img, err := info.Extract()
+	if err != nil {
+		return
+	}
+	m, _, err := image.Decode(bytes.NewReader(img.Data))
+	if err != nil {
+		return
+	}
+	rd.blitImage(m)
+}
+
 // drawFormXObject interprets a form XObject's content with its own resources
 // and /Matrix, sharing the page's image buffer and graphics state.
 func (rd *renderer) drawFormXObject(stream *pdfStream) {

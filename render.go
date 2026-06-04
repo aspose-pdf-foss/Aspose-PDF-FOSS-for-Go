@@ -265,6 +265,10 @@ func (rd *renderer) exec(ops []contentOp) {
 				rd.paintShOperator(operandName(o[0]))
 			}
 
+		// --- inline image ---
+		case "BI":
+			rd.drawInlineImage(o)
+
 		// --- text ---
 		case "BT":
 			rd.textBegin()
@@ -343,8 +347,8 @@ func (rd *renderer) exec(ops []contentOp) {
 			}
 
 		default:
-			// Inline images (BI…EI) and shadings (sh) arrive later in P5;
-			// anything still unsupported is skipped so the page renders.
+			// Operators still unsupported (tiling patterns, Type3 glyphs,
+			// blend modes, …) are skipped so the page always renders.
 		}
 	}
 }
