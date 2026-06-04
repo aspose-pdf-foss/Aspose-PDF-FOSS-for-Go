@@ -37,6 +37,11 @@ type renderer struct {
 
 	ts        textState              // current text-object state
 	fontCache map[string]*renderFont // resolved fonts by resource name
+
+	// pendingClip records a W / W* seen since the last paint: 0 none, 1 nonzero,
+	// 2 even-odd. The clip takes effect after the next painting operator (ISO
+	// 32000-1 §8.5.4), so it is applied there against the path still in flight.
+	pendingClip int
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -151,31 +156,39 @@ func (rd *renderer) exec(ops []contentOp) {
 
 		// --- path painting ---
 		case "f", "F":
+			rd.applyPendingClip()
 			rd.fill(fillNonZero)
 		case "f*":
+			rd.applyPendingClip()
 			rd.fill(fillEvenOdd)
 		case "S":
+			rd.applyPendingClip()
 			rd.stroke()
 		case "s":
 			rd.fl.close()
+			rd.applyPendingClip()
 			rd.stroke()
 		case "B", "b":
 			if op.Operator == "b" {
 				rd.fl.close()
 			}
+			rd.applyPendingClip()
 			rd.fillKeep(fillNonZero)
 			rd.stroke()
 		case "B*", "b*":
 			if op.Operator == "b*" {
 				rd.fl.close()
 			}
+			rd.applyPendingClip()
 			rd.fillKeep(fillEvenOdd)
 			rd.stroke()
 		case "n":
+			rd.applyPendingClip()
 			rd.resetPath()
-		case "W", "W*":
-			// Clipping arrives in P5; for now the path is consumed by the
-			// following painting operator and no clip is applied.
+		case "W":
+			rd.pendingClip = 1
+		case "W*":
+			rd.pendingClip = 2
 
 		// --- colour ---
 		case "g":
