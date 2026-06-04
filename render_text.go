@@ -186,9 +186,7 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
 	if f != nil && f.prog != nil && !rd.gs.fillPattern {
-		if gid := f.gid(code); true {
-			rd.fillGlyph(f, gid)
-		}
+		rd.fillGlyph(f, f.gid(code), w0)
 	}
 
 	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
@@ -218,14 +216,24 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 }
 
 // fillGlyph rasterizes the glyph outline into the page with the fill colour.
-func (rd *renderer) fillGlyph(f *renderFont, gid uint16) {
+// w0 is the font's advance width for this code (1/1000 em); for a substitute
+// (fallback) font the glyph is horizontally scaled so its own advance matches
+// w0, keeping inter-letter spacing aligned to the document's real metrics.
+func (rd *renderer) fillGlyph(f *renderFont, gid uint16, w0 float64) {
 	contours := f.prog.glyphContours(gid)
 	if len(contours) == 0 {
 		return
 	}
+	scaleX := 1.0
+	if f.fallback && w0 > 0 && int(gid) < len(f.prog.glyphWidths) {
+		if adv := float64(f.prog.glyphWidths[gid]); adv > 0 {
+			scaleX = (w0 / 1000) / (adv / f.em)
+		}
+	}
 	// Glyph design units → device: scale by 1/em, then text-rendering matrix
-	// (font size, horizontal scaling, rise) · text matrix · CTM · device base.
-	trm := matMul([6]float64{rd.ts.fontSize * rd.ts.hScale, 0, 0, rd.ts.fontSize, 0, rd.ts.rise}, rd.ts.tm)
+	// (font size, horizontal scaling, width-match, rise) · text matrix · CTM ·
+	// device base.
+	trm := matMul([6]float64{rd.ts.fontSize * rd.ts.hScale * scaleX, 0, 0, rd.ts.fontSize, 0, rd.ts.rise}, rd.ts.tm)
 	m := matMul(trm, matMul(rd.gs.ctm, rd.base))
 
 	fl := newFlattener(0.2)
