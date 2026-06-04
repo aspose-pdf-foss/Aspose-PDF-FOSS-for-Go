@@ -43,7 +43,10 @@ func (f *ttfFont) glyphContours(gid uint16) (contours []glyphContour) {
 			contours = nil
 		}
 	}()
-	tables := tableDir(f.data)
+	tables := f.tables
+	if tables == nil {
+		tables = tableDir(f.data) // single-font fallback (directory at offset 12)
+	}
 	if tables == nil {
 		return nil
 	}

@@ -326,7 +326,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).RenderPNG(w, opts) error` / `RenderJPEG(w, opts, quality) error` / `RenderGIF(w, opts) error` / `RenderBMP(w, opts) error`
 - `(*Document).RenderImage(pageNum, opts) (image.Image, error)`
 - Aspose-style device wrappers (mirror Aspose.PDF for .NET): `Resolution` (`NewResolution(dpi)`), `PngDevice`/`JpegDevice`/`GifDevice`/`BmpDevice` (`NewPngDevice(res)` etc.) with `Process(page, w) error`
-- `AddFontFolder(path)` / `AddFontFile(path)` / `AddSystemFonts()` / `ClearFontSources()` — register fonts the renderer uses for non-embedded text before the bundled metric-compatible substitutes; mirrors Aspose.PDF for .NET's `FontRepository`. System fonts are opt-in
+- `AddFontFolder(path)` / `AddFontFile(path)` / `AddSystemFonts()` / `ClearFontSources()` — register fonts the renderer uses for non-embedded text before the bundled metric-compatible substitutes; mirrors Aspose.PDF for .NET's `FontRepository`. System fonts are opt-in. Indexes `.ttf` and `.ttc` (TrueType Collection — each sub-font indexed separately via `parseFontCollection`/`parseSFNTAt` in `ttf.go`; each sub-font's table directory is captured on `ttfFont.tables` so shared-table glyph reads resolve at the right offset). Matching is by the font's real name-table **family** (name ID 1) + style, with Standard-14 aliases (Helvetica→Arial, Times→Times New Roman, Courier→Courier New) — not a serif/mono/sans keyword guess — so a request never resolves to an unrelated face; no family match → bundled substitute. Not yet indexed: `.otf`/CFF outlines (no `glyf` table; tracked in `pdf-go-ylj`)
 
 ### PDF parsing pipeline
 

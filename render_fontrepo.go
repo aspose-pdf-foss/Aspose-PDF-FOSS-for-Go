@@ -25,11 +25,18 @@ type fontRepository struct {
 	files   []string
 	indexed bool
 
-	// index: "family|style" → path (family = name-table family, lowercased),
-	// and exact PostScript name (lowercased) → path.
-	byFamily map[string]string
-	byName   map[string]string
-	parsed   map[string]*ttfFont
+	// index: "family|style" and exact PostScript name (both lowercased) → the
+	// specific sub-font that satisfies them. A path may hold several fonts (a
+	// .ttc collection), so the value is a (path, index) reference, not a path.
+	byFamily map[string]fontRef
+	byName   map[string]fontRef
+	parsed   map[string][]*ttfFont // all sub-fonts of a file, parsed once
+}
+
+// fontRef points at one sub-font within a font file (index 0 for a plain .ttf).
+type fontRef struct {
+	path  string
+	index int
 }
 
 var fontRepo = &fontRepository{}
@@ -82,20 +89,20 @@ func (r *fontRepository) find(fi fontInfo) *ttfFont {
 	}
 	r.ensureIndexed()
 
-	if p, ok := r.byName[normalizeFontName(fi.name)]; ok {
-		return r.load(p)
+	if ref, ok := r.byName[normalizeFontName(fi.name)]; ok {
+		return r.load(ref)
 	}
 	style := styleKey(fi.bold, fi.italic, strings.ToLower(fi.name))
 	families := candidateFamilies(fi.name)
 	for _, fam := range families {
-		if p, ok := r.byFamily[fam+"|"+style]; ok {
-			return r.load(p)
+		if ref, ok := r.byFamily[fam+"|"+style]; ok {
+			return r.load(ref)
 		}
 	}
 	// Same family, regular weight, when the exact style isn't installed.
 	for _, fam := range families {
-		if p, ok := r.byFamily[fam+"|regular"]; ok {
-			return r.load(p)
+		if ref, ok := r.byFamily[fam+"|regular"]; ok {
+			return r.load(ref)
 		}
 	}
 	return nil
@@ -105,16 +112,16 @@ func (r *fontRepository) ensureIndexed() {
 	if r.indexed {
 		return
 	}
-	r.byFamily = map[string]string{}
-	r.byName = map[string]string{}
+	r.byFamily = map[string]fontRef{}
+	r.byName = map[string]fontRef{}
 	if r.parsed == nil {
-		r.parsed = map[string]*ttfFont{}
+		r.parsed = map[string][]*ttfFont{}
 	}
 
 	var files []string
 	for _, d := range r.folders {
 		_ = filepath.WalkDir(d, func(p string, e os.DirEntry, err error) error {
-			if err == nil && !e.IsDir() && strings.EqualFold(filepath.Ext(p), ".ttf") {
+			if err == nil && !e.IsDir() && isFontFile(p) {
 				files = append(files, p)
 			}
 			return nil
@@ -123,42 +130,61 @@ func (r *fontRepository) ensureIndexed() {
 	files = append(files, r.files...)
 
 	for _, p := range files {
-		f := r.load(p)
-		if f == nil {
-			continue
-		}
-		if ps := strings.ToLower(f.postScriptName); ps != "" {
-			if _, exists := r.byName[ps]; !exists {
-				r.byName[ps] = p
+		for i, f := range r.loadAll(p) {
+			ref := fontRef{path: p, index: i}
+			if ps := strings.ToLower(f.postScriptName); ps != "" {
+				if _, exists := r.byName[ps]; !exists {
+					r.byName[ps] = ref
+				}
 			}
-		}
-		fam := strings.ToLower(strings.TrimSpace(f.family))
-		if fam == "" {
-			continue
-		}
-		sub := strings.ToLower(f.subfamily)
-		style := styleKey(f.flagsBold || strings.Contains(sub, "bold"),
-			f.flagsItalic || strings.Contains(sub, "italic") || strings.Contains(sub, "oblique"), "")
-		key := fam + "|" + style
-		if _, exists := r.byFamily[key]; !exists {
-			r.byFamily[key] = p
+			fam := strings.ToLower(strings.TrimSpace(f.family))
+			if fam == "" {
+				continue
+			}
+			sub := strings.ToLower(f.subfamily)
+			style := styleKey(f.flagsBold || strings.Contains(sub, "bold"),
+				f.flagsItalic || strings.Contains(sub, "italic") || strings.Contains(sub, "oblique"), "")
+			key := fam + "|" + style
+			if _, exists := r.byFamily[key]; !exists {
+				r.byFamily[key] = ref
+			}
 		}
 	}
 	r.indexed = true
 }
 
-func (r *fontRepository) load(path string) *ttfFont {
-	if f, ok := r.parsed[path]; ok {
-		return f
+// isFontFile reports whether path has a font extension the renderer can use.
+func isFontFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ttf", ".ttc":
+		return true
 	}
-	var parsed *ttfFont
+	return false
+}
+
+// loadAll parses (once, cached) every sub-font of a file. A plain .ttf yields
+// one element; a .ttc collection yields one per TrueType sub-font.
+func (r *fontRepository) loadAll(path string) []*ttfFont {
+	if c, ok := r.parsed[path]; ok {
+		return c
+	}
+	var fonts []*ttfFont
 	if data, err := os.ReadFile(path); err == nil {
-		if f, err := parseTTF(data); err == nil {
-			parsed = f
+		if fs, err := parseFontCollection(data); err == nil {
+			fonts = fs
 		}
 	}
-	r.parsed[path] = parsed
-	return parsed
+	r.parsed[path] = fonts // cache nil/empty too, so a bad file isn't re-read
+	return fonts
+}
+
+// load returns the specific sub-font a fontRef points at, or nil.
+func (r *fontRepository) load(ref fontRef) *ttfFont {
+	c := r.loadAll(ref.path)
+	if ref.index >= 0 && ref.index < len(c) {
+		return c[ref.index]
+	}
+	return nil
 }
 
 // normalizeFontName strips the leading slash and subset prefix and lowercases.

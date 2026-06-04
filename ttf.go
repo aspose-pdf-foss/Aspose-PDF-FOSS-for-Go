@@ -11,6 +11,11 @@ import (
 type ttfFont struct {
 	data []byte // raw TTF bytes (written verbatim into /FontFile2)
 
+	// tables is this font's table directory with file-absolute offsets. For a
+	// TTC sub-font the directory does not start at byte 12, so glyph reading must
+	// use this captured map rather than re-deriving it from the file head.
+	tables map[string]tableRecord
+
 	// From head.
 	unitsPerEm uint16
 	xMin, yMin int16
@@ -51,28 +56,73 @@ type tableRecord struct {
 	length uint32
 }
 
-// parseTTF parses a TrueType font file and returns the ttfFont ready for embedding.
-// Only the tables required for CIDFontType2 / Type0 embedding are read.
+// parseTTF parses a single TrueType font file and returns the ttfFont ready for
+// embedding. Only the tables required for CIDFontType2 / Type0 embedding are
+// read. A TrueType Collection ('ttcf') is rejected here — a collection cannot be
+// embedded as a single /FontFile2; the font repository parses collections for
+// rendering via parseFontCollection instead.
 func parseTTF(data []byte) (*ttfFont, error) {
+	return parseSFNTAt(data, 0)
+}
+
+// parseFontCollection parses every TrueType-outline sub-font of a file. A plain
+// single font yields one element; a TrueType Collection ('ttcf', e.g. macOS
+// Helvetica.ttc or Windows cambria.ttc) yields one element per sub-font.
+// OpenType/CFF sub-fonts (no glyf outlines) fail the sfnt check and are skipped.
+func parseFontCollection(data []byte) ([]*ttfFont, error) {
 	if len(data) < 12 {
 		return nil, fmt.Errorf("parse ttf: file too small (%d bytes)", len(data))
 	}
-	scaler := binary.BigEndian.Uint32(data[0:4])
+	if binary.BigEndian.Uint32(data[0:4]) != 0x74746366 { // not 'ttcf' → single font
+		f, err := parseSFNTAt(data, 0)
+		if err != nil {
+			return nil, err
+		}
+		return []*ttfFont{f}, nil
+	}
+	numFonts := binary.BigEndian.Uint32(data[8:12])
+	dirStart := 12
+	if numFonts > 0xFFFF || len(data) < dirStart+int(numFonts)*4 {
+		return nil, fmt.Errorf("parse ttc: bad offset table (%d fonts)", numFonts)
+	}
+	var fonts []*ttfFont
+	for i := 0; i < int(numFonts); i++ {
+		off := binary.BigEndian.Uint32(data[dirStart+i*4 : dirStart+i*4+4])
+		if f, err := parseSFNTAt(data, off); err == nil {
+			fonts = append(fonts, f) // CFF/OTTO sub-fonts error out and are skipped
+		}
+	}
+	if len(fonts) == 0 {
+		return nil, fmt.Errorf("parse ttc: no TrueType-outline sub-fonts")
+	}
+	return fonts, nil
+}
+
+// parseSFNTAt parses one sfnt (TrueType) font whose table directory starts at
+// byte offset off within data. Table records carry file-absolute offsets, so
+// the subtable parsers index into the whole slice — which is exactly what lets a
+// TTC's shared tables resolve from any sub-font's directory.
+func parseSFNTAt(data []byte, off uint32) (*ttfFont, error) {
+	if uint32(len(data)) < off+12 {
+		return nil, fmt.Errorf("parse ttf: sfnt offset %d out of range", off)
+	}
+	scaler := binary.BigEndian.Uint32(data[off : off+4])
 	if scaler != 0x00010000 && scaler != 0x74727565 { // 'true'
 		return nil, fmt.Errorf("parse ttf: not a TrueType file (scaler 0x%08X)", scaler)
 	}
 
-	numTables := int(binary.BigEndian.Uint16(data[4:6]))
-	if len(data) < 12+numTables*16 {
+	numTables := int(binary.BigEndian.Uint16(data[off+4 : off+6]))
+	dir := int(off) + 12
+	if len(data) < dir+numTables*16 {
 		return nil, fmt.Errorf("parse ttf: truncated table directory")
 	}
 	tables := make(map[string]tableRecord, numTables)
 	for i := 0; i < numTables; i++ {
-		off := 12 + i*16
-		tag := string(data[off : off+4])
+		rec := dir + i*16
+		tag := string(data[rec : rec+4])
 		tables[tag] = tableRecord{
-			offset: binary.BigEndian.Uint32(data[off+8 : off+12]),
-			length: binary.BigEndian.Uint32(data[off+12 : off+16]),
+			offset: binary.BigEndian.Uint32(data[rec+8 : rec+12]),
+			length: binary.BigEndian.Uint32(data[rec+12 : rec+16]),
 		}
 	}
 
@@ -83,7 +133,7 @@ func parseTTF(data []byte) (*ttfFont, error) {
 		}
 	}
 
-	f := &ttfFont{data: data}
+	f := &ttfFont{data: data, tables: tables}
 
 	if err := parseHead(f, tables); err != nil {
 		return nil, err
