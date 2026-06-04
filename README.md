@@ -892,13 +892,19 @@ f, _ := os.Create("page1.png")
 page.RenderPNG(f, pdf.RenderOptions{DPI: 150})
 f.Close()
 
-// JPEG / GIF, and Aspose-style devices
+// JPEG / GIF / BMP, and Aspose-style devices
 page.RenderJPEG(out, pdf.RenderOptions{DPI: 200}, 90)
 dev := pdf.NewPngDevice(pdf.NewResolution(300))
 dev.Process(page, out)
+
+// TIFF — one page, or the whole document as a single multi-page TIFF
+page.RenderTIFF(out, pdf.RenderOptions{DPI: 150})
+doc.RenderTIFF(out, pdf.RenderOptions{DPI: 150})          // every page → one file
+doc.RenderTIFF(out, pdf.RenderOptions{DPI: 150}, 3, 1)    // selected pages, in order
+pdf.NewTiffDevice(pdf.NewResolution(200)).ProcessDocument(doc, out)
 ```
 
-> **Status:** the renderer ships in phases. Today it draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK colour), **images** (Image XObjects with soft-mask alpha), and **text** (embedded TrueType fonts; Standard-14 via bundled metric-compatible fonts, with a `FontRepository` for exact/installed fonts). **Shadings and clipping** land in upcoming phases — until then those elements are skipped, so a page always renders (you'll see it fill in over releases). PNG/JPEG/GIF/BMP output; DPI defaults to 150; the rendered region is the CropBox.
+> **Status:** the renderer draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK colour, axial/radial **shadings**, **clipping**, constant alpha), **images** (Image XObjects with soft-mask alpha), **text** (embedded TrueType fonts; Standard-14 via bundled metric-compatible fonts, with a `FontRepository` for exact/installed fonts including `.ttc` collections), and **annotation appearances** (AcroForm field widgets, stamps, highlights, free text, …). Unsupported elements (mesh shadings, soft-mask groups, `.otf`/CFF fonts) are skipped, so a page always renders. Output: **PNG / JPEG / GIF / BMP / TIFF** (single- and multi-page); DPI defaults to 150; the rendered region is the CropBox.
 
 ### Text Search
 
