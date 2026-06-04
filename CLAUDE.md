@@ -320,6 +320,13 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`
 - Checks performed: header, xref/trailer, all objects readable, page tree traversal, orphaned `/Pages` nodes, `/Page` → `/Parent` refs resolve to `/Pages`, streams without `/Filter` don't contain compressed data
 
+**`raster.go` / `raster_path.go` / `raster_stroke.go` / `render.go` / `render_device.go`** — pure-Go page rasterizer (no external dependencies; stdlib `image`/`image/png`/`image/jpeg`/`image/gif` only). Phased epic (umbrella `pdf-go-61r`); spec `docs/superpowers/specs/2026-06-04-render-to-image-design.md`. Status: **P1 shipped** (vector + API + PNG/JPEG/GIF). Internals (lowercase): `flattener` adaptively flattens Bézier/arc paths to device-space polylines; `rasterizer` produces anti-aliased coverage via analytic-X + 4× supersampled-Y scanlines (nonzero + even-odd); `compositeCoverage` does src-over with an optional clip mask; `strokeToFill` approximates strokes (round joins/caps); `renderer` interprets the content stream (q/Q/cm/w, path ops, f/S/B painting, Gray/RGB/CMYK colour) and **skips operators not yet supported** (text, images, shadings) so any page renders. Coming: P2 images + BMP, P3 text (embedded fonts), P4 Standard-14 outlines, P5 clip/transparency/shadings, P-TIFF multi-page TIFF, P6 stroke/quality/perf.
+- `RenderOptions` struct — `DPI float64` (0 → `DefaultDPI` = 150), `Background *Color` (nil → white)
+- `(*Page).RenderImage(opts) (image.Image, error)` — rasterize the page (CropBox region, Y-flip/rotation, chosen DPI) to an `*image.RGBA`; never errors on unsupported content (skips it)
+- `(*Page).RenderPNG(w, opts) error` / `RenderJPEG(w, opts, quality) error` / `RenderGIF(w, opts) error`
+- `(*Document).RenderImage(pageNum, opts) (image.Image, error)`
+- Aspose-style device wrappers (mirror Aspose.PDF for .NET): `Resolution` (`NewResolution(dpi)`), `PngDevice`/`JpegDevice`/`GifDevice` (`NewPngDevice(res)` etc.) with `Process(page, w) error`
+
 ### PDF parsing pipeline
 
 1. **`io.go`** — file I/O (`readFile`, `writeFile`)

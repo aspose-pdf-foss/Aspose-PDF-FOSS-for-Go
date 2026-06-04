@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
 
-A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write Info + XMP metadata, encrypt with RC4-128 / AES-128 / AES-256, fill, build, and style AcroForms, attach and render annotations, create bookmark trees, draw text and vector graphics, embed and subset TrueType fonts, apply watermarks, place images, and validate document structure. No external dependencies — standard library only.
+A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write Info + XMP metadata, encrypt with RC4-128 / AES-128 / AES-256, fill, build, and style AcroForms, attach and render annotations, create bookmark trees, draw text and vector graphics, embed and subset TrueType fonts, apply watermarks, place images, validate document structure, and render pages to raster images (PNG/JPEG/GIF). No external dependencies — standard library only.
 
 Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
 
@@ -78,6 +78,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press
 - **Font embedding & subsetting** — embed TrueType fonts with `Document.LoadFont` (CIDFontType2 / Identity-H, full Unicode); `Document.SubsetFonts()` rebuilds each embedded font to keep only the glyphs actually drawn (composite-glyph aware, regenerates `glyf`/`loca`/`hmtx`/`CIDToGIDMap`), typically shrinking a font from hundreds of KB to a few KB
 - **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. Text-bearing types (Text sticky note, FreeText with callout/typewriter/cloudy-border modes, Stamp with 14 predefined visuals + custom image override). FileAttachment with file embedding (path/stream + MIME detection); Redact with mark/apply modes (irreversible content removal of text glyphs, images, and paths via `Document.ApplyRedactions()`); `NewJavaScriptAction` public constructor with security warning. `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
+- **Render to image** — rasterize pages to PNG/JPEG/GIF with a dependency-free, pure-Go anti-aliased renderer (`Page.RenderImage`/`RenderPNG`/… + Aspose-style `PngDevice`/`Resolution`). Shipped in phases — vector graphics today; text, images, shadings, and clipping in upcoming releases. Default 150 DPI, renders the CropBox
 - **Flatten** — bake interactive content into static page content: `Document.Flatten()` / `Form.Flatten()` (all fields + drop `/AcroForm`), `Field.Flatten()` (one field, leaving the rest of the form interactive), `Annotation.Flatten()` and `AnnotationCollection.Flatten()` (annotations). Appearances are drawn into the page at their rectangle per ISO 32000-1 §12.5.5, then the interactive objects are removed — the result renders identically but is no longer editable
 
 ## API Reference
@@ -874,6 +875,30 @@ page, _ := doc.Page(1)
 text, err := page.ExtractText()
 lines, err := page.ExtractTextWithLayout()
 ```
+
+### Rendering pages to images
+
+Rasterize a page to an image with a dependency-free, pure-Go renderer (own anti-aliased rasterizer — no `golang.org/x/image`, no cgo).
+
+```go
+doc, _ := pdf.Open("input.pdf")
+page, _ := doc.Page(1)
+
+// To an in-memory image
+img, _ := page.RenderImage(pdf.RenderOptions{DPI: 150})
+
+// Or straight to a file
+f, _ := os.Create("page1.png")
+page.RenderPNG(f, pdf.RenderOptions{DPI: 150})
+f.Close()
+
+// JPEG / GIF, and Aspose-style devices
+page.RenderJPEG(out, pdf.RenderOptions{DPI: 200}, 90)
+dev := pdf.NewPngDevice(pdf.NewResolution(300))
+dev.Process(page, out)
+```
+
+> **Status:** the renderer ships in phases. Today it draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK colour). **Text, images, shadings, and clipping** land in upcoming phases — until then those elements are skipped, so a page always renders (you'll see the page's vector skeleton fill in over releases). DPI defaults to 150; the rendered region is the CropBox.
 
 ### Text Search
 
