@@ -28,4 +28,24 @@ func (rd *renderer) applyExtGState(name string) {
 			rd.gs.lineWidth = lw
 		}
 	}
+	if raw, present := gd["/LC"]; present {
+		rd.gs.lineCap = LineCap(int(operandFloat(resolveRef(objects, raw))))
+	}
+	if raw, present := gd["/LJ"]; present {
+		rd.gs.lineJoin = LineJoin(int(operandFloat(resolveRef(objects, raw))))
+	}
+	if raw, present := gd["/ML"]; present {
+		if ml := operandFloat(resolveRef(objects, raw)); ml >= 1 {
+			rd.gs.miterLimit = ml
+		}
+	}
+	// /D is [dashArray phase].
+	if arr, ok := resolveRefToArray(objects, gd["/D"]); ok && len(arr) == 2 {
+		da, _ := resolveRefToArray(objects, arr[0])
+		rd.gs.dash = make([]float64, 0, len(da))
+		for _, e := range da {
+			rd.gs.dash = append(rd.gs.dash, operandFloat(resolveRef(objects, e)))
+		}
+		rd.gs.dashPhase = operandFloat(resolveRef(objects, arr[1]))
+	}
 }

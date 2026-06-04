@@ -23,8 +23,13 @@ type gstate struct {
 	fillShading   *shading
 	fillShadingM  [6]float64
 
-	lineWidth float64
-	clip      []float32 // nil = unclipped
+	lineWidth  float64
+	lineCap    LineCap
+	lineJoin   LineJoin
+	miterLimit float64
+	dash       []float64 // empty = solid
+	dashPhase  float64
+	clip       []float32 // nil = unclipped
 }
 
 // renderer interprets a page's content stream and paints onto img.
@@ -59,10 +64,11 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 		base: base,
 		ras:  newRasterizer(w, h),
 		gs: gstate{
-			ctm:       identityMatrix(),
-			fillA:     1,
-			strokeA:   1,
-			lineWidth: 1,
+			ctm:        identityMatrix(),
+			fillA:      1,
+			strokeA:    1,
+			lineWidth:  1,
+			miterLimit: 10,
 		},
 		fl:        newFlattener(0.2),
 		res:       p.pageResources(),
@@ -107,6 +113,22 @@ func (rd *renderer) exec(ops []contentOp) {
 		case "w":
 			if len(o) >= 1 {
 				rd.gs.lineWidth = f(o[0])
+			}
+		case "J":
+			if len(o) >= 1 {
+				rd.gs.lineCap = LineCap(int(f(o[0])))
+			}
+		case "j":
+			if len(o) >= 1 {
+				rd.gs.lineJoin = LineJoin(int(f(o[0])))
+			}
+		case "M":
+			if len(o) >= 1 {
+				rd.gs.miterLimit = f(o[0])
+			}
+		case "d":
+			if len(o) >= 2 {
+				rd.gs.dash, rd.gs.dashPhase = dashArray(o[0]), f(o[1])
 			}
 		case "gs":
 			if len(o) >= 1 {
@@ -426,8 +448,31 @@ func (rd *renderer) stroke() {
 	if dw < 1 {
 		dw = 1
 	}
-	outline := strokeToFill(dp, dw/2)
+	// Dash lengths/phase are in user space; scale them like the line width into
+	// device space before splitting the (already device-space) path.
+	if len(rd.gs.dash) > 0 {
+		scaled := make([]float64, len(rd.gs.dash))
+		for i, d := range rd.gs.dash {
+			scaled[i] = d * scale
+		}
+		dp = applyDash(dp, scaled, rd.gs.dashPhase*scale)
+	}
+	st := strokeStyle{hw: dw / 2, cap: rd.gs.lineCap, join: rd.gs.lineJoin, miterLimit: rd.gs.miterLimit}
+	outline := strokeToFill(dp, st)
 	rd.compositePath(outline, fillNonZero, rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokeA)
+}
+
+// dashArray converts a PDF dash-array operand into a slice of lengths.
+func dashArray(v pdfValue) []float64 {
+	arr, ok := v.(pdfArray)
+	if !ok {
+		return nil
+	}
+	out := make([]float64, 0, len(arr))
+	for _, e := range arr {
+		out = append(out, operandFloat(e))
+	}
+	return out
 }
 
 func f(v pdfValue) float64    { return operandFloat(v) }
