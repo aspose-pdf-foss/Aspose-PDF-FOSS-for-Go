@@ -3,7 +3,11 @@
 package asposepdf_test
 
 import (
+	"bytes"
 	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"math"
 	"testing"
 
@@ -85,4 +89,56 @@ func TestRenderStrokedLine(t *testing.T) {
 	// Line at device y=50, ~6px tall band → (50,50) black, (50,30) white.
 	pixNear(t, img, 50, 50, 0, 0, 0, 4)
 	pixNear(t, img, 50, 30, 255, 255, 255, 1)
+}
+
+func TestRenderEncodersDecode(t *testing.T) {
+	doc := asposepdf.NewDocument(60, 40)
+	p, _ := doc.Page(1)
+	p.DrawRectangle(asposepdf.Rectangle{LLX: 0, LLY: 0, URX: 60, URY: 40},
+		asposepdf.ShapeStyle{FillColor: &asposepdf.Color{R: 1, A: 1}})
+
+	t.Run("png", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := p.RenderPNG(&buf, asposepdf.RenderOptions{DPI: 72}); err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if img.Bounds().Dx() != 60 || img.Bounds().Dy() != 40 {
+			t.Errorf("png bounds = %v", img.Bounds())
+		}
+		pixNear(t, img, 30, 20, 255, 0, 0, 2)
+	})
+	t.Run("jpeg", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := p.RenderJPEG(&buf, asposepdf.RenderOptions{DPI: 72}, 90); err != nil {
+			t.Fatal(err)
+		}
+		img, err := jpeg.Decode(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pixNear(t, img, 30, 20, 255, 0, 0, 20) // lossy → loose tolerance
+	})
+	t.Run("gif", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := p.RenderGIF(&buf, asposepdf.RenderOptions{DPI: 72}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := gif.Decode(&buf); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("PngDevice", func(t *testing.T) {
+		var buf bytes.Buffer
+		dev := asposepdf.NewPngDevice(asposepdf.NewResolution(72))
+		if err := dev.Process(p, &buf); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := png.Decode(&buf); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

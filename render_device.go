@@ -5,6 +5,10 @@ package asposepdf
 import (
 	"fmt"
 	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"io"
 	"math"
 )
 
@@ -46,6 +50,94 @@ func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
 	rd := newRenderer(p, img, w, h, base)
 	rd.run()
 	return img, nil
+}
+
+// RenderPNG renders the page and writes it as PNG.
+func (p *Page) RenderPNG(w io.Writer, opts RenderOptions) error {
+	img, err := p.RenderImage(opts)
+	if err != nil {
+		return err
+	}
+	return png.Encode(w, img)
+}
+
+// RenderJPEG renders the page and writes it as JPEG. quality is 1..100;
+// values outside that range use 90.
+func (p *Page) RenderJPEG(w io.Writer, opts RenderOptions, quality int) error {
+	img, err := p.RenderImage(opts)
+	if err != nil {
+		return err
+	}
+	if quality < 1 || quality > 100 {
+		quality = 90
+	}
+	return jpeg.Encode(w, img, &jpeg.Options{Quality: quality})
+}
+
+// RenderGIF renders the page and writes it as GIF (256 colours, quantized).
+func (p *Page) RenderGIF(w io.Writer, opts RenderOptions) error {
+	img, err := p.RenderImage(opts)
+	if err != nil {
+		return err
+	}
+	return gif.Encode(w, img, &gif.Options{NumColors: 256})
+}
+
+// RenderImage renders the 1-based page number to an image.
+func (d *Document) RenderImage(pageNum int, opts RenderOptions) (image.Image, error) {
+	p, err := d.Page(pageNum)
+	if err != nil {
+		return nil, err
+	}
+	return p.RenderImage(opts)
+}
+
+// Resolution is a rendering resolution in DPI. Mirrors Aspose.PDF for .NET's
+// Aspose.Pdf.Devices.Resolution.
+type Resolution struct{ DPI float64 }
+
+// NewResolution returns a Resolution of the given DPI.
+func NewResolution(dpi float64) Resolution { return Resolution{DPI: dpi} }
+
+func (r Resolution) options() RenderOptions { return RenderOptions{DPI: r.DPI} }
+
+// PngDevice renders a page to PNG at a fixed resolution. Mirrors Aspose.PDF for
+// .NET's PngDevice.
+type PngDevice struct{ res Resolution }
+
+// NewPngDevice returns a PngDevice for the given resolution.
+func NewPngDevice(res Resolution) *PngDevice { return &PngDevice{res: res} }
+
+// Process renders page and writes it to w as PNG.
+func (d *PngDevice) Process(page *Page, w io.Writer) error {
+	return page.RenderPNG(w, d.res.options())
+}
+
+// JpegDevice renders a page to JPEG. Mirrors Aspose.PDF for .NET's JpegDevice.
+type JpegDevice struct {
+	res     Resolution
+	quality int
+}
+
+// NewJpegDevice returns a JpegDevice; quality outside 1..100 defaults to 90.
+func NewJpegDevice(res Resolution, quality int) *JpegDevice {
+	return &JpegDevice{res: res, quality: quality}
+}
+
+// Process renders page and writes it to w as JPEG.
+func (d *JpegDevice) Process(page *Page, w io.Writer) error {
+	return page.RenderJPEG(w, d.res.options(), d.quality)
+}
+
+// GifDevice renders a page to GIF. Mirrors Aspose.PDF for .NET's GifDevice.
+type GifDevice struct{ res Resolution }
+
+// NewGifDevice returns a GifDevice for the given resolution.
+func NewGifDevice(res Resolution) *GifDevice { return &GifDevice{res: res} }
+
+// Process renders page and writes it to w as GIF.
+func (d *GifDevice) Process(page *Page, w io.Writer) error {
+	return page.RenderGIF(w, d.res.options())
 }
 
 // deviceMatrix builds the matrix mapping PDF user space to device pixels
