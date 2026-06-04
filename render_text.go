@@ -23,6 +23,7 @@ type renderFont struct {
 	em       float64
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
+	fallback bool     // prog is the bundled substitute (non-embedded font)
 	fi       fontInfo
 }
 
@@ -127,20 +128,28 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 	} else {
 		descriptor, _ = resolveRefToDict(objects, fontDict["/FontDescriptor"])
 	}
-	if descriptor == nil {
-		return rf // no descriptor → not renderable here
+	if stream, ok := resolveRef(objects, descriptor["/FontFile2"]).(*pdfStream); ok {
+		if prog, err := parseTTF(decodedStreamData(stream)); err == nil {
+			rf.prog = prog
+			if prog.unitsPerEm != 0 {
+				rf.em = float64(prog.unitsPerEm)
+			}
+			return rf
+		}
 	}
-	stream, ok := resolveRef(objects, descriptor["/FontFile2"]).(*pdfStream)
-	if !ok {
-		return rf // no TrueType program (Type1/Standard-14 → P4)
-	}
-	prog, err := parseTTF(decodedStreamData(stream))
-	if err != nil {
-		return rf
-	}
-	rf.prog = prog
-	if prog.unitsPerEm != 0 {
-		rf.em = float64(prog.unitsPerEm)
+
+	// No embedded TrueType program. For a simple (non-Type0) font — chiefly
+	// the Standard 14 — substitute the bundled fallback font's glyph shapes,
+	// keeping the resolved AFM metrics for positioning. Type0 fonts map codes
+	// to GIDs that only match their own program, so they are left unrendered.
+	if !fi.isType0 {
+		if fb := fallbackFont(); fb != nil {
+			rf.prog = fb
+			rf.fallback = true
+			if fb.unitsPerEm != 0 {
+				rf.em = float64(fb.unitsPerEm)
+			}
+		}
 	}
 	return rf
 }
