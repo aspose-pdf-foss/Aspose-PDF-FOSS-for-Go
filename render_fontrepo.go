@@ -25,9 +25,9 @@ type fontRepository struct {
 	files   []string
 	indexed bool
 
-	// index: family bucket ("sans"/"serif"/"mono") + style → path, and exact
-	// PostScript name (lowercased) → path.
-	byBucket map[string]string
+	// index: "family|style" → path (family = name-table family, lowercased),
+	// and exact PostScript name (lowercased) → path.
+	byFamily map[string]string
 	byName   map[string]string
 	parsed   map[string]*ttfFont
 }
@@ -67,8 +67,13 @@ func ClearFontSources() {
 	fontRepo.folders, fontRepo.files, fontRepo.indexed = nil, nil, false
 }
 
-// find returns a registered font matching fi (by exact PostScript name, then by
-// family bucket + style), or nil if none is registered.
+// find returns a registered font matching fi, or nil if none is registered.
+// Resolution order: exact PostScript name, then the requested family (plus
+// Standard-14 aliases) at the requested style, then that family's regular
+// weight. Matching is by the font's real name-table family — not a coarse
+// serif/mono/sans guess — so a request for Helvetica never resolves to an
+// unrelated serif or CJK face; when nothing matches we return nil and the
+// caller falls back to the bundled metric-compatible substitute.
 func (r *fontRepository) find(fi fontInfo) *ttfFont {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -77,17 +82,21 @@ func (r *fontRepository) find(fi fontInfo) *ttfFont {
 	}
 	r.ensureIndexed()
 
-	name := normalizeFontName(fi.name)
-	if p, ok := r.byName[name]; ok {
+	if p, ok := r.byName[normalizeFontName(fi.name)]; ok {
 		return r.load(p)
 	}
-	key := familyBucket(fi.name) + ":" + styleKey(fi.bold, fi.italic, name)
-	if p, ok := r.byBucket[key]; ok {
-		return r.load(p)
+	style := styleKey(fi.bold, fi.italic, strings.ToLower(fi.name))
+	families := candidateFamilies(fi.name)
+	for _, fam := range families {
+		if p, ok := r.byFamily[fam+"|"+style]; ok {
+			return r.load(p)
+		}
 	}
-	// Fall back to the regular weight of the bucket.
-	if p, ok := r.byBucket[familyBucket(fi.name)+":regular"]; ok {
-		return r.load(p)
+	// Same family, regular weight, when the exact style isn't installed.
+	for _, fam := range families {
+		if p, ok := r.byFamily[fam+"|regular"]; ok {
+			return r.load(p)
+		}
 	}
 	return nil
 }
@@ -96,7 +105,7 @@ func (r *fontRepository) ensureIndexed() {
 	if r.indexed {
 		return
 	}
-	r.byBucket = map[string]string{}
+	r.byFamily = map[string]string{}
 	r.byName = map[string]string{}
 	if r.parsed == nil {
 		r.parsed = map[string]*ttfFont{}
@@ -118,15 +127,21 @@ func (r *fontRepository) ensureIndexed() {
 		if f == nil {
 			continue
 		}
-		ps := strings.ToLower(f.postScriptName)
-		if ps != "" {
+		if ps := strings.ToLower(f.postScriptName); ps != "" {
 			if _, exists := r.byName[ps]; !exists {
 				r.byName[ps] = p
 			}
 		}
-		key := bucketOfFont(f) + ":" + styleKey(f.flagsBold, f.flagsItalic, ps)
-		if _, exists := r.byBucket[key]; !exists {
-			r.byBucket[key] = p
+		fam := strings.ToLower(strings.TrimSpace(f.family))
+		if fam == "" {
+			continue
+		}
+		sub := strings.ToLower(f.subfamily)
+		style := styleKey(f.flagsBold || strings.Contains(sub, "bold"),
+			f.flagsItalic || strings.Contains(sub, "italic") || strings.Contains(sub, "oblique"), "")
+		key := fam + "|" + style
+		if _, exists := r.byFamily[key]; !exists {
+			r.byFamily[key] = p
 		}
 	}
 	r.indexed = true
@@ -155,25 +170,36 @@ func normalizeFontName(name string) string {
 	return strings.ToLower(name)
 }
 
-// familyBucket classifies a font name as serif / mono / sans.
-func familyBucket(name string) string {
-	n := strings.ToLower(name)
+// candidateFamilies maps a requested font name to the family names (lowercased,
+// as they appear in a font's name table) that may satisfy it, most-specific
+// first. For the Standard-14 families it expands to the real installed faces and
+// the bundled substitutes (e.g. Helvetica → Arial, Helvetica, Arimo). For any
+// other name it returns the requested family stripped of its style suffix, so a
+// custom registered font still matches by its own name.
+func candidateFamilies(name string) []string {
+	n := normalizeFontName(name)
 	switch {
-	case strings.Contains(n, "times") || strings.Contains(n, "serif") || strings.Contains(n, "roman") || strings.Contains(n, "georgia") || strings.Contains(n, "tinos"):
-		return "serif"
-	case strings.Contains(n, "courier") || strings.Contains(n, "mono") || strings.Contains(n, "consol") || strings.Contains(n, "cousine"):
-		return "mono"
+	case strings.Contains(n, "times") || strings.Contains(n, "georgia") || (strings.Contains(n, "roman") && !strings.Contains(n, "cascadia")) || strings.Contains(n, "serif") && !strings.Contains(n, "sans"):
+		return []string{"times new roman", "times", "tinos", "liberation serif"}
+	case strings.Contains(n, "courier") || strings.Contains(n, "mono") || strings.Contains(n, "consol"):
+		return []string{"courier new", "courier", "cousine", "liberation mono", "consolas"}
+	case strings.Contains(n, "helvetica") || strings.Contains(n, "arial") || strings.Contains(n, "sans"):
+		return []string{"arial", "helvetica", "arimo", "liberation sans"}
 	default:
-		return "sans"
+		return []string{strippedFamily(n)}
 	}
 }
 
-func bucketOfFont(f *ttfFont) string {
-	b := familyBucket(f.postScriptName)
-	if b == "sans" && f.isFixedPitch {
-		return "mono"
+// strippedFamily removes common style suffixes from an already-normalized font
+// name so a custom font like "Calibri-Bold" matches the family "calibri".
+func strippedFamily(n string) string {
+	if i := strings.IndexByte(n, ','); i >= 0 {
+		n = n[:i]
 	}
-	return b
+	for _, tok := range []string{"-boldoblique", "-boldobl", "-bolditalic", "-boldital", "-bold", "-oblique", "-italic", "-ital", "-regular", "-roman", "boldoblique", "bolditalic", "psmt"} {
+		n = strings.ReplaceAll(n, tok, "")
+	}
+	return strings.TrimRight(strings.TrimSpace(n), "-_ ")
 }
 
 func styleKey(bold, italic bool, name string) string {

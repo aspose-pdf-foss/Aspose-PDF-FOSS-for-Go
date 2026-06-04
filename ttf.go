@@ -41,6 +41,8 @@ type ttfFont struct {
 
 	// From name.
 	postScriptName string
+	family         string // name ID 1 (font family), e.g. "Arial"
+	subfamily      string // name ID 2 (subfamily/style), e.g. "Bold Italic"
 }
 
 // tableRecord is an entry in the TTF table directory.
@@ -402,7 +404,7 @@ func parseName(f *ttfFont, tables map[string]tableRecord) error {
 		length := int(binary.BigEndian.Uint16(rec[8:10]))
 		offset := int(binary.BigEndian.Uint16(rec[10:12]))
 
-		if nameID != 6 && nameID != 4 {
+		if nameID != 1 && nameID != 2 && nameID != 4 && nameID != 6 {
 			continue
 		}
 		start := storageOffset + offset
@@ -429,6 +431,12 @@ func parseName(f *ttfFont, tables map[string]tableRecord) error {
 		}
 		if nameID == 4 && fullName == "" {
 			fullName = decoded
+		}
+		if nameID == 1 && f.family == "" {
+			f.family = decoded
+		}
+		if nameID == 2 && f.subfamily == "" {
+			f.subfamily = decoded
 		}
 	}
 
