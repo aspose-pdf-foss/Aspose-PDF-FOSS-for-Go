@@ -197,3 +197,34 @@ func TestRenderBMP(t *testing.T) {
 		t.Errorf("first pixel BGR = (%d,%d,%d), want (0,0,255)", px[0], px[1], px[2])
 	}
 }
+
+func TestRenderEmbeddedText(t *testing.T) {
+	doc := asposepdf.NewDocument(220, 90)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatalf("LoadFont: %v", err)
+	}
+	p, _ := doc.Page(1)
+	if err := p.AddText("Hello",
+		asposepdf.TextStyle{Font: font, Size: 48, Color: &asposepdf.Color{A: 1}},
+		asposepdf.Rectangle{LLX: 10, LLY: 20, URX: 210, URY: 80}); err != nil {
+		t.Fatalf("AddText: %v", err)
+	}
+	img, err := p.RenderImage(asposepdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	dark := 0
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			if r>>8 < 100 && g>>8 < 100 && bl>>8 < 100 {
+				dark++
+			}
+		}
+	}
+	if dark < 100 {
+		t.Errorf("expected glyph pixels from embedded-font text, got only %d dark pixels", dark)
+	}
+}

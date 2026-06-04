@@ -34,6 +34,9 @@ type renderer struct {
 	fl    *flattener // current path, accumulated in device space
 	res   pdfDict    // current /Resources (page, or a form XObject's)
 	depth int        // form XObject recursion depth
+
+	ts        textState              // current text-object state
+	fontCache map[string]*renderFont // resolved fonts by resource name
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -50,8 +53,10 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 			strokeA:   1,
 			lineWidth: 1,
 		},
-		fl:  newFlattener(0.2),
-		res: p.pageResources(),
+		fl:        newFlattener(0.2),
+		res:       p.pageResources(),
+		ts:        textState{hScale: 1},
+		fontCache: map[string]*renderFont{},
 	}
 }
 
@@ -210,9 +215,82 @@ func (rd *renderer) exec(ops []contentOp) {
 				rd.doXObject(operandName(o[0]))
 			}
 
+		// --- text ---
+		case "BT":
+			rd.textBegin()
+		case "ET":
+			// no-op
+		case "Tf":
+			if len(o) >= 2 {
+				rd.setFont(operandName(o[0]), f(o[1]))
+			}
+		case "Td":
+			if len(o) >= 2 {
+				rd.textMove(f(o[0]), f(o[1]))
+			}
+		case "TD":
+			if len(o) >= 2 {
+				rd.ts.leading = -f(o[1])
+				rd.textMove(f(o[0]), f(o[1]))
+			}
+		case "Tm":
+			if len(o) >= 6 {
+				rd.textSetMatrix([6]float64{f(o[0]), f(o[1]), f(o[2]), f(o[3]), f(o[4]), f(o[5])})
+			}
+		case "T*":
+			rd.textNextLine()
+		case "TL":
+			if len(o) >= 1 {
+				rd.ts.leading = f(o[0])
+			}
+		case "Tc":
+			if len(o) >= 1 {
+				rd.ts.charSpace = f(o[0])
+			}
+		case "Tw":
+			if len(o) >= 1 {
+				rd.ts.wordSpace = f(o[0])
+			}
+		case "Tz":
+			if len(o) >= 1 {
+				rd.ts.hScale = f(o[0]) / 100
+			}
+		case "Ts":
+			if len(o) >= 1 {
+				rd.ts.rise = f(o[0])
+			}
+		case "Tr", "Tk":
+			// rendering mode / knockout — fill mode only for now
+		case "Tj":
+			if len(o) >= 1 {
+				if s, ok := o[0].(string); ok {
+					rd.showText(s)
+				}
+			}
+		case "'":
+			rd.textNextLine()
+			if len(o) >= 1 {
+				if s, ok := o[0].(string); ok {
+					rd.showText(s)
+				}
+			}
+		case "\"":
+			if len(o) >= 3 {
+				rd.ts.wordSpace = f(o[0])
+				rd.ts.charSpace = f(o[1])
+				rd.textNextLine()
+				if s, ok := o[2].(string); ok {
+					rd.showText(s)
+				}
+			}
+		case "TJ":
+			if len(o) >= 1 {
+				rd.showTJ(o[0])
+			}
+
 		default:
-			// Text (BT…ET), inline images (BI…EI), shadings (sh), ExtGState
-			// (gs), etc. arrive in later phases — skipped for now.
+			// Inline images (BI…EI), shadings (sh), ExtGState (gs), etc.
+			// arrive in later phases — skipped for now.
 		}
 	}
 }
