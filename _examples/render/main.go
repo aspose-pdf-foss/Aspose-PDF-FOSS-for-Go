@@ -1,4 +1,5 @@
-// render rasterizes every page of a PDF to a PNG under result_files/render/.
+// render rasterizes every page of a PDF to a PNG under result_files/render/,
+// and writes the whole document as one multi-page TIFF (document.tiff).
 // Defaults to the unencrypted showcase; pass a path to render another file.
 //
 // Usage:
@@ -43,6 +44,25 @@ func main() {
 		renderOne(doc, i, dpi, out)
 	}
 	fmt.Printf("rendered %d page(s) at %.0f DPI → %s\n", doc.PageCount(), dpi, outDir)
+
+	// The whole document as one multi-page TIFF.
+	tiffPath := filepath.Join(outDir, "document.tiff")
+	renderTIFF(doc, dpi, tiffPath)
+}
+
+// renderTIFF writes every page of doc into a single multi-page TIFF.
+func renderTIFF(doc *pdf.Document, dpi float64, out string) {
+	f, err := os.Create(out)
+	if err != nil {
+		log.Printf("tiff: %v", err)
+		return
+	}
+	defer f.Close()
+	if err := doc.RenderTIFF(f, pdf.RenderOptions{DPI: dpi}); err != nil {
+		log.Printf("tiff: render: %v", err)
+		return
+	}
+	fmt.Printf("wrote %d-page TIFF → %s\n", doc.PageCount(), out)
 }
 
 // renderOne renders a single page, recovering from any panic so one bad page
