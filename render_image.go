@@ -145,6 +145,7 @@ func (rd *renderer) blitImage(m image.Image) {
 	}
 	x0, y0 := clampInt(int(math.Floor(minx)), 0, rd.w), clampInt(int(math.Floor(miny)), 0, rd.h)
 	x1, y1 := clampInt(int(math.Ceil(maxx)), 0, rd.w), clampInt(int(math.Ceil(maxy)), 0, rd.h)
+	clip := rd.effectiveClip()
 
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
@@ -156,8 +157,8 @@ func (rd *renderer) blitImage(m image.Image) {
 			row := clampInt(int((1-v)*float64(ih)), 0, ih-1)
 			off := src.PixOffset(b.Min.X+col, b.Min.Y+row)
 			a := float64(src.Pix[off+3]) / 255
-			if rd.gs.clip != nil {
-				a *= float64(rd.gs.clip[py*rd.w+px])
+			if clip != nil {
+				a *= float64(clip[py*rd.w+px])
 			}
 			compositePixel(rd.img, (py*rd.w+px)*4, src.Pix[off], src.Pix[off+1], src.Pix[off+2], a, rd.gs.blend)
 		}

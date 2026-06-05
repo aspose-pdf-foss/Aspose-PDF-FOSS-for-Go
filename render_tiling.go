@@ -89,7 +89,7 @@ func (rd *renderer) fillTilingPattern(tp *tilingPattern, rule fillRule) {
 		return
 	}
 	// Clip every tile to the fill region (path ∩ existing clip).
-	clip := intersectClip(rd.gs.clip, rd.ras.coverage(dp, rule))
+	clip := intersectClip(rd.effectiveClip(), rd.ras.coverage(dp, rule))
 
 	// pattern space → device, and its inverse to find which tiles are visible.
 	m := matMul(tp.matrix, rd.base)

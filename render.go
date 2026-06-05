@@ -32,7 +32,21 @@ type gstate struct {
 	dash       []float64  // empty = solid
 	dashPhase  float64
 	blend      blendMode // zero value = Normal (src-over); set by gs /BM
-	clip       []float32 // nil = unclipped
+	clip       []float32 // nil = unclipped (geometric W/W* clip)
+	softMask   []float32 // nil = none; per-pixel alpha from a gs /SMask group
+}
+
+// effectiveClip combines the geometric clip with the soft mask (both per-pixel
+// alpha multipliers) for painting. The common case (no soft mask) returns the
+// clip unchanged; only a live soft mask pays for an intersection.
+func (rd *renderer) effectiveClip() []float32 {
+	if rd.gs.softMask == nil {
+		return rd.gs.clip
+	}
+	if rd.gs.clip == nil {
+		return rd.gs.softMask
+	}
+	return intersectClip(rd.gs.clip, rd.gs.softMask)
 }
 
 // renderer interprets a page's content stream and paints onto img.
@@ -426,7 +440,7 @@ func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, 
 	if cov == nil {
 		return
 	}
-	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.gs.clip, rd.gs.blend)
+	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.effectiveClip(), rd.gs.blend)
 }
 
 func (rd *renderer) fill(rule fillRule) {
@@ -441,7 +455,7 @@ func (rd *renderer) fillKeep(rule fillRule) {
 		switch {
 		case rd.gs.fillShading != nil:
 			cov := rd.ras.coverage(rd.fl.path(), rule)
-			rd.paintShading(rd.gs.fillShading, rd.gs.fillShadingM, intersectClip(rd.gs.clip, cov))
+			rd.paintShading(rd.gs.fillShading, rd.gs.fillShadingM, intersectClip(rd.effectiveClip(), cov))
 		case rd.gs.fillTiling != nil:
 			rd.fillTilingPattern(rd.gs.fillTiling, rule)
 		}

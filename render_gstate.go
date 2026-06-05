@@ -28,6 +28,9 @@ func (rd *renderer) applyExtGState(name string) {
 			rd.gs.lineWidth = lw
 		}
 	}
+	if raw, present := gd["/SMask"]; present {
+		rd.applySoftMask(resolveRef(objects, raw))
+	}
 	if raw, present := gd["/LC"]; present {
 		rd.gs.lineCap = LineCap(int(operandFloat(resolveRef(objects, raw))))
 	}

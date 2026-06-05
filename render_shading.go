@@ -386,7 +386,7 @@ func (rd *renderer) paintShOperator(name string) {
 	if s == nil {
 		return
 	}
-	rd.paintShading(s, rd.dmat(), rd.gs.clip)
+	rd.paintShading(s, rd.dmat(), rd.effectiveClip())
 }
 
 // --- helpers --------------------------------------------------------------
