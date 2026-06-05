@@ -33,6 +33,21 @@ type cffFont struct {
 	numGlyphs  int
 }
 
+// parseCFFProgram parses /FontFile3 (or .otf) bytes: a bare CFF table, or an
+// sfnt/OpenType wrapper ('OTTO') from which the 'CFF ' table is extracted.
+func parseCFFProgram(data []byte) (*cffFont, error) {
+	if len(data) >= 4 {
+		switch binary.BigEndian.Uint32(data[0:4]) {
+		case 0x4F54544F, 0x00010000, 0x74727565: // 'OTTO' / sfnt / 'true'
+			if cff := tableSlice(data, tableDir(data), "CFF "); cff != nil {
+				return parseCFF(cff)
+			}
+			return nil, fmt.Errorf("parse cff: sfnt wrapper has no 'CFF ' table")
+		}
+	}
+	return parseCFF(data)
+}
+
 func parseCFF(data []byte) (*cffFont, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("parse cff: too small")

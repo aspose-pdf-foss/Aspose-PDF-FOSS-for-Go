@@ -22,12 +22,28 @@ type textState struct {
 // Only embedded TrueType (Type0/CIDFontType2 with /FontFile2, and simple
 // /TrueType) fonts are renderable here; Standard-14 outlines arrive in P4.
 type renderFont struct {
-	prog     *ttfFont
+	prog     *ttfFont // embedded/substitute TrueType (glyf) program
+	cff      *cffFont // embedded CFF program (/FontFile3); mutually exclusive with prog
 	em       float64
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
 	fallback bool     // prog is the bundled substitute (non-embedded font)
 	fi       fontInfo
+}
+
+// hasOutlines reports whether this font can draw glyph outlines.
+func (f *renderFont) hasOutlines() bool { return f != nil && (f.prog != nil || f.cff != nil) }
+
+// glyphOutline returns the glyph's flattened contours from whichever program
+// backs this font.
+func (f *renderFont) glyphOutline(gid uint16) []glyphContour {
+	if f.cff != nil {
+		return f.cff.glyphContours(gid)
+	}
+	if f.prog != nil {
+		return f.prog.glyphContours(gid)
+	}
+	return nil
 }
 
 // beginText / text operators -------------------------------------------------
@@ -140,8 +156,19 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			return rf
 		}
 	}
+	// Embedded CFF outlines (/FontFile3: Type1C, CIDFontType0C, or an OpenType
+	// wrapper). The bytes may be a bare CFF or an sfnt with a 'CFF ' table.
+	if stream, ok := resolveRef(objects, descriptor["/FontFile3"]).(*pdfStream); ok {
+		if cff, err := parseCFFProgram(decodedStreamData(stream)); err == nil {
+			rf.cff = cff
+			if cff.unitsPerEm != 0 {
+				rf.em = cff.unitsPerEm
+			}
+			return rf
+		}
+	}
 
-	// No embedded TrueType program. For a simple (non-Type0) font — chiefly
+	// No embedded program. For a simple (non-Type0) font — chiefly
 	// the Standard 14 — substitute the bundled fallback font's glyph shapes,
 	// keeping the resolved AFM metrics for positioning. Type0 fonts map codes
 	// to GIDs that only match their own program, so they are left unrendered.
@@ -194,7 +221,7 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
-	if f != nil && f.prog != nil && textHasPaint(rd.ts.renderMode) {
+	if f.hasOutlines() && textHasPaint(rd.ts.renderMode) {
 		rd.paintGlyph(f, f.gid(code))
 	}
 
@@ -246,7 +273,7 @@ func textHasPaint(m int) bool { return textFills(m) || textStrokes(m) }
 // current text rendering mode (Tr). Text clipping (modes 4-7) is not yet
 // accumulated; those modes still paint their fill/stroke component.
 func (rd *renderer) paintGlyph(f *renderFont, gid uint16) {
-	contours := f.prog.glyphContours(gid)
+	contours := f.glyphOutline(gid)
 	if len(contours) == 0 {
 		return
 	}
@@ -345,16 +372,19 @@ func renderGlyphContour(fl *flattener, c glyphContour, m [6]float64, em float64)
 func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
 		cid := uint16(code) // Identity-H: code == CID
-		if f.cidToGID == nil {
-			return cid
+		if f.cidToGID != nil { // CIDFontType2 explicit map
+			if int(cid) < len(f.cidToGID) {
+				return f.cidToGID[cid]
+			}
+			return 0
 		}
-		if int(cid) < len(f.cidToGID) {
-			return f.cidToGID[cid]
+		if f.cff != nil && f.cff.isCID { // CIDFontType0C: charset maps CID→GID
+			return f.cff.gidForCID(cid)
 		}
-		return 0
+		return cid // Identity
 	}
 	// Simple TrueType: map code → rune (encoding) → GID via the font cmap.
-	if code < 256 {
+	if code < 256 && f.prog != nil {
 		if r := f.fi.encoding[code]; r != 0 {
 			return f.prog.glyphID(r)
 		}
