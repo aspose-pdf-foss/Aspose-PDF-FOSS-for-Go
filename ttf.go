@@ -48,6 +48,10 @@ type ttfFont struct {
 	postScriptName string
 	family         string // name ID 1 (font family), e.g. "Arial"
 	subfamily      string // name ID 2 (subfamily/style), e.g. "Bold Italic"
+
+	// Set for OpenType-CFF fonts (an sfnt with a 'CFF ' table instead of glyf):
+	// glyph outlines come from this CFF program. See glyphContours.
+	cff *cffFont
 }
 
 // tableRecord is an entry in the TTF table directory.
@@ -107,7 +111,7 @@ func parseSFNTAt(data []byte, off uint32) (*ttfFont, error) {
 		return nil, fmt.Errorf("parse ttf: sfnt offset %d out of range", off)
 	}
 	scaler := binary.BigEndian.Uint32(data[off : off+4])
-	if scaler != 0x00010000 && scaler != 0x74727565 { // 'true'
+	if scaler != 0x00010000 && scaler != 0x74727565 && scaler != 0x4F54544F { // 'true' / 'OTTO'
 		return nil, fmt.Errorf("parse ttf: not a TrueType file (scaler 0x%08X)", scaler)
 	}
 
@@ -170,6 +174,13 @@ func parseSFNTAt(data []byte, off uint32) (*ttfFont, error) {
 	if _, ok := tables["name"]; ok {
 		if err := parseName(f, tables); err != nil {
 			return nil, err
+		}
+	}
+	// OpenType-CFF: outlines live in a 'CFF ' table, not glyf. Attach the parsed
+	// CFF so glyphContours can draw from it.
+	if _, ok := tables["CFF "]; ok {
+		if cff, err := parseCFF(tableSlice(data, tables, "CFF ")); err == nil {
+			f.cff = cff
 		}
 	}
 

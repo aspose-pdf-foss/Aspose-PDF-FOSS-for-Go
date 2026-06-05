@@ -119,6 +119,12 @@ func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load font: %w", err)
 	}
+	if ttf.cff != nil {
+		// OpenType-CFF has no glyf table; it can't be embedded as /FontFile2.
+		// (The renderer can still draw such fonts via /FontFile3 or the
+		// FontRepository, but writing them is not supported.)
+		return nil, fmt.Errorf("load font: OpenType-CFF (.otf) embedding is not supported; use a TrueType (.ttf) font")
+	}
 	fontID := embedFont(d, ttf)
 	ef := &embeddedFont{
 		doc:          d,

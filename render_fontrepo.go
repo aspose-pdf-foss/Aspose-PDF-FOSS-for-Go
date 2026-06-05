@@ -156,7 +156,7 @@ func (r *fontRepository) ensureIndexed() {
 // isFontFile reports whether path has a font extension the renderer can use.
 func isFontFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".ttf", ".ttc":
+	case ".ttf", ".ttc", ".otf":
 		return true
 	}
 	return false
