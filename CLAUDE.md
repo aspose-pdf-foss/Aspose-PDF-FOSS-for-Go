@@ -334,7 +334,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 1. **`io.go`** — file I/O (`readFile`, `writeFile`)
 2. **`xref.go`** — locates and parses the cross-reference table or stream; handles both traditional xref tables (PDF ≤1.4) and cross-reference streams (PDF 1.5+)
 3. **`lexer.go`** — byte-level tokenizer; produces tokens (int, float, name, string, keyword, etc.)
-4. **`parser.go`** — builds `pdfValue` objects from tokens; handles dicts, arrays, streams with FlateDecode/ASCIIHex/ASCII85 filters and PNG predictor (Predictor 12)
+4. **`parser.go`** — builds `pdfValue` objects from tokens; handles dicts, arrays, streams with FlateDecode/ASCIIHex/ASCII85 filters and PNG predictor (Predictor 12). CCITTFaxDecode (`ccitt.go` / `ccitt_tables.go`) decodes Group 4 (`/K<0`) and Group 3 1-D (`/K=0`) fax data into packed 1-bpp rows (used by 1-bit scanned images and image masks); reads `/Columns`/`/Rows`/`/BlackIs1`/`/EncodedByteAlign` from `/DecodeParms` (mixed Group 3 2-D, `/K>0`, is not yet supported)
 5. **`doc.go`** — document-level logic: object lookup with caching, object streams (ObjStm), page tree traversal, dependency collection
 6. **`types.go`** — type definitions: `pdfValue`, `pdfDict`, `pdfArray`, `pdfStream`, `pdfRef`, `pdfObject`, `xrefEntry`
 
