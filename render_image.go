@@ -23,6 +23,9 @@ func (rd *renderer) doXObject(name string) {
 	if !ok {
 		return
 	}
+	if oc, ok := stream.Dict["/OC"]; ok && !rd.ocVisible(oc) {
+		return // XObject hidden by Optional Content
+	}
 	switch dictGetName(stream.Dict, "/Subtype") {
 	case "/Image":
 		rd.drawImageXObject(name, stream)
@@ -93,6 +96,7 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	savedGS := rd.gs
 	savedRes := rd.res
 	savedStack := len(rd.stack)
+	savedMC, savedHidden := len(rd.mcStack), rd.ocHidden
 
 	if matVal, ok := stream.Dict["/Matrix"].(pdfArray); ok && len(matVal) == 6 {
 		var fm [6]float64
@@ -109,12 +113,14 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	rd.exec(ops)
 	rd.depth--
 
-	// Restore (and drop any q's the form left unbalanced).
+	// Restore (and drop any q's / unbalanced marked content the form left).
 	rd.gs = savedGS
 	rd.res = savedRes
 	if len(rd.stack) > savedStack {
 		rd.stack = rd.stack[:savedStack]
 	}
+	rd.mcStack = rd.mcStack[:savedMC]
+	rd.ocHidden = savedHidden
 	rd.resetPath()
 }
 
@@ -122,6 +128,9 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 // current matrix, inverse-mapping each device pixel to a source sample
 // (nearest neighbour) and compositing with the source alpha.
 func (rd *renderer) blitImage(m image.Image) {
+	if rd.ocHidden > 0 {
+		return
+	}
 	src := toNRGBA(m)
 	b := src.Bounds()
 	iw, ih := b.Dx(), b.Dy()

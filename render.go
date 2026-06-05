@@ -70,6 +70,13 @@ type renderer struct {
 	// 2 even-odd. The clip takes effect after the next painting operator (ISO
 	// 32000-1 §8.5.4), so it is applied there against the path still in flight.
 	pendingClip int
+
+	// Optional Content: ocOff is the set of OCG object numbers hidden by the
+	// default config; ocHidden counts nested marked-content sections currently
+	// hidden by OC; mcStack records, per BDC/BMC level, whether it hid content.
+	ocOff    map[int]bool
+	ocHidden int
+	mcStack  []bool
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -91,6 +98,7 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 		res:       p.pageResources(),
 		ts:        textState{hScale: 1},
 		fontCache: map[string]*renderFont{},
+		ocOff:     ocOffSet(p.doc.objects, p.doc.catalog),
 	}
 }
 
@@ -286,6 +294,23 @@ func (rd *renderer) exec(ops []contentOp) {
 		case "BI":
 			rd.drawInlineImage(o)
 
+		// --- marked content (Optional Content visibility) ---
+		case "BMC":
+			rd.mcStack = append(rd.mcStack, false)
+		case "BDC":
+			hidden := len(o) >= 2 && operandName(o[0]) == "/OC" && !rd.ocVisible(rd.ocProperty(o[1]))
+			rd.mcStack = append(rd.mcStack, hidden)
+			if hidden {
+				rd.ocHidden++
+			}
+		case "EMC":
+			if n := len(rd.mcStack); n > 0 {
+				if rd.mcStack[n-1] {
+					rd.ocHidden--
+				}
+				rd.mcStack = rd.mcStack[:n-1]
+			}
+
 		// --- text ---
 		case "BT":
 			rd.textBegin()
@@ -436,6 +461,9 @@ func (rd *renderer) resolveShadingPattern(name string) (*shading, [6]float64) {
 // it with the given colour and alpha (honouring the clip). This is the hot path
 // for fills, strokes and glyphs — bbox-scoped work instead of whole-frame.
 func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, alpha float64) {
+	if rd.ocHidden > 0 {
+		return
+	}
 	cov, x0, y0, x1, y1 := rd.ras.coverageBBox(dp, rule)
 	if cov == nil {
 		return

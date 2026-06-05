@@ -347,6 +347,9 @@ func (s *shading) colorAt(t float64) (uint8, uint8, uint8) {
 // device pixels; mask (nil = whole page) limits painting to a coverage region
 // (a clip and/or a fill path). Painting uses the current fill alpha.
 func (rd *renderer) paintShading(s *shading, m [6]float64, mask []float32) {
+	if rd.ocHidden > 0 {
+		return
+	}
 	inv, ok := invertMatrix(m)
 	if !ok {
 		return
