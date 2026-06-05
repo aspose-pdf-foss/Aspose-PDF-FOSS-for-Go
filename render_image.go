@@ -38,7 +38,11 @@ func (rd *renderer) doXObject(name string) {
 // transformed by the current matrix. Stencil image masks are skipped for now.
 func (rd *renderer) drawImageXObject(name string, stream *pdfStream) {
 	if b, _ := stream.Dict["/ImageMask"].(bool); b {
-		return // stencil masks (painted with fill colour) — later phase
+		objects := rd.page.doc.objects
+		w := int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
+		h := int(operandFloat(resolveRef(objects, stream.Dict["/Height"])))
+		rd.drawImageMask(decodedStreamData(stream), w, h, maskPaintWhenOne(objects, stream.Dict))
+		return
 	}
 	info, ok := xobjectImageInfo(rd.page.doc.objects, rd.res, name, identityMatrix())
 	if !ok {
@@ -65,6 +69,7 @@ func (rd *renderer) drawInlineImage(operands []pdfValue) {
 	}
 	if dict, ok := operands[0].(pdfDict); ok {
 		if b, _ := dict["/ImageMask"].(bool); b {
+			rd.drawInlineMask(dict, operands[1])
 			return
 		}
 	}
