@@ -22,8 +22,9 @@ type textState struct {
 // Only embedded TrueType (Type0/CIDFontType2 with /FontFile2, and simple
 // /TrueType) fonts are renderable here; Standard-14 outlines arrive in P4.
 type renderFont struct {
-	prog     *ttfFont // embedded/substitute TrueType (glyf) program
-	cff      *cffFont // embedded CFF program (/FontFile3); mutually exclusive with prog
+	prog     *ttfFont   // embedded/substitute TrueType (glyf) program
+	cff      *cffFont   // embedded CFF program (/FontFile3); mutually exclusive with prog
+	type3    *type3Font // Type3 font: glyphs are content streams, not outlines
 	em       float64
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
@@ -136,6 +137,12 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 	fi := resolveFont(objects, fontDict)
 	rf := &renderFont{fi: fi, isType0: fi.isType0, em: 1000}
 
+	// Type3 fonts define each glyph as a content stream, not an outline.
+	if dictGetName(fontDict, "/Subtype") == "/Type3" {
+		rf.type3 = rd.buildType3Font(objects, fontDict)
+		return rf
+	}
+
 	var descriptor pdfDict
 	if fi.isType0 {
 		if descArr, ok := resolveRefToArray(objects, fontDict["/DescendantFonts"]); ok && len(descArr) > 0 {
@@ -221,8 +228,13 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
-	if f.hasOutlines() && textHasPaint(rd.ts.renderMode) {
-		rd.paintGlyph(f, f.gid(code))
+	if f != nil && textHasPaint(rd.ts.renderMode) {
+		switch {
+		case f.hasOutlines():
+			rd.paintGlyph(f, f.gid(code))
+		case f.type3 != nil:
+			rd.drawType3Glyph(f, code)
+		}
 	}
 
 	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
