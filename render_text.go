@@ -282,11 +282,15 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 		return 0
 	}
 	if f.fallback && f.prog != nil && !f.isType0 {
-		// Substitute font: advance by its own natural glyph width so letterforms
-		// and spacing stay self-consistent. The document's Standard-14 metrics do
-		// not match these (DejaVu) shapes — matching them instead distorts narrow
-		// glyphs (i, l) and their side bearings. Exact metrics await a
-		// metric-compatible bundled family (backlog).
+		// Substitute font: advance by the document's declared /Widths (or the
+		// Standard-14 AFM width) so layout matches the producer's, even when the
+		// substitute's own metrics differ — otherwise e.g. a Garamond mapped to a
+		// wider sans overflows into the next field. Only when the document gives
+		// no width for this code do we fall back to the substitute's natural
+		// advance.
+		if code < 256 && f.fi.widths[code] != 0 {
+			return f.fi.widths[code]
+		}
 		gid := f.gid(code)
 		if int(gid) < len(f.prog.glyphWidths) {
 			return float64(f.prog.glyphWidths[gid]) / f.em * 1000

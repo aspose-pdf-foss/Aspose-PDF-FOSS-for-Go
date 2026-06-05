@@ -16,6 +16,7 @@ type fontInfo struct {
 	known     bool               // false if encoding could not be determined
 	bold      bool
 	italic    bool
+	serif     bool    // /FontDescriptor /Flags Serif bit (used to pick a substitute)
 	ascent    float64 // from /FontDescriptor /Ascent (in 1/1000 text space)
 	descent   float64 // from /FontDescriptor /Descent (negative, in 1/1000 text space)
 }
@@ -287,8 +288,13 @@ func resolveFontDescriptor(objects map[int]*pdfObject, fontDict pdfDict, baseFon
 		return
 	}
 
+	// /Flags bits per ISO 32000-1 Table 121 (1-based bit numbers): bit 2 Serif,
+	// bit 7 Italic, bit 19 ForceBold.
 	flags := dictGetInt(fdDict, "/Flags")
-	if flags&(1<<2) != 0 {
+	if flags&(1<<1) != 0 {
+		fi.serif = true
+	}
+	if flags&(1<<6) != 0 {
 		fi.italic = true
 	}
 	if flags&(1<<18) != 0 {

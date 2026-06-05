@@ -66,10 +66,15 @@ func fallbackFontFor(fi fontInfo) *ttfFont {
 
 	family := "Arimo" // Helvetica / Arial / sans / default
 	switch {
-	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
-		family = "Tinos"
 	case strings.Contains(name, "courier") || strings.Contains(name, "mono") || strings.Contains(name, "consol"):
 		family = "Cousine"
+	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
+		family = "Tinos"
+	case fi.serif:
+		// The /FontDescriptor marks this a serif face (e.g. Garamond, Minion)
+		// with no Times/serif keyword in the name — use the serif substitute so
+		// its proportions and look match better than the sans default.
+		family = "Tinos"
 	}
 
 	bold := fi.bold || strings.Contains(name, "bold")
