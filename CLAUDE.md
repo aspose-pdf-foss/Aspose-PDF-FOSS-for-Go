@@ -340,6 +340,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 **Malformed-input tolerance** (`openStreamCore` → `buildFromXRef`, with fallbacks):
 - Stream `/Length` may be an indirect reference (`/Length N 0 R`, ISO 32000-1 §7.3.8.2), missing, or wrong — `readStreamData` (`parser.go`) takes a usable direct integer verbatim, otherwise scans for the `endstream` keyword.
+- `skipToStreamData` (`lexer.go`) skips spaces/tabs before the CR/LF after the `stream` keyword (non-conformant `stream \r\n`), so the filter sees a correctly aligned data start instead of mis-decoding (which previously caused a multi-GB allocation when the resulting garbage parsed as content ops).
+- `flateDecode` (`parser.go`) keeps the inflated bytes when a valid-header zlib stream ends in a bad trailing Adler-32 checksum or is truncated by a wrong `/Length` (common in the wild — otherwise the whole page blanks). A bad zlib *header* is still rejected, so an undecrypted/random stream is not inflated into garbage.
 - xref entry rows are read up to any line terminator (LF, CR, or CRLF), so classic-Mac CR-only xref tables parse.
 - `xref_reconstruct.go` — when the xref is missing/corrupt or the catalog/page tree won't resolve (e.g. an off-by-one subsection start), `reconstructXRef` rebuilds the table by scanning the file for `N G obj` headers (latest revision wins) and recovers the trailer from the last `trailer` dict or the first `/Type /Catalog` object, then `openStreamCore` retries. Limitation: objects only inside compressed object streams (ObjStm) aren't recovered by the scan.
 

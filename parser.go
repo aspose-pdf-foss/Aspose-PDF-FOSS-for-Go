@@ -379,7 +379,16 @@ func flateDecode(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer r.Close()
-	return io.ReadAll(r)
+	out, rerr := io.ReadAll(r)
+	if rerr != nil && len(out) > 0 {
+		// Tolerate a truncated stream or a bad trailing Adler-32 checksum (common
+		// in real-world PDFs with a wrong /Length): keep the bytes we inflated.
+		// Throwing them away would blank the whole page. The zlib header was
+		// valid, so this is genuine DEFLATE output — unlike a header failure,
+		// which we still reject (e.g. an undecrypted/random stream).
+		return out, nil
+	}
+	return out, rerr
 }
 
 func asciiHexDecode(data []byte) ([]byte, error) {
