@@ -19,9 +19,11 @@ type gstate struct {
 
 	// fillShading is set when the fill pattern is a shading pattern (PatternType
 	// 2): fills then paint the shading clipped to the path. m maps shading space
-	// to device pixels. nil → not a shading pattern (tiling patterns are skipped).
-	fillShading   *shading
-	fillShadingM  [6]float64
+	// to device pixels. fillTiling is set for a PatternType 1 (tiling) fill.
+	// Both nil → solid colour or an unsupported pattern.
+	fillShading  *shading
+	fillShadingM [6]float64
+	fillTiling   *tilingPattern
 
 	lineWidth  float64
 	lineCap    LineCap
@@ -224,14 +226,14 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- colour ---
 		case "g":
 			rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = gray8(f(o0(o)))
-			rd.gs.fillPattern, rd.gs.fillShading = false, nil
+			rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
 		case "G":
 			rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = gray8(f(o0(o)))
 			rd.gs.strokePattern = false
 		case "rg":
 			if len(o) >= 3 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-				rd.gs.fillPattern, rd.gs.fillShading = false, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
 			}
 		case "RG":
 			if len(o) >= 3 {
@@ -241,7 +243,7 @@ func (rd *renderer) exec(ops []contentOp) {
 		case "k":
 			if len(o) >= 4 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-				rd.gs.fillPattern, rd.gs.fillShading = false, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
 			}
 		case "K":
 			if len(o) >= 4 {
@@ -363,7 +365,12 @@ func (rd *renderer) setColor(o []pdfValue, stroke bool) {
 				rd.gs.strokePattern = true
 			} else {
 				rd.gs.fillPattern = true
-				rd.gs.fillShading, rd.gs.fillShadingM = rd.resolveShadingPattern(string(name))
+				// Leading numeric operands give an uncolored (PaintType 2)
+				// pattern its colour.
+				if lead := o[:len(o)-1]; len(lead) > 0 {
+					rd.setFillColor(lead)
+				}
+				rd.setFillPattern(string(name))
 			}
 			return
 		}
@@ -430,11 +437,14 @@ func (rd *renderer) fill(rule fillRule) {
 // then stroke the same path).
 func (rd *renderer) fillKeep(rule fillRule) {
 	if rd.gs.fillPattern {
-		if rd.gs.fillShading != nil {
+		switch {
+		case rd.gs.fillShading != nil:
 			cov := rd.ras.coverage(rd.fl.path(), rule)
 			rd.paintShading(rd.gs.fillShading, rd.gs.fillShadingM, intersectClip(rd.gs.clip, cov))
+		case rd.gs.fillTiling != nil:
+			rd.fillTilingPattern(rd.gs.fillTiling, rule)
 		}
-		return // tiling/unsupported patterns: skip
+		return // unsupported patterns: skip
 	}
 	rd.compositePath(rd.fl.path(), rule, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 }
