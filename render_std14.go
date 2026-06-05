@@ -18,8 +18,10 @@ import (
 // These (SIL OFL 1.1, see fonts/LICENSE.txt) have the same advance widths as
 // the fonts they replace, so word-wrapped layout is preserved and narrow
 // glyphs aren't distorted.
-// Symbol/ZapfDingbats have no metric-compatible free substitute and currently
-// fall back to Arimo (most symbols won't map).
+// Symbol/ZapfDingbats have no metric-compatible free substitute and are not
+// bundled: fallbackFontFor returns nil for them. ZapfDingbats instead gets
+// synthesized outlines for its common marks (see render_dingbats.go), chiefly
+// so checkbox/radio widget appearances render; Symbol still draws nothing.
 //
 //go:embed fonts/Arimo-Regular.ttf fonts/Arimo-Bold.ttf fonts/Arimo-Italic.ttf fonts/Arimo-BoldItalic.ttf
 //go:embed fonts/Tinos-Regular.ttf fonts/Tinos-Bold.ttf fonts/Tinos-Italic.ttf fonts/Tinos-BoldItalic.ttf
@@ -54,12 +56,25 @@ func loadStdFont(file string) *ttfFont {
 func fallbackFontFor(fi fontInfo) *ttfFont {
 	name := strings.ToLower(fi.name)
 
+	// Symbol / ZapfDingbats have no Latin metric-compatible substitute; their
+	// code→Unicode encoding is wired (see defaultEncodingForFont), so an embedded
+	// copy or a FontRepository-registered covering font renders, but the bundled
+	// Latin fonts would only draw .notdef boxes — render nothing instead.
+	if strings.Contains(name, "symbol") || strings.Contains(name, "dingbat") {
+		return nil
+	}
+
 	family := "Arimo" // Helvetica / Arial / sans / default
 	switch {
-	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
-		family = "Tinos"
 	case strings.Contains(name, "courier") || strings.Contains(name, "mono") || strings.Contains(name, "consol"):
 		family = "Cousine"
+	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
+		family = "Tinos"
+	case fi.serif:
+		// The /FontDescriptor marks this a serif face (e.g. Garamond, Minion)
+		// with no Times/serif keyword in the name — use the serif substitute so
+		// its proportions and look match better than the sans default.
+		family = "Tinos"
 	}
 
 	bold := fi.bold || strings.Contains(name, "bold")

@@ -243,6 +243,15 @@ func (l *lexer) skipToStreamData() {
 		return
 	}
 	l.pos += idx + len("stream")
+	// Per ISO 32000-1 §7.3.8.1 "stream" is followed by CRLF or a single LF.
+	// Tolerate non-conformant producers that insert spaces/tabs before that EOL
+	// (seen in the wild as "stream \r\n"): skipping them keeps the data start
+	// aligned so the filter (e.g. FlateDecode) sees a valid header. This only
+	// fires when whitespace precedes the EOL, so conformant streams whose data
+	// happens to begin with a space (after the real CRLF) are unaffected.
+	for l.pos < len(l.data) && (l.data[l.pos] == ' ' || l.data[l.pos] == '\t') {
+		l.pos++
+	}
 	if l.pos < len(l.data) && l.data[l.pos] == '\r' {
 		l.pos++
 	}

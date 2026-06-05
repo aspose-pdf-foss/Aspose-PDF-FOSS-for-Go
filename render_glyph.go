@@ -38,6 +38,9 @@ func tableDir(data []byte) map[string]tableRecord {
 // units. Returns nil for an empty glyph (e.g. space), a font without glyf/loca,
 // or on any malformed data (recovered).
 func (f *ttfFont) glyphContours(gid uint16) (contours []glyphContour) {
+	if f.cff != nil { // OpenType-CFF: outlines come from the CFF program
+		return f.cff.glyphContours(gid)
+	}
 	defer func() {
 		if recover() != nil {
 			contours = nil

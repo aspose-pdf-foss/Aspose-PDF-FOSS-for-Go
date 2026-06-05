@@ -163,13 +163,13 @@ func (p *Page) contentStreams() ([]byte, error) {
 
 	switch cv := contentsVal.(type) {
 	case *pdfStream:
-		return cv.Data, nil
+		return decodedStreamData(cv), nil
 	case pdfArray:
 		var buf []byte
 		for _, item := range cv {
 			resolved := resolveRef(objects, item)
 			if s, ok := resolved.(*pdfStream); ok {
-				buf = append(buf, s.Data...)
+				buf = append(buf, decodedStreamData(s)...)
 				buf = append(buf, '\n')
 			}
 		}

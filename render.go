@@ -19,17 +19,39 @@ type gstate struct {
 
 	// fillShading is set when the fill pattern is a shading pattern (PatternType
 	// 2): fills then paint the shading clipped to the path. m maps shading space
-	// to device pixels. nil → not a shading pattern (tiling patterns are skipped).
-	fillShading   *shading
-	fillShadingM  [6]float64
+	// to device pixels. fillTiling is set for a PatternType 1 (tiling) fill.
+	// Both nil → solid colour or an unsupported pattern.
+	fillShading  *shading
+	fillShadingM [6]float64
+	fillTiling   *tilingPattern
 
 	lineWidth  float64
 	lineCap    LineCap
 	lineJoin   LineJoin
 	miterLimit float64
-	dash       []float64 // empty = solid
+	dash       []float64  // empty = solid
 	dashPhase  float64
-	clip       []float32 // nil = unclipped
+	blend      blendMode // zero value = Normal (src-over); set by gs /BM
+	clip       []float32 // nil = unclipped (geometric W/W* clip)
+	softMask   []float32 // nil = none; per-pixel alpha from a gs /SMask group
+
+	// Separation/DeviceN tint transform for the current fill/stroke colour
+	// space (set by cs/CS); nil → device colour by operand count.
+	fillTint   tintFunc
+	strokeTint tintFunc
+}
+
+// effectiveClip combines the geometric clip with the soft mask (both per-pixel
+// alpha multipliers) for painting. The common case (no soft mask) returns the
+// clip unchanged; only a live soft mask pays for an intersection.
+func (rd *renderer) effectiveClip() []float32 {
+	if rd.gs.softMask == nil {
+		return rd.gs.clip
+	}
+	if rd.gs.clip == nil {
+		return rd.gs.softMask
+	}
+	return intersectClip(rd.gs.clip, rd.gs.softMask)
 }
 
 // renderer interprets a page's content stream and paints onto img.
@@ -47,12 +69,20 @@ type renderer struct {
 	depth int        // form XObject recursion depth
 
 	ts        textState              // current text-object state
+	tsStack   []textState            // text state saved by q (parallels stack)
 	fontCache map[string]*renderFont // resolved fonts by resource name
 
 	// pendingClip records a W / W* seen since the last paint: 0 none, 1 nonzero,
 	// 2 even-odd. The clip takes effect after the next painting operator (ISO
 	// 32000-1 §8.5.4), so it is applied there against the path still in flight.
 	pendingClip int
+
+	// Optional Content: ocOff is the set of OCG object numbers hidden by the
+	// default config; ocHidden counts nested marked-content sections currently
+	// hidden by OC; mcStack records, per BDC/BMC level, whether it hid content.
+	ocOff    map[int]bool
+	ocHidden int
+	mcStack  []bool
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -74,6 +104,7 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 		res:       p.pageResources(),
 		ts:        textState{hScale: 1},
 		fontCache: map[string]*renderFont{},
+		ocOff:     ocOffSet(p.doc.objects, p.doc.catalog),
 	}
 }
 
@@ -100,10 +131,22 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- graphics state ---
 		case "q":
 			rd.stack = append(rd.stack, rd.gs)
+			rd.tsStack = append(rd.tsStack, rd.ts)
 		case "Q":
 			if n := len(rd.stack); n > 0 {
 				rd.gs = rd.stack[n-1]
 				rd.stack = rd.stack[:n-1]
+			}
+			if n := len(rd.tsStack); n > 0 {
+				// The text-state parameters (Tf, Tc, Tw, Th, Tl, Tmode, Ts) are
+				// part of the graphics state and revert on Q (ISO 32000-1 Table
+				// 52). The text matrices Tm/Tlm are text-object state, not
+				// graphics state, so keep the current ones — q/Q may nest inside
+				// a BT/ET block.
+				saved := rd.tsStack[n-1]
+				rd.tsStack = rd.tsStack[:n-1]
+				saved.tm, saved.lm = rd.ts.tm, rd.ts.lm
+				rd.ts = saved
 			}
 		case "cm":
 			if len(o) >= 6 {
@@ -224,29 +267,37 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- colour ---
 		case "g":
 			rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = gray8(f(o0(o)))
-			rd.gs.fillPattern, rd.gs.fillShading = false, nil
+			rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 		case "G":
 			rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = gray8(f(o0(o)))
-			rd.gs.strokePattern = false
+			rd.gs.strokePattern, rd.gs.strokeTint = false, nil
 		case "rg":
 			if len(o) >= 3 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-				rd.gs.fillPattern, rd.gs.fillShading = false, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 			}
 		case "RG":
 			if len(o) >= 3 {
 				rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-				rd.gs.strokePattern = false
+				rd.gs.strokePattern, rd.gs.strokeTint = false, nil
 			}
 		case "k":
 			if len(o) >= 4 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-				rd.gs.fillPattern, rd.gs.fillShading = false, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 			}
 		case "K":
 			if len(o) >= 4 {
 				rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-				rd.gs.strokePattern = false
+				rd.gs.strokePattern, rd.gs.strokeTint = false, nil
+			}
+		case "cs":
+			if len(o) >= 1 {
+				rd.gs.fillTint = rd.tintConverter(rd.namedColorSpace(operandName(o[0])))
+			}
+		case "CS":
+			if len(o) >= 1 {
+				rd.gs.strokeTint = rd.tintConverter(rd.namedColorSpace(operandName(o[0])))
 			}
 		case "sc", "scn":
 			rd.setColor(o, false)
@@ -268,6 +319,23 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- inline image ---
 		case "BI":
 			rd.drawInlineImage(o)
+
+		// --- marked content (Optional Content visibility) ---
+		case "BMC":
+			rd.mcStack = append(rd.mcStack, false)
+		case "BDC":
+			hidden := len(o) >= 2 && operandName(o[0]) == "/OC" && !rd.ocVisible(rd.ocProperty(o[1]))
+			rd.mcStack = append(rd.mcStack, hidden)
+			if hidden {
+				rd.ocHidden++
+			}
+		case "EMC":
+			if n := len(rd.mcStack); n > 0 {
+				if rd.mcStack[n-1] {
+					rd.ocHidden--
+				}
+				rd.mcStack = rd.mcStack[:n-1]
+			}
 
 		// --- text ---
 		case "BT":
@@ -363,27 +431,51 @@ func (rd *renderer) setColor(o []pdfValue, stroke bool) {
 				rd.gs.strokePattern = true
 			} else {
 				rd.gs.fillPattern = true
-				rd.gs.fillShading, rd.gs.fillShadingM = rd.resolveShadingPattern(string(name))
+				// Leading numeric operands give an uncolored (PaintType 2)
+				// pattern its colour.
+				if lead := o[:len(o)-1]; len(lead) > 0 {
+					rd.setFillColor(lead)
+				}
+				rd.setFillPattern(string(name))
 			}
 			return
 		}
 	}
+	// Separation/DeviceN: run the tint operands through the colour space's
+	// transform regardless of operand count.
+	tint := rd.gs.fillTint
+	if stroke {
+		tint = rd.gs.strokeTint
+	}
 	var r, g, b uint8
-	switch len(o) {
-	case 1:
-		r, g, b = gray8(f(o[0]))
-	case 3:
-		r, g, b = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-	case 4:
-		r, g, b = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-	default:
-		return
+	if tint != nil && len(o) > 0 {
+		r, g, b = tint(operandFloats(o))
+	} else {
+		switch len(o) {
+		case 1:
+			r, g, b = gray8(f(o[0]))
+		case 3:
+			r, g, b = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
+		case 4:
+			r, g, b = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
+		default:
+			return
+		}
 	}
 	if stroke {
 		rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokePattern = r, g, b, false
 	} else {
-		rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillPattern, rd.gs.fillShading = r, g, b, false, nil
+		rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = r, g, b, false, nil, nil
 	}
+}
+
+// operandFloats converts numeric colour operands to a float slice.
+func operandFloats(o []pdfValue) []float64 {
+	out := make([]float64, len(o))
+	for i, v := range o {
+		out[i] = operandFloat(v)
+	}
+	return out
 }
 
 // resolveShadingPattern looks up a /Pattern resource; if it is a shading pattern
@@ -414,11 +506,14 @@ func (rd *renderer) resolveShadingPattern(name string) (*shading, [6]float64) {
 // it with the given colour and alpha (honouring the clip). This is the hot path
 // for fills, strokes and glyphs — bbox-scoped work instead of whole-frame.
 func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, alpha float64) {
+	if rd.ocHidden > 0 {
+		return
+	}
 	cov, x0, y0, x1, y1 := rd.ras.coverageBBox(dp, rule)
 	if cov == nil {
 		return
 	}
-	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.gs.clip)
+	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.effectiveClip(), rd.gs.blend)
 }
 
 func (rd *renderer) fill(rule fillRule) {
@@ -430,11 +525,14 @@ func (rd *renderer) fill(rule fillRule) {
 // then stroke the same path).
 func (rd *renderer) fillKeep(rule fillRule) {
 	if rd.gs.fillPattern {
-		if rd.gs.fillShading != nil {
+		switch {
+		case rd.gs.fillShading != nil:
 			cov := rd.ras.coverage(rd.fl.path(), rule)
-			rd.paintShading(rd.gs.fillShading, rd.gs.fillShadingM, intersectClip(rd.gs.clip, cov))
+			rd.paintShading(rd.gs.fillShading, rd.gs.fillShadingM, intersectClip(rd.effectiveClip(), cov))
+		case rd.gs.fillTiling != nil:
+			rd.fillTilingPattern(rd.gs.fillTiling, rule)
 		}
-		return // tiling/unsupported patterns: skip
+		return // unsupported patterns: skip
 	}
 	rd.compositePath(rd.fl.path(), rule, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 }

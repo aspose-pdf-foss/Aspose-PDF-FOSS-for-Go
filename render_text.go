@@ -22,12 +22,30 @@ type textState struct {
 // Only embedded TrueType (Type0/CIDFontType2 with /FontFile2, and simple
 // /TrueType) fonts are renderable here; Standard-14 outlines arrive in P4.
 type renderFont struct {
-	prog     *ttfFont
+	prog     *ttfFont   // embedded/substitute TrueType (glyf) program
+	cff      *cffFont   // embedded CFF program (/FontFile3); mutually exclusive with prog
+	type3    *type3Font // Type3 font: glyphs are content streams, not outlines
+	synth    func(uint32) []glyphContour // synthesized outlines by code (non-embedded ZapfDingbats)
 	em       float64
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
 	fallback bool     // prog is the bundled substitute (non-embedded font)
 	fi       fontInfo
+}
+
+// hasOutlines reports whether this font can draw glyph outlines.
+func (f *renderFont) hasOutlines() bool { return f != nil && (f.prog != nil || f.cff != nil) }
+
+// glyphOutline returns the glyph's flattened contours from whichever program
+// backs this font.
+func (f *renderFont) glyphOutline(gid uint16) []glyphContour {
+	if f.cff != nil {
+		return f.cff.glyphContours(gid)
+	}
+	if f.prog != nil {
+		return f.prog.glyphContours(gid)
+	}
+	return nil
 }
 
 // beginText / text operators -------------------------------------------------
@@ -120,6 +138,12 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 	fi := resolveFont(objects, fontDict)
 	rf := &renderFont{fi: fi, isType0: fi.isType0, em: 1000}
 
+	// Type3 fonts define each glyph as a content stream, not an outline.
+	if dictGetName(fontDict, "/Subtype") == "/Type3" {
+		rf.type3 = rd.buildType3Font(objects, fontDict)
+		return rf
+	}
+
 	var descriptor pdfDict
 	if fi.isType0 {
 		if descArr, ok := resolveRefToArray(objects, fontDict["/DescendantFonts"]); ok && len(descArr) > 0 {
@@ -140,14 +164,48 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			return rf
 		}
 	}
+	// Embedded CFF outlines (/FontFile3: Type1C, CIDFontType0C, or an OpenType
+	// wrapper). The bytes may be a bare CFF or an sfnt with a 'CFF ' table.
+	if stream, ok := resolveRef(objects, descriptor["/FontFile3"]).(*pdfStream); ok {
+		if cff, err := parseCFFProgram(decodedStreamData(stream)); err == nil {
+			rf.cff = cff
+			if cff.unitsPerEm != 0 {
+				rf.em = cff.unitsPerEm
+			}
+			return rf
+		}
+	}
 
-	// No embedded TrueType program. For a simple (non-Type0) font — chiefly
+	// No embedded program. For a simple (non-Type0) font — chiefly
 	// the Standard 14 — substitute the bundled fallback font's glyph shapes,
 	// keeping the resolved AFM metrics for positioning. Type0 fonts map codes
 	// to GIDs that only match their own program, so they are left unrendered.
 	if !fi.isType0 {
 		// Resolution order: a caller-registered or system font (exact), then
 		// the bundled metric-compatible substitute.
+		fb := fontRepo.find(fi)
+		if fb == nil {
+			fb = fallbackFontFor(fi)
+		}
+		if fb != nil {
+			rf.prog = fb
+			rf.fallback = true
+			if fb.unitsPerEm != 0 {
+				rf.em = float64(fb.unitsPerEm)
+			}
+		} else if isZapfDingbats(fi) {
+			// No bundled substitute for ZapfDingbats; synthesize the common marks
+			// (checkbox/radio appearances) as vector outlines in 1000-em space.
+			rf.synth = zapfDingbatsContours
+			rf.em = 1000
+		}
+	} else if rf.cidToGID == nil {
+		// Non-embedded Type0 CIDFontType2 with Identity CIDToGIDMap: producers
+		// commonly emit the original font's glyph IDs as CIDs (an anti-extraction
+		// pattern — no ToUnicode, GID-as-CID). Substitute a metric-compatible
+		// family whose Latin glyph order matches and use the CID as a GID
+		// directly (gid() returns the CID for Identity). Better an approximate
+		// render than blank text.
 		fb := fontRepo.find(fi)
 		if fb == nil {
 			fb = fallbackFontFor(fi)
@@ -194,8 +252,19 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
-	if f != nil && f.prog != nil && textHasPaint(rd.ts.renderMode) {
-		rd.paintGlyph(f, f.gid(code))
+	if f != nil && textHasPaint(rd.ts.renderMode) {
+		switch {
+		case f.hasOutlines():
+			// Skip glyph 0 (.notdef): an unmapped code renders nothing rather
+			// than the font's "missing glyph" box (tofu).
+			if g := f.gid(code); g != 0 {
+				rd.paintGlyph(f, g)
+			}
+		case f.synth != nil:
+			rd.paintContours(f, f.synth(code))
+		case f.type3 != nil:
+			rd.drawType3Glyph(f, code)
+		}
 	}
 
 	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
@@ -212,12 +281,16 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 	if f == nil {
 		return 0
 	}
-	if f.fallback && f.prog != nil {
-		// Substitute font: advance by its own natural glyph width so letterforms
-		// and spacing stay self-consistent. The document's Standard-14 metrics do
-		// not match these (DejaVu) shapes — matching them instead distorts narrow
-		// glyphs (i, l) and their side bearings. Exact metrics await a
-		// metric-compatible bundled family (backlog).
+	if f.fallback && f.prog != nil && !f.isType0 {
+		// Substitute font: advance by the document's declared /Widths (or the
+		// Standard-14 AFM width) so layout matches the producer's, even when the
+		// substitute's own metrics differ — otherwise e.g. a Garamond mapped to a
+		// wider sans overflows into the next field. Only when the document gives
+		// no width for this code do we fall back to the substitute's natural
+		// advance.
+		if code < 256 && f.fi.widths[code] != 0 {
+			return f.fi.widths[code]
+		}
 		gid := f.gid(code)
 		if int(gid) < len(f.prog.glyphWidths) {
 			return float64(f.prog.glyphWidths[gid]) / f.em * 1000
@@ -246,7 +319,13 @@ func textHasPaint(m int) bool { return textFills(m) || textStrokes(m) }
 // current text rendering mode (Tr). Text clipping (modes 4-7) is not yet
 // accumulated; those modes still paint their fill/stroke component.
 func (rd *renderer) paintGlyph(f *renderFont, gid uint16) {
-	contours := f.prog.glyphContours(gid)
+	rd.paintContours(f, f.glyphOutline(gid))
+}
+
+// paintContours rasterizes a set of glyph design-unit contours, filling and/or
+// stroking per the current text rendering mode (Tr). Shared by real glyph
+// outlines and synthesized ones (ZapfDingbats marks).
+func (rd *renderer) paintContours(f *renderFont, contours []glyphContour) {
 	if len(contours) == 0 {
 		return
 	}
@@ -345,18 +424,40 @@ func renderGlyphContour(fl *flattener, c glyphContour, m [6]float64, em float64)
 func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
 		cid := uint16(code) // Identity-H: code == CID
-		if f.cidToGID == nil {
-			return cid
+		if f.cidToGID != nil { // CIDFontType2 explicit map
+			if int(cid) < len(f.cidToGID) {
+				return f.cidToGID[cid]
+			}
+			return 0
 		}
-		if int(cid) < len(f.cidToGID) {
-			return f.cidToGID[cid]
+		if f.cff != nil && f.cff.isCID { // CIDFontType0C: charset maps CID→GID
+			return f.cff.gidForCID(cid)
 		}
-		return 0
+		return cid // Identity
 	}
-	// Simple TrueType: map code → rune (encoding) → GID via the font cmap.
-	if code < 256 {
-		if r := f.fi.encoding[code]; r != 0 {
-			return f.prog.glyphID(r)
+	// Simple CFF (Type1C) glyph selection: the CFF charset+encoding gives a
+	// direct code→GID map (ISO 32000-1 §9.6.6.2).
+	if code < 256 && f.cff != nil {
+		if g := f.cff.simpleGID[uint16(code)]; g != 0 {
+			return g
+		}
+	}
+	// Simple TrueType glyph selection (ISO 32000-1 §9.6.6.4). Embedded subset
+	// fonts often carry only a (1,0) Mac or (3,0) symbol cmap keyed by the raw
+	// byte code, so try that first; then the Unicode cmap via the PDF encoding;
+	// then the symbol 0xF000 range.
+	if code < 256 && f.prog != nil {
+		c := uint16(code)
+		if g := f.prog.codeToGlyph[c]; g != 0 {
+			return g
+		}
+		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+			if g := f.prog.glyphID(r); g != 0 {
+				return g
+			}
+		}
+		if g := f.prog.codeToGlyph[0xF000|c]; g != 0 {
+			return g
 		}
 	}
 	return 0

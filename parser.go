@@ -214,6 +214,13 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 	data := raw
 	for i, f := range filters {
 		var err error
+		if f == "/CCITTFaxDecode" || f == "/CCF" {
+			data, err = ccittFilter(data, params[i], d)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		data, err = applyFilter(f, data)
 		if err != nil {
 			return nil, err

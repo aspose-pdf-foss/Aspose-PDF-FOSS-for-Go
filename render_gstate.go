@@ -28,6 +28,9 @@ func (rd *renderer) applyExtGState(name string) {
 			rd.gs.lineWidth = lw
 		}
 	}
+	if raw, present := gd["/SMask"]; present {
+		rd.applySoftMask(resolveRef(objects, raw))
+	}
 	if raw, present := gd["/LC"]; present {
 		rd.gs.lineCap = LineCap(int(operandFloat(resolveRef(objects, raw))))
 	}
@@ -37,6 +40,23 @@ func (rd *renderer) applyExtGState(name string) {
 	if raw, present := gd["/ML"]; present {
 		if ml := operandFloat(resolveRef(objects, raw)); ml >= 1 {
 			rd.gs.miterLimit = ml
+		}
+	}
+	// /BM blend mode (a name, or an array of names — first supported wins).
+	if raw, present := gd["/BM"]; present {
+		rd.gs.blend = blendMode{}
+		switch v := resolveRef(objects, raw).(type) {
+		case pdfName:
+			rd.gs.blend = blendModeFor(string(v))
+		case pdfArray:
+			for _, e := range v {
+				if n, ok := resolveRef(objects, e).(pdfName); ok {
+					if m := blendModeFor(string(n)); m.sep != nil || m.ns != nil {
+						rd.gs.blend = m
+						break
+					}
+				}
+			}
 		}
 	}
 	// /D is [dashArray phase].

@@ -23,6 +23,9 @@ func (rd *renderer) doXObject(name string) {
 	if !ok {
 		return
 	}
+	if oc, ok := stream.Dict["/OC"]; ok && !rd.ocVisible(oc) {
+		return // XObject hidden by Optional Content
+	}
 	switch dictGetName(stream.Dict, "/Subtype") {
 	case "/Image":
 		rd.drawImageXObject(name, stream)
@@ -35,7 +38,11 @@ func (rd *renderer) doXObject(name string) {
 // transformed by the current matrix. Stencil image masks are skipped for now.
 func (rd *renderer) drawImageXObject(name string, stream *pdfStream) {
 	if b, _ := stream.Dict["/ImageMask"].(bool); b {
-		return // stencil masks (painted with fill colour) — later phase
+		objects := rd.page.doc.objects
+		w := int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
+		h := int(operandFloat(resolveRef(objects, stream.Dict["/Height"])))
+		rd.drawImageMask(decodedStreamData(stream), w, h, maskPaintWhenOne(objects, stream.Dict))
+		return
 	}
 	info, ok := xobjectImageInfo(rd.page.doc.objects, rd.res, name, identityMatrix())
 	if !ok {
@@ -62,6 +69,7 @@ func (rd *renderer) drawInlineImage(operands []pdfValue) {
 	}
 	if dict, ok := operands[0].(pdfDict); ok {
 		if b, _ := dict["/ImageMask"].(bool); b {
+			rd.drawInlineMask(dict, operands[1])
 			return
 		}
 	}
@@ -93,6 +101,8 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	savedGS := rd.gs
 	savedRes := rd.res
 	savedStack := len(rd.stack)
+	savedTS, savedTSStack := rd.ts, len(rd.tsStack)
+	savedMC, savedHidden := len(rd.mcStack), rd.ocHidden
 
 	if matVal, ok := stream.Dict["/Matrix"].(pdfArray); ok && len(matVal) == 6 {
 		var fm [6]float64
@@ -109,12 +119,18 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	rd.exec(ops)
 	rd.depth--
 
-	// Restore (and drop any q's the form left unbalanced).
+	// Restore (and drop any q's / unbalanced marked content the form left).
 	rd.gs = savedGS
 	rd.res = savedRes
+	rd.ts = savedTS
 	if len(rd.stack) > savedStack {
 		rd.stack = rd.stack[:savedStack]
 	}
+	if len(rd.tsStack) > savedTSStack {
+		rd.tsStack = rd.tsStack[:savedTSStack]
+	}
+	rd.mcStack = rd.mcStack[:savedMC]
+	rd.ocHidden = savedHidden
 	rd.resetPath()
 }
 
@@ -122,6 +138,9 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 // current matrix, inverse-mapping each device pixel to a source sample
 // (nearest neighbour) and compositing with the source alpha.
 func (rd *renderer) blitImage(m image.Image) {
+	if rd.ocHidden > 0 {
+		return
+	}
 	src := toNRGBA(m)
 	b := src.Bounds()
 	iw, ih := b.Dx(), b.Dy()
@@ -145,6 +164,7 @@ func (rd *renderer) blitImage(m image.Image) {
 	}
 	x0, y0 := clampInt(int(math.Floor(minx)), 0, rd.w), clampInt(int(math.Floor(miny)), 0, rd.h)
 	x1, y1 := clampInt(int(math.Ceil(maxx)), 0, rd.w), clampInt(int(math.Ceil(maxy)), 0, rd.h)
+	clip := rd.effectiveClip()
 
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
@@ -156,28 +176,25 @@ func (rd *renderer) blitImage(m image.Image) {
 			row := clampInt(int((1-v)*float64(ih)), 0, ih-1)
 			off := src.PixOffset(b.Min.X+col, b.Min.Y+row)
 			a := float64(src.Pix[off+3]) / 255
-			if rd.gs.clip != nil {
-				a *= float64(rd.gs.clip[py*rd.w+px])
+			if clip != nil {
+				a *= float64(clip[py*rd.w+px])
 			}
-			compositePixel(rd.img, (py*rd.w+px)*4, src.Pix[off], src.Pix[off+1], src.Pix[off+2], a)
+			compositePixel(rd.img, (py*rd.w+px)*4, src.Pix[off], src.Pix[off+1], src.Pix[off+2], a, rd.gs.blend)
 		}
 	}
 }
 
-// compositePixel does straight src-over of (sr,sg,sb) with alpha a at the given
-// premultiplied-RGBA byte offset.
-func compositePixel(dst *image.RGBA, off int, sr, sg, sb uint8, a float64) {
+// compositePixel composites (sr,sg,sb) with alpha a at the given
+// premultiplied-RGBA byte offset, applying the blend mode (zero value → plain
+// source-over).
+func compositePixel(dst *image.RGBA, off int, sr, sg, sb uint8, a float64, bm blendMode) {
 	if a <= 0 {
 		return
 	}
 	if a > 1 {
 		a = 1
 	}
-	inv := 1 - a
-	dst.Pix[off+0] = uint8(float64(sr)*a + float64(dst.Pix[off+0])*inv + 0.5)
-	dst.Pix[off+1] = uint8(float64(sg)*a + float64(dst.Pix[off+1])*inv + 0.5)
-	dst.Pix[off+2] = uint8(float64(sb)*a + float64(dst.Pix[off+2])*inv + 0.5)
-	dst.Pix[off+3] = uint8(a*255 + float64(dst.Pix[off+3])*inv + 0.5)
+	blendApply(dst, off, sr, sg, sb, a, bm)
 }
 
 func toNRGBA(m image.Image) *image.NRGBA {
