@@ -219,7 +219,7 @@ func addSpanRowLocal(cov []float32, bw, bx0, rowBase int, xa, xb, weight float64
 // compositeCoverageBBox is compositeCoverage restricted to a bbox: cov is the
 // bbox-local buffer from coverageBBox; dst and clip are indexed in full-frame
 // coordinates. Only the bbox pixels are touched.
-func compositeCoverageBBox(dst *image.RGBA, w int, cov []float32, bx0, by0, bx1, by1 int, sr, sg, sb uint8, srcA float64, clip []float32) {
+func compositeCoverageBBox(dst *image.RGBA, w int, cov []float32, bx0, by0, bx1, by1 int, sr, sg, sb uint8, srcA float64, clip []float32, blend blendFunc) {
 	bw := bx1 - bx0
 	for py := by0; py < by1; py++ {
 		rowBase := (py - by0) * bw
@@ -241,10 +241,17 @@ func compositeCoverageBBox(dst *image.RGBA, w int, cov []float32, bx0, by0, bx1,
 				a = 1
 			}
 			off := gi * 4
+			if blend != nil {
+				dst.Pix[off+0] = blendChannel(dst.Pix[off+0], sr, a, blend)
+				dst.Pix[off+1] = blendChannel(dst.Pix[off+1], sg, a, blend)
+				dst.Pix[off+2] = blendChannel(dst.Pix[off+2], sb, a, blend)
+			} else {
+				inv := 1 - a
+				dst.Pix[off+0] = uint8(float64(sr)*a + float64(dst.Pix[off+0])*inv + 0.5)
+				dst.Pix[off+1] = uint8(float64(sg)*a + float64(dst.Pix[off+1])*inv + 0.5)
+				dst.Pix[off+2] = uint8(float64(sb)*a + float64(dst.Pix[off+2])*inv + 0.5)
+			}
 			inv := 1 - a
-			dst.Pix[off+0] = uint8(float64(sr)*a + float64(dst.Pix[off+0])*inv + 0.5)
-			dst.Pix[off+1] = uint8(float64(sg)*a + float64(dst.Pix[off+1])*inv + 0.5)
-			dst.Pix[off+2] = uint8(float64(sb)*a + float64(dst.Pix[off+2])*inv + 0.5)
 			dst.Pix[off+3] = uint8(a*255 + float64(dst.Pix[off+3])*inv + 0.5)
 		}
 	}

@@ -367,7 +367,7 @@ func (rd *renderer) paintShading(s *shading, m [6]float64, mask []float32) {
 				continue
 			}
 			r, g, b := s.colorAt(t)
-			compositePixel(rd.img, mi*4, r, g, b, cov*rd.gs.fillA)
+			compositePixel(rd.img, mi*4, r, g, b, cov*rd.gs.fillA, rd.gs.blend)
 		}
 	}
 }

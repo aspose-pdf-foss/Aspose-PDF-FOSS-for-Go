@@ -39,6 +39,23 @@ func (rd *renderer) applyExtGState(name string) {
 			rd.gs.miterLimit = ml
 		}
 	}
+	// /BM blend mode (a name, or an array of names — first supported wins).
+	if raw, present := gd["/BM"]; present {
+		rd.gs.blend = nil
+		switch v := resolveRef(objects, raw).(type) {
+		case pdfName:
+			rd.gs.blend = blendFor(string(v))
+		case pdfArray:
+			for _, e := range v {
+				if n, ok := resolveRef(objects, e).(pdfName); ok {
+					if b := blendFor(string(n)); b != nil {
+						rd.gs.blend = b
+						break
+					}
+				}
+			}
+		}
+	}
 	// /D is [dashArray phase].
 	if arr, ok := resolveRefToArray(objects, gd["/D"]); ok && len(arr) == 2 {
 		da, _ := resolveRefToArray(objects, arr[0])

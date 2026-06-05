@@ -29,9 +29,10 @@ type gstate struct {
 	lineCap    LineCap
 	lineJoin   LineJoin
 	miterLimit float64
-	dash       []float64 // empty = solid
+	dash       []float64  // empty = solid
 	dashPhase  float64
-	clip       []float32 // nil = unclipped
+	blend      blendFunc  // nil = Normal (src-over); set by gs /BM
+	clip       []float32  // nil = unclipped
 }
 
 // renderer interprets a page's content stream and paints onto img.
@@ -425,7 +426,7 @@ func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, 
 	if cov == nil {
 		return
 	}
-	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.gs.clip)
+	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.gs.clip, rd.gs.blend)
 }
 
 func (rd *renderer) fill(rule fillRule) {
