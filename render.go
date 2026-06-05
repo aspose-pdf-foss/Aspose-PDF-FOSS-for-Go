@@ -69,6 +69,7 @@ type renderer struct {
 	depth int        // form XObject recursion depth
 
 	ts        textState              // current text-object state
+	tsStack   []textState            // text state saved by q (parallels stack)
 	fontCache map[string]*renderFont // resolved fonts by resource name
 
 	// pendingClip records a W / W* seen since the last paint: 0 none, 1 nonzero,
@@ -130,10 +131,22 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- graphics state ---
 		case "q":
 			rd.stack = append(rd.stack, rd.gs)
+			rd.tsStack = append(rd.tsStack, rd.ts)
 		case "Q":
 			if n := len(rd.stack); n > 0 {
 				rd.gs = rd.stack[n-1]
 				rd.stack = rd.stack[:n-1]
+			}
+			if n := len(rd.tsStack); n > 0 {
+				// The text-state parameters (Tf, Tc, Tw, Th, Tl, Tmode, Ts) are
+				// part of the graphics state and revert on Q (ISO 32000-1 Table
+				// 52). The text matrices Tm/Tlm are text-object state, not
+				// graphics state, so keep the current ones — q/Q may nest inside
+				// a BT/ET block.
+				saved := rd.tsStack[n-1]
+				rd.tsStack = rd.tsStack[:n-1]
+				saved.tm, saved.lm = rd.ts.tm, rd.ts.lm
+				rd.ts = saved
 			}
 		case "cm":
 			if len(o) >= 6 {

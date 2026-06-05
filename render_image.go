@@ -101,6 +101,7 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	savedGS := rd.gs
 	savedRes := rd.res
 	savedStack := len(rd.stack)
+	savedTS, savedTSStack := rd.ts, len(rd.tsStack)
 	savedMC, savedHidden := len(rd.mcStack), rd.ocHidden
 
 	if matVal, ok := stream.Dict["/Matrix"].(pdfArray); ok && len(matVal) == 6 {
@@ -121,8 +122,12 @@ func (rd *renderer) drawFormXObject(stream *pdfStream) {
 	// Restore (and drop any q's / unbalanced marked content the form left).
 	rd.gs = savedGS
 	rd.res = savedRes
+	rd.ts = savedTS
 	if len(rd.stack) > savedStack {
 		rd.stack = rd.stack[:savedStack]
+	}
+	if len(rd.tsStack) > savedTSStack {
+		rd.tsStack = rd.tsStack[:savedTSStack]
 	}
 	rd.mcStack = rd.mcStack[:savedMC]
 	rd.ocHidden = savedHidden
