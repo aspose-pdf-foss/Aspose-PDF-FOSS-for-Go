@@ -34,6 +34,11 @@ type gstate struct {
 	blend      blendMode // zero value = Normal (src-over); set by gs /BM
 	clip       []float32 // nil = unclipped (geometric W/W* clip)
 	softMask   []float32 // nil = none; per-pixel alpha from a gs /SMask group
+
+	// Separation/DeviceN tint transform for the current fill/stroke colour
+	// space (set by cs/CS); nil → device colour by operand count.
+	fillTint   tintFunc
+	strokeTint tintFunc
 }
 
 // effectiveClip combines the geometric clip with the soft mask (both per-pixel
@@ -249,29 +254,37 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- colour ---
 		case "g":
 			rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = gray8(f(o0(o)))
-			rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
+			rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 		case "G":
 			rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = gray8(f(o0(o)))
-			rd.gs.strokePattern = false
+			rd.gs.strokePattern, rd.gs.strokeTint = false, nil
 		case "rg":
 			if len(o) >= 3 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 			}
 		case "RG":
 			if len(o) >= 3 {
 				rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-				rd.gs.strokePattern = false
+				rd.gs.strokePattern, rd.gs.strokeTint = false, nil
 			}
 		case "k":
 			if len(o) >= 4 {
 				rd.gs.fillR, rd.gs.fillG, rd.gs.fillB = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
+				rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling, rd.gs.fillTint = false, nil, nil, nil
 			}
 		case "K":
 			if len(o) >= 4 {
 				rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-				rd.gs.strokePattern = false
+				rd.gs.strokePattern, rd.gs.strokeTint = false, nil
+			}
+		case "cs":
+			if len(o) >= 1 {
+				rd.gs.fillTint = rd.tintConverter(rd.namedColorSpace(operandName(o[0])))
+			}
+		case "CS":
+			if len(o) >= 1 {
+				rd.gs.strokeTint = rd.tintConverter(rd.namedColorSpace(operandName(o[0])))
 			}
 		case "sc", "scn":
 			rd.setColor(o, false)
@@ -415,22 +428,41 @@ func (rd *renderer) setColor(o []pdfValue, stroke bool) {
 			return
 		}
 	}
+	// Separation/DeviceN: run the tint operands through the colour space's
+	// transform regardless of operand count.
+	tint := rd.gs.fillTint
+	if stroke {
+		tint = rd.gs.strokeTint
+	}
 	var r, g, b uint8
-	switch len(o) {
-	case 1:
-		r, g, b = gray8(f(o[0]))
-	case 3:
-		r, g, b = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
-	case 4:
-		r, g, b = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
-	default:
-		return
+	if tint != nil && len(o) > 0 {
+		r, g, b = tint(operandFloats(o))
+	} else {
+		switch len(o) {
+		case 1:
+			r, g, b = gray8(f(o[0]))
+		case 3:
+			r, g, b = clamp8(f(o[0])), clamp8(f(o[1])), clamp8(f(o[2]))
+		case 4:
+			r, g, b = cmykToRGB8(f(o[0]), f(o[1]), f(o[2]), f(o[3]))
+		default:
+			return
+		}
 	}
 	if stroke {
 		rd.gs.strokeR, rd.gs.strokeG, rd.gs.strokeB, rd.gs.strokePattern = r, g, b, false
 	} else {
-		rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillPattern, rd.gs.fillShading = r, g, b, false, nil
+		rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = r, g, b, false, nil, nil
 	}
+}
+
+// operandFloats converts numeric colour operands to a float slice.
+func operandFloats(o []pdfValue) []float64 {
+	out := make([]float64, len(o))
+	for i, v := range o {
+		out[i] = operandFloat(v)
+	}
+	return out
 }
 
 // resolveShadingPattern looks up a /Pattern resource; if it is a shading pattern

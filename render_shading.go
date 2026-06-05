@@ -10,9 +10,19 @@ import "math"
 // It serves both the `sh` operator and shading patterns (PatternType 2). Colour
 // is derived from the function's output-component count (1=gray, 3=RGB, 4=CMYK).
 
-// pdfFunc evaluates a 1-input PDF function, returning its output components.
+// pdfFunc evaluates a PDF function: it maps m input values to n output
+// components (ISO 32000-1 §7.10). Most types here are 1-input (shadings,
+// Separation); only the PostScript calculator (type 4) is genuinely multi-input
+// (DeviceN tint transforms).
 type pdfFunc interface {
-	eval(t float64) []float64
+	eval(in []float64) []float64
+}
+
+func fnIn0(in []float64) float64 {
+	if len(in) > 0 {
+		return in[0]
+	}
+	return 0
 }
 
 // --- function types -------------------------------------------------------
@@ -23,8 +33,8 @@ type fnExponential struct {
 	dom    [2]float64
 }
 
-func (f *fnExponential) eval(t float64) []float64 {
-	t = clampf(t, f.dom[0], f.dom[1])
+func (f *fnExponential) eval(in []float64) []float64 {
+	t := clampf(fnIn0(in), f.dom[0], f.dom[1])
 	tn := t
 	if f.n != 1 {
 		tn = math.Pow(t, f.n)
@@ -42,8 +52,8 @@ type fnStitching struct {
 	dom            [2]float64
 }
 
-func (f *fnStitching) eval(t float64) []float64 {
-	t = clampf(t, f.dom[0], f.dom[1])
+func (f *fnStitching) eval(in []float64) []float64 {
+	t := clampf(fnIn0(in), f.dom[0], f.dom[1])
 	k := 0
 	for k < len(f.bounds) && t >= f.bounds[k] {
 		k++
@@ -64,7 +74,7 @@ func (f *fnStitching) eval(t float64) []float64 {
 		e0, e1 = f.encode[2*k], f.encode[2*k+1]
 	}
 	tt := interp(t, lo, hi, e0, e1)
-	return f.funcs[k].eval(tt)
+	return f.funcs[k].eval([]float64{tt})
 }
 
 type fnSampled struct {
@@ -73,7 +83,8 @@ type fnSampled struct {
 	samples             []byte
 }
 
-func (f *fnSampled) eval(t float64) []float64 {
+func (f *fnSampled) eval(in []float64) []float64 {
+	t := fnIn0(in)
 	e0, e1 := 0.0, float64(f.size-1)
 	if len(f.encode) >= 2 {
 		e0, e1 = f.encode[0], f.encode[1]
@@ -117,19 +128,18 @@ func (f *fnSampled) sample(i, j int) uint64 {
 
 type fnArray struct{ fns []pdfFunc }
 
-func (f *fnArray) eval(t float64) []float64 {
+func (f *fnArray) eval(in []float64) []float64 {
 	out := make([]float64, 0, len(f.fns))
 	for _, fn := range f.fns {
-		out = append(out, fn.eval(t)...)
+		out = append(out, fn.eval(in)...)
 	}
 	return out
 }
 
-// fnConst is the best-effort fallback for unsupported function types (type 4
-// PostScript calculator): a constant mid-grey so the shape isn't invisible.
+// fnConst is the fallback for an unparseable function: a constant value.
 type fnConst struct{ c []float64 }
 
-func (f *fnConst) eval(float64) []float64 { return f.c }
+func (f *fnConst) eval([]float64) []float64 { return f.c }
 
 // parseFunction builds a pdfFunc from a function dict/stream or an array of
 // functions. Unsupported types fall back to a constant colour.
@@ -208,7 +218,16 @@ func parseFunction(objects map[int]*pdfObject, v pdfValue) pdfFunc {
 			nout:    len(rng) / 2,
 			samples: decodedStreamData(stream),
 		}
-	default: // type 4 (PostScript) and anything else
+	case 4:
+		if stream == nil {
+			return &fnConst{c: []float64{0.5}}
+		}
+		rng := shFloats(objects, d["/Range"])
+		if prog := parsePSProgram(decodedStreamData(stream)); prog != nil && len(rng) >= 2 {
+			return &fnPostScript{prog: prog, domain: dom, rangeArr: rng}
+		}
+		return &fnConst{c: []float64{0.5}}
+	default:
 		return &fnConst{c: []float64{0.5}}
 	}
 }
@@ -329,18 +348,7 @@ func (s *shading) paramAt(x, y float64) (float64, bool) {
 // colorAt evaluates the shading colour at parameter t as an 8-bit RGB triple,
 // choosing the colour model from the function's output-component count.
 func (s *shading) colorAt(t float64) (uint8, uint8, uint8) {
-	c := s.fn.eval(t)
-	switch len(c) {
-	case 1:
-		return gray8(c[0])
-	case 4:
-		return cmykToRGB8(c[0], c[1], c[2], c[3])
-	default:
-		if len(c) < 3 {
-			return 0, 0, 0
-		}
-		return clamp8(c[0]), clamp8(c[1]), clamp8(c[2])
-	}
+	return compsToRGB(s.fn.eval([]float64{t}))
 }
 
 // paintShading rasterizes the shading into the image. m maps shading space to
