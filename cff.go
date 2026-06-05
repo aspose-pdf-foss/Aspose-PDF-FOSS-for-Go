@@ -28,6 +28,7 @@ type cffFont struct {
 	fdLocalSubrs [][][]byte // local subrs per FD
 	charset      []uint16   // GID → CID (CID-keyed) or SID (name-keyed)
 	cidToGID     map[uint16]uint16
+	simpleGID    map[uint16]uint16 // code → GID for simple (non-CID) fonts
 
 	unitsPerEm float64
 	numGlyphs  int
@@ -101,10 +102,84 @@ func parseCFF(data []byte) (*cffFont, error) {
 		if err := f.parseCIDParts(data, top); err != nil {
 			return nil, err
 		}
-	} else if priv, ok := top[cffOp(18, 0)]; ok && len(priv) >= 2 {
-		f.localSubrs = readPrivateSubrs(data, int(priv[1]), int(priv[0]))
+	} else {
+		if priv, ok := top[cffOp(18, 0)]; ok && len(priv) >= 2 {
+			f.localSubrs = readPrivateSubrs(data, int(priv[1]), int(priv[0]))
+		}
+		f.buildSimpleEncoding(data, top)
 	}
 	return f, nil
+}
+
+// buildSimpleEncoding builds the code→GID map for a simple (non-CID) CFF font,
+// the missing piece that left embedded Type1C fonts (e.g. MinionPro subsets)
+// rendering nothing. The CFF charset maps GID→SID (glyph-name id); the Encoding
+// maps codes to glyphs. For the predefined Standard encoding (Top DICT /Encoding
+// 0, the common case) a code's SID is code−31 across the ASCII range 32–126, so
+// reversing the charset (SID→GID) yields code→GID. A custom Encoding table is
+// read directly (formats 0/1). ISO 32000-1 §9.6.6.2.
+func (f *cffFont) buildSimpleEncoding(data []byte, top map[int][]float64) {
+	if csOff := intOp(top, cffOp(15, 0)); csOff > 2 && csOff < len(data) {
+		f.charset = readCharset(data, csOff, f.numGlyphs)
+	}
+	sidToGID := make(map[uint16]uint16, len(f.charset))
+	for gid, sid := range f.charset {
+		if _, ok := sidToGID[sid]; !ok {
+			sidToGID[sid] = uint16(gid)
+		}
+	}
+	f.simpleGID = make(map[uint16]uint16)
+
+	encOff := intOp(top, cffOp(16, 0))
+	if encOff > 1 && encOff < len(data) {
+		f.readCustomEncoding(data, encOff)
+		return
+	}
+	// Predefined Standard (0) / Expert (1) encoding: map ASCII codes via the
+	// SID = code−31 correspondence, then SID→GID through the charset.
+	for code := 32; code <= 126; code++ {
+		if gid, ok := sidToGID[uint16(code-31)]; ok {
+			f.simpleGID[uint16(code)] = gid
+		}
+	}
+}
+
+// readCustomEncoding parses a CFF custom Encoding table (formats 0/1) into the
+// code→GID map. Supplements (high bit of the format byte) are ignored.
+func (f *cffFont) readCustomEncoding(data []byte, off int) {
+	if off >= len(data) {
+		return
+	}
+	format := data[off]
+	p := off + 1
+	switch format & 0x7f {
+	case 0:
+		if p >= len(data) {
+			return
+		}
+		nCodes := int(data[p])
+		p++
+		for i := 0; i < nCodes && p < len(data); i++ {
+			f.simpleGID[uint16(data[p])] = uint16(i + 1)
+			p++
+		}
+	case 1:
+		if p >= len(data) {
+			return
+		}
+		nRanges := int(data[p])
+		p++
+		gid := 1
+		for r := 0; r < nRanges && p+1 < len(data); r++ {
+			first := int(data[p])
+			nLeft := int(data[p+1])
+			p += 2
+			for k := 0; k <= nLeft; k++ {
+				f.simpleGID[uint16(first+k)] = uint16(gid)
+				gid++
+			}
+		}
+	}
 }
 
 // parseCIDParts reads the FDArray, FDSelect and charset of a CID-keyed CFF.

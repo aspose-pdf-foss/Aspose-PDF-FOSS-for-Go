@@ -413,6 +413,13 @@ func (f *renderFont) gid(code uint32) uint16 {
 		}
 		return cid // Identity
 	}
+	// Simple CFF (Type1C) glyph selection: the CFF charset+encoding gives a
+	// direct code→GID map (ISO 32000-1 §9.6.6.2).
+	if code < 256 && f.cff != nil {
+		if g := f.cff.simpleGID[uint16(code)]; g != 0 {
+			return g
+		}
+	}
 	// Simple TrueType glyph selection (ISO 32000-1 §9.6.6.4). Embedded subset
 	// fonts often carry only a (1,0) Mac or (3,0) symbol cmap keyed by the raw
 	// byte code, so try that first; then the Unicode cmap via the PDF encoding;
