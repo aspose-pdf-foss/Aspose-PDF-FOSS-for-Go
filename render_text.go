@@ -395,10 +395,22 @@ func (f *renderFont) gid(code uint32) uint16 {
 		}
 		return cid // Identity
 	}
-	// Simple TrueType: map code → rune (encoding) → GID via the font cmap.
+	// Simple TrueType glyph selection (ISO 32000-1 §9.6.6.4). Embedded subset
+	// fonts often carry only a (1,0) Mac or (3,0) symbol cmap keyed by the raw
+	// byte code, so try that first; then the Unicode cmap via the PDF encoding;
+	// then the symbol 0xF000 range.
 	if code < 256 && f.prog != nil {
-		if r := f.fi.encoding[code]; r != 0 {
-			return f.prog.glyphID(r)
+		c := uint16(code)
+		if g := f.prog.codeToGlyph[c]; g != 0 {
+			return g
+		}
+		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+			if g := f.prog.glyphID(r); g != 0 {
+				return g
+			}
+		}
+		if g := f.prog.codeToGlyph[0xF000|c]; g != 0 {
+			return g
 		}
 	}
 	return 0

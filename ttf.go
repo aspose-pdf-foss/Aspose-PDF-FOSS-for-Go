@@ -32,7 +32,8 @@ type ttfFont struct {
 	glyphWidths []uint16 // advanceWidth per glyphID (FUnits)
 
 	// From cmap.
-	runeToGlyph map[rune]uint16
+	runeToGlyph map[rune]uint16   // Unicode subtable (rune → glyph)
+	codeToGlyph map[uint16]uint16 // non-Unicode subtable: (1,0) Mac or (3,0) symbol, byte/code → glyph
 
 	// From OS/2.
 	capHeight   int16
@@ -268,75 +269,114 @@ func parseHmtx(f *ttfFont, tables map[string]tableRecord) error {
 	return nil
 }
 
+// parseCmap captures the best Unicode subtable (→ runeToGlyph) and, separately,
+// a (1,0) Mac or (3,0) symbol subtable as a direct code→glyph map (→
+// codeToGlyph). It never fails: a font with only a non-Unicode cmap (common for
+// embedded subsets) stays usable — glyph selection falls back to the code map.
 func parseCmap(f *ttfFont, tables map[string]tableRecord) error {
 	b := tableSlice(f.data, tables, "cmap")
 	if len(b) < 4 {
-		return fmt.Errorf("parse ttf cmap: too small")
+		return nil
 	}
 	numSubtables := int(binary.BigEndian.Uint16(b[2:4]))
 	if len(b) < 4+numSubtables*8 {
-		return fmt.Errorf("parse ttf cmap: truncated subtable index")
+		return nil
 	}
 
-	// Rank candidates: prefer format 12 (full Unicode) > format 4 (BMP only);
-	// within a format, prefer Unicode platform (0) > Microsoft platform (3).
-	type cand struct {
-		priority int
-		format   uint16
-		offset   uint32
-	}
-	var best *cand
+	bestUniPri, bestUniOff, bestUniFmt := -1, uint32(0), uint16(0)
+	codeMap := map[uint16]uint16{}
 
 	for i := 0; i < numSubtables; i++ {
 		off := 4 + i*8
-		platformID := binary.BigEndian.Uint16(b[off : off+2])
-		encodingID := binary.BigEndian.Uint16(b[off+2 : off+4])
-		subOffset := binary.BigEndian.Uint32(b[off+4 : off+8])
-		if int(subOffset)+4 > len(b) {
+		pid := binary.BigEndian.Uint16(b[off : off+2])
+		eid := binary.BigEndian.Uint16(b[off+2 : off+4])
+		so := binary.BigEndian.Uint32(b[off+4 : off+8])
+		if int(so)+4 > len(b) {
 			continue
 		}
-		format := binary.BigEndian.Uint16(b[subOffset : subOffset+2])
+		format := binary.BigEndian.Uint16(b[so : so+2])
 
-		// Skip subtables we can't parse.
-		if format != 4 && format != 12 {
+		unicode := pid == 0 || (pid == 3 && eid == 1) || (pid == 3 && eid == 10)
+		if unicode && (format == 4 || format == 12) {
+			pri := 0
+			switch {
+			case format == 12 && pid == 0:
+				pri = 1000
+			case format == 12:
+				pri = 900
+			case format == 4 && pid == 0:
+				pri = 500
+			default:
+				pri = 400
+			}
+			if pri > bestUniPri {
+				bestUniPri, bestUniOff, bestUniFmt = pri, so, format
+			}
 			continue
 		}
-
-		var pri int
-		switch {
-		case format == 12 && platformID == 0:
-			pri = 1000
-		case format == 12 && platformID == 3 && encodingID == 10:
-			pri = 900
-		case format == 4 && platformID == 0:
-			pri = 500
-		case format == 4 && platformID == 3 && encodingID == 1:
-			pri = 400
-		default:
-			continue
+		// (1,0) Mac or (3,0) symbol — a direct code→glyph subtable.
+		if (pid == 1 && eid == 0) || (pid == 3 && eid == 0) {
+			switch format {
+			case 0:
+				parseCmapFormat0(b[so:], codeMap)
+			case 6:
+				parseCmapFormat6(b[so:], codeMap)
+			case 4:
+				tmp := map[rune]uint16{}
+				_ = parseCmapFormat4(b[so:], tmp)
+				for r, g := range tmp {
+					codeMap[uint16(r)] = g
+				}
+			}
 		}
-		if best == nil || pri > best.priority {
-			c := cand{priority: pri, format: format, offset: subOffset}
-			best = &c
-		}
-	}
-	if best == nil {
-		return fmt.Errorf("parse ttf cmap: no supported subtable (need format 4 or 12)")
 	}
 
-	m := make(map[rune]uint16)
-	switch best.format {
-	case 4:
-		if err := parseCmapFormat4(b[best.offset:], m); err != nil {
-			return fmt.Errorf("parse ttf cmap format 4: %w", err)
+	if bestUniPri >= 0 {
+		m := make(map[rune]uint16)
+		switch bestUniFmt {
+		case 4:
+			_ = parseCmapFormat4(b[bestUniOff:], m)
+		case 12:
+			_ = parseCmapFormat12(b[bestUniOff:], m)
 		}
-	case 12:
-		if err := parseCmapFormat12(b[best.offset:], m); err != nil {
-			return fmt.Errorf("parse ttf cmap format 12: %w", err)
+		if len(m) > 0 {
+			f.runeToGlyph = m
 		}
 	}
-	f.runeToGlyph = m
+	if len(codeMap) > 0 {
+		f.codeToGlyph = codeMap
+	}
 	return nil
+}
+
+// parseCmapFormat0 reads a byte-encoding table (256 entries) into m.
+func parseCmapFormat0(b []byte, m map[uint16]uint16) {
+	if len(b) < 6+256 {
+		return
+	}
+	for c := 0; c < 256; c++ {
+		if g := uint16(b[6+c]); g != 0 {
+			m[uint16(c)] = g
+		}
+	}
+}
+
+// parseCmapFormat6 reads a trimmed table mapping a contiguous code range into m.
+func parseCmapFormat6(b []byte, m map[uint16]uint16) {
+	if len(b) < 10 {
+		return
+	}
+	first := binary.BigEndian.Uint16(b[6:8])
+	count := int(binary.BigEndian.Uint16(b[8:10]))
+	for i := 0; i < count; i++ {
+		o := 10 + i*2
+		if o+2 > len(b) {
+			break
+		}
+		if g := binary.BigEndian.Uint16(b[o : o+2]); g != 0 {
+			m[first+uint16(i)] = g
+		}
+	}
 }
 
 // parseCmapFormat4 handles segmented BMP coverage (Unicode code points <= U+FFFF).
