@@ -25,6 +25,7 @@ type renderFont struct {
 	prog     *ttfFont   // embedded/substitute TrueType (glyf) program
 	cff      *cffFont   // embedded CFF program (/FontFile3); mutually exclusive with prog
 	type3    *type3Font // Type3 font: glyphs are content streams, not outlines
+	synth    func(uint32) []glyphContour // synthesized outlines by code (non-embedded ZapfDingbats)
 	em       float64
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
@@ -192,6 +193,11 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			if fb.unitsPerEm != 0 {
 				rf.em = float64(fb.unitsPerEm)
 			}
+		} else if isZapfDingbats(fi) {
+			// No bundled substitute for ZapfDingbats; synthesize the common marks
+			// (checkbox/radio appearances) as vector outlines in 1000-em space.
+			rf.synth = zapfDingbatsContours
+			rf.em = 1000
 		}
 	}
 	return rf
@@ -236,6 +242,8 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 			if g := f.gid(code); g != 0 {
 				rd.paintGlyph(f, g)
 			}
+		case f.synth != nil:
+			rd.paintContours(f, f.synth(code))
 		case f.type3 != nil:
 			rd.drawType3Glyph(f, code)
 		}
@@ -289,7 +297,13 @@ func textHasPaint(m int) bool { return textFills(m) || textStrokes(m) }
 // current text rendering mode (Tr). Text clipping (modes 4-7) is not yet
 // accumulated; those modes still paint their fill/stroke component.
 func (rd *renderer) paintGlyph(f *renderFont, gid uint16) {
-	contours := f.glyphOutline(gid)
+	rd.paintContours(f, f.glyphOutline(gid))
+}
+
+// paintContours rasterizes a set of glyph design-unit contours, filling and/or
+// stroking per the current text rendering mode (Tr). Shared by real glyph
+// outlines and synthesized ones (ZapfDingbats marks).
+func (rd *renderer) paintContours(f *renderFont, contours []glyphContour) {
 	if len(contours) == 0 {
 		return
 	}

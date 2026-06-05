@@ -18,8 +18,10 @@ import (
 // These (SIL OFL 1.1, see fonts/LICENSE.txt) have the same advance widths as
 // the fonts they replace, so word-wrapped layout is preserved and narrow
 // glyphs aren't distorted.
-// Symbol/ZapfDingbats have no metric-compatible free substitute and currently
-// fall back to Arimo (most symbols won't map).
+// Symbol/ZapfDingbats have no metric-compatible free substitute and are not
+// bundled: fallbackFontFor returns nil for them. ZapfDingbats instead gets
+// synthesized outlines for its common marks (see render_dingbats.go), chiefly
+// so checkbox/radio widget appearances render; Symbol still draws nothing.
 //
 //go:embed fonts/Arimo-Regular.ttf fonts/Arimo-Bold.ttf fonts/Arimo-Italic.ttf fonts/Arimo-BoldItalic.ttf
 //go:embed fonts/Tinos-Regular.ttf fonts/Tinos-Bold.ttf fonts/Tinos-Italic.ttf fonts/Tinos-BoldItalic.ttf
