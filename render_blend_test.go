@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestRenderBlendMultiply checks the Multiply blend mode: a red rectangle drawn
 // over a green backdrop with /BM /Multiply multiplies to black (green·red = 0),
@@ -60,5 +63,24 @@ func TestBlendFuncs(t *testing.T) {
 	}
 	if blendFor("/Normal") != nil {
 		t.Error("/Normal should map to nil (plain src-over)")
+	}
+}
+
+// TestNonSeparableBlend checks the defining invariants of the non-separable
+// modes: Luminosity gives the result the source's luminosity; Color keeps the
+// backdrop's luminosity.
+func TestNonSeparableBlend(t *testing.T) {
+	r, g, b := blendLuminosity(0.2, 0.4, 0.6, 0.5, 0.5, 0.5)
+	if math.Abs(lum(r, g, b)-0.5) > 1e-6 {
+		t.Errorf("Luminosity result lum = %g, want 0.5 (source's)", lum(r, g, b))
+	}
+	r, g, b = blendColorMode(0.2, 0.4, 0.6, 1, 0, 0)
+	if math.Abs(lum(r, g, b)-lum(0.2, 0.4, 0.6)) > 1e-6 {
+		t.Errorf("Color result lum = %g, want %g (backdrop's)", lum(r, g, b), lum(0.2, 0.4, 0.6))
+	}
+	for _, m := range []string{"/Hue", "/Saturation", "/Color", "/Luminosity"} {
+		if blendModeFor(m).ns == nil {
+			t.Errorf("%s not resolved as a non-separable mode", m)
+		}
 	}
 }

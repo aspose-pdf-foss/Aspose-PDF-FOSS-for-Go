@@ -41,15 +41,15 @@ func (rd *renderer) applyExtGState(name string) {
 	}
 	// /BM blend mode (a name, or an array of names — first supported wins).
 	if raw, present := gd["/BM"]; present {
-		rd.gs.blend = nil
+		rd.gs.blend = blendMode{}
 		switch v := resolveRef(objects, raw).(type) {
 		case pdfName:
-			rd.gs.blend = blendFor(string(v))
+			rd.gs.blend = blendModeFor(string(v))
 		case pdfArray:
 			for _, e := range v {
 				if n, ok := resolveRef(objects, e).(pdfName); ok {
-					if b := blendFor(string(n)); b != nil {
-						rd.gs.blend = b
+					if m := blendModeFor(string(n)); m.sep != nil || m.ns != nil {
+						rd.gs.blend = m
 						break
 					}
 				}

@@ -31,8 +31,8 @@ type gstate struct {
 	miterLimit float64
 	dash       []float64  // empty = solid
 	dashPhase  float64
-	blend      blendFunc  // nil = Normal (src-over); set by gs /BM
-	clip       []float32  // nil = unclipped
+	blend      blendMode // zero value = Normal (src-over); set by gs /BM
+	clip       []float32 // nil = unclipped
 }
 
 // renderer interprets a page's content stream and paints onto img.

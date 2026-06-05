@@ -165,27 +165,16 @@ func (rd *renderer) blitImage(m image.Image) {
 }
 
 // compositePixel composites (sr,sg,sb) with alpha a at the given
-// premultiplied-RGBA byte offset, applying the blend mode (nil → plain
+// premultiplied-RGBA byte offset, applying the blend mode (zero value → plain
 // source-over).
-func compositePixel(dst *image.RGBA, off int, sr, sg, sb uint8, a float64, blend blendFunc) {
+func compositePixel(dst *image.RGBA, off int, sr, sg, sb uint8, a float64, bm blendMode) {
 	if a <= 0 {
 		return
 	}
 	if a > 1 {
 		a = 1
 	}
-	if blend != nil {
-		dst.Pix[off+0] = blendChannel(dst.Pix[off+0], sr, a, blend)
-		dst.Pix[off+1] = blendChannel(dst.Pix[off+1], sg, a, blend)
-		dst.Pix[off+2] = blendChannel(dst.Pix[off+2], sb, a, blend)
-	} else {
-		inv := 1 - a
-		dst.Pix[off+0] = uint8(float64(sr)*a + float64(dst.Pix[off+0])*inv + 0.5)
-		dst.Pix[off+1] = uint8(float64(sg)*a + float64(dst.Pix[off+1])*inv + 0.5)
-		dst.Pix[off+2] = uint8(float64(sb)*a + float64(dst.Pix[off+2])*inv + 0.5)
-	}
-	inv := 1 - a
-	dst.Pix[off+3] = uint8(a*255 + float64(dst.Pix[off+3])*inv + 0.5)
+	blendApply(dst, off, sr, sg, sb, a, bm)
 }
 
 func toNRGBA(m image.Image) *image.NRGBA {
