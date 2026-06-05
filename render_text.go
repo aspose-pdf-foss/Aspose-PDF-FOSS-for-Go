@@ -199,6 +199,24 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			rf.synth = zapfDingbatsContours
 			rf.em = 1000
 		}
+	} else if rf.cidToGID == nil {
+		// Non-embedded Type0 CIDFontType2 with Identity CIDToGIDMap: producers
+		// commonly emit the original font's glyph IDs as CIDs (an anti-extraction
+		// pattern — no ToUnicode, GID-as-CID). Substitute a metric-compatible
+		// family whose Latin glyph order matches and use the CID as a GID
+		// directly (gid() returns the CID for Identity). Better an approximate
+		// render than blank text.
+		fb := fontRepo.find(fi)
+		if fb == nil {
+			fb = fallbackFontFor(fi)
+		}
+		if fb != nil {
+			rf.prog = fb
+			rf.fallback = true
+			if fb.unitsPerEm != 0 {
+				rf.em = float64(fb.unitsPerEm)
+			}
+		}
 	}
 	return rf
 }
@@ -263,7 +281,7 @@ func (rd *renderer) glyphWidth(code uint32) float64 {
 	if f == nil {
 		return 0
 	}
-	if f.fallback && f.prog != nil {
+	if f.fallback && f.prog != nil && !f.isType0 {
 		// Substitute font: advance by its own natural glyph width so letterforms
 		// and spacing stay self-consistent. The document's Standard-14 metrics do
 		// not match these (DejaVu) shapes — matching them instead distorts narrow
