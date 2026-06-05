@@ -54,6 +54,14 @@ func loadStdFont(file string) *ttfFont {
 func fallbackFontFor(fi fontInfo) *ttfFont {
 	name := strings.ToLower(fi.name)
 
+	// Symbol / ZapfDingbats have no Latin metric-compatible substitute; their
+	// code→Unicode encoding is wired (see defaultEncodingForFont), so an embedded
+	// copy or a FontRepository-registered covering font renders, but the bundled
+	// Latin fonts would only draw .notdef boxes — render nothing instead.
+	if strings.Contains(name, "symbol") || strings.Contains(name, "dingbat") {
+		return nil
+	}
+
 	family := "Arimo" // Helvetica / Arial / sans / default
 	switch {
 	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
