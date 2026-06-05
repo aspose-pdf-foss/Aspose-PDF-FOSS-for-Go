@@ -231,7 +231,11 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	if f != nil && textHasPaint(rd.ts.renderMode) {
 		switch {
 		case f.hasOutlines():
-			rd.paintGlyph(f, f.gid(code))
+			// Skip glyph 0 (.notdef): an unmapped code renders nothing rather
+			// than the font's "missing glyph" box (tofu).
+			if g := f.gid(code); g != 0 {
+				rd.paintGlyph(f, g)
+			}
 		case f.type3 != nil:
 			rd.drawType3Glyph(f, code)
 		}
