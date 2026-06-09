@@ -208,5 +208,5 @@ func clamp8(v float64) uint8 {
 }
 
 func cmykToRGB8(c, m, y, k float64) (uint8, uint8, uint8) {
-	return clamp8((1 - c) * (1 - k)), clamp8((1 - m) * (1 - k)), clamp8((1 - y) * (1 - k))
+	return adobeCMYKToRGB(c, m, y, k)
 }

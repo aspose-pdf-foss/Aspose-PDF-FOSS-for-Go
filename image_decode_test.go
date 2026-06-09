@@ -74,31 +74,23 @@ func TestEncodePNGWithAlpha(t *testing.T) {
 }
 
 func TestCMYKToRGB(t *testing.T) {
-	// Pure cyan: C=255, M=0, Y=0, K=0 → R=0, G=255, B=255
-	cmyk := []byte{255, 0, 0, 0}
-	rgb := cmykToRGB(cmyk, 1)
-	if rgb[0] != 0 || rgb[1] != 255 || rgb[2] != 255 {
-		t.Errorf("cyan → (%d,%d,%d), want (0,255,255)", rgb[0], rgb[1], rgb[2])
+	// Conversion goes through the baked Adobe-profile LUT (adobeCMYKToRGB), so the
+	// process colours match Acrobat, not the naive (1-C)(1-K) formula.
+	eq := func(name string, cmyk []byte, wantR, wantG, wantB byte) {
+		rgb := cmykToRGB(cmyk, 1)
+		if rgb[0] != wantR || rgb[1] != wantG || rgb[2] != wantB {
+			t.Errorf("%s → (%d,%d,%d), want (%d,%d,%d)", name, rgb[0], rgb[1], rgb[2], wantR, wantG, wantB)
+		}
 	}
-
-	// Pure black: C=0, M=0, Y=0, K=255 → R=0, G=0, B=0
-	cmyk = []byte{0, 0, 0, 255}
-	rgb = cmykToRGB(cmyk, 1)
-	if rgb[0] != 0 || rgb[1] != 0 || rgb[2] != 0 {
-		t.Errorf("black → (%d,%d,%d), want (0,0,0)", rgb[0], rgb[1], rgb[2])
-	}
-
-	// White: C=0, M=0, Y=0, K=0 → R=255, G=255, B=255
-	cmyk = []byte{0, 0, 0, 0}
-	rgb = cmykToRGB(cmyk, 1)
-	if rgb[0] != 255 || rgb[1] != 255 || rgb[2] != 255 {
-		t.Errorf("white → (%d,%d,%d), want (255,255,255)", rgb[0], rgb[1], rgb[2])
-	}
+	eq("cyan", []byte{255, 0, 0, 0}, 0, 173, 239)
+	eq("black", []byte{0, 0, 0, 255}, 34, 31, 31)
+	eq("white", []byte{0, 0, 0, 0}, 255, 255, 255)
 }
 
 func TestEncodePNGCMYK(t *testing.T) {
-	// 1x1 CMYK pixel (pure magenta) → should produce valid RGB PNG
-	pixels := []byte{0, 255, 0, 0} // C=0, M=255, Y=0, K=0 → R=255, G=0, B=255
+	// 1x1 CMYK pixel (pure magenta) → valid RGB PNG; the Adobe-profile LUT maps
+	// process magenta to (236,0,139), not the naive (255,0,255).
+	pixels := []byte{0, 255, 0, 0}
 	data, err := encodePNG(pixels, 1, 1, 8, 4, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -108,8 +100,8 @@ func TestEncodePNGCMYK(t *testing.T) {
 		t.Fatal("invalid PNG:", err)
 	}
 	r, g, b, _ := img.At(0, 0).RGBA()
-	if r>>8 != 255 || g>>8 != 0 || b>>8 != 255 {
-		t.Errorf("magenta → (%d,%d,%d), want (255,0,255)", r>>8, g>>8, b>>8)
+	if r>>8 != 236 || g>>8 != 0 || b>>8 != 139 {
+		t.Errorf("magenta → (%d,%d,%d), want (236,0,139)", r>>8, g>>8, b>>8)
 	}
 }
 

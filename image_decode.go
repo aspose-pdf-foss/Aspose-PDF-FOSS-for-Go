@@ -162,8 +162,9 @@ func jpegHasAdobeMarker(data []byte) bool {
 	return false
 }
 
-// cmykToRGB converts CMYK pixel data to RGB.
-// Formula: R=(1-C)*(1-K), G=(1-M)*(1-K), B=(1-Y)*(1-K)
+// cmykToRGB converts CMYK pixel data to RGB through the baked Adobe-profile LUT
+// (adobeCMYKToRGB), so colours match Acrobat rather than the bluish naive
+// (1-C)(1-K) conversion.
 func cmykToRGB(pixels []byte, pixelCount int) []byte {
 	rgb := make([]byte, pixelCount*3)
 	for i := 0; i < pixelCount; i++ {
@@ -171,13 +172,13 @@ func cmykToRGB(pixels []byte, pixelCount int) []byte {
 		if off+3 >= len(pixels) {
 			break
 		}
-		c := float64(pixels[off]) / 255.0
-		m := float64(pixels[off+1]) / 255.0
-		y := float64(pixels[off+2]) / 255.0
-		k := float64(pixels[off+3]) / 255.0
-		rgb[i*3] = byte((1 - c) * (1 - k) * 255)
-		rgb[i*3+1] = byte((1 - m) * (1 - k) * 255)
-		rgb[i*3+2] = byte((1 - y) * (1 - k) * 255)
+		r, g, b := adobeCMYKToRGB(
+			float64(pixels[off])/255.0,
+			float64(pixels[off+1])/255.0,
+			float64(pixels[off+2])/255.0,
+			float64(pixels[off+3])/255.0,
+		)
+		rgb[i*3], rgb[i*3+1], rgb[i*3+2] = r, g, b
 	}
 	return rgb
 }
@@ -188,18 +189,32 @@ func decodeJPEGToPixels(data []byte) (pixels []byte, width, height int, err erro
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	// Adobe CMYK/YCCK JPEGs store their channels inverted (0 = full ink) and
-	// carry an APP14 "Adobe" marker; Go's decoder returns the raw inverted CMYK,
-	// so a plain CMYK→RGB turns white into black. Re-invert before converting.
-	if cmyk, ok := img.(*image.CMYK); ok && jpegHasAdobeMarker(data) {
-		for i := range cmyk.Pix {
-			cmyk.Pix[i] = 255 - cmyk.Pix[i]
-		}
-	}
 	bounds := img.Bounds()
 	width = bounds.Dx()
 	height = bounds.Dy()
 	pixels = make([]byte, width*height*3)
+
+	// CMYK JPEGs go through the Adobe-profile LUT so colours match Acrobat. Adobe
+	// CMYK/YCCK JPEGs also store their channels inverted (0 = full ink) and carry
+	// an APP14 "Adobe" marker; Go returns the raw inverted CMYK, so re-invert
+	// first. Non-CMYK images use the generic RGBA path.
+	if cmyk, ok := img.(*image.CMYK); ok {
+		inv := jpegHasAdobeMarker(data)
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				ci := cmyk.PixOffset(bounds.Min.X+x, bounds.Min.Y+y)
+				c, m, yy, k := cmyk.Pix[ci], cmyk.Pix[ci+1], cmyk.Pix[ci+2], cmyk.Pix[ci+3]
+				if inv {
+					c, m, yy, k = 255-c, 255-m, 255-yy, 255-k
+				}
+				r, g, b := adobeCMYKToRGB(float64(c)/255, float64(m)/255, float64(yy)/255, float64(k)/255)
+				off := (y*width + x) * 3
+				pixels[off], pixels[off+1], pixels[off+2] = r, g, b
+			}
+		}
+		return pixels, width, height, nil
+	}
+
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			r, g, b, _ := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()

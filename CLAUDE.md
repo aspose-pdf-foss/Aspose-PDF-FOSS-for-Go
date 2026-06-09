@@ -376,7 +376,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 
 1. Content stream walker tracks CTM via `cm`/`q`/`Q` and collects images on `Do` (XObject) and `BI` (inline)
 2. DCTDecode images are passed through as JPEG; **CMYK** DCTDecode (and any with an `/SMask`) are decoded to RGB and re-encoded as PNG, because Adobe/Photoshop CMYK & YCCK JPEGs store their channels inverted (APP14 "Adobe" marker) and Go's `image/jpeg` returns them raw — `jpegHasAdobeMarker` detects the marker and `decodeJPEGToPixels` re-inverts so white doesn't render as black; all non-DCT images are decoded to pixels and encoded as PNG
-3. Color spaces: DeviceRGB, DeviceGray, DeviceCMYK (→RGB), Indexed (palette expansion), ICCBased (treated as underlying RGB/Gray/CMYK)
+3. Color spaces: DeviceRGB, DeviceGray, DeviceCMYK (→RGB via `adobeCMYKToRGB`, a 5×5×5×5 LUT baked from the MuPDF/Adobe default CMYK profile with quadrilinear interpolation — `cmyk_lut.go` — so process colours match Acrobat instead of the bluish naive `(1-C)(1-K)`; used by image decoding and the renderer's `k`/`K`/`scn` fill paths), Indexed (palette expansion), ICCBased (treated as underlying RGB/Gray/CMYK)
 4. Soft masks (`/SMask`) are applied as PNG alpha channels; JPEG+SMask is re-encoded as PNG
 5. Inline images (BI/ID/EI) are parsed with abbreviation expansion (PDF spec Tables 4.43/4.44)
 6. Form XObjects are recursed into with inherited CTM and resources
