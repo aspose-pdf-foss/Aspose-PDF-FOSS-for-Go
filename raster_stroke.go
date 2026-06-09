@@ -28,7 +28,19 @@ func strokeToFill(dp *devPath, st strokeStyle) *devPath {
 	}
 	out := &devPath{}
 	for _, sp := range dp.subs {
-		strokeSubpath(out, dedupePoints(sp.pts), sp.closed, st)
+		pts := dedupePoints(sp.pts)
+		// A closed subpath whose path explicitly draws back to the start leaves
+		// the last point coincident with the first. Drop it so the seam join is
+		// computed between two real (non-zero-length) segments; otherwise the
+		// start vertex's join degenerates and the corner is truncated — e.g. a
+		// star's tip rendered flat instead of pointed.
+		if sp.closed && len(pts) > 1 {
+			f, l := pts[0], pts[len(pts)-1]
+			if math.Abs(f.x-l.x) <= 1e-9 && math.Abs(f.y-l.y) <= 1e-9 {
+				pts = pts[:len(pts)-1]
+			}
+		}
+		strokeSubpath(out, pts, sp.closed, st)
 	}
 	return out
 }
