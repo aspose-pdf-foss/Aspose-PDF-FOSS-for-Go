@@ -13,11 +13,14 @@ import (
 // renderer must supply substitute glyph shapes. We bundle metric-compatible
 // open families so positioning and letterforms both match:
 //
-//	Helvetica/Arial → Arimo, Times → Tinos, Courier → Cousine
+//	Helvetica/Arial → Arimo, Times → Tinos, Courier → Cousine, Calibri → Carlito
 //
 // These (SIL OFL 1.1, see fonts/LICENSE.txt) have the same advance widths as
 // the fonts they replace, so word-wrapped layout is preserved and narrow
-// glyphs aren't distorted.
+// glyphs aren't distorted. Carlito is the metric-compatible clone of Microsoft
+// Calibri (a narrower face than Arial); without it Calibri fell back to the
+// wider Arimo and its glyphs overran the document's Calibri advances, making
+// letters overlap.
 // Symbol/ZapfDingbats have no metric-compatible free substitute and are not
 // bundled: fallbackFontFor returns nil for them. ZapfDingbats instead gets
 // synthesized outlines for its common marks (see render_dingbats.go), chiefly
@@ -26,6 +29,7 @@ import (
 //go:embed fonts/Arimo-Regular.ttf fonts/Arimo-Bold.ttf fonts/Arimo-Italic.ttf fonts/Arimo-BoldItalic.ttf
 //go:embed fonts/Tinos-Regular.ttf fonts/Tinos-Bold.ttf fonts/Tinos-Italic.ttf fonts/Tinos-BoldItalic.ttf
 //go:embed fonts/Cousine-Regular.ttf fonts/Cousine-Bold.ttf fonts/Cousine-Italic.ttf fonts/Cousine-BoldItalic.ttf
+//go:embed fonts/Carlito-Regular.ttf fonts/Carlito-Bold.ttf fonts/Carlito-Italic.ttf fonts/Carlito-BoldItalic.ttf
 var stdFontsFS embed.FS
 
 var (
@@ -68,6 +72,8 @@ func fallbackFontFor(fi fontInfo) *ttfFont {
 	switch {
 	case strings.Contains(name, "courier") || strings.Contains(name, "mono") || strings.Contains(name, "consol"):
 		family = "Cousine"
+	case strings.Contains(name, "calibri"):
+		family = "Carlito" // metric-compatible Calibri clone (narrower than Arial)
 	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
 		family = "Tinos"
 	case fi.serif:

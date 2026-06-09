@@ -1235,9 +1235,10 @@ p.SetCropBox(pdf.Rectangle{LLX: 10, LLY: 10, URX: 585, URY: 832})
 
 MIT License. See [LICENSE](LICENSE) for details.
 
-The library bundles Latin-subset copies of three metric-compatible fonts —
-Arimo, Tinos, and Cousine — used to render the PDF Standard-14 fonts when no
-embedded or system font is available. These are licensed under the SIL Open
+The library bundles Latin-subset copies of four metric-compatible fonts —
+Arimo, Tinos, Cousine, and Carlito — used to render the PDF Standard-14 fonts
+(and Calibri) when no embedded or system font is available. These are licensed
+under the SIL Open
 Font License 1.1, which permits bundling with software under any license; see
 [fonts/LICENSE.txt](fonts/LICENSE.txt). The MIT license above covers the
 library's own code (SPDX: `MIT AND OFL-1.1` for the distribution as a whole).

@@ -1,20 +1,22 @@
 Bundled substitute fonts for Standard-14 rendering
 ==================================================
 
-This directory bundles Latin-subset copies of three metric-compatible
-open fonts, used to render PDF Standard-14 fonts (Helvetica/Times/Courier)
-when no embedded or system font is available:
+This directory bundles Latin-subset copies of four metric-compatible
+open fonts, used to render common non-embedded fonts (Helvetica/Times/
+Courier/Calibri) when no embedded or system font is available:
 
   Arimo   -> Helvetica / Arial metrics
   Tinos   -> Times New Roman metrics
   Cousine -> Courier New metrics
+  Carlito -> Calibri metrics
 
-Each file has been subset to the WinAnsi/Latin glyph set. All three are
+Each file has been subset to the WinAnsi/Latin glyph set. All four are
 licensed under the SIL Open Font License, Version 1.1:
 
   Copyright 2026 The Arimo Project Authors (https://github.com/googlefonts/Arimo)
   Copyright 2026 The Tinos Project Authors (https://github.com/googlefonts/tinos)
   Copyright 2026 The Cousine Project Authors (https://github.com/googlefonts/cousine)
+  Copyright 2010 The Carlito Project Authors (https://github.com/googlefonts/carlito)
 
 ----------------------------------------------------------------------
 
