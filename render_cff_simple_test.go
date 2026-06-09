@@ -25,17 +25,17 @@ func TestSimpleCFFGidUsesEncoding(t *testing.T) {
 }
 
 // TestBuildSimpleEncodingStandardRange checks the Standard-encoding SID = code−31
-// correspondence: a charset that gives glyph 'A' (SID 34) at GID 5 should map
-// code 'A' (65) to GID 5.
+// correspondence over the predefined ISOAdobe charset (Top DICT charset offset
+// 0 → GID i = SID i): code 'H' (72) → Standard SID 41 → GID 41. Before the fix
+// the predefined charset was left empty so nothing mapped (e.g. NewsGothicBT,
+// whose body text rendered blank).
 func TestBuildSimpleEncodingStandardRange(t *testing.T) {
-	f := &cffFont{
-		numGlyphs: 6,
-		charset:   []uint16{0, 0, 0, 0, 0, 34}, // GID 5 → SID 34 ('A')
-	}
-	// Top DICT with no Encoding (→ Standard) and no charset offset (we set
-	// f.charset directly), so buildSimpleEncoding reuses it.
+	f := &cffFont{numGlyphs: 100} // no custom charset/encoding → ISOAdobe + Standard
 	f.buildSimpleEncoding(nil, map[int][]float64{})
-	if g := f.simpleGID['A']; g != 5 {
-		t.Errorf("simpleGID['A'] = %d, want 5", g)
+	if g := f.simpleGID['H']; g != 41 {
+		t.Errorf("simpleGID['H'] = %d, want 41 (ISOAdobe identity + Standard encoding)", g)
+	}
+	if len(f.simpleGID) == 0 {
+		t.Error("simpleGID empty — predefined ISOAdobe charset not applied")
 	}
 }

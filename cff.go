@@ -121,6 +121,15 @@ func parseCFF(data []byte) (*cffFont, error) {
 func (f *cffFont) buildSimpleEncoding(data []byte, top map[int][]float64) {
 	if csOff := intOp(top, cffOp(15, 0)); csOff > 2 && csOff < len(data) {
 		f.charset = readCharset(data, csOff, f.numGlyphs)
+	} else if csOff == 0 {
+		// Predefined ISOAdobe charset: GID i maps to SID i (identity) across the
+		// first standard strings. Subset fonts that keep the standard glyph order
+		// (e.g. NewsGothicBT) use it; without this their charset is empty and no
+		// glyph maps, so the text renders blank.
+		f.charset = make([]uint16, f.numGlyphs)
+		for gid := range f.charset {
+			f.charset[gid] = uint16(gid)
+		}
 	}
 	sidToGID := make(map[uint16]uint16, len(f.charset))
 	for gid, sid := range f.charset {
