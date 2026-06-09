@@ -126,6 +126,42 @@ func buildGrayAlpha(pixels, alpha []byte, width, height, bpc int) *image.NRGBA {
 	return img
 }
 
+// jpegHasAdobeMarker reports whether a JPEG carries an APP14 "Adobe" marker,
+// which signals Photoshop/Acrobat CMYK or YCCK data stored with inverted ink
+// values. It walks the marker segments rather than scanning raw bytes so an
+// "Adobe" byte sequence inside entropy-coded data can't trigger a false match.
+func jpegHasAdobeMarker(data []byte) bool {
+	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xD8 {
+		return false
+	}
+	i := 2
+	for i+4 <= len(data) {
+		if data[i] != 0xFF {
+			return false
+		}
+		marker := data[i+1]
+		i += 2
+		if marker == 0xD9 || marker == 0xDA { // EOI or start of scan
+			return false
+		}
+		if marker >= 0xD0 && marker <= 0xD7 { // RSTn: no length
+			continue
+		}
+		if i+2 > len(data) {
+			return false
+		}
+		segLen := int(data[i])<<8 | int(data[i+1])
+		if segLen < 2 {
+			return false
+		}
+		if marker == 0xEE && i+2+5 <= len(data) && string(data[i+2:i+2+5]) == "Adobe" {
+			return true
+		}
+		i += segLen
+	}
+	return false
+}
+
 // cmykToRGB converts CMYK pixel data to RGB.
 // Formula: R=(1-C)*(1-K), G=(1-M)*(1-K), B=(1-Y)*(1-K)
 func cmykToRGB(pixels []byte, pixelCount int) []byte {
@@ -151,6 +187,14 @@ func decodeJPEGToPixels(data []byte) (pixels []byte, width, height int, err erro
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, 0, 0, err
+	}
+	// Adobe CMYK/YCCK JPEGs store their channels inverted (0 = full ink) and
+	// carry an APP14 "Adobe" marker; Go's decoder returns the raw inverted CMYK,
+	// so a plain CMYK→RGB turns white into black. Re-invert before converting.
+	if cmyk, ok := img.(*image.CMYK); ok && jpegHasAdobeMarker(data) {
+		for i := range cmyk.Pix {
+			cmyk.Pix[i] = 255 - cmyk.Pix[i]
+		}
 	}
 	bounds := img.Bounds()
 	width = bounds.Dx()

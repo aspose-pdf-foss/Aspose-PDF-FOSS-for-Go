@@ -134,37 +134,38 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 	filter := primaryFilter(stream.Dict)
 
 	if filter == "/DCTDecode" {
-		if smaskVal, ok := stream.Dict["/SMask"]; ok {
-			alphaMask := decodeSoftMask(objects, smaskVal)
-			if alphaMask != nil {
-				jpegData := stream.Data
-				if stream.Decoded {
-					jpegData = getRawStreamData(objects, formVal)
-				}
-				if jpegData == nil {
-					return nil, fmt.Errorf("cannot read JPEG data for re-encoding")
-				}
-				pixels, _, _, err := decodeJPEGToPixels(jpegData)
-				if err != nil {
-					return nil, err
-				}
-				pngData, err := encodePNG(pixels, img.Width, img.Height, 8, 3, alphaMask)
-				if err != nil {
-					return nil, err
-				}
-				img.Data = pngData
-				img.Format = ImageFormatPNG
-				return img, nil
-			}
-		}
-
-		img.Data = stream.Data
+		jpegData := stream.Data
 		if stream.Decoded {
-			img.Data = getRawStreamData(objects, formVal)
-			if img.Data == nil {
+			jpegData = getRawStreamData(objects, formVal)
+			if jpegData == nil {
 				return nil, fmt.Errorf("cannot read raw JPEG data")
 			}
 		}
+
+		var alphaMask []byte
+		if smaskVal, ok := stream.Dict["/SMask"]; ok {
+			alphaMask = decodeSoftMask(objects, smaskVal)
+		}
+
+		// CMYK JPEGs decode wrong through Go's CMYK→RGB (Adobe files store
+		// inverted ink), and a soft mask needs an RGBA PNG anyway: decode to RGB
+		// (decodeJPEGToPixels handles the Adobe inversion) and re-encode as PNG.
+		// Plain RGB/Gray JPEGs with no mask pass through untouched.
+		if img.ColorSpace == ColorSpaceDeviceCMYK || alphaMask != nil {
+			pixels, _, _, err := decodeJPEGToPixels(jpegData)
+			if err != nil {
+				return nil, err
+			}
+			pngData, err := encodePNG(pixels, img.Width, img.Height, 8, 3, alphaMask)
+			if err != nil {
+				return nil, err
+			}
+			img.Data = pngData
+			img.Format = ImageFormatPNG
+			return img, nil
+		}
+
+		img.Data = jpegData
 		img.Format = ImageFormatJPEG
 		return img, nil
 	}
