@@ -185,7 +185,7 @@ func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
 	// Otherwise /Length is an indirect reference, missing, or out of range:
 	// scan for the "endstream" keyword and take everything up to the single
 	// end-of-line that precedes it.
-	idx := bytes.Index(l.data[l.pos:], []byte("endstream"))
+	idx := streamEndIndex(l.data[l.pos:])
 	if idx < 0 {
 		return nil, fmt.Errorf("stream: no endstream marker found")
 	}
@@ -199,6 +199,37 @@ func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
 	data := l.data[l.pos:dataEnd]
 	l.pos = l.pos + idx // leave the lexer at the "endstream" keyword
 	return data, nil
+}
+
+// streamEndIndex returns the offset within data of the "endstream" keyword that
+// terminates the stream. Binary stream data (compressed or encrypted bytes) can
+// contain a spurious "endstream" byte sequence; an indirect or wrong /Length
+// forces us here without a reliable length, so a naive first-match scan can
+// truncate the stream mid-data. The real terminator is "endstream" followed by
+// the object's "endobj" (optionally separated by whitespace), so prefer the
+// first match confirmed that way and fall back to the first match otherwise.
+func streamEndIndex(data []byte) int {
+	kw := []byte("endstream")
+	first := -1
+	for off := 0; ; {
+		rel := bytes.Index(data[off:], kw)
+		if rel < 0 {
+			break
+		}
+		abs := off + rel
+		if first < 0 {
+			first = abs
+		}
+		j := abs + len(kw)
+		for j < len(data) && isWhitespace(data[j]) {
+			j++
+		}
+		if bytes.HasPrefix(data[j:], []byte("endobj")) {
+			return abs
+		}
+		off = abs + 1
+	}
+	return first
 }
 
 // decodeStream decompresses stream data based on /Filter and /DecodeParms.
