@@ -116,3 +116,54 @@ func TestJBIG2DecodeFile(t *testing.T) {
 		t.Errorf("black pixels = %d, want 327716 (byte-exact reference)", black)
 	}
 }
+
+// TestJBIG2HuffmanFile checks the Huffman-coded path (symbol dict + text region
+// with shared /JBIG2Globals) on a real multi-page scan. Page 2 uses only
+// non-transposed text regions and decodes byte-identical to the reference
+// (51288 black). Skipped when the corpus file is absent.
+func TestJBIG2HuffmanFile(t *testing.T) {
+	path := os.Getenv("JBIG2_HUFFTESTFILE")
+	if path == "" {
+		path = `D:/aspose/claude/external_testdata/jbig2-30.pdf`
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("JBIG2 Huffman corpus file not present; set JBIG2_HUFFTESTFILE to run")
+	}
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.PageCount() < 2 {
+		t.Fatalf("expected >=2 pages, got %d", d.PageCount())
+	}
+	m, err := d.RenderImage(2, RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Extract the page-2 image directly for an exact bilevel check.
+	all, err := d.ImageInfos()
+	if err != nil || len(all) < 2 || len(all[1]) == 0 {
+		t.Fatalf("page-2 image not found: %v", err)
+	}
+	img, err := all[1][0].Extract()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pm, err := png.Decode(bytes.NewReader(img.Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bnd := pm.Bounds()
+	black := 0
+	for y := bnd.Min.Y; y < bnd.Max.Y; y++ {
+		for x := bnd.Min.X; x < bnd.Max.X; x++ {
+			if r, _, _, _ := pm.At(x, y).RGBA(); r>>8 < 128 {
+				black++
+			}
+		}
+	}
+	if black != 51288 {
+		t.Errorf("page-2 black pixels = %d, want 51288 (byte-exact Huffman reference)", black)
+	}
+	_ = m
+}

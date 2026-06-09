@@ -35,10 +35,16 @@ type jbig2State struct {
 	pageDef   int
 	pageCombo int
 	symbols   map[uint32][]jbig2Bitmap // exported symbols keyed by segment number
+	patterns  map[uint32][]jbig2Bitmap // pattern dictionaries keyed by segment number
+	tables    map[uint32]*huffTable    // custom Huffman tables (type-53 segments)
 }
 
 func jbig2Decode(stream, globals []byte, width, height int) ([]byte, error) {
-	st := &jbig2State{symbols: map[uint32][]jbig2Bitmap{}, pageCombo: 0}
+	st := &jbig2State{
+		symbols:  map[uint32][]jbig2Bitmap{},
+		patterns: map[uint32][]jbig2Bitmap{},
+		tables:   map[uint32]*huffTable{},
+	}
 
 	var segs []jbig2Segment
 	if len(globals) > 0 {
@@ -200,15 +206,35 @@ func (st *jbig2State) process(s jbig2Segment) {
 	switch s.typ {
 	case 48: // page info
 		st.handlePageInfo(s)
+	case 53: // custom Huffman table
+		st.handleTableSegment(s)
 	case 0: // symbol dictionary
 		st.handleSymbolDict(s)
 	case 4, 6, 7: // text region (intermediate/immediate/immediate lossless)
 		st.handleTextRegion(s)
+	case 16: // pattern dictionary
+		st.handlePatternDict(s)
+	case 20, 22, 23: // halftone region
+		st.handleHalftoneRegion(s)
 	case 36, 38, 39: // generic region
 		st.handleGenericRegion(s)
+	case 40, 42, 43: // generic refinement region
+		st.handleRefinementRegion(s)
 	default:
-		// page end / end of stripe / unsupported region types: ignore.
+		// page end / end of stripe / extension: ignore.
 	}
+}
+
+// gatherCustomTables collects the custom Huffman tables (type-53) referred to by
+// a segment, in reference order, for selectors flagged "custom".
+func (st *jbig2State) gatherCustomTables(refs []uint32) *customTables {
+	c := &customTables{}
+	for _, r := range refs {
+		if t, ok := st.tables[r]; ok {
+			c.tables = append(c.tables, t)
+		}
+	}
+	return c
 }
 
 func (st *jbig2State) handlePageInfo(s jbig2Segment) {
@@ -261,21 +287,21 @@ func (st *jbig2State) handleSymbolDict(s jbig2Segment) {
 	sdrefagg := (flags >> 1) & 1
 	template := int(flags>>10) & 3
 	rTemplate := int(flags>>12) & 1
-	if sdhuff == 1 {
-		return // Huffman-coded symbol dictionaries: out of Phase 1 scope.
-	}
-	// SDAT adaptive template pixels.
+
+	// SDAT adaptive template pixels (only present for the arithmetic path).
 	var at []jbig2Point
-	nAT := 4
-	if template != 0 {
-		nAT = 1
-	}
-	for i := 0; i < nAT; i++ {
-		if p+2 > len(d) {
-			return
+	if sdhuff == 0 {
+		nAT := 4
+		if template != 0 {
+			nAT = 1
 		}
-		at = append(at, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
-		p += 2
+		for i := 0; i < nAT; i++ {
+			if p+2 > len(d) {
+				return
+			}
+			at = append(at, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
+			p += 2
+		}
 	}
 	// SDRAT refinement adaptive pixels (only when refinement is on and template 0).
 	var rat []jbig2Point
@@ -299,6 +325,20 @@ func (st *jbig2State) handleSymbolDict(s jbig2Segment) {
 	}
 
 	input := st.gatherInputSymbols(s.refs)
+
+	if sdhuff == 1 {
+		if sdrefagg == 1 {
+			return // Huffman + refinement/aggregate: rare; not yet supported.
+		}
+		custom := st.gatherCustomTables(s.refs)
+		dhTable := pickTable(int(flags>>2)&3, map[int]int{0: 4, 1: 5}, custom)
+		dwTable := pickTable(int(flags>>4)&3, map[int]int{0: 2, 1: 3}, custom)
+		bmTable := pickTable(int(flags>>6)&1, map[int]int{0: 1}, custom)
+		r := newJBIG2Reader(d, p)
+		st.symbols[s.number] = decodeHuffSymbolDict(r, dhTable, dwTable, bmTable, jbig2StdTables[1], input, numNew, numEx)
+		return
+	}
+
 	symCodeLen := jbig2Log2(len(input) + numNew)
 	ctx := newJBIG2Ctx(symCodeLen)
 	dec := newMQDecoder(d, p, len(d))
@@ -334,13 +374,25 @@ func (st *jbig2State) handleTextRegion(s jbig2Segment) {
 	if dsOffset > 15 {
 		dsOffset -= 32 // signed 5-bit
 	}
+	rTemplate := int(flags>>15) & 1
+
+	var huffFlags uint16
 	if sbhuff == 1 {
-		return // Huffman-coded text regions: out of Phase 1 scope.
+		if p+2 > len(d) {
+			return
+		}
+		huffFlags = binary.BigEndian.Uint16(d[p:])
+		p += 2
 	}
-	if sbrefine == 1 {
-		// SBRTEMPLATE / refinement AT pixels would follow; refinement is out of
-		// Phase 1 scope, so bail rather than mis-parse.
-		return
+	var rat []jbig2Point
+	if sbrefine == 1 && rTemplate == 0 {
+		for i := 0; i < 2; i++ {
+			if p+2 > len(d) {
+				return
+			}
+			rat = append(rat, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
+			p += 2
+		}
 	}
 	if p+4 > len(d) {
 		return
@@ -352,6 +404,27 @@ func (st *jbig2State) handleTextRegion(s jbig2Segment) {
 	}
 
 	symbols := st.gatherInputSymbols(s.refs)
+
+	if sbhuff == 1 {
+		custom := st.gatherCustomTables(s.refs)
+		fsTable := pickTable(int(huffFlags)&3, map[int]int{0: 6, 1: 7}, custom)
+		dsTable := pickTable(int(huffFlags>>2)&3, map[int]int{0: 8, 1: 9, 2: 10}, custom)
+		dtTable := pickTable(int(huffFlags>>4)&3, map[int]int{0: 11, 1: 12, 2: 13}, custom)
+		if sbrefine == 1 {
+			return // Huffman + refinement text regions: rare; not yet supported.
+		}
+		r := newJBIG2Reader(d, p)
+		symIDTable := buildSymbolIDTable(r, len(symbols))
+		region := decodeHuffTextRegion(r, symbols, huffTextParams{
+			width: rw, height: rh, numInstances: numInstances,
+			logStrips: logStrips, refCorner: refCorner, transposed: transposed,
+			combOp: combOp, dsOffset: dsOffset, defPixel: defPixel,
+			symIDTable: symIDTable, fsTable: fsTable, dsTable: dsTable, dtTable: dtTable,
+		})
+		st.composite(region, rx, ry, regionCombo)
+		return
+	}
+
 	symCodeLen := jbig2Log2(len(symbols))
 	if symCodeLen < 1 {
 		symCodeLen = 1
@@ -362,6 +435,7 @@ func (st *jbig2State) handleTextRegion(s jbig2Segment) {
 		width: rw, height: rh, numInstances: numInstances, symCodeLen: symCodeLen,
 		logStrips: logStrips, refCorner: refCorner, transposed: transposed,
 		combOp: combOp, dsOffset: dsOffset, defPixel: defPixel,
+		refine: sbrefine == 1, rTemplate: rTemplate, rat: rat,
 	})
 	st.composite(region, rx, ry, regionCombo)
 }
@@ -383,28 +457,118 @@ func (st *jbig2State) handleGenericRegion(s jbig2Segment) {
 	mmr := gflags & 1
 	template := int(gflags>>1) & 3
 	tpgdon := (gflags>>3)&1 == 1
-	if mmr == 1 {
-		return // MMR-coded generic regions: out of Phase 1 scope (tracked).
-	}
 	var at []jbig2Point
-	nAT := 4
-	if template != 0 {
-		nAT = 1
-	}
-	for i := 0; i < nAT; i++ {
-		if p+2 > len(d) {
-			return
+	if mmr == 0 {
+		nAT := 4
+		if template != 0 {
+			nAT = 1
 		}
-		at = append(at, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
-		p += 2
+		for i := 0; i < nAT; i++ {
+			if p+2 > len(d) {
+				return
+			}
+			at = append(at, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
+			p += 2
+		}
 	}
 	if rw <= 0 || rh <= 0 || rw > 1<<20 || rh > 1<<20 {
 		return
 	}
+	var region jbig2Bitmap
+	if mmr == 1 {
+		region = jbig2MMRDecode(d[p:], rw, rh)
+	} else {
+		ctx := newJBIG2Ctx(1)
+		dec := newMQDecoder(d, p, len(d))
+		region = decodeGenericBitmap(rw, rh, template, tpgdon, nil, at, dec, ctx.gb)
+	}
+	st.composite(region, rx, ry, regionCombo)
+}
+
+// handleTableSegment decodes a custom Huffman table segment (ITU-T T.88 §7.4.13 /
+// Annex B.2) into a huffTable keyed by segment number.
+func (st *jbig2State) handleTableSegment(s jbig2Segment) {
+	d := s.data
+	if len(d) < 9 {
+		return
+	}
+	flags := d[0]
+	oob := flags&1 != 0
+	htps := int((flags>>1)&7) + 1 // prefix-size bits
+	htrs := int((flags>>4)&7) + 1 // range-size bits
+	low := int(int32(binary.BigEndian.Uint32(d[1:])))
+	high := int(int32(binary.BigEndian.Uint32(d[5:])))
+	r := newJBIG2Reader(d, 9)
+
+	var lines []huffLine
+	cur := low
+	for cur < high {
+		prefLen := r.readBits(htps)
+		rangeLen := r.readBits(htrs)
+		lines = append(lines, huffLine{prefLen: prefLen, rangeLen: rangeLen, rangeLow: cur})
+		cur += 1 << uint(rangeLen)
+		if len(lines) > 1<<16 {
+			return
+		}
+	}
+	// Lower and upper range lines.
+	lowerLen := r.readBits(htps)
+	lines = append(lines, huffLine{prefLen: lowerLen, rangeLen: 32, rangeLow: low - 1, isLower: true})
+	upperLen := r.readBits(htps)
+	lines = append(lines, huffLine{prefLen: upperLen, rangeLen: 32, rangeLow: high})
+	if oob {
+		oobLen := r.readBits(htps)
+		lines = append(lines, huffLine{prefLen: oobLen, isOOB: true})
+	}
+	st.tables[s.number] = newHuffTable(lines)
+}
+
+// handleRefinementRegion decodes a standalone generic refinement region (ITU-T
+// T.88 §7.4.7) that refines the page content already under its rectangle.
+func (st *jbig2State) handleRefinementRegion(s jbig2Segment) {
+	d := s.data
+	if len(d) < 18 {
+		return
+	}
+	rw := int(binary.BigEndian.Uint32(d[0:]))
+	rh := int(binary.BigEndian.Uint32(d[4:]))
+	rx := int(binary.BigEndian.Uint32(d[8:]))
+	ry := int(binary.BigEndian.Uint32(d[12:]))
+	p := 17
+	gflags := d[p]
+	p++
+	rTemplate := int(gflags & 1)
+	var rat []jbig2Point
+	if rTemplate == 0 {
+		for i := 0; i < 2; i++ {
+			if p+2 > len(d) {
+				return
+			}
+			rat = append(rat, jbig2Point{x: int(int8(d[p])), y: int(int8(d[p+1]))})
+			p += 2
+		}
+	}
+	if rw <= 0 || rh <= 0 || rw > 1<<20 || rh > 1<<20 {
+		return
+	}
+	// Reference is the current page content under the region rectangle.
+	ref := newJBIG2Bitmap(rw, rh)
+	for y := 0; y < rh && y < len(ref); y++ {
+		py := ry + y
+		if py < 0 || py >= len(st.page) {
+			continue
+		}
+		for x := 0; x < rw; x++ {
+			px := rx + x
+			if px >= 0 && px < len(st.page[py]) {
+				ref[y][x] = st.page[py][px]
+			}
+		}
+	}
 	ctx := newJBIG2Ctx(1)
 	dec := newMQDecoder(d, p, len(d))
-	region := decodeGenericBitmap(rw, rh, template, tpgdon, nil, at, dec, ctx.gb)
-	st.composite(region, rx, ry, regionCombo)
+	region := decodeRefinement(rw, rh, rTemplate, ref, 0, 0, rat, dec, ctx.gr)
+	st.composite(region, rx, ry, 4) // replace
 }
 
 // composite draws a region bitmap onto the page at (x,y), growing the page if its
