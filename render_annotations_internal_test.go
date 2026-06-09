@@ -36,6 +36,39 @@ func TestNormRect(t *testing.T) {
 	}
 }
 
+// TestAppearanceStreamASSelection verifies /AS is authoritative when the /AP/N
+// is a state subdictionary: the named state's stream renders, and an /AS that
+// names a state with no stream (e.g. an off checkbox whose /N holds only the
+// on-states) renders nothing rather than falling back to an on-appearance.
+func TestAppearanceStreamASSelection(t *testing.T) {
+	objects := map[int]*pdfObject{}
+	on := &pdfStream{Dict: pdfDict{"/BBox": pdfArray{0, 0, 10, 10}}}
+
+	// /N has only an on-state "/1"; an off widget carries /AS /Off.
+	off := pdfDict{
+		"/AS": pdfName("/Off"),
+		"/AP": pdfDict{"/N": pdfDict{"/1": on}},
+	}
+	if s := appearanceStream(objects, off); s != nil {
+		t.Error("off widget (/AS /Off, no /Off stream) drew an appearance, want nil")
+	}
+
+	// Same dict but /AS names the present state → that stream renders.
+	checked := pdfDict{
+		"/AS": pdfName("/1"),
+		"/AP": pdfDict{"/N": pdfDict{"/1": on}},
+	}
+	if s := appearanceStream(objects, checked); s != on {
+		t.Errorf("on widget (/AS /1) = %v, want the /1 stream", s)
+	}
+
+	// No /AS at all → fall back to any available state stream.
+	noAS := pdfDict{"/AP": pdfDict{"/N": pdfDict{"/1": on}}}
+	if s := appearanceStream(objects, noAS); s != on {
+		t.Errorf("no /AS fallback = %v, want the /1 stream", s)
+	}
+}
+
 // TestAnnotAppearanceMatrix maps a 0..100 BBox (identity /Matrix) onto a
 // 200×100 rect at offset (10,20); the matrix must scale ×2/×1 and translate.
 func TestAnnotAppearanceMatrix(t *testing.T) {

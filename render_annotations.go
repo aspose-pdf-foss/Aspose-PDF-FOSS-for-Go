@@ -78,12 +78,18 @@ func appearanceStream(objects map[int]*pdfObject, ad pdfDict) *pdfStream {
 	if !ok {
 		return nil
 	}
+	// When /AS names the active state, it is authoritative: render only that
+	// state's stream. An off checkbox/radio commonly has /AS /Off with no /Off
+	// appearance in /N (only the on-states are present) — in that case there is
+	// nothing to draw, so return nil. Falling back to an arbitrary state here
+	// would paint the "on" look on an unchecked widget.
 	if as := dictGetName(ad, "/AS"); as != "" {
 		if s, ok := resolveRef(objects, d[as]).(*pdfStream); ok {
 			return s
 		}
+		return nil
 	}
-	for _, v := range d { // fallback: any state with a stream
+	for _, v := range d { // no /AS: fall back to any state with a stream
 		if s, ok := resolveRef(objects, v).(*pdfStream); ok {
 			return s
 		}
