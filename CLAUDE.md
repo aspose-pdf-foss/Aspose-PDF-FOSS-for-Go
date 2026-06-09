@@ -380,6 +380,20 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 4. Soft masks (`/SMask`) are applied as PNG alpha channels; JPEG+SMask is re-encoded as PNG
 5. Inline images (BI/ID/EI) are parsed with abbreviation expansion (PDF spec Tables 4.43/4.44)
 6. Form XObjects are recursed into with inherited CTM and resources
+7. **JBIG2** (`/JBIG2Decode`, 1-bpp scanned bilevel): decoded in-house (`jbig2*.go`) since `decodeStream` can't reach the `/JBIG2Globals` stream — `extractXObjectImageData` detects the filter, resolves globals from `/DecodeParms` (`jbig2GlobalsData`), and calls `jbig2Decode` to a packed 1-bpp DeviceGray bitmap (0 = black; JBIG2 foreground is inverted), so extraction and the renderer (which shares `Extract`) both work. See the JBIG2 section below for scope.
+
+### JBIG2 decoding (`jbig2.go`, `jbig2_mq.go`, `jbig2_generic.go`, `jbig2_refine.go`, `jbig2_symbol.go`, `jbig2_text.go`, `jbig2_tables.go`)
+
+Pure-Go JBIG2 decoder (ITU-T T.88) for the PDF `/JBIG2Decode` filter. Epic `pdf-go-hqr`. **Phase 1 (complete)** covers the embedded-organization segment stream on the arithmetic (MQ) coding path — the combination scanned-document PDFs almost always use:
+- `jbig2_tables.go` — the MQ probability-estimation state table (Table E.1).
+- `jbig2_mq.go` — the MQ arithmetic decoder (software conventions: C split into chigh/clow), the arithmetic integer decoding procedures (`decodeInt` for IADH/IADW/IAEX/IAAI/IADT/IAFS/IADS/IAIT/IARI/IARDW/IARDH/IARDX/IARDY) and `decodeIAID` for symbol IDs. Faithful port of the reference decoder; validated byte-identical to jbig2dec / PyMuPDF.
+- `jbig2_generic.go` — `jbig2Bitmap` (height×width, 1 byte/pixel) and generic-region decoding (templates 0–3 with adaptive pixels and TPGDON typical prediction).
+- `jbig2_refine.go` — generic refinement-region decoding (templates 0/1), used by refinement/aggregate symbol dictionaries and refining text regions.
+- `jbig2_symbol.go` — `jbig2Ctx` (all IAx contexts + GB/GR context arrays + IAID), symbol-dictionary decoding by height class; the SDREFAGG path refines a single referenced symbol (REFAGGNINST==1) or aggregates several via a refining text region (>1); IAEX export run-lengths.
+- `jbig2_text.go` — text-region decoding: strips of symbol instances placed by IADT/IAIT (T), IAFS/IADS (S) and IAID, honoring REFCORNER/TRANSPOSED/SBDSOFFSET and per-instance refinement; the strip loop reads the terminating OOB IADS so the bit stream stays in sync.
+- `jbig2.go` — segment-header parser (embedded organization), page composition across segments (page info / generic region / symbol dict / text region), and the public `jbig2Decode(stream, globals, w, h)` returning packed 1-bpp.
+
+**Out of Phase 1 scope (tracked as children of `pdf-go-hqr`):** halftone regions + pattern dictionaries (`pdf-go-nkf`), standalone refinement regions (`pdf-go-2mk`), MMR-coded generic/symbol regions — would reuse `ccitt.go` G4 (`pdf-go-d6n`), and Huffman-coded symbol/text variants (`pdf-go-4pj`). Unsupported constructs are skipped, so a page still renders rather than erroring.
 
 ## Output conventions
 

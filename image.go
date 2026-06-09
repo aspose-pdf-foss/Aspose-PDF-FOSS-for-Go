@@ -170,6 +170,25 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		return img, nil
 	}
 
+	if filter == "/JBIG2Decode" || filter == "/JBIG2" {
+		decoded, err := jbig2Decode(stream.Data, jbig2GlobalsData(objects, stream.Dict), img.Width, img.Height)
+		if err != nil {
+			return nil, err
+		}
+		var alphaMask []byte
+		if smaskVal, ok := stream.Dict["/SMask"]; ok {
+			alphaMask = decodeSoftMask(objects, smaskVal)
+		}
+		// JBIG2 output is 1-bpp DeviceGray (0 = black, as packed by jbig2Decode).
+		pngData, err := encodePNG(decoded, img.Width, img.Height, 1, 1, alphaMask)
+		if err != nil {
+			return nil, err
+		}
+		img.Data = pngData
+		img.Format = ImageFormatPNG
+		return img, nil
+	}
+
 	var rawPixels []byte
 	if stream.Decoded {
 		rawPixels = stream.Data
