@@ -131,30 +131,59 @@ func (info *ImageInfo) Extract() (*Image, error) {
 
 // extractXObjectImageData decodes an XObject image stream into the provided Image.
 func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdfStream, formVal pdfValue) (*Image, error) {
-	filter := primaryFilter(stream.Dict)
-
-	if filter == "/DCTDecode" {
-		jpegData := stream.Data
+	chain := filterChain(stream.Dict)
+	filter := ""
+	if len(chain) > 0 {
+		filter = chain[len(chain)-1]
+	}
+	// unwrapped returns the stream bytes with every filter before the final
+	// image codec applied, so a compressed wrapper chain like
+	// [/FlateDecode /DCTDecode] yields the raw JPEG bytes.
+	unwrapped := func(kind string) ([]byte, error) {
+		data := stream.Data
 		if stream.Decoded {
-			jpegData = getRawStreamData(objects, formVal)
-			if jpegData == nil {
-				return nil, fmt.Errorf("cannot read raw JPEG data")
+			data = getRawStreamData(objects, formVal)
+			if data == nil {
+				return nil, fmt.Errorf("cannot read raw %s data", kind)
 			}
+		}
+		for _, f := range chain[:len(chain)-1] {
+			out, err := applyFilter(f, data)
+			if err != nil {
+				return nil, err
+			}
+			data = out
+		}
+		return data, nil
+	}
+
+	if filter == "/DCTDecode" || filter == "/DCT" {
+		jpegData, err := unwrapped("JPEG")
+		if err != nil {
+			return nil, err
 		}
 
 		var alphaMask []byte
 		if smaskVal, ok := stream.Dict["/SMask"]; ok {
 			alphaMask = decodeSoftMask(objects, smaskVal)
 		}
+		maskVal, hasMask := stream.Dict["/Mask"]
 
 		// CMYK JPEGs decode wrong through Go's CMYK→RGB (Adobe files store
 		// inverted ink), and a soft mask needs an RGBA PNG anyway: decode to RGB
 		// (decodeJPEGToPixels handles the Adobe inversion) and re-encode as PNG.
+		// An explicit /Mask stencil (MRC scans: high-res bilevel text mask over a
+		// low-res JPEG foreground) is composited at the mask's resolution.
 		// Plain RGB/Gray JPEGs with no mask pass through untouched.
-		if img.ColorSpace == ColorSpaceDeviceCMYK || alphaMask != nil {
+		if img.ColorSpace == ColorSpaceDeviceCMYK || alphaMask != nil || hasMask {
 			pixels, _, _, err := decodeJPEGToPixels(jpegData)
 			if err != nil {
 				return nil, err
+			}
+			if hasMask {
+				if mAlpha, mw, mh, ok := decodeStencilMask(objects, maskVal); ok {
+					pixels, alphaMask, img.Width, img.Height = applyStencilMask(pixels, 3, img.Width, img.Height, mAlpha, mw, mh)
+				}
 			}
 			pngData, err := encodePNG(pixels, img.Width, img.Height, 8, 3, alphaMask)
 			if err != nil {
@@ -171,12 +200,9 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 	}
 
 	if filter == "/JPXDecode" || filter == "/JPX" {
-		jpxData := stream.Data
-		if stream.Decoded {
-			jpxData = getRawStreamData(objects, formVal)
-			if jpxData == nil {
-				return nil, fmt.Errorf("cannot read raw JPEG2000 data")
-			}
+		jpxData, err := unwrapped("JPEG2000")
+		if err != nil {
+			return nil, err
 		}
 		pixels, comps, w, h, err := jpxDecode(jpxData)
 		if err != nil {
@@ -391,6 +417,27 @@ func applyStencilMask(rgb []byte, comps, iw, ih int, alpha []byte, mw, mh int) (
 		}
 	}
 	return outRGB, alpha, ow, oh
+}
+
+// filterChain returns every filter name in order (a single name or an array).
+func filterChain(d pdfDict) []string {
+	filterVal, ok := d["/Filter"]
+	if !ok {
+		return nil
+	}
+	switch v := filterVal.(type) {
+	case pdfName:
+		return []string{string(v)}
+	case pdfArray:
+		var chain []string
+		for _, el := range v {
+			if n, ok := el.(pdfName); ok {
+				chain = append(chain, string(n))
+			}
+		}
+		return chain
+	}
+	return nil
 }
 
 // primaryFilter returns the first filter name, or "" if none.

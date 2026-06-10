@@ -173,7 +173,37 @@ func jbig2ParseSegments(data []byte) ([]jbig2Segment, error) {
 		dataLen := binary.BigEndian.Uint32(data[p:])
 		p += 4
 		if dataLen == 0xffffffff {
-			return segs, fmt.Errorf("jbig2: unknown-length segment unsupported")
+			// Unknown-length segment (T.88 §7.2.7): only valid for an immediate
+			// generic region. The coded data ends with a terminator (0xFF 0xAC for
+			// arithmetic, 0x00 0x00 for MMR) followed by the 4-byte row count,
+			// which in practice equals the declared region height — so scan for
+			// terminator+height (same approach as pdf.js) to find the segment end.
+			if typ != 38 && typ != 36 && typ != 39 {
+				return segs, fmt.Errorf("jbig2: unknown-length segment of type %d", typ)
+			}
+			if p+18 > len(data) {
+				return segs, fmt.Errorf("jbig2: truncated unknown-length segment")
+			}
+			height := binary.BigEndian.Uint32(data[p+4:])
+			mmr := data[p+17]&1 != 0
+			var pattern [6]byte
+			if !mmr {
+				pattern[0], pattern[1] = 0xff, 0xac
+			}
+			binary.BigEndian.PutUint32(pattern[2:], height)
+			found := -1
+			for i := p; i+6 <= len(data); i++ {
+				if data[i] == pattern[0] && data[i+1] == pattern[1] &&
+					data[i+2] == pattern[2] && data[i+3] == pattern[3] &&
+					data[i+4] == pattern[4] && data[i+5] == pattern[5] {
+					found = i
+					break
+				}
+			}
+			if found < 0 {
+				return segs, fmt.Errorf("jbig2: unknown-length segment end not found")
+			}
+			dataLen = uint32(found + 6 - p)
 		}
 		if p+int(dataLen) > len(data) {
 			dataLen = uint32(len(data) - p) // tolerate a short final segment
