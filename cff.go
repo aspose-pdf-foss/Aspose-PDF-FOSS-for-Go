@@ -5,6 +5,8 @@ package asposepdf
 import (
 	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // CFF (Compact Font Format, Adobe TN #5176) carries glyph outlines as Type2
@@ -29,6 +31,8 @@ type cffFont struct {
 	charset      []uint16   // GID → CID (CID-keyed) or SID (name-keyed)
 	cidToGID     map[uint16]uint16
 	simpleGID    map[uint16]uint16 // code → GID for simple (non-CID) fonts
+	strings      [][]byte          // String INDEX (custom SIDs ≥ 391)
+	runeToGID    map[rune]uint16   // Unicode → GID via charset glyph names (simple fonts)
 
 	unitsPerEm float64
 	numGlyphs  int
@@ -69,7 +73,7 @@ func parseCFF(data []byte) (*cffFont, error) {
 		return nil, fmt.Errorf("parse cff: missing Top DICT")
 	}
 	pos = pos2
-	_, pos, err = readCFFIndex(data, pos) // String INDEX (unused for outlines)
+	strs, pos, err := readCFFIndex(data, pos) // String INDEX (custom SIDs ≥ 391)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +83,7 @@ func parseCFF(data []byte) (*cffFont, error) {
 	}
 
 	top := parseCFFDict(topDicts[0])
-	f := &cffFont{globalSubrs: gsubrs, unitsPerEm: 1000}
+	f := &cffFont{globalSubrs: gsubrs, strings: strs, unitsPerEm: 1000}
 
 	// FontMatrix (12 7) sets units/em; default 0.001 → 1000.
 	if fm, ok := top[cffOp(12, 7)]; ok && len(fm) >= 1 && fm[0] != 0 {
@@ -138,6 +142,24 @@ func (f *cffFont) buildSimpleEncoding(data []byte, top map[int][]float64) {
 		}
 	}
 	f.simpleGID = make(map[uint16]uint16)
+
+	// Glyph-name → rune → GID map, used when the PDF font dict specifies its own
+	// /Encoding (e.g. WinAnsiEncoding): per ISO 32000-1 §9.6.6.2 the PDF encoding
+	// overrides the font's built-in one, mapping codes to glyph *names*; the name
+	// reaches the glyph through the charset SID. Subset fonts often embed a
+	// custom encoding covering only a couple of codes, so without this path
+	// almost every glyph resolved to .notdef and pages rendered nearly blank.
+	f.runeToGID = make(map[rune]uint16, len(f.charset))
+	for gid, sid := range f.charset {
+		if gid == 0 {
+			continue
+		}
+		if r := cffGlyphNameRune(f.sidName(sid)); r != 0 {
+			if _, ok := f.runeToGID[r]; !ok {
+				f.runeToGID[r] = uint16(gid)
+			}
+		}
+	}
 
 	encOff := intOp(top, cffOp(16, 0))
 	if encOff > 1 && encOff < len(data) {
@@ -801,4 +823,113 @@ func abs(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// sidName returns the glyph name for a charset SID: the fixed standard strings
+// for SID < 391, the font's String INDEX above that.
+func (f *cffFont) sidName(sid uint16) string {
+	if int(sid) < len(cffStdStrings) {
+		return cffStdStrings[sid]
+	}
+	if i := int(sid) - len(cffStdStrings); i < len(f.strings) {
+		return string(f.strings[i])
+	}
+	return ""
+}
+
+// cffGlyphNameRune resolves a glyph name to its Unicode rune: the AGL table
+// (shared with /Differences parsing), then uniXXXX / uXXXX[XX] forms. 0 = none.
+func cffGlyphNameRune(name string) rune {
+	if name == "" {
+		return 0
+	}
+	if r, ok := glyphToRune[name]; ok {
+		return r
+	}
+	hex := ""
+	if len(name) == 7 && strings.HasPrefix(name, "uni") {
+		hex = name[3:]
+	} else if len(name) >= 5 && len(name) <= 7 && name[0] == 'u' {
+		hex = name[1:]
+	}
+	if hex != "" {
+		if v, err := strconv.ParseUint(hex, 16, 32); err == nil {
+			return rune(v)
+		}
+	}
+	return 0
+}
+
+// cffStdStrings is the CFF standard strings table (SIDs 0–390), Appendix A of
+// the CFF specification (Adobe TN #5176).
+var cffStdStrings = [391]string{
+	".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent",
+	"ampersand", "quoteright", "parenleft", "parenright", "asterisk", "plus",
+	"comma", "hyphen", "period", "slash", "zero", "one", "two", "three", "four",
+	"five", "six", "seven", "eight", "nine", "colon", "semicolon", "less",
+	"equal", "greater", "question", "at", "A", "B", "C", "D", "E", "F", "G",
+	"H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
+	"W", "X", "Y", "Z", "bracketleft", "backslash", "bracketright",
+	"asciicircum", "underscore", "quoteleft", "a", "b", "c", "d", "e", "f",
+	"g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
+	"v", "w", "x", "y", "z", "braceleft", "bar", "braceright", "asciitilde",
+	"exclamdown", "cent", "sterling", "fraction", "yen", "florin", "section",
+	"currency", "quotesingle", "quotedblleft", "guillemotleft",
+	"guilsinglleft", "guilsinglright", "fi", "fl", "endash", "dagger",
+	"daggerdbl", "periodcentered", "paragraph", "bullet", "quotesinglbase",
+	"quotedblbase", "quotedblright", "guillemotright", "ellipsis",
+	"perthousand", "questiondown", "grave", "acute", "circumflex", "tilde",
+	"macron", "breve", "dotaccent", "dieresis", "ring", "cedilla",
+	"hungarumlaut", "ogonek", "caron", "emdash", "AE", "ordfeminine",
+	"Lslash", "Oslash", "OE", "ordmasculine", "ae", "dotlessi", "lslash",
+	"oslash", "oe", "germandbls", "onesuperior", "logicalnot", "mu",
+	"trademark", "Eth", "onehalf", "plusminus", "Thorn", "onequarter",
+	"divide", "brokenbar", "degree", "thorn", "threequarters", "twosuperior",
+	"registered", "minus", "eth", "multiply", "threesuperior", "copyright",
+	"Aacute", "Acircumflex", "Adieresis", "Agrave", "Aring", "Atilde",
+	"Ccedilla", "Eacute", "Ecircumflex", "Edieresis", "Egrave", "Iacute",
+	"Icircumflex", "Idieresis", "Igrave", "Ntilde", "Oacute", "Ocircumflex",
+	"Odieresis", "Ograve", "Otilde", "Scaron", "Uacute", "Ucircumflex",
+	"Udieresis", "Ugrave", "Yacute", "Ydieresis", "Zcaron", "aacute",
+	"acircumflex", "adieresis", "agrave", "aring", "atilde", "ccedilla",
+	"eacute", "ecircumflex", "edieresis", "egrave", "iacute", "icircumflex",
+	"idieresis", "igrave", "ntilde", "oacute", "ocircumflex", "odieresis",
+	"ograve", "otilde", "scaron", "uacute", "ucircumflex", "udieresis",
+	"ugrave", "yacute", "ydieresis", "zcaron", "exclamsmall",
+	"Hungarumlautsmall", "dollaroldstyle", "dollarsuperior",
+	"ampersandsmall", "Acutesmall", "parenleftsuperior", "parenrightsuperior",
+	"twodotenleader", "onedotenleader", "zerooldstyle", "oneoldstyle",
+	"twooldstyle", "threeoldstyle", "fouroldstyle", "fiveoldstyle",
+	"sixoldstyle", "sevenoldstyle", "eightoldstyle", "nineoldstyle",
+	"commasuperior", "threequartersemdash", "periodsuperior",
+	"questionsmall", "asuperior", "bsuperior", "centsuperior", "dsuperior",
+	"esuperior", "isuperior", "lsuperior", "msuperior", "nsuperior",
+	"osuperior", "rsuperior", "ssuperior", "tsuperior", "ff", "ffi", "ffl",
+	"parenleftinferior", "parenrightinferior", "Circumflexsmall",
+	"hyphensuperior", "Gravesmall", "Asmall", "Bsmall", "Csmall", "Dsmall",
+	"Esmall", "Fsmall", "Gsmall", "Hsmall", "Ismall", "Jsmall", "Ksmall",
+	"Lsmall", "Msmall", "Nsmall", "Osmall", "Psmall", "Qsmall", "Rsmall",
+	"Ssmall", "Tsmall", "Usmall", "Vsmall", "Wsmall", "Xsmall", "Ysmall",
+	"Zsmall", "colonmonetary", "onefitted", "rupiah", "Tildesmall",
+	"exclamdownsmall", "centoldstyle", "Lslashsmall", "Scaronsmall",
+	"Zcaronsmall", "Dieresissmall", "Brevesmall", "Caronsmall",
+	"Dotaccentsmall", "Macronsmall", "figuredash", "hypheninferior",
+	"Ogoneksmall", "Ringsmall", "Cedillasmall", "questiondownsmall",
+	"oneeighth", "threeeighths", "fiveeighths", "seveneighths", "onethird",
+	"twothirds", "zerosuperior", "foursuperior", "fivesuperior",
+	"sixsuperior", "sevensuperior", "eightsuperior", "ninesuperior",
+	"zeroinferior", "oneinferior", "twoinferior", "threeinferior",
+	"fourinferior", "fiveinferior", "sixinferior", "seveninferior",
+	"eightinferior", "nineinferior", "centinferior", "dollarinferior",
+	"periodinferior", "commainferior", "Agravesmall", "Aacutesmall",
+	"Acircumflexsmall", "Atildesmall", "Adieresissmall", "Aringsmall",
+	"AEsmall", "Ccedillasmall", "Egravesmall", "Eacutesmall",
+	"Ecircumflexsmall", "Edieresissmall", "Igravesmall", "Iacutesmall",
+	"Icircumflexsmall", "Idieresissmall", "Ethsmall", "Ntildesmall",
+	"Ogravesmall", "Oacutesmall", "Ocircumflexsmall", "Otildesmall",
+	"Odieresissmall", "OEsmall", "Oslashsmall", "Ugravesmall",
+	"Uacutesmall", "Ucircumflexsmall", "Udieresissmall", "Yacutesmall",
+	"Thornsmall", "Ydieresissmall", "001.000", "001.001", "001.002",
+	"001.003", "Black", "Bold", "Book", "Light", "Medium", "Regular",
+	"Roman", "Semibold",
 }

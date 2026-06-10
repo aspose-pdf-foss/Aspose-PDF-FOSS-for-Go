@@ -130,3 +130,37 @@ func TestParseCFFCurveGlyph(t *testing.T) {
 		t.Errorf("curve extent = (%.1f,%.1f), want it to bulge past (50,50)", maxx, maxy)
 	}
 }
+
+// TestCFFStdStrings sanity-checks the standard strings table against known SIDs
+// (CFF spec Appendix A): the glyph-name lookups behind the PDF-encoding →
+// charset path depend on these exact positions.
+func TestCFFStdStrings(t *testing.T) {
+	checks := map[int]string{
+		0: ".notdef", 1: "space", 34: "A", 66: "a", 45: "L",
+		228: "zcaron", 390: "Semibold",
+	}
+	for sid, want := range checks {
+		if got := cffStdStrings[sid]; got != want {
+			t.Errorf("cffStdStrings[%d] = %q, want %q", sid, got, want)
+		}
+	}
+}
+
+// TestCFFGlyphNameRune covers the AGL lookup plus the uniXXXX / uXXXX forms
+// used by subset fonts for non-standard glyph names.
+func TestCFFGlyphNameRune(t *testing.T) {
+	cases := map[string]rune{
+		"A":         'A',
+		"adieresis": 'ä',
+		"uni00E4":   'ä',
+		"u00E4":     'ä',
+		"u1F600":    '\U0001F600',
+		"":          0,
+		"nosuch":    0,
+	}
+	for name, want := range cases {
+		if got := cffGlyphNameRune(name); got != want {
+			t.Errorf("cffGlyphNameRune(%q) = %U, want %U", name, got, want)
+		}
+	}
+}

@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "math"
+import (
+	"math"
+	"strconv"
+)
 
 // textState holds the PDF text-object state used while rendering.
 type textState struct {
@@ -128,14 +131,23 @@ func (rd *renderer) showTJ(v pdfValue) {
 }
 
 // resolveRenderFont returns the renderable font for a /Font resource name,
-// caching the result. A nil program means the font has no embedded TrueType
-// outline (e.g. Standard-14) and its glyphs are skipped until P4.
+// caching the result. The cache key is the font's indirect object number, not
+// the resource name: a page and a nested Form XObject may both define e.g.
+// /T1_0 pointing at different fonts (56333.pdf swaps two faces this way), and
+// a name-keyed cache would render the form's text with the page's font. A nil
+// program means the font has no embedded outline and its glyphs are skipped.
 func (rd *renderer) resolveRenderFont(name string) *renderFont {
-	if rf, ok := rd.fontCache[name]; ok {
+	key := name
+	if fontsDict, ok := resolveRefToDict(rd.page.doc.objects, rd.res["/Font"]); ok {
+		if ref, ok := fontsDict[name].(pdfRef); ok {
+			key = "obj:" + strconv.Itoa(ref.Num)
+		}
+	}
+	if rf, ok := rd.fontCache[key]; ok {
 		return rf
 	}
 	rf := rd.buildRenderFont(name)
-	rd.fontCache[name] = rf
+	rd.fontCache[key] = rf
 	return rf
 }
 
@@ -499,9 +511,21 @@ func (f *renderFont) gid(code uint32) uint16 {
 		}
 		return cid // Identity
 	}
-	// Simple CFF (Type1C) glyph selection: the CFF charset+encoding gives a
-	// direct code→GID map (ISO 32000-1 §9.6.6.2).
+	// Simple CFF (Type1C) glyph selection (ISO 32000-1 §9.6.6.2). When the PDF
+	// font dict carries its own /Encoding (WinAnsi etc., resolved into
+	// fi.encoding) it overrides the font's built-in encoding: the code's glyph
+	// name reaches the glyph through the charset (rune → name-derived GID).
+	// Subset fonts often embed a built-in encoding covering only a few codes, so
+	// without this the page renders nearly blank. The font's own encoding is the
+	// fallback for codes the PDF encoding leaves unmapped.
 	if code < 256 && f.cff != nil {
+		if f.fi.known {
+			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+				if g := f.cff.runeToGID[r]; g != 0 {
+					return g
+				}
+			}
+		}
 		if g := f.cff.simpleGID[uint16(code)]; g != 0 {
 			return g
 		}
