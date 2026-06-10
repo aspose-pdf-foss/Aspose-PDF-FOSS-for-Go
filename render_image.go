@@ -41,7 +41,17 @@ func (rd *renderer) drawImageXObject(name string, stream *pdfStream) {
 		objects := rd.page.doc.objects
 		w := int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
 		h := int(operandFloat(resolveRef(objects, stream.Dict["/Height"])))
-		rd.drawImageMask(decodedStreamData(stream), w, h, maskPaintWhenOne(objects, stream.Dict))
+		data := decodedStreamData(stream)
+		// JBIG2 can't be decoded by decodeStream (its globals live in
+		// /DecodeParms), so decodedStreamData returns raw compressed bytes here.
+		// Decode it so the mask samples are the real 1-bpp bitmap (jbig2Decode
+		// packs foreground as sample 0, which a default /Decode paints).
+		if f := primaryFilter(stream.Dict); f == "/JBIG2Decode" || f == "/JBIG2" {
+			if dec, err := jbig2Decode(stream.Data, jbig2GlobalsData(objects, stream.Dict), w, h); err == nil {
+				data = dec
+			}
+		}
+		rd.drawImageMask(data, w, h, maskPaintWhenOne(objects, stream.Dict))
 		return
 	}
 	info, ok := xobjectImageInfo(rd.page.doc.objects, rd.res, name, identityMatrix())
