@@ -40,6 +40,7 @@ type fontRepository struct {
 	sysIndexed  bool
 	sysByFamily map[string]fontRef
 	sysByName   map[string]fontRef
+	sysByCompact map[string]fontRef // separator-stripped PS name / family → ref
 }
 
 // fontRef points at one sub-font within a font file (index 0 for a plain .ttf).
@@ -123,16 +124,16 @@ func (r *fontRepository) find(fi fontInfo) *ttfFont {
 // simsun.ttc) or, failing that, a well-known default family for the Adobe
 // ordering. Returns nil if no covering font is installed.
 func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
-	if f := r.find(fi); f != nil {
+	// Prefer the document's own font when installed (exact name / compact match),
+	// so a Yu Gothic Medium resolves to that exact face — not just any Yu Gothic —
+	// giving the right glyph variant and units-per-em.
+	if f := r.findSystemExact(fi); f != nil {
 		return f
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ensureSystemIndexed()
 
-	if ref, ok := r.sysByName[normalizeFontName(fi.name)]; ok {
-		return r.load(ref)
-	}
 	style := styleKey(fi.bold, fi.italic, strings.ToLower(fi.name))
 	fams := append(candidateFamilies(fi.name), cjkOrderingFamilies(ordering)...)
 	for _, fam := range fams {
@@ -148,6 +149,44 @@ func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
 	return nil
 }
 
+// findSystemExact resolves a font to an installed face by an exact name match —
+// PostScript name, then a separator-stripped ("compact") PostScript-or-family
+// match (so a PDF BaseFont "YuGothicMedium" finds the system "YuGothic-Medium" /
+// "Yu Gothic Medium"). It never falls back to a coarse family/substitute, so it
+// is safe for non-embedded Type0/Identity-H fonts: the document's CIDs are the
+// original font's glyph IDs, so the real installed font renders them correctly
+// (Identity GID = CID), while an unrelated face is never substituted in.
+func (r *fontRepository) findSystemExact(fi fontInfo) *ttfFont {
+	if f := r.find(fi); f != nil {
+		return f
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureSystemIndexed()
+	if ref, ok := r.sysByName[normalizeFontName(fi.name)]; ok {
+		return r.load(ref)
+	}
+	if ck := compactFontName(strippedFamily(normalizeFontName(fi.name))); ck != "" {
+		if ref, ok := r.sysByCompact[ck]; ok {
+			return r.load(ref)
+		}
+	}
+	return nil
+}
+
+// compactFontName lowercases and strips every non-alphanumeric character, so
+// "YuGothic-Medium", "Yu Gothic Medium" and "YuGothicMedium" all collapse to
+// the same key.
+func compactFontName(s string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(s) {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
 // ensureSystemIndexed indexes the OS font directories into the sys* maps once.
 func (r *fontRepository) ensureSystemIndexed() {
 	if r.sysIndexed {
@@ -155,6 +194,7 @@ func (r *fontRepository) ensureSystemIndexed() {
 	}
 	r.sysByFamily = map[string]fontRef{}
 	r.sysByName = map[string]fontRef{}
+	r.sysByCompact = map[string]fontRef{}
 	if r.parsed == nil {
 		r.parsed = map[string][]*ttfFont{}
 	}
@@ -174,6 +214,11 @@ func (r *fontRepository) ensureSystemIndexed() {
 				if _, exists := r.sysByName[ps]; !exists {
 					r.sysByName[ps] = ref
 				}
+				if ck := compactFontName(ps); ck != "" {
+					if _, exists := r.sysByCompact[ck]; !exists {
+						r.sysByCompact[ck] = ref
+					}
+				}
 			}
 			fam := strings.ToLower(strings.TrimSpace(f.family))
 			if fam == "" {
@@ -184,6 +229,14 @@ func (r *fontRepository) ensureSystemIndexed() {
 				f.flagsItalic || strings.Contains(sub, "italic") || strings.Contains(sub, "oblique"), "")
 			if _, exists := r.sysByFamily[fam+"|"+style]; !exists {
 				r.sysByFamily[fam+"|"+style] = ref
+			}
+			// Compact family+subfamily key (e.g. "yu gothic"+"medium" →
+			// "yugothicmedium") so a PDF BaseFont "YuGothicMedium" resolves even
+			// when the PostScript name differs.
+			if ck := compactFontName(fam + sub); ck != "" {
+				if _, exists := r.sysByCompact[ck]; !exists {
+					r.sysByCompact[ck] = ref
+				}
 			}
 		}
 	}

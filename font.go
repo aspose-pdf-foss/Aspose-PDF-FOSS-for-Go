@@ -127,7 +127,10 @@ func resolveType0Encoding(objects map[int]*pdfObject, type0Dict pdfDict, fi *fon
 		fi.cidCMap = parseCIDCMap(data, predefinedCMap)
 	}
 
-	// CIDSystemInfo /Ordering → CID→Unicode table (Adobe ordering).
+	// CIDSystemInfo /Ordering → CID→Unicode table (Adobe ordering). Valid both
+	// for a predefined/embedded CMap (codes → Adobe CIDs) and for Identity-H when
+	// the descendant is a real Adobe-ordered CIDFont (the 2-byte code is the
+	// Adobe CID), e.g. a non-embedded Yu Gothic with /Ordering (Japan1).
 	fi.ordering = cidSystemOrdering(objects, type0Dict)
 	if fi.ordering != "" {
 		fi.cidToUni = cidToUnicodeForOrdering(fi.ordering)

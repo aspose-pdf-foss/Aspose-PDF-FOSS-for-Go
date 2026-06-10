@@ -237,12 +237,13 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 		}
 	} else if rf.cidToGID == nil {
 		// Non-embedded Type0 CIDFontType2 with Identity CIDToGIDMap: producers
-		// commonly emit the original font's glyph IDs as CIDs (an anti-extraction
-		// pattern — no ToUnicode, GID-as-CID). Substitute a metric-compatible
+		// emit the original font's glyph IDs as CIDs (no ToUnicode, GID-as-CID).
+		// If the actual named font is installed (e.g. Yu Gothic — YuGothM.ttc),
+		// use it: its glyph IDs are exactly the document's CIDs, so the text
+		// renders in the correct face. Otherwise substitute a metric-compatible
 		// family whose Latin glyph order matches and use the CID as a GID
-		// directly (gid() returns the CID for Identity). Better an approximate
-		// render than blank text.
-		fb := fontRepo.find(fi)
+		// directly — an approximate render rather than blank text.
+		fb := fontRepo.findSystemExact(fi)
 		if fb == nil {
 			fb = fallbackFontFor(fi)
 		}
