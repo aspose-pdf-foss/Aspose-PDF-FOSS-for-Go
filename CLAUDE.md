@@ -395,11 +395,11 @@ Pure-Go JBIG2 decoder (ITU-T T.88) for the PDF `/JBIG2Decode` filter. Epic `pdf-
 
 **Phase 2 (added: `jbig2_huffman.go`, `jbig2_huffsym.go`, `jbig2_hufftext.go`, `jbig2_mmr.go`, `jbig2_halftone.go`):**
 - `jbig2_huffman.go` — Huffman bit reader, canonical-prefix table builder/decoder, and the 15 standard tables (Annex B); custom table segments (type 53) parse in `jbig2.go`.
-- `jbig2_huffsym.go` — Huffman symbol dictionaries: height classes with a collective bitmap (MMR-coded, via `jbig2_mmr.go`, or uncompressed) split into per-symbol bitmaps. `jbig2_hufftext.go` — Huffman text regions with the run-code symbol-ID table (§7.4.3.1.7). Validated byte-identical on a real globals + symbol-dict + non-transposed text-region scan.
+- `jbig2_huffsym.go` — Huffman symbol dictionaries: height classes with a collective bitmap (MMR-coded, via `jbig2_mmr.go`, or uncompressed) split into per-symbol bitmaps. `jbig2_hufftext.go` — Huffman text regions with the run-code symbol-ID table (§7.4.3.1.7), including transposed regions with SBSTRIPS>1. Validated byte-identical (0 differing pixels) on a real two-page globals + symbol-dict + text-region scan (one page transposed, one not).
 - `jbig2_mmr.go` — MMR (Group 4) regions/bitplanes reuse the `ccitt.go` G4 decoder (`pdf-go-d6n`).
 - `jbig2_halftone.go` — pattern dictionaries (type 16) and halftone regions (types 20/22/23): Gray-coded bitplanes select indexed patterns stamped on a grid (`pdf-go-nkf`). Standalone refinement regions (types 40/42/43, `pdf-go-2mk`) decode in `jbig2.go` via the Phase 1 refinement decoder.
 
-**Known limitation:** a **transposed** Huffman text region with SBSTRIPS>1 has a strip-boundary desync (`pdf-go-xm1`) — the first strip is byte-exact but later strips lose their Y position. Non-transposed Huffman is pixel-exact. Halftone/standalone-refinement are implemented per spec but not yet corpus-validated. Unsupported constructs are skipped, so a page still renders rather than erroring.
+Halftone/standalone-refinement are implemented per spec but not yet corpus-validated. Unsupported constructs are skipped, so a page still renders rather than erroring.
 
 ## Output conventions
 

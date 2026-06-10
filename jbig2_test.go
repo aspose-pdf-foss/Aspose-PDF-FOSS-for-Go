@@ -118,9 +118,9 @@ func TestJBIG2DecodeFile(t *testing.T) {
 }
 
 // TestJBIG2HuffmanFile checks the Huffman-coded path (symbol dict + text region
-// with shared /JBIG2Globals) on a real multi-page scan. Page 2 uses only
-// non-transposed text regions and decodes byte-identical to the reference
-// (51288 black). Skipped when the corpus file is absent.
+// with shared /JBIG2Globals) on a real multi-page scan. Page 1 includes a
+// transposed text region (SBSTRIPS>1); page 2 is non-transposed. Both decode
+// byte-identical to the reference. Skipped when the corpus file is absent.
 func TestJBIG2HuffmanFile(t *testing.T) {
 	path := os.Getenv("JBIG2_HUFFTESTFILE")
 	if path == "" {
@@ -136,34 +136,34 @@ func TestJBIG2HuffmanFile(t *testing.T) {
 	if d.PageCount() < 2 {
 		t.Fatalf("expected >=2 pages, got %d", d.PageCount())
 	}
-	m, err := d.RenderImage(2, RenderOptions{DPI: 72})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Extract the page-2 image directly for an exact bilevel check.
 	all, err := d.ImageInfos()
-	if err != nil || len(all) < 2 || len(all[1]) == 0 {
-		t.Fatalf("page-2 image not found: %v", err)
+	if err != nil || len(all) < 2 {
+		t.Fatalf("image infos: %v", err)
 	}
-	img, err := all[1][0].Extract()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pm, err := png.Decode(bytes.NewReader(img.Data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bnd := pm.Bounds()
-	black := 0
-	for y := bnd.Min.Y; y < bnd.Max.Y; y++ {
-		for x := bnd.Min.X; x < bnd.Max.X; x++ {
-			if r, _, _, _ := pm.At(x, y).RGBA(); r>>8 < 128 {
-				black++
+	want := []int{118482, 51288} // byte-exact reference (jbig2dec / PyMuPDF)
+	for pg := 0; pg < 2; pg++ {
+		if len(all[pg]) == 0 {
+			t.Fatalf("page-%d image not found", pg+1)
+		}
+		img, err := all[pg][0].Extract()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pm, err := png.Decode(bytes.NewReader(img.Data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bnd := pm.Bounds()
+		black := 0
+		for y := bnd.Min.Y; y < bnd.Max.Y; y++ {
+			for x := bnd.Min.X; x < bnd.Max.X; x++ {
+				if r, _, _, _ := pm.At(x, y).RGBA(); r>>8 < 128 {
+					black++
+				}
 			}
 		}
+		if black != want[pg] {
+			t.Errorf("page-%d black pixels = %d, want %d (byte-exact Huffman reference)", pg+1, black, want[pg])
+		}
 	}
-	if black != 51288 {
-		t.Errorf("page-2 black pixels = %d, want 51288 (byte-exact Huffman reference)", black)
-	}
-	_ = m
 }

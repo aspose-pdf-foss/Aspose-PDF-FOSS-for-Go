@@ -36,7 +36,6 @@ func buildSymbolIDTable(r *jbig2Reader, numSyms int) *huffTable {
 	runTable := newHuffTable(runLines)
 
 	codeLens := make([]int, numSyms)
-	prev := 0
 	i := 0
 	guard := 0
 	for i < numSyms {
@@ -44,12 +43,18 @@ func buildSymbolIDTable(r *jbig2Reader, numSyms int) *huffTable {
 		switch {
 		case rc < 32:
 			codeLens[i] = rc
-			prev = rc
 			i++
 		case rc == 32:
 			n := r.readBits(2) + 3
+			// Repeat the *previous symbol's* code length (ITU-T T.88 §7.4.3.1.7),
+			// i.e. codeLens[i-1] — not the last explicitly-decoded length, which
+			// differs when a run-code 32 follows a run-code 33/34 (repeat-zero).
+			rep := 0
+			if i > 0 {
+				rep = codeLens[i-1]
+			}
 			for k := 0; k < n && i < numSyms; k++ {
-				codeLens[i] = prev
+				codeLens[i] = rep
 				i++
 			}
 		case rc == 33:
