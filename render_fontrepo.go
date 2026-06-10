@@ -206,6 +206,28 @@ func cjkOrderingFamilies(ordering string) []string {
 	return nil
 }
 
+// isCJKFamily reports whether a font's BaseFont names a well-known CJK family.
+// Used to route a non-embedded *simple* font (e.g. a SimSun WinAnsi face) to a
+// system CJK font for its Latin glyphs too, instead of a bundled Latin
+// substitute — so it matches its composite (Type0) sibling of the same font.
+func isCJKFamily(name string) bool {
+	n := strippedFamily(normalizeFontName(name))
+	for _, ord := range []string{"GB1", "CNS1", "Japan1", "Korea1"} {
+		for _, f := range cjkOrderingFamilies(ord) {
+			if n == f {
+				return true
+			}
+		}
+	}
+	// Unambiguous CJK tokens (also catch suffixed names like "SimSun-ExtB").
+	for _, k := range []string{"simsun", "nsimsun", "simhei", "kaiti", "fangsong", "mincho", "mingliu", "batang", "gulim", "gungsuh", "dotum", "malgun", "meiryo", "yahei", "jhenghei", "songti", "heiti", "dfkai", "msgothic", "ms gothic", "pgothic"} {
+		if strings.Contains(n, k) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *fontRepository) ensureIndexed() {
 	if r.indexed {
 		return

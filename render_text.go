@@ -198,6 +198,14 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 		// Resolution order: a caller-registered or system font (exact), then
 		// the bundled metric-compatible substitute.
 		fb := fontRepo.find(fi)
+		if fb == nil && isCJKFamily(fi.name) {
+			// A non-embedded simple font that is really a CJK face (e.g. SimSun
+			// with WinAnsiEncoding for its Latin glyphs). Render from the actual
+			// installed CJK font — its Latin forms are half-width and upright, and
+			// the bundled Latin substitutes don't match — keeping it consistent
+			// with the composite sibling of the same font.
+			fb = fontRepo.findCJK(fi, "")
+		}
 		if fb == nil {
 			fb = fallbackFontFor(fi)
 		}
