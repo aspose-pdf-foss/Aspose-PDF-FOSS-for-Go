@@ -30,6 +30,8 @@ type renderFont struct {
 	isType0  bool
 	cidToGID []uint16 // nil → identity (GID = CID)
 	fallback bool     // prog is the bundled substitute (non-embedded font)
+	cjkUni   map[uint16]rune // non-embedded CJK: CID → Unicode (glyph via prog's cmap)
+	cjkAscii map[uint16]rune // CID → ASCII rune for Latin codes the CMap leaves Unicode-less
 	fi       fontInfo
 }
 
@@ -82,6 +84,18 @@ func (rd *renderer) showText(s string) {
 		rd.ts.hScale = 1
 	}
 	if f != nil && f.isType0 {
+		if f.fi.cidCMap != nil {
+			// Predefined/embedded CMap: the codespace dictates each code's byte
+			// length (mixed 1-byte Latin / 2-byte CJK). showGlyph receives the
+			// resolved CID as its code (gid()/width are CID-keyed downstream).
+			b := []byte(s)
+			for len(b) > 0 {
+				_, cid, n := f.fi.cidCMap.next(b)
+				rd.showGlyph(uint32(cid), n == 1 && b[0] == 32)
+				b = b[n:]
+			}
+			return
+		}
 		for i := 0; i+1 < len(s); i += 2 {
 			code := uint16(s[i])<<8 | uint16(s[i+1])
 			rd.showGlyph(uint32(code), code == 32)
@@ -199,6 +213,20 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			rf.synth = zapfDingbatsContours
 			rf.em = 1000
 		}
+	} else if fi.cidToUni != nil {
+		// Non-embedded composite CJK font (e.g. SimSun with /Encoding /GBK-EUC-H,
+		// no /FontFile2). Render real glyphs from an installed CJK font: map the
+		// CID → Unicode (Adobe ordering table) → GID via that font's cmap. We do
+		// not use the bundled Latin substitutes here — they have no CJK glyphs.
+		if cjk := fontRepo.findCJK(fi, fi.ordering); cjk != nil {
+			rf.prog = cjk
+			rf.cjkUni = fi.cidToUni
+			rf.cjkAscii = cjkAsciiFallback(fi.cidCMap, fi.cidToUni)
+			rf.fallback = true
+			if cjk.unitsPerEm != 0 {
+				rf.em = float64(cjk.unitsPerEm)
+			}
+		}
 	} else if rf.cidToGID == nil {
 		// Non-embedded Type0 CIDFontType2 with Identity CIDToGIDMap: producers
 		// commonly emit the original font's glyph IDs as CIDs (an anti-extraction
@@ -219,6 +247,23 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 		}
 	}
 	return rf
+}
+
+// cjkAsciiFallback maps the CIDs that a CMap assigns to single-byte ASCII codes
+// but Adobe's CID→Unicode table leaves unmapped (the proportional-Latin glyphs)
+// back to the ASCII rune, so Latin runs inside a CJK font still render.
+func cjkAsciiFallback(cm *cidCMap, cidToUni map[uint16]rune) map[uint16]rune {
+	if cm == nil {
+		return nil
+	}
+	m := map[uint16]rune{}
+	for code := 0x20; code < 0x7f; code++ {
+		_, cid, n := cm.next([]byte{byte(code)})
+		if n == 1 && cid != 0 && cidToUni[cid] == 0 {
+			m[cid] = rune(code)
+		}
+	}
+	return m
 }
 
 // decodedStreamData returns a stream's content with its filters applied.
@@ -423,7 +468,17 @@ func renderGlyphContour(fl *flattener, c glyphContour, m [6]float64, em float64)
 // gid maps a character code to a glyph ID for this font.
 func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
-		cid := uint16(code) // Identity-H: code == CID
+		cid := uint16(code) // showText passes the resolved CID as the code
+		if f.cjkUni != nil { // non-embedded CJK: CID → Unicode → GID via cmap
+			r := f.cjkUni[cid]
+			if r == 0 {
+				r = f.cjkAscii[cid] // Latin codes the CMap leaves Unicode-less
+			}
+			if r != 0 && f.prog != nil {
+				return f.prog.glyphID(r)
+			}
+			return 0
+		}
 		if f.cidToGID != nil { // CIDFontType2 explicit map
 			if int(cid) < len(f.cidToGID) {
 				return f.cidToGID[cid]

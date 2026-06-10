@@ -13,6 +13,9 @@ type fontInfo struct {
 	cidWidths map[uint16]float64 // CID widths from /W array
 	defaultW  float64            // /DW default width for CIDFont (1000 if absent)
 	isType0   bool               // true = two-byte character codes (composite font)
+	cidCMap   *cidCMap           // Type0 /Encoding CMap (predefined or embedded); nil = Identity
+	cidToUni  map[uint16]rune    // CID → Unicode (Adobe ordering table); nil if unknown
+	ordering  string             // CIDSystemInfo /Ordering (e.g. "GB1"); "" = Identity/unknown
 	known     bool               // false if encoding could not be determined
 	bold      bool
 	italic    bool
@@ -51,6 +54,7 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 	// Resolve descendant CIDFont for widths, then return.
 	if fi.isType0 {
 		fi.cidWidths, fi.defaultW = resolveCIDWidths(objects, fontDict)
+		resolveType0Encoding(objects, fontDict, &fi)
 		return fi
 	}
 
@@ -94,6 +98,68 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 
 	fi.widths = resolveWidths(objects, fontDict, name)
 	return fi
+}
+
+// resolveType0Encoding resolves a composite font's /Encoding (a predefined
+// CMap name like /GBK-EUC-H, or an embedded CMap stream) into a code→CID map,
+// and the descendant's CIDSystemInfo /Ordering into a CID→Unicode table. This
+// is what lets a non-embedded CJK font (no /FontFile2, no /ToUnicode) extract
+// and render: codes → CIDs → Unicode → glyphs from a substitute/system font.
+// Identity-H/V keep code == CID (cidCMap stays nil), matching prior behavior.
+func resolveType0Encoding(objects map[int]*pdfObject, type0Dict pdfDict, fi *fontInfo) {
+	encVal, ok := type0Dict["/Encoding"]
+	if ok {
+		encVal = resolveRef(objects, encVal)
+	}
+	switch enc := encVal.(type) {
+	case pdfName:
+		name := string(enc)
+		if name != "/Identity-H" && name != "/Identity-V" && name != "/Identity" {
+			fi.cidCMap = predefinedCMap(strings.TrimPrefix(name, "/"))
+		}
+	case *pdfStream:
+		data := enc.Data
+		if !enc.Decoded {
+			if d, err := decodeStream(enc.Dict, enc.Data); err == nil {
+				data = d
+			}
+		}
+		fi.cidCMap = parseCIDCMap(data, predefinedCMap)
+	}
+
+	// CIDSystemInfo /Ordering → CID→Unicode table (Adobe ordering).
+	fi.ordering = cidSystemOrdering(objects, type0Dict)
+	if fi.ordering != "" {
+		fi.cidToUni = cidToUnicodeForOrdering(fi.ordering)
+	}
+	if (fi.cidCMap != nil || fi.cidToUni != nil) && fi.toUnicode == nil {
+		fi.known = true
+	}
+}
+
+// cidSystemOrdering returns the descendant CIDFont's CIDSystemInfo /Ordering
+// (e.g. "GB1", "Japan1"), or "" if absent.
+func cidSystemOrdering(objects map[int]*pdfObject, type0Dict pdfDict) string {
+	descVal, ok := type0Dict["/DescendantFonts"]
+	if !ok {
+		return ""
+	}
+	descArr, ok := resolveRef(objects, descVal).(pdfArray)
+	if !ok || len(descArr) == 0 {
+		return ""
+	}
+	cidDict, ok := resolveRefToDict(objects, descArr[0])
+	if !ok {
+		return ""
+	}
+	csiDict, ok := resolveRefToDict(objects, cidDict["/CIDSystemInfo"])
+	if !ok {
+		return ""
+	}
+	if s, ok := csiDict["/Ordering"].(string); ok {
+		return s
+	}
+	return ""
 }
 
 // resolveCIDWidths extracts /DW and /W from the CIDFont descendant.

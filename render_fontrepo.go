@@ -31,6 +31,15 @@ type fontRepository struct {
 	byFamily map[string]fontRef
 	byName   map[string]fontRef
 	parsed   map[string][]*ttfFont // all sub-fonts of a file, parsed once
+
+	// Separate, lazily-built index of the OS font directories, consulted only
+	// for non-embedded CJK fonts (findCJK). Kept apart from the user-registered
+	// index so Latin substitution stays opt-in (a document must not silently
+	// switch to a system Arial just because it was installed), while CJK — which
+	// has no bundled substitute — still resolves out of the box.
+	sysIndexed  bool
+	sysByFamily map[string]fontRef
+	sysByName   map[string]fontRef
 }
 
 // fontRef points at one sub-font within a font file (index 0 for a plain .ttf).
@@ -104,6 +113,95 @@ func (r *fontRepository) find(fi fontInfo) *ttfFont {
 		if ref, ok := r.byFamily[fam+"|regular"]; ok {
 			return r.load(ref)
 		}
+	}
+	return nil
+}
+
+// findCJK resolves a non-embedded composite CJK font to a real outline font:
+// first any caller-registered font (respecting the opt-in registry), then the
+// operating system's fonts matched by the requested family (e.g. SimSun →
+// simsun.ttc) or, failing that, a well-known default family for the Adobe
+// ordering. Returns nil if no covering font is installed.
+func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
+	if f := r.find(fi); f != nil {
+		return f
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureSystemIndexed()
+
+	if ref, ok := r.sysByName[normalizeFontName(fi.name)]; ok {
+		return r.load(ref)
+	}
+	style := styleKey(fi.bold, fi.italic, strings.ToLower(fi.name))
+	fams := append(candidateFamilies(fi.name), cjkOrderingFamilies(ordering)...)
+	for _, fam := range fams {
+		if ref, ok := r.sysByFamily[fam+"|"+style]; ok {
+			return r.load(ref)
+		}
+	}
+	for _, fam := range fams {
+		if ref, ok := r.sysByFamily[fam+"|regular"]; ok {
+			return r.load(ref)
+		}
+	}
+	return nil
+}
+
+// ensureSystemIndexed indexes the OS font directories into the sys* maps once.
+func (r *fontRepository) ensureSystemIndexed() {
+	if r.sysIndexed {
+		return
+	}
+	r.sysByFamily = map[string]fontRef{}
+	r.sysByName = map[string]fontRef{}
+	if r.parsed == nil {
+		r.parsed = map[string][]*ttfFont{}
+	}
+	var files []string
+	for _, d := range systemFontDirs() {
+		_ = filepath.WalkDir(d, func(p string, e os.DirEntry, err error) error {
+			if err == nil && !e.IsDir() && isFontFile(p) {
+				files = append(files, p)
+			}
+			return nil
+		})
+	}
+	for _, p := range files {
+		for i, f := range r.loadAll(p) {
+			ref := fontRef{path: p, index: i}
+			if ps := strings.ToLower(f.postScriptName); ps != "" {
+				if _, exists := r.sysByName[ps]; !exists {
+					r.sysByName[ps] = ref
+				}
+			}
+			fam := strings.ToLower(strings.TrimSpace(f.family))
+			if fam == "" {
+				continue
+			}
+			sub := strings.ToLower(f.subfamily)
+			style := styleKey(f.flagsBold || strings.Contains(sub, "bold"),
+				f.flagsItalic || strings.Contains(sub, "italic") || strings.Contains(sub, "oblique"), "")
+			if _, exists := r.sysByFamily[fam+"|"+style]; !exists {
+				r.sysByFamily[fam+"|"+style] = ref
+			}
+		}
+	}
+	r.sysIndexed = true
+}
+
+// cjkOrderingFamilies returns well-known installed font families covering an
+// Adobe CID ordering, tried when the document's own BaseFont isn't installed.
+func cjkOrderingFamilies(ordering string) []string {
+	switch ordering {
+	case "GB1": // Simplified Chinese
+		return []string{"simsun", "nsimsun", "microsoft yahei", "simhei", "kaiti", "fangsong", "dengxian"}
+	case "CNS1": // Traditional Chinese
+		return []string{"pmingliu", "mingliu", "microsoft jhenghei", "dfkai-sb", "kaiti tc"}
+	case "Japan1": // Japanese
+		return []string{"ms mincho", "ms pmincho", "ms gothic", "ms pgothic", "yu mincho", "yu gothic", "meiryo"}
+	case "Korea1", "KR": // Korean
+		return []string{"batang", "gulim", "malgun gothic", "dotum", "gungsuh"}
 	}
 	return nil
 }

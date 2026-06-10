@@ -390,6 +390,11 @@ func (e *textExtractor) showStringSingleByte(s string) {
 }
 
 func (e *textExtractor) showStringMultiByte(s string) {
+	if e.font.cidCMap != nil {
+		e.showStringCMap(s)
+		return
+	}
+	// Identity-H/V: two-byte codes, code == CID.
 	for i := 0; i+1 < len(s); i += 2 {
 		code := uint16(s[i])<<8 | uint16(s[i+1])
 		r := rune(0)
@@ -400,17 +405,44 @@ func (e *textExtractor) showStringMultiByte(s string) {
 			r = '\uFFFD'
 		}
 		e.emitRune(r)
-		e.advanceGlyphCID(code)
+		e.advanceGlyphCID(code, 2)
 	}
 }
 
-func (e *textExtractor) advanceGlyphCID(code uint16) {
+// showStringCMap decodes a string through a composite font's CMap, where the
+// codespace dictates each code's byte length (mixed 1-byte Latin / 2-byte CJK).
+func (e *textExtractor) showStringCMap(s string) {
+	b := []byte(s)
+	for len(b) > 0 {
+		code, cid, n := e.font.cidCMap.next(b)
+		r := rune(0)
+		if e.font.toUnicode != nil {
+			r = e.font.toUnicode[uint16(code)]
+		}
+		if r == 0 && e.font.cidToUni != nil {
+			r = e.font.cidToUni[cid]
+		}
+		// Latin inside a CJK font: many CMaps map ASCII to proportional-Latin
+		// CIDs that carry no Unicode in Adobe's tables \u2014 use the code itself.
+		if r == 0 && n == 1 && code >= 0x20 && code < 0x7f {
+			r = rune(code)
+		}
+		if r == 0 {
+			r = '\uFFFD'
+		}
+		e.emitRune(r)
+		e.advanceGlyphCID(cid, n)
+		b = b[n:]
+	}
+}
+
+func (e *textExtractor) advanceGlyphCID(cid uint16, nbytes int) {
 	w0 := e.font.defaultW
-	if cw, ok := e.font.cidWidths[code]; ok {
+	if cw, ok := e.font.cidWidths[cid]; ok {
 		w0 = cw
 	}
 	tx := (w0/1000.0*e.fontSize + e.charSpace) * e.horizScaling
-	if code == 32 {
+	if nbytes == 1 && cid == 32 {
 		tx += e.wordSpace * e.horizScaling
 	}
 	e.tm = matMul(translateMatrix(tx, 0), e.tm)
