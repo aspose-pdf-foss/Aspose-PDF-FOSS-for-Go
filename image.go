@@ -170,6 +170,53 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		return img, nil
 	}
 
+	if filter == "/JPXDecode" || filter == "/JPX" {
+		jpxData := stream.Data
+		if stream.Decoded {
+			jpxData = getRawStreamData(objects, formVal)
+			if jpxData == nil {
+				return nil, fmt.Errorf("cannot read raw JPEG2000 data")
+			}
+		}
+		pixels, comps, w, h, err := jpxDecode(jpxData)
+		if err != nil {
+			return nil, err
+		}
+		if w > 0 {
+			img.Width = w
+		}
+		if h > 0 {
+			img.Height = h
+		}
+		var alphaMask []byte
+		if smaskVal, ok := stream.Dict["/SMask"]; ok {
+			alphaMask = decodeSoftMask(objects, smaskVal)
+		}
+		// MRC scans put a high-res bilevel /Mask stencil over a low-res colour
+		// foreground. Composite at the mask's resolution so text stays sharp.
+		if maskVal, ok := stream.Dict["/Mask"]; ok {
+			if mAlpha, mw, mh, ok := decodeStencilMask(objects, maskVal); ok {
+				pixels, alphaMask, img.Width, img.Height = applyStencilMask(pixels, comps, img.Width, img.Height, mAlpha, mw, mh)
+			}
+		}
+		pngData, err := encodePNG(pixels, img.Width, img.Height, 8, comps, alphaMask)
+		if err != nil {
+			return nil, err
+		}
+		img.Data = pngData
+		img.Format = ImageFormatPNG
+		img.BPC = 8
+		switch comps {
+		case 1:
+			img.ColorSpace = ColorSpaceDeviceGray
+		case 4:
+			img.ColorSpace = ColorSpaceDeviceCMYK
+		default:
+			img.ColorSpace = ColorSpaceDeviceRGB
+		}
+		return img, nil
+	}
+
 	if filter == "/JBIG2Decode" || filter == "/JBIG2" {
 		decoded, err := jbig2Decode(stream.Data, jbig2GlobalsData(objects, stream.Dict), img.Width, img.Height)
 		if err != nil {
@@ -259,6 +306,91 @@ func extractInlineImageData(img *Image, dict pdfDict, rawData []byte) (*Image, e
 	img.Data = pngData
 	img.Format = ImageFormatPNG
 	return img, nil
+}
+
+// decodeStencilMask decodes an explicit /Mask stencil (an /ImageMask stream,
+// possibly JBIG2-coded) into a per-pixel alpha map (255 = paint, 0 = masked
+// out), honoring /Decode. Returns the mask's own pixel dimensions. ISO 32000-1
+// §8.9.6.3: a sample value of 1 masks the point out (default /Decode [0 1]).
+func decodeStencilMask(objects map[int]*pdfObject, maskVal pdfValue) (alpha []byte, w, h int, ok bool) {
+	stream, isStream := resolveRef(objects, maskVal).(*pdfStream)
+	if !isStream {
+		return nil, 0, 0, false
+	}
+	if b, _ := stream.Dict["/ImageMask"].(bool); !b {
+		return nil, 0, 0, false
+	}
+	w = int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
+	h = int(operandFloat(resolveRef(objects, stream.Dict["/Height"])))
+	if w <= 0 || h <= 0 {
+		return nil, 0, 0, false
+	}
+
+	var bits []byte
+	switch primaryFilter(stream.Dict) {
+	case "/JBIG2Decode", "/JBIG2":
+		var err error
+		bits, err = jbig2Decode(stream.Data, jbig2GlobalsData(objects, stream.Dict), w, h)
+		if err != nil {
+			return nil, 0, 0, false
+		}
+	default:
+		if stream.Decoded {
+			bits = stream.Data
+		} else {
+			var err error
+			bits, err = decodeStream(stream.Dict, stream.Data)
+			if err != nil {
+				return nil, 0, 0, false
+			}
+		}
+	}
+
+	// Default /Decode [0 1]: sample 0 = paint. JBIG2 packs foreground as 0, so
+	// text paints. /Decode [1 0] inverts which sample value paints.
+	paintWhenZero := true
+	if dec, okk := stream.Dict["/Decode"].(pdfArray); okk && len(dec) >= 2 {
+		if operandFloat(dec[0]) == 1 {
+			paintWhenZero = false
+		}
+	}
+
+	rowBytes := (w + 7) / 8
+	alpha = make([]byte, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			bi := y*rowBytes + x/8
+			var sample int
+			if bi < len(bits) {
+				sample = int(bits[bi]>>(7-uint(x%8))) & 1
+			}
+			paint := (sample == 0) == paintWhenZero
+			if paint {
+				alpha[y*w+x] = 255
+			}
+		}
+	}
+	return alpha, w, h, true
+}
+
+// applyStencilMask composites a colour image (rgb, comps channels, iw×iw) with a
+// stencil alpha map (mw×mh) at the mask's resolution, nearest-neighbour sampling
+// the colour. MRC scans pair a low-res colour foreground with a high-res mask;
+// emitting at mask resolution keeps text edges sharp.
+func applyStencilMask(rgb []byte, comps, iw, ih int, alpha []byte, mw, mh int) (outRGB, outAlpha []byte, ow, oh int) {
+	if iw == mw && ih == mh {
+		return rgb, alpha, iw, ih
+	}
+	ow, oh = mw, mh
+	outRGB = make([]byte, ow*oh*comps)
+	for y := 0; y < oh; y++ {
+		sy := y * ih / oh
+		for x := 0; x < ow; x++ {
+			sx := x * iw / ow
+			copy(outRGB[(y*ow+x)*comps:(y*ow+x)*comps+comps], rgb[(sy*iw+sx)*comps:(sy*iw+sx)*comps+comps])
+		}
+	}
+	return outRGB, alpha, ow, oh
 }
 
 // primaryFilter returns the first filter name, or "" if none.

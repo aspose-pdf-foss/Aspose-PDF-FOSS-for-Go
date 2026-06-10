@@ -381,6 +381,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 5. Inline images (BI/ID/EI) are parsed with abbreviation expansion (PDF spec Tables 4.43/4.44)
 6. Form XObjects are recursed into with inherited CTM and resources
 7. **JBIG2** (`/JBIG2Decode`, 1-bpp scanned bilevel): decoded in-house (`jbig2*.go`) since `decodeStream` can't reach the `/JBIG2Globals` stream — `extractXObjectImageData` detects the filter, resolves globals from `/DecodeParms` (`jbig2GlobalsData`), and calls `jbig2Decode` to a packed 1-bpp DeviceGray bitmap (0 = black; JBIG2 foreground is inverted), so extraction and the renderer (which shares `Extract`) both work. See the JBIG2 section below for scope.
+8. **JPEG2000** (`/JPXDecode`, 8-bpp colour scanned layers): decoded in-house (`jpx*.go`) to interleaved 8-bit RGB/Gray pixels and encoded as PNG. `extractXObjectImageData` detects the filter and calls `jpxDecode`. **MRC stencil masks**: a colour `/JPXDecode` image with an explicit `/Mask` referencing a (usually high-res, JBIG2-coded) `/ImageMask` is composited at the mask's resolution (`decodeStencilMask` + `applyStencilMask`, ISO 32000-1 §8.9.6.3) so the bilevel text mask stays sharp over the low-res colour foreground — the standard scanned-document layering of `/bg` (background) + masked `/fg` (foreground). See the JPEG2000 section below for scope.
 
 ### JBIG2 decoding (`jbig2.go`, `jbig2_mq.go`, `jbig2_generic.go`, `jbig2_refine.go`, `jbig2_symbol.go`, `jbig2_text.go`, `jbig2_tables.go`)
 
@@ -400,6 +401,17 @@ Pure-Go JBIG2 decoder (ITU-T T.88) for the PDF `/JBIG2Decode` filter. Epic `pdf-
 - `jbig2_halftone.go` — pattern dictionaries (type 16) and halftone regions (types 20/22/23): Gray-coded bitplanes select indexed patterns stamped on a grid (`pdf-go-nkf`). Standalone refinement regions (types 40/42/43, `pdf-go-2mk`) decode in `jbig2.go` via the Phase 1 refinement decoder.
 
 Halftone/standalone-refinement are implemented per spec but not yet corpus-validated. Unsupported constructs are skipped, so a page still renders rather than erroring.
+
+### JPEG2000 decoding (`jpx.go`, `jpx_tier2.go`, `jpx_tagtree.go`, `jpx_tier1.go`, `jpx_dwt.go`)
+
+Pure-Go JPEG2000 decoder (ISO/IEC 15444-1) for the PDF `/JPXDecode` filter. Epic `pdf-go-8ju`. Decodes a JP2/raw codestream to interleaved 8-bit samples; validated **pixel-exact** against pdf.js (per-component pre-transform meanAbsDiff 0.0000; final RGB within ±1 on a handful of pixels, ICT float→int rounding only) on the `/bg` and `/fg` layers of a real MRC scan.
+- `jpx.go` — JP2 box walk (`jpxParseBoxes`) and codestream marker parser (`jpxParseCodestream`: SIZ/COD/COC/QCD/QCC/SOT/SOD), the public `jpxDecode(data) (pixels, comps, w, h, err)`. Unsupported COD options (selective arithmetic bypass, per-pass termination, vertically-causal context, predictable termination) surface as `jpxErr` rather than mis-decoding.
+- `jpx_tier2.go` — tile/precinct/code-block geometry, packet iteration (LRCP/RLCP progression with an LRCP fallback), and packet-header parsing (inclusion + zero-bit-plane tag trees, Lblock length signalling). Subband gain `{LL:0, LH:1, HL:1, HH:2}`.
+- `jpx_tagtree.go` — the inclusion and zero-bit-plane tag trees (§B.10.2). **The level count is `ceil(log2(max(w,h)))+1`** — matching pdf.js exactly. Floor-vs-ceil only diverges for a non-power-of-two code-block grid (e.g. 3 code-blocks across), where floor gives too few tree levels and silently corrupts every higher-resolution subband. This was the decisive bug: low resolutions (1–2 code-blocks) matched by coincidence while res ≥ a 3-wide grid exploded.
+- `jpx_tier1.go` — EBCOT tier-1 bit-plane decoding (Annex D): the three coding passes (significance propagation / magnitude refinement / cleanup) over each code-block, driven by the shared MQ arithmetic decoder (`jbig2_mq.go` — JPEG2000's MQ coder is identical to JBIG2's). 19-entry context state packed as `(stateIndex<<1 | mps)`; context-label tables ported from pdf.js.
+- `jpx_dwt.go` — inverse quantization, coefficient placement into the resolution grid, inverse DWT (5/3 reversible + 9/7 irreversible lifting), multi-component transform (RCT/ICT) and DC level shift, clamped to 8-bit.
+
+Out of scope (not yet needed by the corpus): tile-parts beyond the first SOT per tile, packed-packet-headers (PPM/PPT), region-of-interest (RGN), and the COD options listed above. Unsupported inputs error cleanly (the image is skipped, the rest of the page still renders).
 
 ## Output conventions
 
