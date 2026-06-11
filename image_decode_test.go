@@ -164,3 +164,31 @@ func TestExpandIndexed(t *testing.T) {
 		}
 	}
 }
+
+// TestColourKeyAlpha covers /Mask array colour-key masking (ISO 32000-1
+// §8.9.6.4): samples inside the ranges become transparent, others opaque.
+func TestColourKeyAlpha(t *testing.T) {
+	// 8-bpc single-component (e.g. Indexed): 3 pixels, mask value 8.
+	alpha := colourKeyAlpha([]byte{7, 8, 9}, 3, 1, 8, 1, pdfArray{8, 8})
+	want := []byte{255, 0, 255}
+	for i := range want {
+		if alpha[i] != want[i] {
+			t.Errorf("8bpc alpha[%d] = %d, want %d", i, alpha[i], want[i])
+		}
+	}
+	// 8-bpc RGB: pixel masked only when all three components are in range.
+	alpha = colourKeyAlpha([]byte{255, 0, 0, 255, 255, 255}, 2, 1, 8, 3,
+		pdfArray{250, 255, 250, 255, 250, 255})
+	if alpha[0] != 255 || alpha[1] != 0 {
+		t.Errorf("rgb alpha = %v, want [255 0]", alpha[:2])
+	}
+	// 4-bpc: rows are byte-aligned; 3 pixels/row → 2 bytes per row.
+	// Row 0 nibbles: 1,8,1 → masked,opaque,masked; row 1: 8,8,1 → opaque,opaque,masked.
+	alpha = colourKeyAlpha([]byte{0x18, 0x10, 0x88, 0x10}, 3, 2, 4, 1, pdfArray{1, 1})
+	want = []byte{0, 255, 0, 255, 255, 0}
+	for i := range want {
+		if alpha[i] != want[i] {
+			t.Errorf("4bpc alpha[%d] = %d, want %d", i, alpha[i], want[i])
+		}
+	}
+}

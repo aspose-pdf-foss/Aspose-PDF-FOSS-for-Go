@@ -281,6 +281,15 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		bpc = 8
 	}
 
+	// Colour-key masking (ISO 32000-1 §8.9.6.4): /Mask as an array of
+	// [min1 max1 ... minN maxN] sample ranges. Pixels whose original samples
+	// (palette indices for Indexed) all fall inside the ranges are transparent.
+	// Must be computed before palette expansion.
+	var keyAlpha []byte
+	if maskArr, ok := resolveRef(objects, stream.Dict["/Mask"]).(pdfArray); ok {
+		keyAlpha = colourKeyAlpha(rawPixels, img.Width, img.Height, bpc, components, maskArr)
+	}
+
 	if img.ColorSpace == ColorSpaceIndexed {
 		palette, baseComponents := resolveIndexedPalette(objects, stream.Dict)
 		rawPixels = expandIndexed(rawPixels, palette, baseComponents)
@@ -293,6 +302,17 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 			rawPixels, alphaMask, img.Width, img.Height = fitSoftMask(rawPixels, components, img.Width, img.Height, smAlpha, smW, smH)
 		} else {
 			alphaMask = resampleAlpha(smAlpha, smW, smH, img.Width, img.Height)
+		}
+	}
+	if keyAlpha != nil {
+		if alphaMask == nil {
+			alphaMask = keyAlpha
+		} else {
+			for i := range alphaMask {
+				if i < len(keyAlpha) && keyAlpha[i] == 0 {
+					alphaMask[i] = 0
+				}
+			}
 		}
 	}
 
@@ -644,6 +664,62 @@ func expandGraySamples(data []byte, w, h, bpc int) []byte {
 		}
 	}
 	return out
+}
+
+// colourKeyAlpha builds a per-pixel alpha map for colour-key masking
+// (ISO 32000-1 §8.9.6.4, /Mask as an array): a pixel whose original component
+// samples all lie within [min_i, max_i] is masked out (alpha 0). Samples are
+// the raw pre-conversion values — palette indices for Indexed images — packed
+// at bpc bits per component with byte-aligned rows.
+func colourKeyAlpha(samples []byte, w, h, bpc, comps int, ranges pdfArray) []byte {
+	if len(ranges) < 2*comps || comps <= 0 {
+		return nil
+	}
+	mins := make([]int, comps)
+	maxs := make([]int, comps)
+	for c := 0; c < comps; c++ {
+		mins[c] = int(operandFloat(ranges[2*c]))
+		maxs[c] = int(operandFloat(ranges[2*c+1]))
+	}
+	rowBits := w * comps * bpc
+	rowBytes := (rowBits + 7) / 8
+	maxV := (1 << uint(bpc)) - 1
+	alpha := make([]byte, w*h)
+	for i := range alpha {
+		alpha[i] = 255
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			masked := true
+			for c := 0; c < comps; c++ {
+				bitPos := (x*comps + c) * bpc
+				bi := y*rowBytes + bitPos/8
+				if bi >= len(samples) {
+					return alpha
+				}
+				var v int
+				if bpc == 8 {
+					v = int(samples[bi])
+				} else if bpc == 16 {
+					if bi+1 >= len(samples) {
+						return alpha
+					}
+					v = int(samples[bi])<<8 | int(samples[bi+1])
+				} else {
+					shift := uint(8 - bpc - bitPos%8)
+					v = int(samples[bi]>>shift) & maxV
+				}
+				if v < mins[c] || v > maxs[c] {
+					masked = false
+					break
+				}
+			}
+			if masked {
+				alpha[y*w+x] = 0
+			}
+		}
+	}
+	return alpha
 }
 
 // resampleAlpha nearest-neighbour resamples an alpha map to the given size.
