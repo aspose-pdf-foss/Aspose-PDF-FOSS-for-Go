@@ -16,8 +16,14 @@ type tilingPattern struct {
 }
 
 // maxTiles bounds the tiling loop so a fine pattern over a large area cannot
-// blow up render time; beyond it the fill is left unpainted.
-const maxTiles = 20000
+// blow up render time; beyond it the fill is left unpainted. maxTileScan
+// bounds the cheap lattice pre-scan that rejects tiles outside the fill
+// region (a rotated pattern matrix makes the pattern-space lattice bbox
+// quadratically pessimistic for a thin band).
+const (
+	maxTiles    = 20000
+	maxTileScan = 4_000_000
+)
 
 // setFillColor sets the fill colour from 1/3/4 numeric colour operands.
 func (rd *renderer) setFillColor(o []pdfValue) {
@@ -108,8 +114,38 @@ func (rd *renderer) fillTilingPattern(tp *tilingPattern, rule fillRule) {
 	i1 := int(math.Ceil(pu1/tp.xstep)) + 1
 	j0 := int(math.Floor(pv0/tp.ystep)) - 1
 	j1 := int(math.Ceil(pv1/tp.ystep)) + 1
-	if (i1-i0+1)*(j1-j0+1) > maxTiles {
+	// The lattice bbox in pattern space can be hugely pessimistic: a rotated
+	// pattern matrix turns a thin device-space band into a large square up
+	// here (rotated-bbox blowup), so most lattice cells never touch the path.
+	// Scan the lattice cheaply, keep only tiles whose device bbox intersects
+	// the fill region, and bound both phases separately.
+	if float64(i1-i0+1)*float64(j1-j0+1) > maxTileScan {
 		return // pattern too fine for the area — skip rather than stall
+	}
+	// Margin: the cell /BBox may overhang its X/YStep cell, so expand the fill
+	// bbox by one cell's device diagonal.
+	cd := math.Hypot(m[0]*tp.xstep, m[1]*tp.xstep) + math.Hypot(m[2]*tp.ystep, m[3]*tp.ystep)
+	rx0, ry0, rx1, ry1 := bx0-cd, by0-cd, bx1+cd, by1+cd
+	type tileIJ struct{ i, j int }
+	var tiles []tileIJ
+	for j := j0; j <= j1; j++ {
+		for i := i0; i <= i1; i++ {
+			u0, v0 := float64(i)*tp.xstep, float64(j)*tp.ystep
+			tx0, ty0 := math.Inf(1), math.Inf(1)
+			tx1, ty1 := math.Inf(-1), math.Inf(-1)
+			for _, c := range [4][2]float64{{u0, v0}, {u0 + tp.xstep, v0}, {u0 + tp.xstep, v0 + tp.ystep}, {u0, v0 + tp.ystep}} {
+				x, y := applyPt(m, c[0], c[1])
+				tx0, ty0 = math.Min(tx0, x), math.Min(ty0, y)
+				tx1, ty1 = math.Max(tx1, x), math.Max(ty1, y)
+			}
+			if tx1 < rx0 || tx0 > rx1 || ty1 < ry0 || ty0 > ry1 {
+				continue // tile never touches the fill region
+			}
+			if len(tiles) >= maxTiles {
+				return // genuinely too many visible tiles — skip rather than stall
+			}
+			tiles = append(tiles, tileIJ{i, j})
+		}
 	}
 
 	ops, err := parseContentStream(tp.content)
@@ -118,18 +154,16 @@ func (rd *renderer) fillTilingPattern(tp *tilingPattern, rule fillRule) {
 	}
 	savedGS, savedRes, savedStack, savedFl := rd.gs, rd.res, len(rd.stack), rd.fl
 	rd.depth++
-	for j := j0; j <= j1; j++ {
-		for i := i0; i <= i1; i++ {
-			rd.gs = savedGS // each tile starts from the pattern-selection state
-			rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
-			rd.gs.clip = clip
-			rd.gs.ctm = matMul(translateMatrix(float64(i)*tp.xstep, float64(j)*tp.ystep), tp.matrix)
-			if tp.resources != nil {
-				rd.res = tp.resources
-			}
-			rd.fl = newFlattener(0.2)
-			rd.exec(ops)
+	for _, t := range tiles {
+		rd.gs = savedGS // each tile starts from the pattern-selection state
+		rd.gs.fillPattern, rd.gs.fillShading, rd.gs.fillTiling = false, nil, nil
+		rd.gs.clip = clip
+		rd.gs.ctm = matMul(translateMatrix(float64(t.i)*tp.xstep, float64(t.j)*tp.ystep), tp.matrix)
+		if tp.resources != nil {
+			rd.res = tp.resources
 		}
+		rd.fl = newFlattener(0.2)
+		rd.exec(ops)
 	}
 	rd.depth--
 	rd.gs, rd.res, rd.fl = savedGS, savedRes, savedFl
