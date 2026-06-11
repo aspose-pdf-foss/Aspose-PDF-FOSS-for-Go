@@ -149,6 +149,36 @@ func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
 	return nil
 }
 
+// findSystemStd14 resolves a Standard-14-family font (Courier/Helvetica/Times
+// and their styles) to the installed metric-equivalent face — Courier New,
+// Arial, Times New Roman — the same substitutes Acrobat uses. Only consulted
+// for Standard-14 aliases, so arbitrary document fonts still go through the
+// opt-in registry and the bundled metric-compatible substitutes.
+func (r *fontRepository) findSystemStd14(fi fontInfo) *ttfFont {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureSystemIndexed()
+	style := styleKey(fi.bold, fi.italic, strings.ToLower(fi.name))
+	for _, fam := range candidateFamilies(fi.name) {
+		if ref, ok := r.sysByFamily[fam+"|"+style]; ok {
+			return r.load(ref)
+		}
+	}
+	return nil
+}
+
+// isStd14Alias reports whether a font name belongs to one of the three
+// Latin Standard-14 families (by the usual aliases).
+func isStd14Alias(name string) bool {
+	n := strings.ToLower(name)
+	for _, k := range []string{"courier", "helvetica", "arial", "times"} {
+		if strings.Contains(n, k) {
+			return true
+		}
+	}
+	return false
+}
+
 // findSystemExact resolves a font to an installed face by an exact name match —
 // PostScript name, then a separator-stripped ("compact") PostScript-or-family
 // match (so a PDF BaseFont "YuGothicMedium" finds the system "YuGothic-Medium" /

@@ -218,6 +218,13 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			// with the composite sibling of the same font.
 			fb = fontRepo.findCJK(fi, "")
 		}
+		if fb == nil && isStd14Alias(fi.name) {
+			// Standard-14 families: prefer the installed metric-equivalent face
+			// (Courier New / Arial / Times New Roman) — the same substitution
+			// Acrobat performs — over the bundled clone, whose letterforms differ
+			// (e.g. Cousine's low-serif design vs Courier New's slab serifs).
+			fb = fontRepo.findSystemStd14(fi)
+		}
 		if fb == nil {
 			fb = fallbackFontFor(fi)
 		}
