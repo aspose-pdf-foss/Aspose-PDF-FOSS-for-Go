@@ -259,7 +259,13 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 			}
 			continue
 		}
-		data, err = applyFilter(f, data)
+		if f == "/LZWDecode" || f == "/LZW" {
+			// Handled here rather than in applyFilter because /EarlyChange
+			// lives in DecodeParms; the predictor block below still applies.
+			data, err = lzwDecode(data, lzwEarlyChange(params[i]))
+		} else {
+			data, err = applyFilter(f, data)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -408,6 +414,8 @@ func applyFilter(filter string, data []byte) ([]byte, error) {
 		return ascii85Decode(data)
 	case "/RunLengthDecode", "/RL":
 		return runLengthDecode(data)
+	case "/LZWDecode", "/LZW":
+		return lzwDecode(data, 1) // default /EarlyChange; decodeStream passes the real one
 	default:
 		return data, fmt.Errorf("unsupported filter: %s", filter)
 	}

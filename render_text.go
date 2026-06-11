@@ -584,6 +584,17 @@ func (f *renderFont) gid(code uint32) uint16 {
 	// then the symbol 0xF000 range.
 	if code < 256 && f.prog != nil {
 		c := uint16(code)
+		if f.fallback {
+			// Substituted font: the document's raw codes mean nothing in the
+			// substitute's own (1,0)/(3,0) cmap — a custom /Differences code
+			// like 35 would hit the substitute's '#' glyph. Resolve through
+			// the PDF encoding first; raw-code maps are for embedded programs.
+			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+				if g := f.prog.glyphID(r); g != 0 {
+					return g
+				}
+			}
+		}
 		if g := f.prog.codeToGlyph[c]; g != 0 {
 			return g
 		}
