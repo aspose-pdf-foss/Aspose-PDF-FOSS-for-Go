@@ -191,7 +191,7 @@ func resolveCIDWidths(objects map[int]*pdfObject, type0Dict pdfDict) (map[uint16
 	if wVal, ok := cidDict["/W"]; ok {
 		wResolved := resolveRef(objects, wVal)
 		if wArr, ok := wResolved.(pdfArray); ok {
-			parseCIDWidthArray(wArr, widths)
+			parseCIDWidthArray(objects, wArr, widths)
 		}
 	}
 
@@ -202,7 +202,10 @@ func resolveCIDWidths(objects map[int]*pdfObject, type0Dict pdfDict) (map[uint16
 // The /W array has two forms:
 //   - c [w1 w2 ...] — individual widths starting at CID c
 //   - c_first c_last w — all CIDs in [c_first, c_last] get width w
-func parseCIDWidthArray(arr pdfArray, widths map[uint16]float64) {
+//
+// Elements may be indirect references (notably the width sub-array,
+// e.g. /W [0 9 0 R]), so each is resolved before inspection.
+func parseCIDWidthArray(objects map[int]*pdfObject, arr pdfArray, widths map[uint16]float64) {
 	i := 0
 	for i < len(arr) {
 		cidStart, ok := pdfValueToInt(arr[i])
@@ -214,7 +217,7 @@ func parseCIDWidthArray(arr pdfArray, widths map[uint16]float64) {
 		if i >= len(arr) {
 			break
 		}
-		switch v := arr[i].(type) {
+		switch v := resolveRef(objects, arr[i]).(type) {
 		case pdfArray:
 			for j, w := range v {
 				widths[uint16(cidStart+j)] = operandFloat(w)

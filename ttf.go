@@ -555,7 +555,10 @@ func parseName(f *ttfFont, tables map[string]tableRecord) error {
 	}
 
 	if psName == "" && fullName == "" {
-		return fmt.Errorf("parse ttf name: no PostScript name or Full Name found")
+		// Subset fonts embedded in PDFs often strip the name records; the name is
+		// cosmetic for rendering (glyphs come from cmap/glyf), so leave it empty.
+		// LoadFont — which needs a /BaseFont — rejects nameless fonts itself.
+		return nil
 	}
 	if psName == "" {
 		// Fallback: replace spaces with dashes in Full Name.

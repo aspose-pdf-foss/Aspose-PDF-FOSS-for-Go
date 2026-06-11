@@ -125,6 +125,9 @@ func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
 		// FontRepository, but writing them is not supported.)
 		return nil, fmt.Errorf("load font: OpenType-CFF (.otf) embedding is not supported; use a TrueType (.ttf) font")
 	}
+	if ttf.postScriptName == "" {
+		return nil, fmt.Errorf("load font: no PostScript name or Full Name in the font's name table")
+	}
 	fontID := embedFont(d, ttf)
 	ef := &embeddedFont{
 		doc:          d,

@@ -73,7 +73,7 @@ func TestBuildWArray(t *testing.T) {
 	arr := buildWArray(f)
 	// Round-trip through the existing parseCIDWidthArray.
 	widths := make(map[uint16]float64)
-	parseCIDWidthArray(arr, widths)
+	parseCIDWidthArray(nil, arr, widths)
 
 	// 'A' has a known non-default width.
 	gidA := f.glyphID('A')
