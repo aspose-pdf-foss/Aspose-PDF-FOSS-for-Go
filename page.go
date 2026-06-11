@@ -235,10 +235,22 @@ func pageBoxRect(objects map[int]*pdfObject, objNum int, boxes ...string) (Recta
 	return mediaBoxRect(objects, objNum)
 }
 
+// letterMediaBox is the fallback page rectangle (US Letter, 612×792) used when
+// neither the page nor any ancestor declares a /MediaBox — required by ISO
+// 32000-1, but absent in the wild (e.g. XFA form shells whose /Page dict is an
+// empty placeholder). Acrobat and MuPDF default to Letter in this case.
+func letterMediaBox() Rectangle {
+	return Rectangle{LLX: 0, LLY: 0, URX: 612, URY: 792}
+}
+
 // mediaBoxRect reads the /MediaBox of the page object at objNum as a Rectangle,
-// walking up the /Parent chain if needed (inheritance).
+// walking up the /Parent chain if needed (inheritance). When the chain cannot
+// produce a MediaBox (no /Parent, parent object missing — Pages nodes are
+// dropped from doc.objects by design — or no /MediaBox at the root), it falls
+// back to US Letter the way Acrobat/MuPDF do.
 func mediaBoxRect(objects map[int]*pdfObject, objNum int) (Rectangle, error) {
 	visited := make(map[int]bool)
+	first := true
 	for {
 		if visited[objNum] {
 			return Rectangle{}, fmt.Errorf("cycle in page tree at object %d", objNum)
@@ -247,8 +259,12 @@ func mediaBoxRect(objects map[int]*pdfObject, objNum int) (Rectangle, error) {
 
 		obj, ok := objects[objNum]
 		if !ok {
-			return Rectangle{}, fmt.Errorf("object %d not found", objNum)
+			if first {
+				return Rectangle{}, fmt.Errorf("object %d not found", objNum)
+			}
+			return letterMediaBox(), nil
 		}
+		first = false
 		d, ok := obj.Value.(pdfDict)
 		if !ok {
 			return Rectangle{}, fmt.Errorf("object %d is not a dict", objNum)
@@ -264,11 +280,11 @@ func mediaBoxRect(objects map[int]*pdfObject, objNum int) (Rectangle, error) {
 
 		parentVal, ok := d["/Parent"]
 		if !ok {
-			return Rectangle{}, fmt.Errorf("no /MediaBox found for object %d", objNum)
+			return letterMediaBox(), nil
 		}
 		parentRef, ok := parentVal.(pdfRef)
 		if !ok {
-			return Rectangle{}, fmt.Errorf("unexpected /Parent type %T", parentVal)
+			return letterMediaBox(), nil
 		}
 		objNum = parentRef.Num
 	}
