@@ -290,6 +290,14 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		keyAlpha = colourKeyAlpha(rawPixels, img.Width, img.Height, bpc, components, maskArr)
 	}
 
+	// /Decode (ISO 32000-1 §8.9.5.2): a fully inverted ramp ([1 0] per
+	// component — e.g. CCITT /BlackIs1 scans pairing the two flags) flips
+	// every sample; bitwise NOT handles any packed bpc. Indexed is skipped
+	// (there /Decode remaps palette indices); partial ramps are out of scope.
+	if img.ColorSpace != ColorSpaceIndexed && decodeFullyInverted(stream.Dict["/Decode"], components) {
+		rawPixels = invertSamples(rawPixels)
+	}
+
 	if img.ColorSpace == ColorSpaceIndexed {
 		palette, baseComponents := resolveIndexedPalette(objects, stream.Dict)
 		rawPixels = expandIndexed(rawPixels, palette, baseComponents)
@@ -351,6 +359,10 @@ func extractInlineImageData(img *Image, dict pdfDict, rawData []byte) (*Image, e
 		bpc = 8
 	}
 
+	if img.ColorSpace != ColorSpaceIndexed && decodeFullyInverted(dict["/Decode"], components) {
+		data = invertSamples(data)
+	}
+
 	pngData, err := encodePNG(data, img.Width, img.Height, bpc, components, nil)
 	if err != nil {
 		return nil, err
@@ -358,6 +370,32 @@ func extractInlineImageData(img *Image, dict pdfDict, rawData []byte) (*Image, e
 	img.Data = pngData
 	img.Format = ImageFormatPNG
 	return img, nil
+}
+
+// decodeFullyInverted reports whether a /Decode array inverts every component
+// over the full sample range ([1 0] per component). Only this common form is
+// honored; partial ramps would need per-sample interpolation.
+func decodeFullyInverted(v pdfValue, components int) bool {
+	arr, ok := v.(pdfArray)
+	if !ok || len(arr) < 2*components {
+		return false
+	}
+	for i := 0; i < components; i++ {
+		if operandFloat(arr[2*i]) != 1 || operandFloat(arr[2*i+1]) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// invertSamples returns a bitwise-NOT copy: for packed samples of any bpc this
+// maps every sample v to maxV−v (row padding bits are never read back).
+func invertSamples(data []byte) []byte {
+	out := make([]byte, len(data))
+	for i, b := range data {
+		out[i] = ^b
+	}
+	return out
 }
 
 // decodeStencilMask decodes an explicit /Mask stencil (an /ImageMask stream,

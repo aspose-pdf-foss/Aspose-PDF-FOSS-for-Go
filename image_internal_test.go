@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 
 package asposepdf
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -388,3 +389,35 @@ func TestPrimaryFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestDecodeFullyInverted covers the /Decode ramp detection used for inverted
+// scans (45738.pdf: CCITT /BlackIs1 true + /Decode [1 0]).
+func TestDecodeFullyInverted(t *testing.T) {
+	inv1 := pdfArray{1, 0}
+	if !decodeFullyInverted(inv1, 1) {
+		t.Error("[1 0] x1: want true")
+	}
+	if decodeFullyInverted(pdfArray{0, 1}, 1) {
+		t.Error("[0 1]: want false (identity ramp)")
+	}
+	if decodeFullyInverted(inv1, 3) {
+		t.Error("[1 0] for 3 components: want false (too short)")
+	}
+	inv3 := pdfArray{1, 0, 1, 0, 1, 0}
+	if !decodeFullyInverted(inv3, 3) {
+		t.Error("[1 0]x3: want true")
+	}
+	if decodeFullyInverted(nil, 1) {
+		t.Error("nil: want false")
+	}
+}
+
+func TestInvertSamples(t *testing.T) {
+	got := invertSamples([]byte{0x00, 0xFF, 0xA5})
+	want := []byte{0xFF, 0x00, 0x5A}
+	if !bytes.Equal(got, want) {
+		t.Errorf("invertSamples = % x, want % x", got, want)
+	}
+}
+
+
