@@ -163,22 +163,24 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 			return nil, err
 		}
 
-		var alphaMask []byte
-		if smaskVal, ok := stream.Dict["/SMask"]; ok {
-			alphaMask = decodeSoftMask(objects, smaskVal)
-		}
+		smAlpha, smW, smH, hasSMask := decodeSoftMaskData(objects, stream.Dict["/SMask"])
 		maskVal, hasMask := stream.Dict["/Mask"]
 
 		// CMYK JPEGs decode wrong through Go's CMYK→RGB (Adobe files store
 		// inverted ink), and a soft mask needs an RGBA PNG anyway: decode to RGB
 		// (decodeJPEGToPixels handles the Adobe inversion) and re-encode as PNG.
 		// An explicit /Mask stencil (MRC scans: high-res bilevel text mask over a
-		// low-res JPEG foreground) is composited at the mask's resolution.
+		// low-res JPEG foreground) is composited at the mask's resolution; an
+		// /SMask of a different resolution is reconciled by fitSoftMask.
 		// Plain RGB/Gray JPEGs with no mask pass through untouched.
-		if img.ColorSpace == ColorSpaceDeviceCMYK || alphaMask != nil || hasMask {
+		if img.ColorSpace == ColorSpaceDeviceCMYK || hasSMask || hasMask {
 			pixels, _, _, err := decodeJPEGToPixels(jpegData)
 			if err != nil {
 				return nil, err
+			}
+			var alphaMask []byte
+			if hasSMask {
+				pixels, alphaMask, img.Width, img.Height = fitSoftMask(pixels, 3, img.Width, img.Height, smAlpha, smW, smH)
 			}
 			if hasMask {
 				if mAlpha, mw, mh, ok := decodeStencilMask(objects, maskVal); ok {
@@ -215,8 +217,8 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 			img.Height = h
 		}
 		var alphaMask []byte
-		if smaskVal, ok := stream.Dict["/SMask"]; ok {
-			alphaMask = decodeSoftMask(objects, smaskVal)
+		if smAlpha, smW, smH, ok := decodeSoftMaskData(objects, stream.Dict["/SMask"]); ok {
+			pixels, alphaMask, img.Width, img.Height = fitSoftMask(pixels, comps, img.Width, img.Height, smAlpha, smW, smH)
 		}
 		// MRC scans put a high-res bilevel /Mask stencil over a low-res colour
 		// foreground. Composite at the mask's resolution so text stays sharp.
@@ -249,8 +251,8 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 			return nil, err
 		}
 		var alphaMask []byte
-		if smaskVal, ok := stream.Dict["/SMask"]; ok {
-			alphaMask = decodeSoftMask(objects, smaskVal)
+		if smAlpha, smW, smH, ok := decodeSoftMaskData(objects, stream.Dict["/SMask"]); ok {
+			alphaMask = resampleAlpha(smAlpha, smW, smH, img.Width, img.Height)
 		}
 		// JBIG2 output is 1-bpp DeviceGray (0 = black, as packed by jbig2Decode).
 		pngData, err := encodePNG(decoded, img.Width, img.Height, 1, 1, alphaMask)
@@ -286,8 +288,12 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 	}
 
 	var alphaMask []byte
-	if smaskVal, ok := stream.Dict["/SMask"]; ok {
-		alphaMask = decodeSoftMask(objects, smaskVal)
+	if smAlpha, smW, smH, ok := decodeSoftMaskData(objects, stream.Dict["/SMask"]); ok {
+		if bpc == 8 {
+			rawPixels, alphaMask, img.Width, img.Height = fitSoftMask(rawPixels, components, img.Width, img.Height, smAlpha, smW, smH)
+		} else {
+			alphaMask = resampleAlpha(smAlpha, smW, smH, img.Width, img.Height)
+		}
 	}
 
 	pngData, err := encodePNG(rawPixels, img.Width, img.Height, bpc, components, alphaMask)
@@ -557,21 +563,116 @@ func iccBasedComponents(objects map[int]*pdfObject, d pdfDict) int {
 	return 3
 }
 
-// decodeSoftMask decodes a soft mask image XObject to raw grayscale bytes.
-func decodeSoftMask(objects map[int]*pdfObject, smaskVal pdfValue) []byte {
-	resolved := resolveRef(objects, smaskVal)
-	stream, ok := resolved.(*pdfStream)
-	if !ok {
+// decodeSoftMaskData decodes an /SMask image XObject into 8-bit alpha samples
+// at the mask's own resolution. Beyond plain Flate-coded 8-bpc masks it
+// handles JBIG2-coded bilevel masks (common in MRC scans, where the text mask
+// arrives as a high-res JBIG2 /SMask), sub-8-bpc sample expansion with
+// byte-aligned rows, and /Decode [1 0] inversion.
+func decodeSoftMaskData(objects map[int]*pdfObject, smaskVal pdfValue) (alpha []byte, w, h int, ok bool) {
+	stream, isStream := resolveRef(objects, smaskVal).(*pdfStream)
+	if !isStream {
+		return nil, 0, 0, false
+	}
+	w = int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
+	h = int(operandFloat(resolveRef(objects, stream.Dict["/Height"])))
+	if w <= 0 || h <= 0 {
+		return nil, 0, 0, false
+	}
+	bpc := dictGetInt(stream.Dict, "/BitsPerComponent")
+	if bpc == 0 {
+		bpc = 8
+	}
+
+	var data []byte
+	switch primaryFilter(stream.Dict) {
+	case "/JBIG2Decode", "/JBIG2":
+		dec, err := jbig2Decode(stream.Data, jbig2GlobalsData(objects, stream.Dict), w, h)
+		if err != nil {
+			return nil, 0, 0, false
+		}
+		data, bpc = dec, 1
+	default:
+		if stream.Decoded {
+			data = stream.Data
+		} else {
+			var err error
+			data, err = decodeStream(stream.Dict, stream.Data)
+			if err != nil {
+				return nil, 0, 0, false
+			}
+		}
+	}
+
+	alpha = expandGraySamples(data, w, h, bpc)
+	if alpha == nil {
+		return nil, 0, 0, false
+	}
+	// /Decode [1 0] inverts the alpha ramp.
+	if dec, okk := stream.Dict["/Decode"].(pdfArray); okk && len(dec) >= 2 && operandFloat(dec[0]) > operandFloat(dec[1]) {
+		for i := range alpha {
+			alpha[i] = 255 - alpha[i]
+		}
+	}
+	return alpha, w, h, true
+}
+
+// expandGraySamples expands packed grayscale samples (1/2/4/8 bpc, rows padded
+// to byte boundaries) into one byte per pixel scaled to 0–255.
+func expandGraySamples(data []byte, w, h, bpc int) []byte {
+	if bpc == 8 {
+		if len(data) < w*h {
+			return nil
+		}
+		return data[:w*h]
+	}
+	if bpc != 1 && bpc != 2 && bpc != 4 {
 		return nil
 	}
-	if stream.Decoded {
-		return stream.Data
+	out := make([]byte, w*h)
+	rowBytes := (w*bpc + 7) / 8
+	maxV := (1 << uint(bpc)) - 1
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			bitPos := x * bpc
+			bi := y*rowBytes + bitPos/8
+			if bi >= len(data) {
+				return out
+			}
+			shift := uint(8 - bpc - bitPos%8)
+			v := int(data[bi]>>shift) & maxV
+			out[y*w+x] = byte(v * 255 / maxV)
+		}
 	}
-	data, err := decodeStream(stream.Dict, stream.Data)
-	if err != nil {
-		return nil
+	return out
+}
+
+// resampleAlpha nearest-neighbour resamples an alpha map to the given size.
+func resampleAlpha(alpha []byte, mw, mh, tw, th int) []byte {
+	if mw == tw && mh == th {
+		return alpha
 	}
-	return data
+	out := make([]byte, tw*th)
+	for y := 0; y < th; y++ {
+		sy := y * mh / th
+		for x := 0; x < tw; x++ {
+			out[y*tw+x] = alpha[sy*mw+x*mw/tw]
+		}
+	}
+	return out
+}
+
+// fitSoftMask reconciles a colour image with an /SMask of a different
+// resolution. A higher-resolution mask (MRC scans: bilevel text alpha over a
+// low-res colour wash) upscales the colour to the mask's grid so text stays
+// sharp; a lower-resolution mask is resampled up to the image's grid.
+func fitSoftMask(pixels []byte, comps, iw, ih int, alpha []byte, mw, mh int) (outPix, outAlpha []byte, ow, oh int) {
+	if mw == iw && mh == ih {
+		return pixels, alpha, iw, ih
+	}
+	if mw >= iw && mh >= ih {
+		return applyStencilMask(pixels, comps, iw, ih, alpha, mw, mh)
+	}
+	return pixels, resampleAlpha(alpha, mw, mh, iw, ih), iw, ih
 }
 
 // resolveIndexedPalette extracts the palette bytes and base component count
