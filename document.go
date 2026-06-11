@@ -210,6 +210,8 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 		return nil, err
 	}
 
+	resolveIndirectStreamFilters(objects)
+
 	// /Encrypt object — drop it from the working set; the writer rebuilds
 	// /Encrypt from d.encrypt on save (or omits it for plain saves).
 	if raw.encState != nil {
@@ -499,4 +501,62 @@ func resolvePageIndices(total int, pageNums []int) ([]int, error) {
 		}
 	}
 	return indices, nil
+}
+
+// resolveIndirectStreamFilters materialises indirect /Filter and /DecodeParms
+// references in stream dictionaries (ISO 32000-1 §7.3.8.2 allows them, e.g.
+// /Filter 11 0 R → [/ASCII85Decode /RunLengthDecode]) and decodes streams the
+// parse-time pass had to leave raw because the filter chain wasn't visible
+// while the referenced object was still unparsed.
+func resolveIndirectStreamFilters(objects map[int]*pdfObject) {
+	for _, obj := range objects {
+		st, ok := obj.Value.(*pdfStream)
+		if !ok || st.Decoded {
+			continue
+		}
+		changed := false
+		for _, key := range []string{"/Filter", "/DecodeParms", "/DP"} {
+			v, ok := st.Dict[key]
+			if !ok {
+				continue
+			}
+			if rv, didChange := resolveValueShallow(objects, v); didChange {
+				st.Dict[key] = rv
+				changed = true
+			}
+		}
+		if changed {
+			if decoded, err := decodeStream(st.Dict, st.Data); err == nil {
+				st.Data, st.Decoded = decoded, true
+			}
+		}
+	}
+}
+
+// resolveValueShallow resolves an indirect reference (and, for arrays, each
+// element) one level deep, reporting whether anything changed.
+func resolveValueShallow(objects map[int]*pdfObject, v pdfValue) (pdfValue, bool) {
+	changed := false
+	if ref, ok := v.(pdfRef); ok {
+		if obj, exists := objects[ref.Num]; exists {
+			v = obj.Value
+			changed = true
+		} else {
+			return v, false
+		}
+	}
+	if arr, ok := v.(pdfArray); ok {
+		out := make(pdfArray, len(arr))
+		for i, el := range arr {
+			out[i] = el
+			if ref, ok := el.(pdfRef); ok {
+				if obj, exists := objects[ref.Num]; exists {
+					out[i] = obj.Value
+					changed = true
+				}
+			}
+		}
+		return out, changed
+	}
+	return v, changed
 }

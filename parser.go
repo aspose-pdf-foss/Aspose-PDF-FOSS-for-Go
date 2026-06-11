@@ -238,6 +238,13 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 	if !ok {
 		return raw, nil // uncompressed
 	}
+	// An indirect /Filter (e.g. /Filter 11 0 R) can't be resolved here — error
+	// so the stream stays raw (Decoded=false) until resolveIndirectStreamFilters
+	// materialises the reference after all objects are parsed. Returning raw
+	// with nil error would wrongly mark the stream as decoded.
+	if hasIndirectFilter(filterVal) {
+		return nil, fmt.Errorf("indirect /Filter reference")
+	}
 
 	filters := toFilterList(filterVal)
 	params := toParamsList(d["/DecodeParms"], len(filters))
@@ -399,9 +406,57 @@ func applyFilter(filter string, data []byte) ([]byte, error) {
 		return asciiHexDecode(data)
 	case "/ASCII85Decode", "/A85":
 		return ascii85Decode(data)
+	case "/RunLengthDecode", "/RL":
+		return runLengthDecode(data)
 	default:
 		return data, fmt.Errorf("unsupported filter: %s", filter)
 	}
+}
+
+// runLengthDecode decodes RunLengthDecode data (ISO 32000-1 §7.4.5): a length
+// byte n < 128 copies the next n+1 bytes literally; n > 128 repeats the next
+// byte 257−n times; n == 128 is end-of-data.
+func runLengthDecode(data []byte) ([]byte, error) {
+	var out []byte
+	i := 0
+	for i < len(data) {
+		n := int(data[i])
+		i++
+		switch {
+		case n == 128:
+			return out, nil
+		case n < 128:
+			end := i + n + 1
+			if end > len(data) {
+				end = len(data)
+			}
+			out = append(out, data[i:end]...)
+			i = end
+		default:
+			if i >= len(data) {
+				return out, nil
+			}
+			out = append(out, bytes.Repeat([]byte{data[i]}, 257-n)...)
+			i++
+		}
+	}
+	return out, nil
+}
+
+// hasIndirectFilter reports whether a /Filter value is (or contains) an
+// unresolved indirect reference.
+func hasIndirectFilter(v pdfValue) bool {
+	switch fv := v.(type) {
+	case pdfRef:
+		return true
+	case pdfArray:
+		for _, el := range fv {
+			if _, ok := el.(pdfRef); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func flateDecode(data []byte) ([]byte, error) {

@@ -28,3 +28,15 @@ func TestStreamEndIndex(t *testing.T) {
 		t.Errorf("streamEndIndex(no marker) = %d, want -1", got)
 	}
 }
+
+// TestRunLengthDecode covers the RunLengthDecode filter (ISO 32000-1 §7.4.5).
+func TestRunLengthDecode(t *testing.T) {
+	// 2 literals "AB", run of 4 "C", EOD, trailing junk ignored.
+	out, err := runLengthDecode([]byte{1, 'A', 'B', 253, 'C', 128, 'X'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(out), "ABCCCC"; got != want {
+		t.Errorf("runLengthDecode = %q, want %q", got, want)
+	}
+}
