@@ -331,7 +331,7 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 			// Skip glyph 0 (.notdef): an unmapped code renders nothing rather
 			// than the font's "missing glyph" box (tofu).
 			if g := f.gid(code); g != 0 {
-				rd.paintGlyph(f, g)
+				rd.paintGlyphX(f, g, substituteXScale(f, code, g))
 			}
 		case f.synth != nil:
 			rd.paintContours(f, f.synth(code))
@@ -392,19 +392,60 @@ func textHasPaint(m int) bool { return textFills(m) || textStrokes(m) }
 // current text rendering mode (Tr). Text clipping (modes 4-7) is not yet
 // accumulated; those modes still paint their fill/stroke component.
 func (rd *renderer) paintGlyph(f *renderFont, gid uint16) {
-	rd.paintContours(f, f.glyphOutline(gid))
+	rd.paintGlyphX(f, gid, 1)
+}
+
+// paintGlyphX is paintGlyph with a horizontal condensation factor applied in
+// glyph design space (see substituteXScale).
+func (rd *renderer) paintGlyphX(f *renderFont, gid uint16, xScale float64) {
+	rd.paintContoursX(f, f.glyphOutline(gid), xScale)
+}
+
+// substituteXScale returns the horizontal scale that condenses (or expands) a
+// substituted simple-font glyph so its painted width matches the document's
+// declared /Widths advance. Without it, a substitute wider than the original
+// face (e.g. Arimo standing in for a narrow script font) overlaps the next
+// glyph, because advances honor /Widths while outlines paint at natural
+// width. Acrobat (Adobe Sans MM) and MuPDF condense substituted glyphs the
+// same way. Metric-compatible substitutes (within 2%) are left untouched.
+func substituteXScale(f *renderFont, code uint32, gid uint16) float64 {
+	if !f.fallback || f.isType0 || f.prog == nil || code >= 256 {
+		return 1
+	}
+	declared := f.fi.widths[code]
+	if declared <= 0 || int(gid) >= len(f.prog.glyphWidths) || f.em == 0 {
+		return 1
+	}
+	natural := float64(f.prog.glyphWidths[gid]) / f.em * 1000
+	if natural <= 0 {
+		return 1
+	}
+	s := declared / natural
+	if s > 0.98 && s < 1.02 {
+		return 1
+	}
+	return s
 }
 
 // paintContours rasterizes a set of glyph design-unit contours, filling and/or
 // stroking per the current text rendering mode (Tr). Shared by real glyph
 // outlines and synthesized ones (ZapfDingbats marks).
 func (rd *renderer) paintContours(f *renderFont, contours []glyphContour) {
+	rd.paintContoursX(f, contours, 1)
+}
+
+// paintContoursX is paintContours with a horizontal pre-scale in glyph design
+// space (substituted-font width matching).
+func (rd *renderer) paintContoursX(f *renderFont, contours []glyphContour, xScale float64) {
 	if len(contours) == 0 {
 		return
 	}
 	// Glyph design units → device: scale by 1/em, then text-rendering matrix
 	// (font size, horizontal scaling, rise) · text matrix · CTM · device base.
 	trm := matMul([6]float64{rd.ts.fontSize * rd.ts.hScale, 0, 0, rd.ts.fontSize, 0, rd.ts.rise}, rd.ts.tm)
+	if xScale != 1 {
+		trm = matMul([6]float64{xScale, 0, 0, 1, 0, 0}, trm)
+	}
 	m := matMul(trm, matMul(rd.gs.ctm, rd.base))
 
 	fl := newFlattener(0.2)
