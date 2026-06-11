@@ -5,6 +5,7 @@ package asposepdf_test
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
@@ -167,5 +168,72 @@ func TestMissingMediaBoxDefaultsToLetter(t *testing.T) {
 	}
 	if _, err := page.RenderImage(pdf.RenderOptions{DPI: 72}); err != nil {
 		t.Errorf("RenderImage: %v", err)
+	}
+}
+
+// buildPDFWithMistypedLeafPage returns bytes of a minimal PDF whose leaf page
+// object is declared /Type /Pages (producer bug seen in the wild, 46507.pdf):
+// it has /Contents and /Parent but no /Kids. Viewers identify pages
+// structurally (no /Kids + /Contents = page), not by /Type; MuPDF fails this
+// file, Acrobat opens it.
+func buildPDFWithMistypedLeafPage() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.0\n")
+
+	offsets := map[int]int{}
+	writeObj := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] /MediaBox [0 0 612 792] >>")
+	writeObj(3, "<< /Type /Pages /Parent 2 0 R /Contents 4 0 R"+
+		" /Resources << /Font << /F1 5 0 R >> >> >>")
+	writeObj(4, "<< /Length 41 >>\nstream\nBT /F1 12 Tf 1 0 0 1 20 700 Tm (Hi) Tj ET\nendstream")
+	writeObj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 6\n0000000000 65535 f \n")
+	for i := 1; i <= 5; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+	return buf.Bytes()
+}
+
+// TestMistypedLeafPage verifies that a leaf wrongly declared /Type /Pages
+// still opens as a page, renders, and round-trips through Save (regression:
+// 46507.pdf opened with 0 pages; after page-tree acceptance the structural
+// cleanup still dropped the object so rendering failed).
+func TestMistypedLeafPage(t *testing.T) {
+	doc, err := pdf.OpenStream(bytes.NewReader(buildPDFWithMistypedLeafPage()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if doc.PageCount() != 1 {
+		t.Fatalf("PageCount = %d, want 1", doc.PageCount())
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	if _, err := page.RenderImage(pdf.RenderOptions{DPI: 72}); err != nil {
+		t.Errorf("RenderImage: %v", err)
+	}
+	var out bytes.Buffer
+	if _, err := doc.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if doc2.PageCount() != 1 {
+		t.Errorf("reopened PageCount = %d, want 1", doc2.PageCount())
+	}
+	txt, err := doc2.ExtractText()
+	if err != nil || len(txt) != 1 || !strings.Contains(txt[0], "Hi") {
+		t.Errorf("reopened ExtractText = %q, %v; want page text containing Hi", txt, err)
 	}
 }

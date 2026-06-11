@@ -144,15 +144,24 @@ func walkPageTreeRec(objects map[int]*pdfObject, nodeVal pdfValue, inherited inh
 		return
 	}
 
-	// Leaf: treat /Page (or an untyped leaf) as a page; skip anything else.
+	// Leaf: treat /Page (or an untyped leaf) as a page. A leaf with a wrong
+	// /Type (e.g. /Pages, seen in the wild) still counts as a page when it
+	// carries /Contents — viewers identify pages structurally, not by /Type.
+	// The /Type is normalized to /Page so the structural-node cleanup after
+	// open doesn't drop it and the writer emits a conformant dict.
 	switch dictGetName(nodeDict, "/Type") {
 	case "/Page", "":
-		setIfMissing(nodeDict, "/Resources", inherited.resources)
-		setIfMissing(nodeDict, "/MediaBox", inherited.mediaBox)
-		setIfMissing(nodeDict, "/CropBox", inherited.cropBox)
-		setIfMissing(nodeDict, "/Rotate", inherited.rotate)
-		*result = append(*result, obj)
+	default:
+		if _, has := nodeDict["/Contents"]; !has {
+			return
+		}
+		nodeDict["/Type"] = pdfName("/Page")
 	}
+	setIfMissing(nodeDict, "/Resources", inherited.resources)
+	setIfMissing(nodeDict, "/MediaBox", inherited.mediaBox)
+	setIfMissing(nodeDict, "/CropBox", inherited.cropBox)
+	setIfMissing(nodeDict, "/Rotate", inherited.rotate)
+	*result = append(*result, obj)
 }
 
 func setIfMissing(d pdfDict, key string, v pdfValue) {
