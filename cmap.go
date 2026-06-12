@@ -13,6 +13,10 @@ import (
 // It handles beginbfchar/endbfchar and beginbfrange/endbfrange sections.
 func parseCMap(data []byte) map[uint16]rune {
 	m := make(map[uint16]rune)
+	// Normalize CR/CRLF line endings: classic-Mac producers emit CR-only
+	// CMaps, which would otherwise arrive as one unsplittable line.
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	data = bytes.ReplaceAll(data, []byte("\r"), []byte("\n"))
 	lines := bytes.Split(data, []byte("\n"))
 
 	inBfchar := false
