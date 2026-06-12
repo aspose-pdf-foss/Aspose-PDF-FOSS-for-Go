@@ -465,3 +465,23 @@ func TestParseContentStreamInlineImage(t *testing.T) {
 		t.Fatalf("expected 2 Tj ops, got %d (total ops: %d)", len(tjOps), len(ops))
 	}
 }
+
+// TestResolveFontType3WidthsFontMatrix verifies Type3 /Widths are normalized
+// through /FontMatrix to the 1000-units-per-em convention (ISO 32000-1
+// 9.6.5). Regression: 43336.pdf (FontMatrix .0133, widths 38) advanced
+// 38/1000 em per glyph instead of ~0.507 em, cramming all text together.
+func TestResolveFontType3WidthsFontMatrix(t *testing.T) {
+	fontDict := pdfDict{
+		"/Type":       pdfName("/Font"),
+		"/Subtype":    pdfName("/Type3"),
+		"/FontMatrix": pdfArray{0.0133333, 0.0, 0.0, -0.0133333, 0.0, 0.0},
+		"/FirstChar":  1,
+		"/LastChar":   1,
+		"/Widths":     pdfArray{38},
+	}
+	fi := resolveFont(map[int]*pdfObject{}, fontDict)
+	got := fi.widths[1]
+	if got < 500 || got > 514 {
+		t.Errorf("Type3 width = %v, want ~506.7 (38 * 0.0133333 * 1000)", got)
+	}
+}

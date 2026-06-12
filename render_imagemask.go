@@ -28,7 +28,15 @@ func (rd *renderer) drawInlineMask(dict pdfDict, dataVal pdfValue) {
 	}
 	data := []byte(raw)
 	if filter := primaryFilter(dict); filter != "" {
-		if d, err := applyFilter(filter, data); err == nil {
+		if filter == "/CCITTFaxDecode" || filter == "/CCF" {
+			// CCITT needs its /DecodeParms (K, Columns, BlackIs1, …) —
+			// applyFilter has no params, so route through ccittFilter the way
+			// decodeStream does. Scanned-fax Type3 glyph masks use this.
+			params, _ := dict["/DecodeParms"].(pdfDict)
+			if d, err := ccittFilter(data, params, dict); err == nil {
+				data = d
+			}
+		} else if d, err := applyFilter(filter, data); err == nil {
 			data = d
 		}
 	}
@@ -63,23 +71,63 @@ func (rd *renderer) drawImageMask(data []byte, w, h int, paintWhenOne bool) {
 	rowBytes := (w + 7) / 8
 	clip := rd.effectiveClip()
 
+	sampleBit := func(col, row int) (on, ok bool) {
+		idx := row*rowBytes + col/8
+		if idx >= len(data) {
+			return false, false
+		}
+		bit := (data[idx] >> uint(7-col%8)) & 1
+		return (bit == 1) == paintWhenOne, true
+	}
+
+	// Source-pixel footprint of one device pixel (per-axis extents of the
+	// inverse mapping). When it exceeds one source pixel the mask is being
+	// minified: nearest sampling would drop thin strokes (a 1-px glyph stroke
+	// vanishes at 4× downscale — scanned-fax Type3 fonts, 43336.pdf), so
+	// box-filter the footprint into a coverage alpha instead.
+	eu := (math.Abs(inv[0]) + math.Abs(inv[2])) * float64(w)
+	ev := (math.Abs(inv[1]) + math.Abs(inv[3])) * float64(h)
+	minify := eu > 1 || ev > 1
+
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
 			u, v := applyPt(inv, float64(px)+0.5, float64(py)+0.5)
 			if u < 0 || u >= 1 || v < 0 || v >= 1 {
 				continue
 			}
-			col := clampInt(int(u*float64(w)), 0, w-1)
-			row := clampInt(int((1-v)*float64(h)), 0, h-1)
-			idx := row*rowBytes + col/8
-			if idx >= len(data) {
-				continue
+			coverage := 1.0
+			if minify {
+				sx, sy := u*float64(w), (1-v)*float64(h)
+				c0 := clampInt(int(sx-eu/2), 0, w-1)
+				c1 := clampInt(int(sx+eu/2), 0, w-1)
+				r0 := clampInt(int(sy-ev/2), 0, h-1)
+				r1 := clampInt(int(sy+ev/2), 0, h-1)
+				cStep := (c1-c0)/16 + 1 // cap the grid at ~16×16 samples
+				rStep := (r1-r0)/16 + 1
+				on, total := 0, 0
+				for r := r0; r <= r1; r += rStep {
+					for c := c0; c <= c1; c += cStep {
+						if hit, ok := sampleBit(c, r); ok {
+							total++
+							if hit {
+								on++
+							}
+						}
+					}
+				}
+				if on == 0 {
+					continue
+				}
+				coverage = float64(on) / float64(total)
+			} else {
+				col := clampInt(int(u*float64(w)), 0, w-1)
+				row := clampInt(int((1-v)*float64(h)), 0, h-1)
+				hit, ok := sampleBit(col, row)
+				if !ok || !hit {
+					continue
+				}
 			}
-			bit := (data[idx] >> uint(7-col%8)) & 1
-			if (bit == 1) != paintWhenOne {
-				continue // this sample is masked out
-			}
-			a := rd.gs.fillA
+			a := rd.gs.fillA * coverage
 			if clip != nil {
 				a *= float64(clip[py*rd.w+px])
 			}

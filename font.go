@@ -108,6 +108,19 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 	}
 
 	fi.widths = resolveWidths(objects, fontDict, name)
+
+	// Type3 widths are expressed in glyph space and must be mapped through
+	// /FontMatrix (ISO 32000-1 §9.6.5) — e.g. matrix .0133 with width 38 is
+	// half an em, not 38/1000. Normalize them to the standard 1000-units-per-em
+	// convention every consumer (extractor advance, renderer tx) assumes.
+	if dictGetName(fontDict, "/Subtype") == "/Type3" {
+		if fm := shFloats(objects, fontDict["/FontMatrix"]); len(fm) == 6 && fm[0] != 0 {
+			scale := fm[0] * 1000
+			for i := range fi.widths {
+				fi.widths[i] *= scale
+			}
+		}
+	}
 	return fi
 }
 
