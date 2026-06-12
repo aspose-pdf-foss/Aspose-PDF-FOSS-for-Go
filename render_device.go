@@ -29,14 +29,34 @@ func (o RenderOptions) dpi() float64 {
 	return o.DPI
 }
 
+// intersectRects returns the intersection of two rectangles (degenerate —
+// zero or negative extent — when they do not overlap).
+func intersectRects(a, b Rectangle) Rectangle {
+	return Rectangle{
+		LLX: math.Max(a.LLX, b.LLX),
+		LLY: math.Max(a.LLY, b.LLY),
+		URX: math.Min(a.URX, b.URX),
+		URY: math.Min(a.URY, b.URY),
+	}
+}
+
 // RenderImage rasterizes the page to an *image.RGBA at the requested DPI.
-// The rendered region is the CropBox (falling back to MediaBox). Content the
+// The rendered region is the CropBox intersected with the MediaBox per ISO
+// 32000-1 §7.7.3.3 (a stray CropBox larger than the page would otherwise
+// shrink the content into a corner of an oversized canvas). Content the
 // renderer does not yet support is skipped rather than erroring, so a page
 // always produces an image.
 func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return nil, fmt.Errorf("render: %w", err)
+	}
+	if mb, mbErr := p.MediaBox(); mbErr == nil {
+		if ix := intersectRects(box, mb); ix.URX > ix.LLX && ix.URY > ix.LLY {
+			box = ix
+		} else {
+			box = mb
+		}
 	}
 	scale := opts.dpi() / 72.0
 	base, w, h := deviceMatrix(box, scale, p.Rotation())

@@ -157,3 +157,44 @@ func TestMissingFontResourceSubstituted(t *testing.T) {
 		t.Errorf("text band ink pixels = %d, want >= 20 (text not painted)", ink)
 	}
 }
+
+// TestRenderCropBoxClampedToMediaBox verifies the rendered canvas is the
+// CropBox intersected with the MediaBox per ISO 32000-1 7.7.3.3 (42097.pdf
+// declares a CropBox ~3x larger than its A4 MediaBox, which shrank the
+// content into a corner of an oversized canvas).
+func TestRenderCropBoxClampedToMediaBox(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	writeObj := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842]"+
+		" /CropBox [0 0 1687 2386] >>")
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 4\n0000000000 65535 f \n")
+	for i := 1; i <= 3; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	b := img.Bounds()
+	if b.Dx() != 595 || b.Dy() != 842 {
+		t.Errorf("canvas = %dx%d, want 595x842 (MediaBox at 72 DPI)", b.Dx(), b.Dy())
+	}
+}
