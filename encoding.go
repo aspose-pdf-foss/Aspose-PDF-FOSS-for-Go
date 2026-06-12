@@ -28,6 +28,31 @@ func applyDifferences(base [256]rune, diffs pdfArray) [256]rune {
 	return enc
 }
 
+// differencesGlyphNames collects the raw glyph names assigned by a
+// /Differences array, keyed by character code. Needed for names that have no
+// Unicode meaning (ZapfDingbats a1..a191): such glyphs are unreachable through
+// a rune and must be looked up by name in the embedded font's charset.
+func differencesGlyphNames(diffs pdfArray) map[byte]string {
+	names := make(map[byte]string)
+	code := 0
+	for _, v := range diffs {
+		switch val := v.(type) {
+		case int:
+			code = val
+		case pdfName:
+			name := string(val)
+			if len(name) > 0 && name[0] == '/' {
+				name = name[1:]
+			}
+			if code < 256 && name != "" {
+				names[byte(code)] = name
+			}
+			code++
+		}
+	}
+	return names
+}
+
 // WinAnsiEncoding — the most common encoding in PDF (Windows code page 1252).
 // Positions 0-31 and 127 are undefined (U+FFFD). 32-126 match ASCII.
 // 128-159 have special mappings. 160-255 match Latin-1 Supplement.

@@ -576,6 +576,15 @@ func (f *renderFont) gid(code uint32) uint16 {
 	// without this the page renders nearly blank. The font's own encoding is the
 	// fallback for codes the PDF encoding leaves unmapped.
 	if code < 256 && f.cff != nil {
+		// A /Differences name with no Unicode meaning (ZapfDingbats a71 etc.)
+		// reaches the glyph by name through the charset.
+		if f.fi.glyphNames != nil {
+			if n := f.fi.glyphNames[byte(code)]; n != "" {
+				if g := f.cff.nameToGID[n]; g != 0 {
+					return g
+				}
+			}
+		}
 		if f.fi.known {
 			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
 				if g := f.cff.runeToGID[r]; g != 0 {

@@ -485,3 +485,19 @@ func TestResolveFontType3WidthsFontMatrix(t *testing.T) {
 		t.Errorf("Type3 width = %v, want ~506.7 (38 * 0.0133333 * 1000)", got)
 	}
 }
+
+// TestDifferencesGlyphNames verifies raw /Differences names are recorded for
+// by-name glyph lookup (40869.pdf: ZapfDingbats /a71 legend dots are outside
+// the AGL, unreachable through runes).
+func TestDifferencesGlyphNames(t *testing.T) {
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/X+ZapfDingbats"),
+		"/Encoding": pdfDict{"/Differences": pdfArray{2, pdfName("/a71"), pdfName("/a72"), 10, pdfName("/a1")}},
+	}
+	fi := resolveFont(map[int]*pdfObject{}, fontDict)
+	if fi.glyphNames[2] != "a71" || fi.glyphNames[3] != "a72" || fi.glyphNames[10] != "a1" {
+		t.Errorf("glyphNames = %v, want 2:a71 3:a72 10:a1", fi.glyphNames)
+	}
+}

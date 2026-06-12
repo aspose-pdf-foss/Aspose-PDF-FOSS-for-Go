@@ -17,6 +17,11 @@ type fontInfo struct {
 	cidToUni  map[uint16]rune    // CID → Unicode (Adobe ordering table); nil if unknown
 	ordering  string             // CIDSystemInfo /Ordering (e.g. "GB1"); "" = Identity/unknown
 	known     bool               // false if encoding could not be determined
+	// glyphNames maps codes remapped by /Encoding /Differences to their raw
+	// glyph names — needed when a name has no Unicode meaning (ZapfDingbats
+	// a1..a191) and the glyph must be reached by name through the font's
+	// charset rather than through a rune. nil when no /Differences.
+	glyphNames map[byte]string
 	bold      bool
 	italic    bool
 	serif     bool    // /FontDescriptor /Flags Serif bit (used to pick a substitute)
@@ -90,6 +95,7 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 		if diffs, ok := enc["/Differences"]; ok {
 			if arr, ok := diffs.(pdfArray); ok {
 				base = applyDifferences(base, arr)
+				fi.glyphNames = differencesGlyphNames(arr)
 			}
 		}
 		fi.encoding = base

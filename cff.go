@@ -33,6 +33,7 @@ type cffFont struct {
 	simpleGID    map[uint16]uint16 // code → GID for simple (non-CID) fonts
 	strings      [][]byte          // String INDEX (custom SIDs ≥ 391)
 	runeToGID    map[rune]uint16   // Unicode → GID via charset glyph names (simple fonts)
+	nameToGID    map[string]uint16 // glyph name → GID via charset (for non-AGL names like a71)
 
 	unitsPerEm float64
 	numGlyphs  int
@@ -150,11 +151,20 @@ func (f *cffFont) buildSimpleEncoding(data []byte, top map[int][]float64) {
 	// custom encoding covering only a couple of codes, so without this path
 	// almost every glyph resolved to .notdef and pages rendered nearly blank.
 	f.runeToGID = make(map[rune]uint16, len(f.charset))
+	// nameToGID resolves glyph names that have no Unicode meaning (e.g.
+	// ZapfDingbats a1..a191 referenced from a PDF /Differences array).
+	f.nameToGID = make(map[string]uint16, len(f.charset))
 	for gid, sid := range f.charset {
 		if gid == 0 {
 			continue
 		}
-		if r := cffGlyphNameRune(f.sidName(sid)); r != 0 {
+		name := f.sidName(sid)
+		if name != "" {
+			if _, ok := f.nameToGID[name]; !ok {
+				f.nameToGID[name] = uint16(gid)
+			}
+		}
+		if r := cffGlyphNameRune(name); r != 0 {
 			if _, ok := f.runeToGID[r]; !ok {
 				f.runeToGID[r] = uint16(gid)
 			}
