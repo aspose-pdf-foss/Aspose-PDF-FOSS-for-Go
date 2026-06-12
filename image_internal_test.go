@@ -421,3 +421,28 @@ func TestInvertSamples(t *testing.T) {
 }
 
 
+
+// TestUnpackIndices covers bit-packed palette index expansion (44804.pdf:
+// 4-bpc Indexed field bars decoded black because indices were read as bytes).
+func TestUnpackIndices(t *testing.T) {
+	// 4 bpc, width 3 -> rowBytes 2, second nibble of byte 2 is row padding.
+	got := unpackIndices([]byte{0x12, 0x30, 0x45, 0x60}, 3, 2, 4)
+	want := []byte{1, 2, 3, 4, 5, 6}
+	if !bytes.Equal(got, want) {
+		t.Errorf("4bpc = %v, want %v", got, want)
+	}
+	// 1 bpc, width 10 -> rowBytes 2.
+	got = unpackIndices([]byte{0b10110000, 0b01000000}, 10, 1, 1)
+	want = []byte{1, 0, 1, 1, 0, 0, 0, 0, 0, 1}
+	if !bytes.Equal(got, want) {
+		t.Errorf("1bpc = %v, want %v", got, want)
+	}
+	// 8 bpc passes through.
+	in := []byte{7, 8, 9}
+	if !bytes.Equal(unpackIndices(in, 3, 1, 8), in) {
+		t.Error("8bpc: want passthrough")
+	}
+	if unpackIndices(in, 3, 1, 3) != nil {
+		t.Error("bpc 3: want nil")
+	}
+}

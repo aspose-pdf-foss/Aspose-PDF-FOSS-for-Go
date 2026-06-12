@@ -227,6 +227,33 @@ func decodeJPEGToPixels(data []byte) (pixels []byte, width, height int, err erro
 	return pixels, width, height, nil
 }
 
+// unpackIndices expands packed palette indices (1/2/4 bpc, rows padded to
+// byte boundaries per ISO 32000-1 §8.9.3) into one index per byte; 8-bpc data
+// passes through. Returns nil on impossible bpc so the caller can bail.
+func unpackIndices(data []byte, w, h, bpc int) []byte {
+	if bpc == 8 {
+		return data
+	}
+	if bpc != 1 && bpc != 2 && bpc != 4 {
+		return nil
+	}
+	out := make([]byte, w*h)
+	rowBytes := (w*bpc + 7) / 8
+	mask := byte(1<<uint(bpc)) - 1
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			bitPos := x * bpc
+			bi := y*rowBytes + bitPos/8
+			if bi >= len(data) {
+				return out
+			}
+			shift := 8 - bpc - bitPos%8
+			out[y*w+x] = (data[bi] >> uint(shift)) & mask
+		}
+	}
+	return out
+}
+
 // expandIndexed expands palette-indexed pixel data to the base color space.
 // baseComponents is the number of components in the base color space (e.g., 3 for RGB).
 func expandIndexed(indices, palette []byte, baseComponents int) []byte {

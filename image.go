@@ -300,8 +300,16 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 
 	if img.ColorSpace == ColorSpaceIndexed {
 		palette, baseComponents := resolveIndexedPalette(objects, stream.Dict)
-		rawPixels = expandIndexed(rawPixels, palette, baseComponents)
+		// Indices below 8 bpc are bit-packed with byte-aligned rows — unpack
+		// to one index per byte before the palette lookup; the expanded
+		// output is always 8-bit base-space samples.
+		indices := unpackIndices(rawPixels, img.Width, img.Height, bpc)
+		if indices == nil {
+			return nil, fmt.Errorf("indexed image: unsupported bpc %d", bpc)
+		}
+		rawPixels = expandIndexed(indices, palette, baseComponents)
 		components = baseComponents
+		bpc = 8
 	}
 
 	var alphaMask []byte
