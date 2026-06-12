@@ -276,7 +276,20 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 				if columns == 0 {
 					columns = 1
 				}
-				data, err = applyPNGPredictor(data, columns)
+				colors := dictGetInt(params[i], "/Colors")
+				if colors == 0 {
+					colors = 1
+				}
+				bpcP := dictGetInt(params[i], "/BitsPerComponent")
+				if bpcP == 0 {
+					bpcP = 8
+				}
+				rowBytes := (columns*colors*bpcP + 7) / 8
+				bpp := colors * bpcP / 8
+				if bpp < 1 {
+					bpp = 1
+				}
+				data, err = applyPNGPredictor(data, rowBytes, bpp)
 				if err != nil {
 					return nil, err
 				}
@@ -308,52 +321,55 @@ func toParamsList(v pdfValue, n int) []pdfDict {
 }
 
 // applyPNGPredictor reverses the PNG predictor applied before compression.
-// data is the post-zlib bytes; each row is 1 filter-type byte + columns data bytes.
-func applyPNGPredictor(data []byte, columns int) ([]byte, error) {
-	stride := columns + 1
+// data is the post-zlib bytes; each row is 1 filter-type byte + rowBytes data
+// bytes (rowBytes = ceil(Columns·Colors·BitsPerComponent / 8)). bpp is the
+// byte distance to the "left" reference sample (Colors·BitsPerComponent/8,
+// min 1) — for an RGB8 image that is 3, not 1, per the PNG spec.
+func applyPNGPredictor(data []byte, rowBytes, bpp int) ([]byte, error) {
+	stride := rowBytes + 1
 	if len(data)%stride != 0 {
 		return nil, fmt.Errorf("PNG predictor: data length %d not divisible by stride %d", len(data), stride)
 	}
 	rows := len(data) / stride
-	out := make([]byte, rows*columns)
-	prev := make([]byte, columns)
+	out := make([]byte, rows*rowBytes)
+	prev := make([]byte, rowBytes)
 
 	for i := 0; i < rows; i++ {
 		row := data[i*stride : (i+1)*stride]
 		filterType := row[0]
 		curr := row[1:]
-		outRow := out[i*columns : (i+1)*columns]
+		outRow := out[i*rowBytes : (i+1)*rowBytes]
 
 		switch filterType {
 		case 0: // None
 			copy(outRow, curr)
 		case 1: // Sub
-			for j := 0; j < columns; j++ {
+			for j := 0; j < rowBytes; j++ {
 				a := byte(0)
-				if j > 0 {
-					a = outRow[j-1]
+				if j >= bpp {
+					a = outRow[j-bpp]
 				}
 				outRow[j] = curr[j] + a
 			}
 		case 2: // Up
-			for j := 0; j < columns; j++ {
+			for j := 0; j < rowBytes; j++ {
 				outRow[j] = curr[j] + prev[j]
 			}
 		case 3: // Average
-			for j := 0; j < columns; j++ {
+			for j := 0; j < rowBytes; j++ {
 				a := byte(0)
-				if j > 0 {
-					a = outRow[j-1]
+				if j >= bpp {
+					a = outRow[j-bpp]
 				}
 				outRow[j] = curr[j] + byte((int(a)+int(prev[j]))/2)
 			}
 		case 4: // Paeth
-			for j := 0; j < columns; j++ {
+			for j := 0; j < rowBytes; j++ {
 				a := byte(0)
 				c := byte(0)
-				if j > 0 {
-					a = outRow[j-1]
-					c = prev[j-1]
+				if j >= bpp {
+					a = outRow[j-bpp]
+					c = prev[j-bpp]
 				}
 				outRow[j] = curr[j] + paethPredictor(a, prev[j], c)
 			}

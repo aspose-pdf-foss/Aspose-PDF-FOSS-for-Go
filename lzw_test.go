@@ -43,3 +43,20 @@ func TestLZWDecodeInvalidCode(t *testing.T) {
 		t.Error("lzwDecode: expected error for invalid code, got nil")
 	}
 }
+
+// TestPNGPredictorRGB verifies the PNG predictor honors the bytes-per-pixel
+// distance for multi-component samples (42201.pdf: Predictor 15 /Colors 3
+// icons failed with a stride mismatch and were skipped).
+func TestPNGPredictorRGB(t *testing.T) {
+	// One row, filter type 1 (Sub), two RGB8 pixels: the second adds the
+	// first per channel (left reference is 3 bytes back, not 1).
+	data := []byte{1, 10, 20, 30, 5, 6, 7}
+	got, err := applyPNGPredictor(data, 6, 3)
+	if err != nil {
+		t.Fatalf("applyPNGPredictor: %v", err)
+	}
+	want := []byte{10, 20, 30, 15, 26, 37}
+	if !bytes.Equal(got, want) {
+		t.Errorf("got % d, want % d", got, want)
+	}
+}
