@@ -189,6 +189,11 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				fontName := operandName(op.Operands[0])
 				if fi, ok := e.fonts[fontName]; ok {
 					e.font = fi
+				} else {
+					// Font absent from /Resources/Font (e.g. an empty dict,
+					// 44963.pdf): viewers substitute a default text face
+					// rather than dropping the text — decode via Helvetica.
+					e.font = defaultFontInfo(e.objects)
 				}
 				e.fontSize = operandFloat(op.Operands[1])
 			}

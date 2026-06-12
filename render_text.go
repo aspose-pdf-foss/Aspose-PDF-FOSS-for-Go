@@ -153,13 +153,22 @@ func (rd *renderer) resolveRenderFont(name string) *renderFont {
 
 func (rd *renderer) buildRenderFont(name string) *renderFont {
 	objects := rd.page.doc.objects
-	fontsDict, ok := resolveRefToDict(objects, rd.res["/Font"])
-	if !ok {
-		return nil
+	var fontDict pdfDict
+	if fontsDict, ok := resolveRefToDict(objects, rd.res["/Font"]); ok {
+		if fd, ok := resolveRefToDict(objects, fontsDict[name]); ok {
+			fontDict = fd
+		}
 	}
-	fontDict, ok := resolveRefToDict(objects, fontsDict[name])
-	if !ok {
-		return nil
+	if fontDict == nil {
+		// The content stream names a font the resources don't declare (e.g.
+		// an empty /Font dict, 44963.pdf). Viewers substitute a default text
+		// face instead of dropping the text — resolve a synthetic Helvetica
+		// through the normal substitution chain, as MuPDF does.
+		fontDict = pdfDict{
+			"/Type":     pdfName("/Font"),
+			"/Subtype":  pdfName("/Type1"),
+			"/BaseFont": pdfName("/Helvetica"),
+		}
 	}
 	fi := resolveFont(objects, fontDict)
 	rf := &renderFont{fi: fi, isType0: fi.isType0, em: 1000}

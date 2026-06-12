@@ -24,6 +24,17 @@ type fontInfo struct {
 	descent   float64 // from /FontDescriptor /Descent (negative, in 1/1000 text space)
 }
 
+// defaultFontInfo returns the fontInfo viewers substitute when a content
+// stream names a font that the resources do not declare (e.g. an empty
+// /Resources/Font dict, 44963.pdf): Standard-14 Helvetica with AFM metrics.
+func defaultFontInfo(objects map[int]*pdfObject) fontInfo {
+	return resolveFont(objects, pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+	})
+}
+
 // resolveFont resolves a font dictionary to a fontInfo.
 // objects is needed to resolve indirect references in /Encoding.
 func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
