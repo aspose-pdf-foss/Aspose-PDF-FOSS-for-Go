@@ -130,6 +130,16 @@ func ccittDecodeRow(br *ccittBits, ref []int, cols, k int) ([]int, bool) {
 	color := 0 // 0 white, 1 black
 
 	if k == 0 { // Group 3 one-dimensional
+		// G3 lines are delimited by EOL codes (000000000001), optionally
+		// preceded by fill bits and possibly several in a row (a leading EOL,
+		// and the 6-EOL RTC at end). Consume them before reading runs;
+		// without this the very first row hits an EOL where a white run is
+		// expected and decoding aborts to a black page (39646.pdf).
+		for br.skipEOL() {
+		}
+		if br.eof() {
+			return nil, false
+		}
 		pos := 0
 		for pos < cols {
 			run, ok := ccittRun(br, color)
@@ -362,4 +372,30 @@ func (b *ccittBits) align() {
 		b.bitn = 0
 		b.pos++
 	}
+}
+
+// skipEOL consumes a single EOL code at the current position and reports
+// whether one was present. An EOL is at least 11 zero bits (fill bits add
+// more) terminated by a 1; no valid white/black run code carries 11 leading
+// zeros, so the test is unambiguous. If the bits at the cursor are not an EOL,
+// the cursor is restored and false is returned.
+func (b *ccittBits) skipEOL() bool {
+	savePos, saveBit := b.pos, b.bitn
+	zeros := 0
+	for !b.eof() {
+		if b.bit() == 1 {
+			if zeros >= 11 {
+				return true
+			}
+			b.pos, b.bitn = savePos, saveBit
+			return false
+		}
+		zeros++
+		if zeros > 64 { // runaway guard (padding / trailing zeros)
+			b.pos, b.bitn = savePos, saveBit
+			return false
+		}
+	}
+	b.pos, b.bitn = savePos, saveBit
+	return false
 }

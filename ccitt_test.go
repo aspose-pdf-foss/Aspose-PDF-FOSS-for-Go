@@ -109,3 +109,36 @@ func TestCCITTRejectsGroup3TwoD(t *testing.T) {
 		t.Error("expected error for /K>0, got nil")
 	}
 }
+
+// TestCCITTGroup3EOL verifies the Group 3 1-D decoder consumes EOL codes
+// (000000000001, optionally fill-bit padded) that delimit each line. A scan
+// (39646.pdf, /K absent -> Group 3 1-D) begins with an EOL where a white run
+// is expected; without EOL skipping the first row aborts and the page decodes
+// all black. Here: EOL + white run 2 (0111) + black run 1 (010) fills a
+// 3-column row, then EOL again.
+func TestCCITTGroup3EOL(t *testing.T) {
+	// Bit string: EOL(000000000001) white2(0111) black1(010) EOL(000000000001)
+	bits := "000000000001" + "0111" + "010" + "000000000001"
+	data := packBits(bits)
+	out, err := ccittDecode(data, ccittParams{k: 0, columns: 3, rows: 1, blackIs1: true})
+	if err != nil {
+		t.Fatalf("ccittDecode: %v", err)
+	}
+	// 3 columns -> 1 row byte. white,white,black with BlackIs1 -> bits 0,0,1 =
+	// 0b001 in the top 3 bits = 0x20.
+	if len(out) != 1 || out[0] != 0x20 {
+		t.Errorf("decoded = % x, want 20 (white white black)", out)
+	}
+}
+
+// packBits packs an MSB-first bit string ("0110...") into bytes, zero-padding
+// the final byte.
+func packBits(s string) []byte {
+	out := make([]byte, (len(s)+7)/8)
+	for i, c := range s {
+		if c == '1' {
+			out[i/8] |= 0x80 >> uint(i%8)
+		}
+	}
+	return out
+}
