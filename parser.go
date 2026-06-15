@@ -245,6 +245,13 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 	if hasIndirectFilter(filterVal) {
 		return nil, fmt.Errorf("indirect /Filter reference")
 	}
+	// Likewise an indirect /DecodeParms (or /DP), e.g. /DecodeParms [107 0 R]:
+	// decoding here would run with empty params (wrong /Columns, /K, /BlackIs1
+	// for CCITT) and mis-mark the stream Decoded, blocking the post-pass that
+	// would resolve the reference and decode correctly (39952.pdf).
+	if hasIndirectFilter(d["/DecodeParms"]) || hasIndirectFilter(d["/DP"]) {
+		return nil, fmt.Errorf("indirect /DecodeParms reference")
+	}
 
 	filters := toFilterList(filterVal)
 	params := toParamsList(d["/DecodeParms"], len(filters))
@@ -467,8 +474,9 @@ func runLengthDecode(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// hasIndirectFilter reports whether a /Filter value is (or contains) an
-// unresolved indirect reference.
+// hasIndirectFilter reports whether a value is (or, for an array, contains) an
+// unresolved indirect reference. Used to detect indirect /Filter, /DecodeParms
+// and /DP entries that must be resolved by the post-parse pass before decoding.
 func hasIndirectFilter(v pdfValue) bool {
 	switch fv := v.(type) {
 	case pdfRef:

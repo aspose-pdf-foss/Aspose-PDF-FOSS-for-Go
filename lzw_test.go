@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"compress/zlib"
 	"testing"
 )
 
@@ -59,4 +60,38 @@ func TestPNGPredictorRGB(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Errorf("got % d, want % d", got, want)
 	}
+}
+
+// TestIndirectDecodeParmsDeferred verifies decodeStream refuses to decode when
+// /DecodeParms is (or contains) an indirect reference, so the post-parse pass
+// can resolve it and decode with the real params. Regression: 39952.pdf has a
+// CCITT image with /DecodeParms [107 0 R]; parse-time decoding ran with empty
+// params (Columns 1728 / K 0 instead of 2560 / -1), produced garbage, and
+// wrongly marked the stream Decoded, leaving black pages.
+func TestIndirectDecodeParmsDeferred(t *testing.T) {
+	d := pdfDict{
+		"/Filter":      pdfArray{pdfName("/CCITTFaxDecode")},
+		"/DecodeParms": pdfArray{pdfRef{Num: 107}},
+	}
+	if _, err := decodeStream(d, []byte{0x00, 0x01}); err == nil {
+		t.Error("decodeStream: expected error for indirect /DecodeParms, got nil")
+	}
+	// A direct DecodeParms array must NOT trip the guard.
+	d2 := pdfDict{
+		"/Filter":      pdfName("/FlateDecode"),
+		"/DecodeParms": pdfArray{pdfDict{}},
+	}
+	if _, err := decodeStream(d2, flateOf(t, []byte("hi"))); err != nil {
+		t.Errorf("decodeStream with direct params: unexpected error %v", err)
+	}
+}
+
+// flateOf returns zlib-compressed bytes for testing.
+func flateOf(t *testing.T, p []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	zw.Write(p)
+	zw.Close()
+	return buf.Bytes()
 }
