@@ -2,6 +2,8 @@
 
 package asposepdf
 
+import "math"
+
 // renderAnnotations paints each annotation's normal appearance stream (/AP/N)
 // onto the page, the way a viewer does. Form-field widgets, stamps, highlights,
 // free text and any other annotation carrying an appearance are drawn here —
@@ -38,8 +40,84 @@ func (rd *renderer) renderAnnotations() {
 		if !ok {
 			continue
 		}
+		rd.widgetFieldBackground(objects, ad, rect)
 		rd.drawAnnotationAppearance(ap, m)
 	}
+}
+
+// widgetFieldBackground paints an opaque background behind a text or choice
+// field widget before its appearance is drawn. Acrobat and MuPDF render
+// interactive form fields as opaque boxes, so underlying page content does not
+// show through; without this a document that bakes real text into the content
+// stream and layers placeholder fields on top (39103.pdf) renders both layers
+// overlapping. The colour is /MK/BG when present, else white. Button,
+// checkbox and radio widgets keep their transparent default (their own
+// appearances supply the visible chrome).
+func (rd *renderer) widgetFieldBackground(objects map[int]*pdfObject, ad pdfDict, rect [4]float64) {
+	if dictGetName(ad, "/Subtype") != "/Widget" {
+		return
+	}
+	switch inheritedFieldType(objects, ad) {
+	case "/Tx", "/Ch":
+	default:
+		return
+	}
+	r, g, b := uint8(255), uint8(255), uint8(255)
+	if mk, ok := resolveRefToDict(objects, ad["/MK"]); ok {
+		if bg := shFloats(objects, mk["/BG"]); len(bg) > 0 {
+			r, g, b = bgColorComponents(bg)
+		}
+	}
+	rd.fillUserRect(rect, r, g, b)
+}
+
+// inheritedFieldType returns the field type (/FT) of a widget, walking the
+// /Parent chain since a widget often inherits /FT from its field dictionary.
+func inheritedFieldType(objects map[int]*pdfObject, ad pdfDict) string {
+	for i := 0; i < 32 && ad != nil; i++ {
+		if ft := dictGetName(ad, "/FT"); ft != "" {
+			return ft
+		}
+		parent, ok := resolveRefToDict(objects, ad["/Parent"])
+		if !ok {
+			return ""
+		}
+		ad = parent
+	}
+	return ""
+}
+
+// bgColorComponents converts a /MK/BG array (1 gray, 3 RGB, 4 CMYK) to RGB.
+func bgColorComponents(bg []float64) (uint8, uint8, uint8) {
+	switch len(bg) {
+	case 1:
+		return gray8(bg[0])
+	case 4:
+		return clamp8(1 - math.Min(1, bg[0]+bg[3])), clamp8(1 - math.Min(1, bg[1]+bg[3])), clamp8(1 - math.Min(1, bg[2]+bg[3]))
+	default:
+		return clamp8(bg[0]), clamp8(bg[1]), clamp8(bg[2])
+	}
+}
+
+// fillUserRect fills a page-user-space rectangle with an opaque colour, mapped
+// to device space through the page base matrix, ignoring any leftover clip or
+// blend state from content rendering.
+func (rd *renderer) fillUserRect(rect [4]float64, r, g, b uint8) {
+	m := rd.base
+	fl := newFlattener(0.2)
+	ax, ay := applyPt(m, rect[0], rect[1])
+	bx, by := applyPt(m, rect[2], rect[1])
+	cx, cy := applyPt(m, rect[2], rect[3])
+	dx, dy := applyPt(m, rect[0], rect[3])
+	fl.moveTo(ax, ay)
+	fl.lineTo(bx, by)
+	fl.lineTo(cx, cy)
+	fl.lineTo(dx, dy)
+	fl.close()
+	savedGS := rd.gs
+	rd.gs = gstate{fillA: 1, strokeA: 1, lineWidth: 1}
+	rd.compositePath(fl.path(), fillNonZero, r, g, b, 1)
+	rd.gs = savedGS
 }
 
 // drawAnnotationAppearance renders one appearance Form XObject with a fresh

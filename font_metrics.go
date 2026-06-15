@@ -2,6 +2,8 @@
 
 package asposepdf
 
+import "strings"
+
 // Standard 14 font width tables.
 // Values are in 1/1000 em units, indexed by WinAnsiEncoding character code.
 // Data sourced from Adobe AFM (Adobe Font Metrics) files.
@@ -323,6 +325,52 @@ func standard14Widths(name string) ([256]float64, bool) {
 	case "/ZapfDingbats":
 		return zapfDingbatsFontWidths, true
 	default:
+		if canon, ok := standard14WidthAlias(name); ok {
+			return standard14Widths(canon)
+		}
 		return [256]float64{}, false
 	}
+}
+
+// standard14WidthAlias maps a non-embedded font name to the metric-compatible
+// Standard-14 face whose AFM widths apply: Arial → Helvetica, Times New Roman
+// → Times, Courier New → Courier (the same families Acrobat substitutes). It
+// strips a subset prefix ("ABCDEF+") and reads bold/italic from the name, so
+// "ArialMT", "Arial-BoldMT", "TimesNewRomanPS-ItalicMT", etc. resolve. Without
+// this a non-embedded Arial with no /Widths fell back to a monospaced 600,
+// overlapping proportional text (39103.pdf form-field placeholders).
+func standard14WidthAlias(name string) (string, bool) {
+	n := strings.ToLower(name)
+	if i := strings.IndexByte(n, '+'); i >= 0 {
+		n = n[i+1:]
+	}
+	bold := strings.Contains(n, "bold")
+	italic := strings.Contains(n, "italic") || strings.Contains(n, "oblique")
+	switch {
+	case strings.Contains(n, "arial") || strings.Contains(n, "helvetica"):
+		switch {
+		case bold && italic:
+			return "/Helvetica-BoldOblique", true
+		case bold:
+			return "/Helvetica-Bold", true
+		case italic:
+			return "/Helvetica-Oblique", true
+		default:
+			return "/Helvetica", true
+		}
+	case strings.Contains(n, "times"):
+		switch {
+		case bold && italic:
+			return "/Times-BoldItalic", true
+		case bold:
+			return "/Times-Bold", true
+		case italic:
+			return "/Times-Italic", true
+		default:
+			return "/Times-Roman", true
+		}
+	case strings.Contains(n, "courier"):
+		return "/Courier", true // Courier widths are uniform regardless of style
+	}
+	return "", false
 }
