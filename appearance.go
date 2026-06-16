@@ -342,11 +342,15 @@ func generateLineAppearance(a *LineAnnotation) *pdfStream {
 	theta := math.Atan2(dy, dx)
 
 	b := newAppearanceBuilder()
+	// Outer state carries the stroke colour and line width so that the line
+	// endings (drawn below) inherit them; the dashed shaft sets its dash in a
+	// nested state so the pattern does not leak onto the solid arrowheads.
 	b.PushState()
 	b.SetLineWidth(bw)
 	if c := a.Color(); c != nil {
 		b.SetStrokeColorRGB(*c)
 	}
+	b.PushState()
 	if style == BorderDashed {
 		dp := a.DashPattern()
 		if len(dp) == 0 {
@@ -361,10 +365,12 @@ func generateLineAppearance(a *LineAnnotation) *pdfStream {
 
 	// Line endings. theta is the line direction (start → end). The end
 	// ending uses theta directly (apex at the endpoint, pointing
-	// outward along the line). The start ending mirrors with theta+π.
+	// outward along the line). The start ending mirrors with theta+π. They
+	// inherit the outer state's stroke colour and width (no dash).
 	ic := a.InteriorColor()
 	drawLineEnding(b, a.StartLineEnding(), sx, sy, theta+math.Pi, bw, ic)
 	drawLineEnding(b, a.EndLineEnding(), ex, ey, theta, bw, ic)
+	b.PopState()
 
 	return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 }

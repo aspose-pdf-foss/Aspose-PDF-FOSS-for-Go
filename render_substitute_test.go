@@ -252,3 +252,63 @@ func TestSynthesizeAnnotationAppearanceNoAP(t *testing.T) {
 		t.Errorf("red border pixels = %d, want >= 50 (no-/AP square not synthesized)", red)
 	}
 }
+
+// TestLineAnnotationArrowColor verifies that a Line annotation's arrowhead is
+// drawn in the line colour, not the default black (38485.pdf: synthesized line
+// appearances popped the graphics state before the endings, so arrowheads
+// rendered thin and black).
+func TestLineAnnotationArrowColor(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	writeObj := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>")
+	// Red line with a closed-arrow ending at the end, no /AP.
+	writeObj(4, "<< /Type /Annot /Subtype /Line /Rect [0 0 200 200]"+
+		" /L [40 40 160 160] /C [1 0 0] /BS << /W 3 >>"+
+		" /LE [/None /ClosedArrow] /F 4 /P 3 0 R >>")
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 5\n0000000000 65535 f \n")
+	for i := 1; i <= 4; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	rgba := img.(*image.RGBA)
+	red, blackish := 0, 0
+	b := rgba.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, _ := rgba.At(x, y).RGBA()
+			r8, g8, b8 := r>>8, g>>8, bl>>8
+			if r8 > 180 && g8 < 90 && b8 < 90 {
+				red++
+			} else if r8 < 90 && g8 < 90 && b8 < 90 {
+				blackish++
+			}
+		}
+	}
+	if red < 50 {
+		t.Errorf("red pixels = %d, want >= 50 (line/arrow not drawn red)", red)
+	}
+	if blackish > 5 {
+		t.Errorf("black pixels = %d, want ~0 (arrowhead drawn black instead of line colour)", blackish)
+	}
+}
