@@ -167,6 +167,16 @@ func (l *lexer) readKeyword() (token, error) {
 	for l.pos < len(l.data) && !isDelimiter(l.data[l.pos]) {
 		l.pos++
 	}
+	if l.pos == start {
+		// The current byte is a delimiter that Next did not special-case — a
+		// stray ')', '{', '}', '%', or undecodable binary. Consume it as a
+		// one-byte token so the lexer always advances; otherwise the caller
+		// (parseContentStream) re-reads the same position forever. 33150.pdf has
+		// a page whose content stream fails to inflate, leaving raw bytes that
+		// reach here and previously hung the renderer.
+		l.pos++
+		return token{kind: tokKeyword, raw: l.data[start:l.pos]}, nil
+	}
 	raw := l.data[start:l.pos]
 	switch string(raw) {
 	case "true", "false":
