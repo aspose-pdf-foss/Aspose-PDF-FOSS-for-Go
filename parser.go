@@ -175,14 +175,19 @@ func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
 		length = int(v)
 	}
 
-	// A usable direct /Length is taken verbatim (unchanged behaviour).
-	if length >= 0 && l.pos+length <= len(l.data) {
+	// A usable direct /Length is taken verbatim — but only when "endstream"
+	// actually follows the claimed data (allowing the optional EOL before it,
+	// ISO 32000-1 §7.3.8.1). A wrong direct /Length that merely fits in the file
+	// (e.g. a literal "/Length 1" in front of a 5 KB content stream) would
+	// otherwise truncate the stream; verifying the terminator catches that and
+	// falls through to the endstream scan, matching Acrobat/MuPDF/pdf.js.
+	if length >= 0 && l.pos+length <= len(l.data) && followedByEndstream(l.data, l.pos+length) {
 		data := l.data[l.pos : l.pos+length]
 		l.pos += length
 		return data, nil
 	}
 
-	// Otherwise /Length is an indirect reference, missing, or out of range:
+	// Otherwise /Length is an indirect reference, missing, wrong, or out of range:
 	// scan for the "endstream" keyword and take everything up to the single
 	// end-of-line that precedes it.
 	idx := streamEndIndex(l.data[l.pos:])
@@ -199,6 +204,17 @@ func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
 	data := l.data[l.pos:dataEnd]
 	l.pos = l.pos + idx // leave the lexer at the "endstream" keyword
 	return data, nil
+}
+
+// followedByEndstream reports whether the "endstream" keyword begins at pos,
+// after skipping the optional end-of-line (and any stray whitespace) that may
+// separate the stream data from the keyword. Used to validate a direct /Length
+// before trusting it.
+func followedByEndstream(data []byte, pos int) bool {
+	for pos < len(data) && isWhitespace(data[pos]) {
+		pos++
+	}
+	return bytes.HasPrefix(data[pos:], []byte("endstream"))
 }
 
 // streamEndIndex returns the offset within data of the "endstream" keyword that
