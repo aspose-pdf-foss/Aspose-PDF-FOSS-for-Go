@@ -85,28 +85,40 @@ func generateSquareAppearance(a *SquareAnnotation) *pdfStream {
 		// Underline ignores /IC by spec convention.
 
 	default:
+		stroke := a.Color()
+		fill := a.InteriorColor()
+		hasStroke := stroke != nil && bw > 0
+		// No border colour and no interior colour → the annotation paints
+		// nothing (ISO 32000-1 Table 164: absent /C means no border). Drawing a
+		// default black border here would invent a rectangle the viewer omits.
+		if !hasStroke && fill == nil {
+			break
+		}
 		b.PushState()
-		b.SetLineWidth(bw)
-		if c := a.Color(); c != nil {
-			b.SetStrokeColorRGB(*c)
-		}
-		if style == BorderDashed {
-			dp := a.DashPattern()
-			if len(dp) == 0 {
-				dp = []float64{3, 3}
+		inset := 0.0
+		rw, rh := width, height
+		if hasStroke {
+			b.SetLineWidth(bw)
+			b.SetStrokeColorRGB(*stroke)
+			if style == BorderDashed {
+				dp := a.DashPattern()
+				if len(dp) == 0 {
+					dp = []float64{3, 3}
+				}
+				b.SetDashPattern(dp, 0)
 			}
-			b.SetDashPattern(dp, 0)
+			inset, rw, rh = bw/2, width-bw, height-bw // keep the stroke inside /Rect
 		}
-		inset := bw / 2
-		b.Rect(inset, inset, width-bw, height-bw)
-		hasFill := false
-		if ic := a.InteriorColor(); ic != nil {
-			b.SetFillColorRGB(*ic)
-			hasFill = true
+		if fill != nil {
+			b.SetFillColorRGB(*fill)
 		}
-		if hasFill {
+		b.Rect(inset, inset, rw, rh)
+		switch {
+		case fill != nil && hasStroke:
 			b.FillStroke()
-		} else {
+		case fill != nil:
+			b.Fill()
+		default:
 			b.Stroke()
 		}
 		b.PopState()
@@ -229,27 +241,36 @@ func generateCircleAppearance(a *CircleAnnotation) *pdfStream {
 		b.PopState()
 
 	default:
+		stroke := a.Color()
+		fill := a.InteriorColor()
+		hasStroke := stroke != nil && bw > 0
+		if !hasStroke && fill == nil {
+			break // no border colour and no interior colour → nothing to draw
+		}
 		b.PushState()
-		b.SetLineWidth(bw)
-		if c := a.Color(); c != nil {
-			b.SetStrokeColorRGB(*c)
-		}
-		if style == BorderDashed {
-			dp := a.DashPattern()
-			if len(dp) == 0 {
-				dp = []float64{3, 3}
+		if hasStroke {
+			b.SetLineWidth(bw)
+			b.SetStrokeColorRGB(*stroke)
+			if style == BorderDashed {
+				dp := a.DashPattern()
+				if len(dp) == 0 {
+					dp = []float64{3, 3}
+				}
+				b.SetDashPattern(dp, 0)
 			}
-			b.SetDashPattern(dp, 0)
+		} else {
+			rx, ry = width/2, height/2 // fill the full /Rect when there's no stroke
 		}
-		hasFill := false
-		if ic := a.InteriorColor(); ic != nil {
-			b.SetFillColorRGB(*ic)
-			hasFill = true
+		if fill != nil {
+			b.SetFillColorRGB(*fill)
 		}
 		b.Ellipse(cx, cy, rx, ry)
-		if hasFill {
+		switch {
+		case fill != nil && hasStroke:
 			b.FillStroke()
-		} else {
+		case fill != nil:
+			b.Fill()
+		default:
 			b.Stroke()
 		}
 		b.PopState()

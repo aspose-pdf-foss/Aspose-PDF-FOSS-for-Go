@@ -233,10 +233,16 @@ func (b *annotationBase) SetRect(r Rectangle) {
 // Color returns the /C array as an RGB Color. Returns nil if /C is
 // absent.
 func (b *annotationBase) Color() *Color {
-	arr, ok := b.dict["/C"].(pdfArray)
-	if !ok {
-		return nil
-	}
+	arr, _ := b.dict["/C"].(pdfArray)
+	return annotColorFromComponents(arr)
+}
+
+// annotColorFromComponents converts a PDF annotation colour array (/C, /IC) to a
+// Color per ISO 32000-1 §8.6.3 / Table 164: 1 number = DeviceGray, 3 = DeviceRGB,
+// 4 = DeviceCMYK, 0 (or anything else) = no colour (nil = transparent). CMYK is
+// converted through the shared Adobe LUT so it matches the renderer's other CMYK
+// paths (and Acrobat) rather than the bluish naive formula.
+func annotColorFromComponents(arr pdfArray) *Color {
 	switch len(arr) {
 	case 1:
 		g, _ := toFloat(arr[0])
@@ -247,18 +253,12 @@ func (b *annotationBase) Color() *Color {
 		bl, _ := toFloat(arr[2])
 		return &Color{R: r, G: g, B: bl, A: 1}
 	case 4:
-		// CMYK — convert to a rough RGB approximation. Most annotation
-		// software writes RGB; CMYK is rare for /C.
 		c, _ := toFloat(arr[0])
 		m, _ := toFloat(arr[1])
 		y, _ := toFloat(arr[2])
 		k, _ := toFloat(arr[3])
-		return &Color{
-			R: (1 - c) * (1 - k),
-			G: (1 - m) * (1 - k),
-			B: (1 - y) * (1 - k),
-			A: 1,
-		}
+		r, g, bl := adobeCMYKToRGB(c, m, y, k)
+		return &Color{R: float64(r) / 255, G: float64(g) / 255, B: float64(bl) / 255, A: 1}
 	}
 	return nil
 }

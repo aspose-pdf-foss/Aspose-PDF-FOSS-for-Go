@@ -219,14 +219,8 @@ func NewSquareAnnotation(page *Page, rect Rectangle) *SquareAnnotation {
 
 // InteriorColor returns the /IC fill color, or nil if absent.
 func (a *SquareAnnotation) InteriorColor() *Color {
-	arr, ok := a.dict["/IC"].(pdfArray)
-	if !ok || len(arr) != 3 {
-		return nil
-	}
-	r, _ := toFloat(arr[0])
-	g, _ := toFloat(arr[1])
-	bl, _ := toFloat(arr[2])
-	return &Color{R: r, G: g, B: bl, A: 1}
+	arr, _ := a.dict["/IC"].(pdfArray)
+	return annotColorFromComponents(arr)
 }
 
 // SetInteriorColor writes /IC as an RGB array; nil removes the entry.
@@ -285,14 +279,8 @@ func NewCircleAnnotation(page *Page, rect Rectangle) *CircleAnnotation {
 
 // InteriorColor returns the /IC fill color, or nil if absent.
 func (a *CircleAnnotation) InteriorColor() *Color {
-	arr, ok := a.dict["/IC"].(pdfArray)
-	if !ok || len(arr) != 3 {
-		return nil
-	}
-	r, _ := toFloat(arr[0])
-	g, _ := toFloat(arr[1])
-	bl, _ := toFloat(arr[2])
-	return &Color{R: r, G: g, B: bl, A: 1}
+	arr, _ := a.dict["/IC"].(pdfArray)
+	return annotColorFromComponents(arr)
 }
 
 // SetInteriorColor writes /IC as an RGB array; nil removes the entry.
@@ -467,14 +455,8 @@ func (a *LineAnnotation) SetEndLineEnding(s LineEndingStyle) {
 // endings: ClosedArrow, RClosedArrow, Square, Circle, Diamond).
 // Returns nil if absent.
 func (a *LineAnnotation) InteriorColor() *Color {
-	arr, ok := a.dict["/IC"].(pdfArray)
-	if !ok || len(arr) != 3 {
-		return nil
-	}
-	r, _ := toFloat(arr[0])
-	g, _ := toFloat(arr[1])
-	bl, _ := toFloat(arr[2])
-	return &Color{R: r, G: g, B: bl, A: 1}
+	arr, _ := a.dict["/IC"].(pdfArray)
+	return annotColorFromComponents(arr)
 }
 
 // SetInteriorColor writes /IC as an RGB array; nil removes the entry.
