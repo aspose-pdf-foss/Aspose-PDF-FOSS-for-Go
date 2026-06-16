@@ -30,7 +30,14 @@ func (rd *renderer) renderAnnotations() {
 		}
 		ap := appearanceStream(objects, ad)
 		if ap == nil {
-			continue
+			// No /AP: a viewer synthesizes the appearance from the
+			// annotation's properties (ISO 32000-1 §12.5.5). Draw the markup
+			// shapes the library can build (Square/Circle/Line/Ink); others
+			// are skipped as before.
+			ap = rd.synthesizeAnnotationAppearance(ad)
+			if ap == nil {
+				continue
+			}
 		}
 		rect, ok := normRect(shFloats(objects, ad["/Rect"]))
 		if !ok {
@@ -43,6 +50,29 @@ func (rd *renderer) renderAnnotations() {
 		rd.widgetFieldBackground(objects, ad, rect)
 		rd.drawAnnotationAppearance(ap, m)
 	}
+}
+
+// synthesizeAnnotationAppearance builds an appearance stream for a drawing
+// annotation that carries no /AP, the way a viewer does (ISO 32000-1 §12.5.5:
+// absent an appearance, one is generated from the annotation's properties).
+// Covers the markup shapes the library can render from /Rect, /C, /IC, /BS and
+// geometry (Square/Circle/Line/Ink); returns nil for other subtypes, which are
+// skipped. The stream is drawn directly and not stored on the document.
+func (rd *renderer) synthesizeAnnotationAppearance(ad pdfDict) *pdfStream {
+	db := drawingAnnotationBase{annotationBase: annotationBase{
+		dict: ad, doc: rd.page.doc, page: rd.page,
+	}}
+	switch dictGetName(ad, "/Subtype") {
+	case "/Square":
+		return generateSquareAppearance(&SquareAnnotation{drawingAnnotationBase: db})
+	case "/Circle":
+		return generateCircleAppearance(&CircleAnnotation{drawingAnnotationBase: db})
+	case "/Line":
+		return generateLineAppearance(&LineAnnotation{drawingAnnotationBase: db})
+	case "/Ink":
+		return generateInkAppearance(&InkAnnotation{drawingAnnotationBase: db})
+	}
+	return nil
 }
 
 // widgetFieldBackground paints an opaque background behind a text or choice

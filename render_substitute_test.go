@@ -198,3 +198,57 @@ func TestRenderCropBoxClampedToMediaBox(t *testing.T) {
 		t.Errorf("canvas = %dx%d, want 595x842 (MediaBox at 72 DPI)", b.Dx(), b.Dy())
 	}
 }
+
+// TestSynthesizeAnnotationAppearanceNoAP verifies that drawing annotations
+// without an /AP stream (Square/Circle/Line) are synthesized and rendered the
+// way a viewer does (38730-1.pdf: red square, green circle, blue line had no
+// appearance and were dropped).
+func TestSynthesizeAnnotationAppearanceNoAP(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	writeObj := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200]"+
+		" /Annots [4 0 R] >>")
+	// Red square annotation, no /AP.
+	writeObj(4, "<< /Type /Annot /Subtype /Square /C [1 0 0]"+
+		" /Rect [50 50 150 150] /F 4 /P 3 0 R >>")
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 5\n0000000000 65535 f \n")
+	for i := 1; i <= 4; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	rgba := img.(*image.RGBA)
+	red := 0
+	b := rgba.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, _ := rgba.At(x, y).RGBA()
+			if r>>8 > 180 && g>>8 < 80 && bl>>8 < 80 {
+				red++
+			}
+		}
+	}
+	if red < 50 {
+		t.Errorf("red border pixels = %d, want >= 50 (no-/AP square not synthesized)", red)
+	}
+}
