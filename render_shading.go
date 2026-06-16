@@ -240,6 +240,7 @@ type shading struct {
 	domain [2]float64
 	extend [2]bool
 	fn     pdfFunc
+	tint   tintFunc // /Separation or /DeviceN colour model; nil = device by count
 }
 
 // parseShading reads a /Shading dict (type 2 or 3); returns nil for others.
@@ -269,7 +270,12 @@ func parseShading(objects map[int]*pdfObject, v pdfValue) *shading {
 	if fn == nil {
 		return nil
 	}
-	return &shading{stype: st, coords: coords, domain: [2]float64{dom[0], dom[1]}, extend: [2]bool{ext[0], ext[1]}, fn: fn}
+	// A /Separation or /DeviceN shading colour space maps the function's tint
+	// output through its tint transform to an alternate device space. Without
+	// this the lone DeviceN component is read as DeviceGray (33319-2.pdf's
+	// /Black tint 0..0.1 then renders near-black instead of light gray).
+	tint := csTintConverter(objects, d["/ColorSpace"])
+	return &shading{stype: st, coords: coords, domain: [2]float64{dom[0], dom[1]}, extend: [2]bool{ext[0], ext[1]}, fn: fn, tint: tint}
 }
 
 // paramAt maps a point in shading space to the function parameter t, or reports
@@ -348,7 +354,11 @@ func (s *shading) paramAt(x, y float64) (float64, bool) {
 // colorAt evaluates the shading colour at parameter t as an 8-bit RGB triple,
 // choosing the colour model from the function's output-component count.
 func (s *shading) colorAt(t float64) (uint8, uint8, uint8) {
-	return compsToRGB(s.fn.eval([]float64{t}))
+	c := s.fn.eval([]float64{t})
+	if s.tint != nil {
+		return s.tint(c)
+	}
+	return compsToRGB(c)
 }
 
 // paintShading rasterizes the shading into the image. m maps shading space to

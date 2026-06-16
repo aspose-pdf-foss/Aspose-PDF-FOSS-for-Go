@@ -26,7 +26,14 @@ func (rd *renderer) namedColorSpace(name string) pdfValue {
 // tintConverter builds a tintFunc for a /Separation or /DeviceN colour space, or
 // nil for any other space (the caller then uses device colour by operand count).
 func (rd *renderer) tintConverter(csVal pdfValue) tintFunc {
-	objects := rd.page.doc.objects
+	return csTintConverter(rd.page.doc.objects, csVal)
+}
+
+// csTintConverter builds the tintFunc for an array-defined /Separation or
+// /DeviceN colour space (the only forms that carry a tint transform), or nil for
+// any other space. Standalone (no /Resources lookup) so non-renderer callers —
+// e.g. shadings — can resolve a DeviceN colour model too.
+func csTintConverter(objects map[int]*pdfObject, csVal pdfValue) tintFunc {
 	arr, ok := resolveRefToArray(objects, csVal)
 	if !ok || len(arr) < 4 {
 		return nil
