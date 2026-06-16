@@ -357,13 +357,26 @@ func defaultEncodingForFont(name string) [256]rune {
 	}
 }
 
+// nameImpliesBold reports whether a (lower-cased) font name carries a weight
+// keyword that reads as bold or heavier — including the foundry weight words
+// (demi, semibold, black, heavy) that "bold" alone would miss (e.g. the
+// URWGothicL-Demi family).
+func nameImpliesBold(lname string) bool {
+	for _, kw := range []string{"bold", "demi", "semibold", "black", "heavy", "extrabold", "ultra"} {
+		if strings.Contains(lname, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveFontDescriptor reads /FontDescriptor to set bold, italic, ascent, descent.
 // Bold/italic also use font name heuristics as fallback.
 // PDF spec Table 123: bit 3 = Italic, bit 19 = ForceBold.
 func resolveFontDescriptor(objects map[int]*pdfObject, fontDict pdfDict, baseFontName string, fi *fontInfo) {
 	lname := strings.ToLower(baseFontName)
-	fi.bold = strings.Contains(lname, "bold")
-	fi.italic = strings.Contains(lname, "italic") || strings.Contains(lname, "oblique")
+	fi.bold = nameImpliesBold(lname)
+	fi.italic = strings.Contains(lname, "italic") || strings.Contains(lname, "obli")
 
 	// Find /FontDescriptor dict.
 	fdVal, ok := fontDict["/FontDescriptor"]
@@ -401,6 +414,14 @@ func resolveFontDescriptor(objects map[int]*pdfObject, fontDict pdfDict, baseFon
 	}
 	if flags&(1<<18) != 0 {
 		fi.bold = true
+	}
+	// A non-zero /ItalicAngle means the face is slanted (oblique), even when
+	// the italic flag and name keyword are absent (URWGothicL-DemiObli has
+	// ItalicAngle −11, Flags 32). Pick an oblique substitute for it.
+	if !fi.italic {
+		if ia := operandFloat(fdDict["/ItalicAngle"]); ia != 0 {
+			fi.italic = true
+		}
 	}
 
 	// Read ascent/descent metrics.

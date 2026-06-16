@@ -501,3 +501,27 @@ func TestDifferencesGlyphNames(t *testing.T) {
 		t.Errorf("glyphNames = %v, want 2:a71 3:a72 10:a1", fi.glyphNames)
 	}
 }
+
+// TestFontStyleFromItalicAngleAndWeightName verifies oblique is detected from
+// /ItalicAngle and bold from a foundry weight word (Demi), even when the
+// /Flags italic/bold bits and the "bold"/"italic" keywords are absent
+// (37842_37843_9.pdf: URWGothicL-DemiObli substituted upright-regular before).
+func TestFontStyleFromItalicAngleAndWeightName(t *testing.T) {
+	fontDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/EFRZIW+URWGothicL-DemiObli"),
+		"/FontDescriptor": pdfDict{
+			"/Type":        pdfName("/FontDescriptor"),
+			"/Flags":       32,
+			"/ItalicAngle": -11,
+		},
+	}
+	fi := resolveFont(map[int]*pdfObject{}, fontDict)
+	if !fi.italic {
+		t.Error("italic = false, want true (from /ItalicAngle -11)")
+	}
+	if !fi.bold {
+		t.Error("bold = false, want true (from Demi in the name)")
+	}
+}
