@@ -101,7 +101,7 @@ type textExtractor struct {
 	tm           [6]float64 // text matrix
 	lm           [6]float64 // line matrix
 	ctm          [6]float64 // current transformation matrix
-	ctmStack     [][6]float64
+	gsStack      []extractorGState
 
 	// Fill color (for text rendering).
 	fillR, fillG, fillB float64 // RGB, 0-1
@@ -115,6 +115,27 @@ type textExtractor struct {
 	lastX     float64       // x after last glyph advance
 	lastY     float64       // y after last glyph advance
 	hasPos    bool
+}
+
+// extractorGState is the slice of state that q/Q save and restore. Per ISO
+// 32000-1 Table 52 the text-state parameters (font, size, char/word spacing,
+// leading, horizontal scaling) and the fill colour are part of the graphics
+// state, so q/Q must roll them back along with the CTM. The text matrices
+// (tm/lm) are text-object state, not graphics state, so they are NOT saved here
+// — a q/Q may nest inside a BT/ET block. Without restoring the font, text drawn
+// after a "q … /Fsub Tf … Q" block kept the inner font and decoded through the
+// wrong encoding (Binder1.pdf: TOTAL rows became "3?3>;").
+type extractorGState struct {
+	ctm          [6]float64
+	font         fontInfo
+	fontSize     float64
+	charSpace    float64
+	wordSpace    float64
+	leading      float64
+	horizScaling float64
+	fillR        float64
+	fillG        float64
+	fillB        float64
 }
 
 // markedContentEntry tracks a BDC/BMC nesting level.
@@ -283,12 +304,20 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 			}
 
 		case "q":
-			e.ctmStack = append(e.ctmStack, e.ctm)
+			e.gsStack = append(e.gsStack, extractorGState{
+				ctm: e.ctm, font: e.font, fontSize: e.fontSize,
+				charSpace: e.charSpace, wordSpace: e.wordSpace, leading: e.leading,
+				horizScaling: e.horizScaling, fillR: e.fillR, fillG: e.fillG, fillB: e.fillB,
+			})
 
 		case "Q":
-			if len(e.ctmStack) > 0 {
-				e.ctm = e.ctmStack[len(e.ctmStack)-1]
-				e.ctmStack = e.ctmStack[:len(e.ctmStack)-1]
+			if n := len(e.gsStack); n > 0 {
+				s := e.gsStack[n-1]
+				e.gsStack = e.gsStack[:n-1]
+				e.ctm, e.font, e.fontSize = s.ctm, s.font, s.fontSize
+				e.charSpace, e.wordSpace, e.leading = s.charSpace, s.wordSpace, s.leading
+				e.horizScaling = s.horizScaling
+				e.fillR, e.fillG, e.fillB = s.fillR, s.fillG, s.fillB
 			}
 
 		case "BMC":
