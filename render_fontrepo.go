@@ -146,7 +146,40 @@ func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
 			return r.load(ref)
 		}
 	}
+	// Fuzzy pass: a candidate family may be installed under a longer name —
+	// "Microsoft JhengHei" ships as "Microsoft JhengHei UI" on modern Windows.
+	// Accept an indexed family that has the candidate as a word-boundary prefix.
+	// This also sidesteps the "-ExtB" extension faces (mingliub.ttc), whose
+	// family names use a '-' separator and which carry only rare CJK-Extension-B
+	// glyphs — matching one would render common characters blank.
+	for _, want := range []string{style, "regular"} {
+		for _, fam := range fams {
+			if ref, ok := r.sysFamilyPrefix(fam, want); ok {
+				return r.load(ref)
+			}
+		}
+	}
 	return nil
+}
+
+// sysFamilyPrefix finds an indexed system font whose family name equals fam or
+// begins with "fam " (a word-boundary prefix) and whose style matches. Families
+// carrying a CJK extension block ("ext-a"/"ext-b"/…) are skipped — they hold
+// only rare supplementary ideographs, not the common ones. Caller holds r.mu.
+func (r *fontRepository) sysFamilyPrefix(fam, style string) (fontRef, bool) {
+	suffix := "|" + style
+	for key, ref := range r.sysByFamily {
+		name, ok := strings.CutSuffix(key, suffix)
+		if !ok || !strings.HasPrefix(name, fam+" ") {
+			continue
+		}
+		if strings.Contains(name, "ext-") || strings.Contains(name, "extb") ||
+			strings.Contains(name, "exta") || strings.Contains(name, "extg") {
+			continue
+		}
+		return ref, true
+	}
+	return fontRef{}, false
 }
 
 // findSystemStd14 resolves a Standard-14-family font (Courier/Helvetica/Times
