@@ -1,10 +1,10 @@
 // render rasterizes every page of a PDF to a PNG under result_files/render/,
 // and writes the whole document as one multi-page TIFF (document.tiff).
-// Defaults to the unencrypted showcase; pass a path to render another file.
+// Defaults to the showcase document; pass a path to render another file.
 //
 // Usage:
 //
-//	go run ./_examples/render                 # docs/feature_showcase_unencrypted.pdf
+//	go run ./_examples/render                 # docs/feature_showcase.pdf
 //	go run ./_examples/render <file.pdf> [dpi]
 package main
 
@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	src := "docs/feature_showcase_unencrypted.pdf"
+	src := "docs/feature_showcase.pdf"
 	if len(os.Args) > 1 {
 		src = os.Args[1]
 	}

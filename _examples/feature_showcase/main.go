@@ -23,9 +23,11 @@
 //   - Aspose SVG logo stamped on every body page (top-right corner)
 //   - Diagonal "WATERMARK" behind content on body pages (cover/TOC stay clean)
 //   - Unified footer on every body page with the formatted page label
-//   - AES-256 encryption (PDF 2.0) with an empty user password so any
-//     viewer opens without a prompt; the owner password still protects
-//     modify-document and other permission-gated operations.
+//
+// The output is deliberately left unencrypted so it previews inline on
+// GitHub and opens in every viewer; encryption (RC4 / AES-128 / AES-256)
+// is covered by the README "Encryption" section and the encrypt_*_test.go
+// suite rather than by locking this artifact.
 //
 // Output: docs/feature_showcase.pdf — committed to the repository and linked
 // from README.md. Regenerate after meaningful example changes, but avoid
@@ -262,25 +264,11 @@ func main() {
 		log.Printf("subset %d embedded font(s)", n)
 	}
 
-	// --- Encryption — AES-256 (PDF 2.0) -----------------------------
-	// Empty user password lets any viewer open the file without a prompt,
-	// while the owner password still gates modify/extract operations under
-	// the configured Permissions. This is the same pattern used by many
-	// commercial PDFs that are "encrypted but freely readable".
-	doc.SetEncryption(pdf.EncryptionOptions{
-		UserPassword:  "",
-		OwnerPassword: "owner",
-		Permissions: &pdf.Permissions{
-			AllowPrint:         true,
-			AllowPrintHighRes:  true,
-			AllowCopy:          true,
-			AllowAccessibility: true,
-			AllowFormFill:      true, // fields stay editable for any viewer
-			AllowAnnotations:   true, // sticky-notes / markup stay editable
-		},
-		Algorithm: pdf.EncryptionAlgAES256,
-	})
-
+	// The showcase is saved unencrypted on purpose: an encrypted file
+	// (even one with an empty user password) does not render in GitHub's
+	// inline PDF preview, which would break the linked thumbnail in
+	// README.md. Encryption is demonstrated separately — see the README
+	// "Encryption" section and encrypt_*_test.go / decrypt_*_test.go.
 	if err := doc.Save(outputPath); err != nil {
 		log.Fatalf("save: %v", err)
 	}
