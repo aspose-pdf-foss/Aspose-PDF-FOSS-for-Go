@@ -25,9 +25,10 @@ type textState struct {
 // Only embedded TrueType (Type0/CIDFontType2 with /FontFile2, and simple
 // /TrueType) fonts are renderable here; Standard-14 outlines arrive in P4.
 type renderFont struct {
-	prog     *ttfFont   // embedded/substitute TrueType (glyf) program
-	cff      *cffFont   // embedded CFF program (/FontFile3); mutually exclusive with prog
-	type3    *type3Font // Type3 font: glyphs are content streams, not outlines
+	prog     *ttfFont    // embedded/substitute TrueType (glyf) program
+	cff      *cffFont    // embedded CFF program (/FontFile3); mutually exclusive with prog
+	t1       *type1Font  // embedded Type1 program (/FontFile)
+	type3    *type3Font  // Type3 font: glyphs are content streams, not outlines
 	synth    func(uint32) []glyphContour // synthesized outlines by code (non-embedded ZapfDingbats)
 	em       float64
 	isType0  bool
@@ -39,13 +40,18 @@ type renderFont struct {
 }
 
 // hasOutlines reports whether this font can draw glyph outlines.
-func (f *renderFont) hasOutlines() bool { return f != nil && (f.prog != nil || f.cff != nil) }
+func (f *renderFont) hasOutlines() bool {
+	return f != nil && (f.prog != nil || f.cff != nil || f.t1 != nil)
+}
 
 // glyphOutline returns the glyph's flattened contours from whichever program
 // backs this font.
 func (f *renderFont) glyphOutline(gid uint16) []glyphContour {
 	if f.cff != nil {
 		return f.cff.glyphContours(gid)
+	}
+	if f.t1 != nil {
+		return f.t1.glyphContours(gid)
 	}
 	if f.prog != nil {
 		return f.prog.glyphContours(gid)
@@ -195,6 +201,25 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 			rf.prog = prog
 			if prog.unitsPerEm != 0 {
 				rf.em = float64(prog.unitsPerEm)
+			}
+			return rf
+		}
+	}
+	// Embedded classic Type1 outlines (/FontFile: eexec-encrypted PostScript
+	// charstrings). Glyphs are keyed by name; gid() resolves code → name → GID.
+	if stream, ok := resolveRef(objects, descriptor["/FontFile"]).(*pdfStream); ok {
+		len1 := dictGetInt(stream.Dict, "/Length1")
+		len2 := dictGetInt(stream.Dict, "/Length2")
+		if v := resolveRef(objects, stream.Dict["/Length1"]); v != nil {
+			len1 = int(operandFloat(v))
+		}
+		if v := resolveRef(objects, stream.Dict["/Length2"]); v != nil {
+			len2 = int(operandFloat(v))
+		}
+		if t1 := parseType1(decodedStreamData(stream), len1, len2); t1 != nil {
+			rf.t1 = t1
+			if t1.unitsPerEm != 0 {
+				rf.em = t1.unitsPerEm
 			}
 			return rf
 		}
@@ -567,6 +592,28 @@ func (f *renderFont) gid(code uint32) uint16 {
 			return f.cff.gidForCID(cid)
 		}
 		return cid // Identity
+	}
+	// Embedded Type1 (/FontFile): charstrings are keyed by glyph name. Resolve
+	// the code to a name — the PDF /Differences name first, then the base
+	// encoding's standard name, then the font's own built-in encoding — and
+	// look up the synthetic GID (ISO 32000-1 §9.6.6.1).
+	if code < 256 && f.t1 != nil {
+		var name string
+		if f.fi.glyphNames != nil {
+			name = f.fi.glyphNames[byte(code)]
+		}
+		if name == "" && f.fi.known {
+			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+				name = runeToStdGlyphName(r)
+			}
+		}
+		if name == "" {
+			name = f.t1.builtinEnc[code]
+		}
+		if g, ok := f.t1.nameToGID[name]; ok {
+			return g
+		}
+		return 0
 	}
 	// Simple CFF (Type1C) glyph selection (ISO 32000-1 §9.6.6.2). When the PDF
 	// font dict carries its own /Encoding (WinAnsi etc., resolved into
