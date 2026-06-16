@@ -287,13 +287,18 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		bpc = 8
 	}
 
-	// Colour-key masking (ISO 32000-1 §8.9.6.4): /Mask as an array of
-	// [min1 max1 ... minN maxN] sample ranges. Pixels whose original samples
-	// (palette indices for Indexed) all fall inside the ranges are transparent.
-	// Must be computed before palette expansion.
+	// Masking via /Mask (ISO 32000-1 §8.9.6). Two forms:
+	//   • an array of [min1 max1 …] sample ranges → colour-key masking
+	//     (computed here, before palette expansion, on the raw samples), or
+	//   • a reference to a 1-bit /ImageMask stencil stream → stencil masking
+	//     (applied after the image is expanded to 8-bpc samples).
 	var keyAlpha []byte
-	if maskArr, ok := resolveRef(objects, stream.Dict["/Mask"]).(pdfArray); ok {
-		keyAlpha = colourKeyAlpha(rawPixels, img.Width, img.Height, bpc, components, maskArr)
+	hasStencilMask := false
+	switch resolveRef(objects, stream.Dict["/Mask"]).(type) {
+	case pdfArray:
+		keyAlpha = colourKeyAlpha(rawPixels, img.Width, img.Height, bpc, components, resolveRef(objects, stream.Dict["/Mask"]).(pdfArray))
+	case *pdfStream:
+		hasStencilMask = true
 	}
 
 	// /Decode (ISO 32000-1 §8.9.5.2): a fully inverted ramp ([1 0] per
@@ -333,6 +338,27 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 			for i := range alphaMask {
 				if i < len(keyAlpha) && keyAlpha[i] == 0 {
 					alphaMask[i] = 0
+				}
+			}
+		}
+	}
+	// Stencil /Mask (a 1-bit /ImageMask stream): its "on" samples mark pixels
+	// to suppress, so the table-cell artwork shows only through the mask and
+	// underlying page content (text) is not covered (38329.pdf). decodeStencilMask
+	// returns 255 where the image paints and 0 where it is masked out.
+	if hasStencilMask {
+		if mAlpha, mw, mh, ok := decodeStencilMask(objects, stream.Dict["/Mask"]); ok {
+			ms := mAlpha
+			if mw != img.Width || mh != img.Height {
+				ms = resampleAlpha(mAlpha, mw, mh, img.Width, img.Height)
+			}
+			if alphaMask == nil {
+				alphaMask = ms
+			} else {
+				for i := range alphaMask {
+					if i < len(ms) && ms[i] == 0 {
+						alphaMask[i] = 0
+					}
 				}
 			}
 		}

@@ -312,3 +312,76 @@ func TestLineAnnotationArrowColor(t *testing.T) {
 		t.Errorf("black pixels = %d, want ~0 (arrowhead drawn black instead of line colour)", blackish)
 	}
 }
+
+// buildPDFWithStencilMaskedImage returns a PDF with a 4x1 gray image whose
+// /Mask is a 4x1 /ImageMask stencil masking out columns 1 and 3, drawn over
+// the whole page. Masked-out columns must be transparent (show the white
+// background) instead of opaque gray (38329.pdf: stencil /Mask on table-cell
+// images was ignored, so gray rectangles covered the text).
+func buildPDFWithStencilMaskedImage() []byte {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	wr := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	wrStream := func(id int, dict string, data []byte) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nstream\n", id, dict)
+		buf.Write(data)
+		buf.WriteString("\nendstream\nendobj\n")
+	}
+	wr(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	wr(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	wr(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 10]"+
+		" /Resources << /XObject << /Im0 4 0 R >> >> /Contents 6 0 R >>")
+	// 4x1 gray image, all 128, with stencil /Mask 5 0 R.
+	wrStream(4, "<< /Type /XObject /Subtype /Image /Width 4 /Height 1"+
+		" /BitsPerComponent 8 /ColorSpace /DeviceGray /Mask 5 0 R /Length 4 >>",
+		[]byte{128, 128, 128, 128})
+	// 4x1 ImageMask: samples 0,1,0,1 -> columns 1,3 masked out. Byte 0b01010000.
+	wrStream(5, "<< /Type /XObject /Subtype /Image /Width 4 /Height 1"+
+		" /ImageMask true /BitsPerComponent 1 /Length 1 >>", []byte{0x50})
+	content := "q 40 0 0 10 0 0 cm /Im0 Do Q"
+	wrStream(6, fmt.Sprintf("<< /Length %d >>", len(content)), []byte(content))
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 7\n0000000000 65535 f \n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+	return buf.Bytes()
+}
+
+// TestStencilMaskOnNonDCTImage verifies a stencil /Mask (1-bit /ImageMask
+// stream) makes the masked-out columns transparent on a plain (non-DCT/JPX)
+// image, so the white page shows through instead of opaque gray.
+func TestStencilMaskOnNonDCTImage(t *testing.T) {
+	doc, err := pdf.OpenStream(bytes.NewReader(buildPDFWithStencilMaskedImage()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	rgba := img.(*image.RGBA)
+	b := rgba.Bounds()
+	mid := (b.Min.Y + b.Max.Y) / 2
+	// Column 0 (x ~ 1/8 width) painted gray; column 1 (x ~ 3/8) masked -> white.
+	col0 := b.Min.X + b.Dx()/8
+	col1 := b.Min.X + 3*b.Dx()/8
+	r0, _, _, _ := rgba.At(col0, mid).RGBA()
+	r1, _, _, _ := rgba.At(col1, mid).RGBA()
+	if r0>>8 > 200 {
+		t.Errorf("painted column = %d, want gray (< 200)", r0>>8)
+	}
+	if r1>>8 < 230 {
+		t.Errorf("masked-out column = %d, want white (>= 230); stencil /Mask not applied", r1>>8)
+	}
+}
