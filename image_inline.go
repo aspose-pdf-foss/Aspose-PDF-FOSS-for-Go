@@ -100,13 +100,22 @@ func parseInlineImage(l *lexer) (pdfDict, []byte) {
 		l.pos++
 	}
 
-	// Find end: whitespace + "EI" + delimiter.
+	// Find end: (whitespace | '>') + "EI" + delimiter. EI is normally
+	// preceded by whitespace, but with an ASCIIHexDecode (/AHx) or ASCII85
+	// (/A85) filter the data ends with the '>' EOD marker and "EI" follows it
+	// directly (e.g. "...3F>EI"). Accept '>' as a terminator too, otherwise the
+	// scan overruns the image and swallows every glyph up to the next
+	// whitespace-delimited EI.
 	start := l.pos
 	for l.pos < len(l.data)-2 {
-		if isWhitespace(l.data[l.pos]) &&
+		if (isWhitespace(l.data[l.pos]) || l.data[l.pos] == '>') &&
 			l.data[l.pos+1] == 'E' && l.data[l.pos+2] == 'I' &&
 			(l.pos+3 >= len(l.data) || isDelimiter(l.data[l.pos+3])) {
-			data := l.data[start:l.pos]
+			end := l.pos
+			if l.data[l.pos] == '>' {
+				end++ // keep the '>' EOD marker in the filtered data
+			}
+			data := l.data[start:end]
 			l.pos += 3
 			return normalizeInlineDict(dict), data
 		}
