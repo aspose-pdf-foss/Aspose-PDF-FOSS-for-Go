@@ -21,3 +21,17 @@ func (rd *renderer) applyPendingClip() {
 	rd.gs.clip = intersectClip(rd.gs.clip, cov)
 	rd.pendingClip = 0
 }
+
+// applyTextClip is called at ET: if any glyphs were drawn under a clipping text
+// rendering mode (4-7) since BT, their combined outline (nonzero winding)
+// intersects the graphics-state clip (ISO 32000-1 §9.4.3). The clip then
+// constrains subsequent painting until the enclosing q/Q restores it — the
+// mechanism behind "show glyphs as a clip, then paint an image through them".
+func (rd *renderer) applyTextClip() {
+	if len(rd.textClip) == 0 {
+		return
+	}
+	cov := rd.ras.coverage(&devPath{subs: rd.textClip}, fillNonZero)
+	rd.gs.clip = intersectClip(rd.gs.clip, cov)
+	rd.textClip = nil
+}

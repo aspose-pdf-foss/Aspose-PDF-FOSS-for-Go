@@ -359,7 +359,9 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
 	w0 := rd.glyphWidth(code) // 1/1000 em
 
-	if f != nil && textHasPaint(rd.ts.renderMode) {
+	// Clip modes (4-7) paint no fill/stroke for mode 7 but still contribute the
+	// glyph outline to the text clip accumulated for ET, so process them too.
+	if f != nil && (textHasPaint(rd.ts.renderMode) || rd.ts.renderMode >= 4) {
 		switch {
 		case f.hasOutlines():
 			// Skip glyph 0 (.notdef): an unmapped code renders nothing rather
@@ -489,6 +491,9 @@ func (rd *renderer) paintContoursX(f *renderFont, contours []glyphContour, xScal
 	path := fl.path()
 	mode := rd.ts.renderMode
 
+	if mode >= 4 { // clip modes 4-7: accumulate glyph outlines for the ET clip
+		rd.textClip = append(rd.textClip, path.subs...)
+	}
 	if textFills(mode) && !rd.gs.fillPattern {
 		rd.compositePath(path, fillNonZero, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 	}

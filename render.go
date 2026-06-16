@@ -77,6 +77,12 @@ type renderer struct {
 	// 32000-1 §8.5.4), so it is applied there against the path still in flight.
 	pendingClip int
 
+	// textClip accumulates glyph outlines (device space) drawn under a text
+	// rendering mode 4-7 since the last BT; at ET they intersect the clip (ISO
+	// 32000-1 §9.4.3). Used by the common "glyphs as clip, then paint an image
+	// through them" idiom — without it the image paints unclipped.
+	textClip []subpath
+
 	// Optional Content: ocOff is the set of OCG object numbers hidden by the
 	// default config; ocHidden counts nested marked-content sections currently
 	// hidden by OC; mcStack records, per BDC/BMC level, whether it hid content.
@@ -340,8 +346,9 @@ func (rd *renderer) exec(ops []contentOp) {
 		// --- text ---
 		case "BT":
 			rd.textBegin()
+			rd.textClip = nil
 		case "ET":
-			// no-op
+			rd.applyTextClip()
 		case "Tf":
 			if len(o) >= 2 {
 				rd.setFont(operandName(o[0]), f(o[1]))
