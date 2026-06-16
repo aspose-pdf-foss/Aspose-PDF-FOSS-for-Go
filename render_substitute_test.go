@@ -441,3 +441,58 @@ func TestImageConstantAlpha(t *testing.T) {
 		t.Errorf("pixel = (%d,%d,%d), want ~(255,128,128) for /ca 0.5 red over white", r>>8, g>>8, bl>>8)
 	}
 }
+
+// TestImageBoxDownsample verifies a minified image is box-averaged rather than
+// nearest-sampled: a 2x2 black/white checkerboard scaled down to a single
+// device pixel must average to mid-gray, not pick one source texel (40118.pdf:
+// nearest sampling dropped the gray /Matte border of a downscaled masked logo).
+func TestImageBoxDownsample(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	wr := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	wrStream := func(id int, dict string, data []byte) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nstream\n", id, dict)
+		buf.Write(data)
+		buf.WriteString("\nendstream\nendobj\n")
+	}
+	wr(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	wr(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	wr(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1 1]"+
+		" /Resources << /XObject << /Im0 4 0 R >> >> /Contents 6 0 R >>")
+	// 2x2 checkerboard: black, white / white, black.
+	px := []byte{0, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0, 0}
+	wrStream(4, "<< /Type /XObject /Subtype /Image /Width 2 /Height 2"+
+		" /BitsPerComponent 8 /ColorSpace /DeviceRGB /Length 12 >>", px)
+	content := "q 1 0 0 1 0 0 cm /Im0 Do Q"
+	wrStream(6, fmt.Sprintf("<< /Length %d >>", len(content)), []byte(content))
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 7\n0000000000 65535 f \n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72}) // 1x1 unit page -> 1 device px
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	b := img.Bounds()
+	r, _, _, _ := img.At(b.Min.X, b.Min.Y).RGBA()
+	v := int(r >> 8)
+	if v < 96 || v > 160 {
+		t.Errorf("downscaled checkerboard pixel = %d, want mid-gray ~128 (not nearest-sampled)", v)
+	}
+}

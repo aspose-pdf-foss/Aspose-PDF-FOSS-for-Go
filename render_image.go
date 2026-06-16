@@ -176,23 +176,71 @@ func (rd *renderer) blitImage(m image.Image) {
 	x1, y1 := clampInt(int(math.Ceil(maxx)), 0, rd.w), clampInt(int(math.Ceil(maxy)), 0, rd.h)
 	clip := rd.effectiveClip()
 
+	// Source-pixel footprint of one device pixel along each axis. When it
+	// exceeds one source pixel the image is minified, and nearest sampling
+	// would alias (and drop the gray edge a masked /Matte image expects); box-
+	// average the footprint instead, matching Acrobat/MuPDF. Straight RGBA
+	// averaging reproduces the /Matte border naturally — the transparent frame
+	// stores the matte colour, so averaging it darkens the edge.
+	eu := (math.Abs(inv[0]) + math.Abs(inv[2])) * float64(iw)
+	ev := (math.Abs(inv[1]) + math.Abs(inv[3])) * float64(ih)
+	minify := eu > 1.05 || ev > 1.05
+
 	for py := y0; py < y1; py++ {
 		for px := x0; px < x1; px++ {
 			u, v := applyPt(inv, float64(px)+0.5, float64(py)+0.5)
 			if u < 0 || u >= 1 || v < 0 || v >= 1 {
 				continue
 			}
-			col := clampInt(int(u*float64(iw)), 0, iw-1)
-			row := clampInt(int((1-v)*float64(ih)), 0, ih-1)
-			off := src.PixOffset(b.Min.X+col, b.Min.Y+row)
-			a := float64(src.Pix[off+3]) / 255
+			var sr, sg, sb uint8
+			var a float64
+			if minify {
+				sr, sg, sb, a = sampleImageBox(src, b, u*float64(iw), (1-v)*float64(ih), eu, ev)
+			} else {
+				col := clampInt(int(u*float64(iw)), 0, iw-1)
+				row := clampInt(int((1-v)*float64(ih)), 0, ih-1)
+				off := src.PixOffset(b.Min.X+col, b.Min.Y+row)
+				sr, sg, sb, a = src.Pix[off], src.Pix[off+1], src.Pix[off+2], float64(src.Pix[off+3])/255
+			}
+			if a == 0 {
+				continue
+			}
 			a *= rd.gs.fillA // constant alpha (/ca) from the ExtGState
 			if clip != nil {
 				a *= float64(clip[py*rd.w+px])
 			}
-			compositePixel(rd.img, (py*rd.w+px)*4, src.Pix[off], src.Pix[off+1], src.Pix[off+2], a, rd.gs.blend)
+			compositePixel(rd.img, (py*rd.w+px)*4, sr, sg, sb, a, rd.gs.blend)
 		}
 	}
+}
+
+// sampleImageBox straight-averages the RGBA of the source pixels in the
+// footprint centred at (sx, sy) with extents (eu, ev) source pixels. The grid
+// is capped so a heavy downscale stays bounded. Returns the averaged colour
+// and alpha (0..1).
+func sampleImageBox(src *image.NRGBA, b image.Rectangle, sx, sy, eu, ev float64) (uint8, uint8, uint8, float64) {
+	iw, ih := b.Dx(), b.Dy()
+	c0 := clampInt(int(sx-eu/2), 0, iw-1)
+	c1 := clampInt(int(sx+eu/2), 0, iw-1)
+	r0 := clampInt(int(sy-ev/2), 0, ih-1)
+	r1 := clampInt(int(sy+ev/2), 0, ih-1)
+	cStep := (c1-c0)/16 + 1
+	rStep := (r1-r0)/16 + 1
+	var sumR, sumG, sumB, sumA, n float64
+	for r := r0; r <= r1; r += rStep {
+		for c := c0; c <= c1; c += cStep {
+			off := src.PixOffset(b.Min.X+c, b.Min.Y+r)
+			sumR += float64(src.Pix[off])
+			sumG += float64(src.Pix[off+1])
+			sumB += float64(src.Pix[off+2])
+			sumA += float64(src.Pix[off+3])
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, 0, 0, 0
+	}
+	return uint8(sumR/n + 0.5), uint8(sumG/n + 0.5), uint8(sumB/n + 0.5), sumA / n / 255
 }
 
 // compositePixel composites (sr,sg,sb) with alpha a at the given
