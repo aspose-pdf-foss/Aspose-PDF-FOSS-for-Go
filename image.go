@@ -386,8 +386,13 @@ func extractInlineImageData(img *Image, dict pdfDict, rawData []byte) (*Image, e
 	}
 
 	if filter != "" {
+		// Decode through the shared stream pipeline so a filter chain AND any
+		// /DecodeParms predictor are applied — not just the raw inflate.
+		// applyFilter alone skipped the PNG predictor, so a FlateDecode inline
+		// image with /DecodeParms <</Predictor 15 /Colors 3 …>> (33697-1.pdf's
+		// dashed-leader tiles) decoded to garbage and rendered as a solid line.
 		var err error
-		data, err = applyFilter(filter, data)
+		data, err = decodeStream(dict, rawData)
 		if err != nil {
 			return nil, err
 		}
