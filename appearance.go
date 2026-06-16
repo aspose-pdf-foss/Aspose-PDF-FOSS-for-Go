@@ -417,17 +417,19 @@ func drawLineEnding(b *appearanceBuilder, style LineEndingStyle, x, y, theta, li
 		b.ClosePath()
 		paintShape(b, fill)
 	case LineEndingOpenArrow:
-		// Two legs from origin (the endpoint) fanning outward along
-		// the line direction — apex at the endpoint.
-		b.MoveTo(span, half)
+		// Apex (tip) at the endpoint pointing outward (+x = line direction);
+		// the two legs sweep BACK toward the line interior (−x), so the arrow
+		// points the way the line travels.
+		b.MoveTo(-span, half)
 		b.LineTo(0, 0)
-		b.LineTo(span, -half)
+		b.LineTo(-span, -half)
 		b.Stroke()
 	case LineEndingClosedArrow:
-		// Triangle: origin, (span, half), (span, -half).
+		// Filled triangle: tip at the endpoint, base corners back toward the
+		// line interior at (−span, ±half) so the arrow points outward.
 		b.MoveTo(0, 0)
-		b.LineTo(span, half)
-		b.LineTo(span, -half)
+		b.LineTo(-span, half)
+		b.LineTo(-span, -half)
 		b.ClosePath()
 		paintShape(b, fill)
 	case LineEndingButt:
@@ -436,16 +438,17 @@ func drawLineEnding(b *appearanceBuilder, style LineEndingStyle, x, y, theta, li
 		b.LineTo(0, -half)
 		b.Stroke()
 	case LineEndingROpenArrow:
-		// OpenArrow's mirror — apex pointing away from the line interior.
-		b.MoveTo(-span, half)
+		// OpenArrow's mirror — legs sweep outward (+x), so the arrow points
+		// back toward the line interior.
+		b.MoveTo(span, half)
 		b.LineTo(0, 0)
-		b.LineTo(-span, -half)
+		b.LineTo(span, -half)
 		b.Stroke()
 	case LineEndingRClosedArrow:
-		// ClosedArrow rotated 180°.
+		// ClosedArrow rotated 180° — base corners outward at (span, ±half).
 		b.MoveTo(0, 0)
-		b.LineTo(-span, half)
-		b.LineTo(-span, -half)
+		b.LineTo(span, half)
+		b.LineTo(span, -half)
 		b.ClosePath()
 		paintShape(b, fill)
 	case LineEndingSlash:
