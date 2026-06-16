@@ -254,6 +254,12 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		if smAlpha, smW, smH, ok := decodeSoftMaskData(objects, stream.Dict["/SMask"]); ok {
 			alphaMask = resampleAlpha(smAlpha, smW, smH, img.Width, img.Height)
 		}
+		// A fully inverted /Decode [1 0] flips the 1-bpp samples (scanned
+		// documents store the image black-on-white but invert via /Decode);
+		// the JBIG2 early return bypasses the generic /Decode handling.
+		if decodeFullyInverted(stream.Dict["/Decode"], 1) {
+			decoded = invertSamples(decoded)
+		}
 		// JBIG2 output is 1-bpp DeviceGray (0 = black, as packed by jbig2Decode).
 		pngData, err := encodePNG(decoded, img.Width, img.Height, 1, 1, alphaMask)
 		if err != nil {
