@@ -186,6 +186,7 @@ func (rd *renderer) blitImage(m image.Image) {
 			row := clampInt(int((1-v)*float64(ih)), 0, ih-1)
 			off := src.PixOffset(b.Min.X+col, b.Min.Y+row)
 			a := float64(src.Pix[off+3]) / 255
+			a *= rd.gs.fillA // constant alpha (/ca) from the ExtGState
 			if clip != nil {
 				a *= float64(clip[py*rd.w+px])
 			}

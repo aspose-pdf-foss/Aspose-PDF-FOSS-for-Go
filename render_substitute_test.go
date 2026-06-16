@@ -385,3 +385,59 @@ func TestStencilMaskOnNonDCTImage(t *testing.T) {
 		t.Errorf("masked-out column = %d, want white (>= 230); stencil /Mask not applied", r1>>8)
 	}
 }
+
+// TestImageConstantAlpha verifies an image drawn under an ExtGState with /ca
+// is composited at that constant alpha (36816.pdf: a logo drawn with /ca .5
+// rendered fully opaque instead of half-transparent).
+func TestImageConstantAlpha(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := map[int]int{}
+	wr := func(id int, body string) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+	wrStream := func(id int, dict string, data []byte) {
+		offsets[id] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nstream\n", id, dict)
+		buf.Write(data)
+		buf.WriteString("\nendstream\nendobj\n")
+	}
+	wr(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	wr(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	wr(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10]"+
+		" /Resources << /XObject << /Im0 4 0 R >> /ExtGState << /GS0 5 0 R >> >>"+
+		" /Contents 6 0 R >>")
+	wrStream(4, "<< /Type /XObject /Subtype /Image /Width 1 /Height 1"+
+		" /BitsPerComponent 8 /ColorSpace /DeviceRGB /Length 3 >>",
+		[]byte{255, 0, 0}) // opaque red
+	wr(5, "<< /ca 0.5 >>")
+	content := "q /GS0 gs 10 0 0 10 0 0 cm /Im0 Do Q"
+	wrStream(6, fmt.Sprintf("<< /Length %d >>", len(content)), []byte(content))
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 7\n0000000000 65535 f \n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("Page(1): %v", err)
+	}
+	img, err := page.RenderImage(pdf.RenderOptions{DPI: 72})
+	if err != nil {
+		t.Fatalf("RenderImage: %v", err)
+	}
+	rgba := img.(*image.RGBA)
+	b := rgba.Bounds()
+	r, g, bl, _ := rgba.At((b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2).RGBA()
+	// Red over white at 50% alpha -> R=255, G=B=~128.
+	if r>>8 < 240 || g>>8 < 100 || g>>8 > 160 {
+		t.Errorf("pixel = (%d,%d,%d), want ~(255,128,128) for /ca 0.5 red over white", r>>8, g>>8, bl>>8)
+	}
+}
