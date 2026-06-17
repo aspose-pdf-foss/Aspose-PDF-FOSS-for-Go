@@ -423,6 +423,41 @@ doc.Outlines().Add(oic)
 
 API mirrors Aspose.PDF for .NET's `NamedDestinations` collection and `NamedDestination` class 1:1. Reads both `/Catalog/Dests` (legacy PDF 1.1) and `/Catalog/Names/Dests` (modern PDF 1.2+) — legacy auto-migrates to modern on save.
 
+### Table of Contents
+
+```go
+doc, _ := pdf.Open("report.pdf")
+
+// (Assume the document already has outline bookmarks — see Outlines above.)
+// Generate a TOC from the bookmark tree and insert it at the front.
+added, _ := doc.GenerateTOC(pdf.TOCOptions{Title: "Table of Contents"})
+fmt.Println(added, "TOC page(s) added") // page numbers/links reflect the shift
+
+doc.Save("with_toc.pdf")
+```
+
+```go
+// Or render a TOC from a supplied list into a region on an existing page.
+toc, _ := doc.Page(1)
+p2, _ := doc.Page(2)
+p5, _ := doc.Page(5)
+toc.AddTOC([]pdf.TOCEntry{
+    {Title: "Introduction", Level: 0, Page: p2},
+    {Title: "Background",   Level: 1, Page: p2},
+    {Title: "Conclusion",   Level: 0, Page: p5},
+}, pdf.Rectangle{LLX: 54, LLY: 54, URX: 541, URY: 760},
+    pdf.TOCOptions{Title: "Contents"})
+```
+
+`GenerateTOC` sources entries from the document outline (nesting becomes the indent
+level) and inserts the TOC as new page(s) at the front; `AddTOC` renders a caller-supplied
+list into a rectangle and auto-appends continuation pages on overflow. Each entry with a
+target page gets a right-aligned page number, a dotted leader, and a clickable GoTo link.
+`TOCOptions` controls the heading, styles, per-level indent, and line spacing; the zero
+value yields page numbers + leaders + links (turn them off with `NoPageNumbers` /
+`NoLeader` / `NoLinks`). Loosely mirrors Aspose.PDF for .NET's `TocInfo`. A runnable
+example lives in [`_examples/toc`](_examples/toc).
+
 ### Tables
 
 ```go
