@@ -720,6 +720,28 @@ ink := pdf.NewInkAnnotation(page, [][]pdf.Point{
 ink.SetColor(&pdf.Color{R: 0, G: 0.5, B: 0, A: 1})
 page.Annotations().Add(ink)
 
+// Closed polygon, blue fill + red border
+poly := pdf.NewPolygonAnnotation(page, []pdf.Point{
+    {X: 300, Y: 300}, {X: 420, Y: 320}, {X: 400, Y: 420}, {X: 310, Y: 400},
+})
+poly.SetColor(&pdf.Color{R: 1, A: 1})
+poly.SetInteriorColor(&pdf.Color{B: 1, A: 1})
+page.Annotations().Add(poly)
+
+// Open polyline with arrow heads
+pl := pdf.NewPolylineAnnotation(page, []pdf.Point{
+    {X: 50, Y: 250}, {X: 150, Y: 320}, {X: 280, Y: 240},
+})
+pl.SetColor(&pdf.Color{G: 0.5, A: 1})
+pl.SetEndLineEnding(pdf.LineEndingClosedArrow)
+pl.SetInteriorColor(&pdf.Color{G: 0.5, A: 1})
+page.Annotations().Add(pl)
+
+// Caret insertion marker
+car := pdf.NewCaretAnnotation(page, pdf.Rectangle{LLX: 300, LLY: 200, URX: 320, URY: 230})
+car.SetColor(&pdf.Color{R: 0.8, A: 1})
+page.Annotations().Add(car)
+
 doc.Save("drawing.pdf")
 ```
 
@@ -730,6 +752,12 @@ Border styles available: `BorderSolid`, `BorderDashed`, `BorderBeveled`, `Border
 `SetColor`, `SetStrokes`, etc.) immediately regenerates the annotation's
 appearance stream so `/AP/N` is always in sync; no `/NeedAppearances=true`
 required, drawing annotations render in any spec-conforming viewer.
+
+`PolygonAnnotation` (closed) and `PolylineAnnotation` (open) take a `[]pdf.Point`
+of vertices and share the same border/interior-colour surface; the polyline
+also accepts start/end line endings. `CaretAnnotation` marks an insertion point
+as an upward chevron filling its rectangle, with an optional `/Sy` paragraph
+symbol (`SetSymbol(pdf.CaretSymbolParagraph)`).
 
 ### Text-bearing annotations (Text / FreeText / Stamp)
 

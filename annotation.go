@@ -26,6 +26,9 @@ const (
 	AnnotationTypeStamp
 	AnnotationTypeFileAttachment
 	AnnotationTypeRedact
+	AnnotationTypePolygon
+	AnnotationTypePolyLine
+	AnnotationTypeCaret
 )
 
 // Annotation is the common interface implemented by every concrete
@@ -398,6 +401,18 @@ func parseAnnotation(base annotationBase) Annotation {
 		return parseFileAttachmentAnnotation(base)
 	case "/Redact":
 		return parseRedactAnnotation(base)
+	case "/Polygon":
+		poly := &PolygonAnnotation{polyAnnotationBase: polyAnnotationBase{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}}
+		poly.regenerate = poly.regenerateAP
+		return poly
+	case "/PolyLine":
+		poly := &PolylineAnnotation{polyAnnotationBase: polyAnnotationBase{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}}
+		poly.regenerate = poly.regenerateAP
+		return poly
+	case "/Caret":
+		c := &CaretAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
+		c.regenerate = c.regenerateAP
+		return c
 	}
 	return &GenericAnnotation{annotationBase: base}
 }
