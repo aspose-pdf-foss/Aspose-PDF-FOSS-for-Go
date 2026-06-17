@@ -186,6 +186,8 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 **`page_labels.go`** — page label support
 - `(*Page).Label()` — formatted page label from the document's `/PageLabels` number tree; falls back to decimal page number if absent
 - Supported styles: `/D` decimal, `/r`/`/R` roman, `/a`/`/A` alphabetic; optional `/P` prefix and `/St` start value
+- `(*Document).SetPageLabels([]PageLabelRange) error` / `(*Document).ClearPageLabels()` — author the `/PageLabels` number tree so viewers show logical labels (front matter i, ii, then body 1, 2, …); ranges must be sorted ascending with the first at page 1; round-trips through Save and is read back by `Label()`. Mirrors Aspose.PDF for .NET's `Document.PageLabels` / `PageLabel`
+- `PageLabelRange` struct — `StartPage` (1-based), `Style PageLabelStyle`, `Prefix string`, `StartNum int`. `PageLabelStyle` enum — `PageLabelStyleNone`, `PageLabelDecimal`, `PageLabelRomanLower`, `PageLabelRomanUpper`, `PageLabelAlphabeticLower`, `PageLabelAlphabeticUpper`
 
 **`page_range.go`**
 - `PageRange` struct — From, To (1-based, inclusive)
