@@ -1169,6 +1169,40 @@ doc.AddTextWatermark("DRAFT", pdf.TextStyle{
 doc.Save("output.pdf")
 ```
 
+### Stamps (text / image / page number)
+
+Stamps overlay (or underlay) content on pages. Mirrors Aspose.PDF for .NET's
+`Stamp` family (`TextStamp`, `ImageStamp`, `PageNumberStamp`); apply with
+`Page.AddStamp` or `Document.AddStamp`. Shared fields — `Rect` (zero = whole
+page), `HAlign`/`VAlign`, `Opacity`, `RotateAngle` (centred), `Background`
+(behind content).
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Diagonal translucent watermark on every page (Rect defaults to the page).
+ts := pdf.NewTextStamp("DRAFT", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 72,
+    Color: &pdf.Color{R: 0.8, A: 1}})
+ts.HAlign, ts.VAlign = pdf.HAlignCenter, pdf.VAlignMiddle
+ts.RotateAngle, ts.Opacity, ts.Background = 45, 0.35, true
+doc.AddStamp(ts)
+
+// Footer page number on every page: "Page 1 of N", ...
+pn := pdf.NewPageNumberStamp("Page {0} of {1}", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10})
+pn.HAlign, pn.VAlign = pdf.HAlignCenter, pdf.VAlignBottom
+pn.Rect = pdf.Rectangle{LLX: 0, LLY: 20, URX: 595, URY: 40}
+doc.AddStamp(pn)
+
+// Logo image stamp in a corner of page 1.
+img, _ := pdf.NewImageStamp("logo.png")
+img.Rect = pdf.Rectangle{LLX: 450, LLY: 760, URX: 560, URY: 820}
+img.Opacity = 0.8
+p, _ := doc.Page(1)
+p.AddStamp(img)
+
+doc.Save("output.pdf")
+```
+
 ### Document API
 
 ```go

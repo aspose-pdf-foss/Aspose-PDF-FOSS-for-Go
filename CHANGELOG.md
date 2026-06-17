@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stamps — `TextStamp`, `ImageStamp`, and `PageNumberStamp` overlay (or underlay) content on pages, applied with `(*Page).AddStamp` / `(*Document).AddStamp`. Mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` family: shared `Rect` (zero = whole page), `HAlign`/`VAlign`, `Opacity`, `RotateAngle` (rotates about the rect centre), and `Background` (draw behind page content). `PageNumberStamp` formats `{0}` (current) / `{1}` (total) with a `StartingNumber`, rendering the correct number per page — convenient for headers/footers and watermarks.
+
 ## [0.3.0] — 2026-06-16
 
 The headline of this release is a complete, dependency-free **page renderer**: pages rasterize to PNG/JPEG/GIF/BMP and single- or multi-page TIFF, covering vector graphics, images, text, shadings, patterns, transparency, and annotation appearances. Months of visual testing against a real-world PDF corpus drove a large batch of parsing/rendering correctness and robustness fixes (see **Fixed**). No breaking changes since v0.2.0 beyond the two API renames noted in **Changed**.

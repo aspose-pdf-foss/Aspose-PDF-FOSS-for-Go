@@ -128,6 +128,14 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `TextStyle` struct — Font, Size, Color, Background, HAlign, VAlign, LineSpacing, Underline, Strikethrough, Rotation, Behind
 - `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, optional underline/strikethrough, rotation, and behind-content mode
 - `(*Document).AddTextWatermark(text, style, pageNums...) error` — applies a text watermark to all or selected pages using full-page rectangle from MediaBox
+
+**`stamp.go`** — stamp/overlay family; mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` hierarchy
+- `Stamp` — interface implemented by `TextStamp`, `ImageStamp`, `PageNumberStamp` (unexported `applyToPage`, so only these types satisfy it)
+- Shared (embedded `stampBase`) exported fields mirroring Aspose `Stamp`: `Rect Rectangle` (zero = whole page MediaBox), `HAlign`/`VAlign` (placement within `Rect`), `Opacity` (0..1, zero treated as 1), `RotateAngle` (degrees CCW, **pivots about the `Rect` centre**), `Background bool` (draw behind page content — Aspose `Stamp.Background`)
+- `TextStamp` — `Value string`, `TextStyle`; `NewTextStamp(text, style) *TextStamp`. Reuses `AddText` (wrap/align/font); opacity folds into the colour alpha, rotation is centre-pivoted via `centerPivotRect`
+- `ImageStamp` — PNG/JPEG stretched to `Rect`; `NewImageStamp(path) (*ImageStamp, error)`, `NewImageStampFromStream(r) (*ImageStamp, error)`. `(*Page).drawImageStamp` emits a centre-pivoted, opacity-wrapped (`ensureExtGState`) image draw, prepended when `Background`
+- `PageNumberStamp` — `Format` (`"{0}"`=current page, `"{1}"`=total; empty = `"{0}"`), `StartingNumber` (page 1 shows it; page n shows `StartingNumber-1+n`), `TextStyle`; `NewPageNumberStamp(format, style) *PageNumberStamp`. Renders the correct number per page
+- `(*Page).AddStamp(s Stamp) error` — mirrors `Page.AddStamp`; `(*Document).AddStamp(s Stamp, pageNums...) error` — apply to all/selected pages (headers/footers/page numbers/watermarks)
 - `(*Document).Form() *Form` — returns the document's AcroForm (always non-nil; empty form for documents without /AcroForm)
 - `(*Page).Annotations() *AnnotationCollection` — returns the page's annotation collection (always non-nil; empty for pages with no /Annots)
 - `(*Document).ApplyRedactions() error` — destructively removes content (text glyphs, image XObjects, paths) inside every `/Redact` annotation's regions, draws overlay text/fill, then deletes the redact annotations
