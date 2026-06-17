@@ -875,6 +875,40 @@ deleted). Use `ValidateRedactions()` first as a pre-flight parseability check.
 **`NewJavaScriptAction`** carries a documented security warning — embedded JavaScript
 executes in the recipient's viewer.
 
+### Document JavaScript & open action
+
+```go
+doc := pdf.NewDocument(595, 842)
+doc.AddBlankPage(595, 842)
+
+// Document-level named scripts (run on open), stored in /Catalog/Names/JavaScript
+js := doc.JavaScript()
+js.Add("setup", "this.title = 'Report';")
+js.Add("greet", "app.alert('Welcome');")
+_ = js.Names()      // ["greet" "setup"] — lexically sorted
+_ = js.Get("setup") // "this.title = 'Report';"
+
+// OpenAction — jump to page 2 when the document is opened
+doc.SetOpenAction(pdf.NewGoToAction(2, 800))
+// ...or run a script on open instead:
+// doc.SetOpenAction(pdf.NewJavaScriptAction("app.alert('opened');"))
+
+doc.Save("with-js.pdf")
+
+// Read back
+act := doc.OpenAction() // *pdf.GoToAction → PageNum() == 2
+_ = act
+```
+
+`Document.JavaScript()` is a named-script collection (`Add`/`Get`/`Has`/`Remove`/`Names`/`Count`/`Clear`)
+backed by the `/Catalog/Names/JavaScript` name tree — distinct from the action-level
+`JavaScriptAction` that fires on an annotation click. `Document.SetOpenAction` /
+`OpenAction` / `RemoveOpenAction` manage the `/Catalog/OpenAction` run on open (GoTo,
+JavaScript, Named, …); a GoTo open-action resolves its destination to a 1-based page
+number on read. Both round-trip through Save and coexist with named destinations.
+Document-level JavaScript executes in the recipient's viewer when the file is opened —
+embed only scripts you authored or audited.
+
 ### Validation
 
 ```go

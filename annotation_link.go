@@ -24,21 +24,7 @@ func (a *LinkAnnotation) Action() Action {
 	}
 	act := parseAction(d)
 	// Post-process: resolve GoTo destinations that reference a page object.
-	if gt, ok := act.(*GoToAction); ok {
-		gt.doc = a.doc
-		if gt.pageNum == 0 {
-			if dest, ok := d["/D"].(pdfArray); ok && len(dest) > 0 {
-				if ref, ok := dest[0].(pdfRef); ok {
-					for i, p := range a.doc.pages {
-						if p.Num == ref.Num {
-							gt.pageNum = i + 1
-							break
-						}
-					}
-				}
-			}
-		}
-	}
+	resolveGoToPage(a.doc, act, d)
 	return act
 }
 

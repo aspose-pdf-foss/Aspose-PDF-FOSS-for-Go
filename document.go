@@ -22,6 +22,7 @@ type Document struct {
 	nextID       int                    // next available object ID
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
+	js           *JavaScriptCollection  // nil until first JavaScript() call
 
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
