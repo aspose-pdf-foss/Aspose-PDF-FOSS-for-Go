@@ -838,12 +838,12 @@ func addAnnotations(page *pdf.Page) {
 	// has the annotation name at the top and a small rendering of the
 	// annotation in the body. 7 rows × 2 cols = 14 slots (last slot blank).
 	const (
-		cardW   = 235.0
-		cardH   = 75.0
-		labelH  = 14.0
-		topY    = 685.0 // top of the first row, below the section header + note
-		gapX    = 25.0
-		leftX   = 50.0
+		cardW  = 235.0
+		cardH  = 75.0
+		labelH = 14.0
+		topY   = 685.0 // top of the first row, below the section header + note
+		gapX   = 25.0
+		leftX  = 50.0
 	)
 	rightX := leftX + cardW + gapX
 
@@ -1790,15 +1790,15 @@ func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 	// The bullet sits exactly at the horizontal centre of the page and the
 	// rest of the row is laid out symmetrically around it.
 	const (
-		iconH     = 12.0          // shared icon height; widths follow each viewBox aspect
-		githubAR  = 1.0           // GitHub mark viewBox 16×16
-		goAR      = 207.0 / 78.0  // Go logo viewBox 207×78
-		textGap   = 5.0           // gap between an icon and its label
-		bulletGap = 12.0          // gap between a label and the centre bullet
-		linkY     = 110.0         // y-baseline of the row (well above the footer at y=40)
-		srcW      = 74.0          // approx width of "Source code" at Helvetica-Bold 12pt
-		apiW      = 88.0          // approx width of "API reference"
-		bulletHW  = 5.0           // half-width of the bullet glyph
+		iconH     = 12.0         // shared icon height; widths follow each viewBox aspect
+		githubAR  = 1.0          // GitHub mark viewBox 16×16
+		goAR      = 207.0 / 78.0 // Go logo viewBox 207×78
+		textGap   = 5.0          // gap between an icon and its label
+		bulletGap = 12.0         // gap between a label and the centre bullet
+		linkY     = 110.0        // y-baseline of the row (well above the footer at y=40)
+		srcW      = 74.0         // approx width of "Source code" at Helvetica-Bold 12pt
+		apiW      = 88.0         // approx width of "API reference"
+		bulletHW  = 5.0          // half-width of the bullet glyph
 	)
 	center := size.Width / 2
 	linkStyle := pdf.TextStyle{
@@ -1890,62 +1890,36 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 		pdf.LineStyle{Color: &pdf.Color{R: 0.85, G: 0.85, B: 0.9, A: 1}, Width: 1},
 	))
 
-	annot := page.Annotations()
-	rowH := 32.0
-	yTop := size.Height - 160.0
+	// Build the entry list and render it with the public Page.AddTOC API —
+	// the same call any consumer would use. AddTOC draws the indented
+	// (truncated) titles, the dotted leaders, the right-aligned numbers and
+	// a borderless GoTo link over each row.
+	//
+	// The displayed number is each section's logical /PageLabels label (set
+	// in main: cover/TOC use roman, body restarts at decimal 1, so the label
+	// of body page P is P-2), supplied explicitly via TOCEntry.Label — the
+	// link still targets the physical page. A sequential "N." index is folded
+	// into the title so continuation pages (the sales report) never create
+	// gaps in the numbering.
+	entries := make([]pdf.TOCEntry, len(sections))
 	for i, s := range sections {
-		y := yTop - float64(i)*rowH
-
-		// Each section's page label matches its actual /PageLabels assignment
-		// (set in main: cover/TOC use roman, body restarts at decimal 1). So
-		// the label of body page P is P-2. This stays correct when the sales
-		// report inserts continuation pages between sections — the entries
-		// after sales skip a number, which is what the viewer also shows.
-		label := strconv.Itoa(s.page.Number() - 2)
-
-		// Item number — sequential 1-based index, decoupled from the
-		// destination page label so continuation pages don't create gaps.
-		mustText(page.AddText(fmt.Sprintf("%d.", i+1), pdf.TextStyle{
-			Font:   pdf.FontHelveticaBold,
-			Size:   13,
-			Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
-			HAlign: pdf.HAlignRight,
-		}, pdf.Rectangle{LLX: 72, LLY: y, URX: 95, URY: y + 20}))
-
-		// Title on the left.
-		mustText(page.AddText(s.title, pdf.TextStyle{
+		entries[i] = pdf.TOCEntry{
+			Title: fmt.Sprintf("%d.  %s", i+1, s.title),
+			Page:  s.page,
+			Label: strconv.Itoa(s.page.Number() - 2),
+		}
+	}
+	if _, err := page.AddTOC(entries, pdf.Rectangle{
+		LLX: 72, LLY: 160, URX: size.Width - 100, URY: size.Height - 150,
+	}, pdf.TOCOptions{
+		EntryStyle: pdf.TextStyle{
 			Font:  pdf.FontHelvetica,
 			Size:  13,
 			Color: &pdf.Color{R: 0.1, G: 0.1, B: 0.15, A: 1},
-		}, pdf.Rectangle{LLX: 105, LLY: y, URX: 380, URY: y + 20}))
-
-		// Page number on the right.
-		mustText(page.AddText(label, pdf.TextStyle{
-			Font:   pdf.FontHelveticaBold,
-			Size:   13,
-			Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
-			HAlign: pdf.HAlignRight,
-		}, pdf.Rectangle{LLX: size.Width - 130, LLY: y, URX: size.Width - 100, URY: y + 20}))
-
-		// Leader dots between title and page number. Start past the widest
-		// title in this list ("Annual Sales — 12 Month Trend" ≈ x=300) so the
-		// dots never overlap title text. URY/LLY centred on title baseline.
-		mustText(page.AddText(strings.Repeat(". ", 80), pdf.TextStyle{
-			Font:  pdf.FontHelvetica,
-			Size:  11,
-			Color: &pdf.Color{R: 0.7, G: 0.7, B: 0.75, A: 1},
-		}, pdf.Rectangle{LLX: 320, LLY: y + 2, URX: size.Width - 135, URY: y + 18}))
-
-		// Clickable link over the whole row → GoTo the section's page.
-		// /Border [0 0 0] suppresses the default 1pt black rectangle Acrobat
-		// and other viewers draw around link annotations.
-		link := pdf.NewLinkAnnotation(page, pdf.Rectangle{
-			LLX: 95, LLY: y, URX: size.Width - 95, URY: y + 22,
-		})
-		topY, _ := s.page.Size()
-		link.SetAction(pdf.NewGoToAction(s.page.Number(), topY.Height))
-		link.SetBorderWidth(0)
-		mustAnnot(annot.Add(link))
+		},
+		LineSpacing: 2.4, // roomy rows, matching the original 32pt spacing
+	}); err != nil {
+		log.Fatalf("AddTOC: %v", err)
 	}
 
 	// Hint below the list.
@@ -2006,9 +1980,9 @@ func addRedactionDemo(doc *pdf.Document, page *pdf.Page) {
 
 	type phase int
 	const (
-		phaseNone phase = iota // no redact at all (control)
-		phaseApply             // redact + ApplyRedactions; content destroyed
-		phaseMark              // redact only, no apply; content intact under tint
+		phaseNone  phase = iota // no redact at all (control)
+		phaseApply              // redact + ApplyRedactions; content destroyed
+		phaseMark               // redact only, no apply; content intact under tint
 	)
 	rows := []struct {
 		label, value string

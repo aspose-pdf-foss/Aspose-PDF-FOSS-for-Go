@@ -14,6 +14,11 @@ type TOCEntry struct {
 	Title string
 	Level int
 	Page  *Page
+	// Label overrides the displayed page number. Empty uses the target
+	// Page's 1-based number; set it to show a logical label instead (e.g.
+	// a /PageLabels label like "iv" or a body number that differs from the
+	// physical page index). The link still targets Page.
+	Label string
 }
 
 // TOCOptions controls how a table of contents is rendered. The zero value
@@ -177,7 +182,15 @@ func (p *Page) AddTOC(entries []TOCEntry, rect Rectangle, opts ...TOCOptions) (i
 				top = s.Height
 			}
 		}
-		if err := cur.drawTOCRow(rect, y, e.Title, e.Level, num, o, ewidth); err != nil {
+		numStr := ""
+		if o.numbers {
+			if e.Label != "" {
+				numStr = e.Label
+			} else if e.Page != nil {
+				numStr = strconv.Itoa(num)
+			}
+		}
+		if err := cur.drawTOCRow(rect, y, e.Title, e.Level, numStr, o, ewidth); err != nil {
 			return pagesAdded, err
 		}
 		if e.Page != nil && o.links {
@@ -276,7 +289,11 @@ func (d *Document) GenerateTOC(opts ...TOCOptions) (int, error) {
 		if it.hasTarget {
 			num = numOf(it.targetObj)
 		}
-		if err := cur.drawTOCRow(rect, y, it.title, it.level, num, o, ewidth); err != nil {
+		numStr := ""
+		if o.numbers && num > 0 {
+			numStr = strconv.Itoa(num)
+		}
+		if err := cur.drawTOCRow(rect, y, it.title, it.level, numStr, o, ewidth); err != nil {
 			return k, err
 		}
 		if it.hasTarget && o.links && num > 0 {
@@ -360,17 +377,14 @@ func paginateTOC(n int, firstTop, top, bottom, lineH float64) int {
 }
 
 // drawTOCRow renders one TOC line at vertical position yTop: an
-// (indented, truncated) title on the left, a right-aligned page number,
-// and an optional dotted leader between them.
-func (p *Page) drawTOCRow(rect Rectangle, yTop float64, title string, level, pageNum int, o tocOpts, ewidth widthFn) error {
+// (indented, truncated) title on the left, a right-aligned page number
+// (numStr — already formatted, may be a logical label or empty), and an
+// optional dotted leader between them.
+func (p *Page) drawTOCRow(rect Rectangle, yTop float64, title string, level int, numStr string, o tocOpts, ewidth widthFn) error {
 	lineH := o.entrySize * o.lineSpacing
 	yBot := yTop - lineH
 	indentX := rect.LLX + float64(level)*o.indentStep
 
-	numStr := ""
-	if pageNum > 0 && o.numbers {
-		numStr = strconv.Itoa(pageNum)
-	}
 	numW := measureString(numStr, ewidth)
 	numColX := rect.URX - numW
 
