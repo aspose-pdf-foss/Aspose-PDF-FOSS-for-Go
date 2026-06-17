@@ -453,7 +453,8 @@ Non-embedded composite (Type0) CJK fonts — e.g. SimSun with `/Encoding /GBK-EU
 ## Output conventions
 
 - All files produced by examples and manual runs are saved to `result_files/` in the project root.
-- This folder is not committed to the repository.
+- Generated Markdown reports (API comparisons, release notes, and similar `.md` write-ups) go in `reports/` at the project root instead — kept out of `result_files/` so they're easy to find among the binary output.
+- Both `result_files/` and `reports/` are not committed to the repository (gitignored).
 - Exception: `_examples/feature_showcase/main.go` writes `docs/feature_showcase.pdf` (committed and linked from README). Regenerate only on meaningful changes to keep git history lean.
 
 ## Examples

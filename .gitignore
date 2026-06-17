@@ -20,6 +20,8 @@ output/
 all_pages/
 some_pages/
 result_files/
+# generated .md reports (api comparisons, release notes)
+reports/
 
 # Test PDFs (keep source PDFs, ignore generated ones)
 *_page*.pdf
