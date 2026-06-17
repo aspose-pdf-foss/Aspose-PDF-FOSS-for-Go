@@ -131,6 +131,33 @@ extracted, err := doc.Extract(
 extracted.Save("output.pdf")
 ```
 
+### Imposition (N-up / booklet)
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// 4-up: four source pages per A4 sheet, in a 2×2 grid
+nup, _ := doc.NUp(pdf.NUpOptions{
+    Rows: 2, Cols: 2,
+    Margin: 18, Gutter: 10,
+    DrawBorder: true,
+})
+nup.Save("4up.pdf")
+
+// Booklet: two-up, reordered for saddle-stitch (print double-sided,
+// fold, staple — pages read in order). Padded to a multiple of 4.
+booklet, _ := doc.Booklet(pdf.BookletOptions{Binding: pdf.BindingLeft})
+booklet.Save("booklet.pdf")
+```
+
+`NUp` arranges pages in a `Rows`×`Cols` grid, scaling each to fit its cell
+(aspect preserved, centered) and filling sheet after sheet. `Booklet` imposes
+pages two-up in saddle-stitch order. Both return a **new** `*Document` (the
+receiver is untouched) built from Form XObjects, so the output is an ordinary
+PDF. This is a production helper (not a PDF-spec feature) mirroring the intent
+of Aspose.PDF for .NET's `PdfFileEditor.MakeNUp` / `MakeBooklet`, adapted to the
+`Document`-method API.
+
 ### Deleting pages
 
 ```go

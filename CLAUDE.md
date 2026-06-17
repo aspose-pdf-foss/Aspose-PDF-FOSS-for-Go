@@ -64,6 +64,15 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).Split() ([]*Document, error)` — returns each page as a separate `*Document`
 - `(*Document).Extract(ranges...) (*Document, error)` — returns a new `*Document` with the selected page ranges
 
+**`imposition.go`** — N-up / booklet page imposition (returns a new `*Document`; receiver untouched). A **production helper, not an ISO 32000 feature** — built from spec primitives (each source page wrapped in a Form XObject §8.10, placed via a `cm` transform), so the output is an ordinary, spec-compliant PDF. Mirrors the *intent* of Aspose.PDF for .NET's legacy `PdfFileEditor.MakeNUp`/`MakeBooklet`, but follows this library's `Document`-method paradigm rather than the file-path facade shape
+- `(*Document).NUp(opts NUpOptions) (*Document, error)` — imposes pages onto larger sheets in a `Rows`×`Cols` grid; each source page is scaled to fit its cell preserving aspect ratio and centered; sheets fill until all pages placed (last sheet may have empty cells)
+- `NUpOptions` struct — `Rows, Cols int` (≥1), `PageSize PageFormat` (zero → A4), `Margin float64`, `Gutter float64`, `Order NUpOrder`, `DrawBorder bool`
+- `NUpOrder` enum — `NUpRowMajor` (default), `NUpColumnMajor`
+- `(*Document).Booklet(opts BookletOptions) (*Document, error)` — imposes pages two-up reordered for saddle-stitch (print double-sided, fold, read in order); page count padded up to a multiple of 4 with blank halves
+- `BookletOptions` struct — `PageSize PageFormat` (zero → `2·W × H` of the first page, i.e. source pages at 100%), `Binding BookletBinding`
+- `BookletBinding` enum — `BindingLeft` (default, LTR), `BindingRight` (RTL, mirrors each spread)
+- Internals: `importPageAsXObject` wraps a page (content + `/Resources`) as a `/Subtype /Form` XObject with `/BBox` = MediaBox; `importGraph` copies each page's resource graph into the result once (shared objects deduped via a single `idMap`, reusing `collectValueDepsDoc` + `rewriteRefs`); `makePlacement` computes the fit-inside `cm`; `addImposedSheet` emits `q cm /Xn Do Q` per cell. Known limits (v1): inherited `/Resources` from the page-tree parent not resolved (uses the page dict's own `/Resources`); no creep/shingling
+
 **`page.go`** — `RotationAngle` type and constants (`Rotate0`, `Rotate90`, `Rotate180`, `Rotate270`)
 
 **`page.go`** — Page and PageSize types
