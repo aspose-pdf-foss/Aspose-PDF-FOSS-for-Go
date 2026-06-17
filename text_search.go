@@ -114,6 +114,55 @@ func searchLines(lines []TextLine, re *regexp.Regexp, pageNum int) []TextMatch {
 	return out
 }
 
+// lineRuneMap flattens a line's fragments into one rune stream, recording for
+// each rune its byte offset, owning fragment index (-1 for an inserted
+// inter-fragment space), and rune index within that fragment. Shared by text
+// search (searchLine) and text replace (collectReplaceMatchesLine).
+type lineRuneMap struct {
+	text       []byte
+	runeByte   []int // byte offset where each rune starts
+	owner      []int // fragment index per rune, or -1 for an inserted space
+	local      []int // rune index within its owning fragment, or -1
+	runeCounts []int // rune count per fragment
+}
+
+func buildLineRuneMap(line *TextLine) lineRuneMap {
+	m := lineRuneMap{runeCounts: make([]int, len(line.Fragments))}
+	var havePrev bool
+	var prevEndX float64
+	for fi := range line.Fragments {
+		f := &line.Fragments[fi]
+		if f.Text == "" {
+			continue
+		}
+		m.runeCounts[fi] = utf8.RuneCountInString(f.Text)
+		if havePrev {
+			gap := f.X - prevEndX
+			threshold := f.FontSize * 0.3
+			if threshold < 1 {
+				threshold = 1
+			}
+			if gap > threshold {
+				m.runeByte = append(m.runeByte, len(m.text))
+				m.owner = append(m.owner, -1)
+				m.local = append(m.local, -1)
+				m.text = append(m.text, ' ')
+			}
+		}
+		k := 0
+		for _, r := range f.Text {
+			m.runeByte = append(m.runeByte, len(m.text))
+			m.owner = append(m.owner, fi)
+			m.local = append(m.local, k)
+			m.text = utf8.AppendRune(m.text, r)
+			k++
+		}
+		prevEndX = f.X + f.Width
+		havePrev = true
+	}
+	return m
+}
+
 // searchLine matches re against a single line and maps each match back to a
 // bounding rectangle. It reconstructs the line text from its fragments while
 // recording, per rune, which fragment (and which rune within it) produced the
@@ -123,64 +172,25 @@ func searchLine(line *TextLine, re *regexp.Regexp, pageNum int) []TextMatch {
 	if len(line.Fragments) == 0 {
 		return nil
 	}
-
-	var (
-		text       []byte
-		runeByte   []int // byte offset where each rune starts
-		owner      []int // fragment index per rune, or -1 for an inserted space
-		local      []int // rune index within its owning fragment, or -1
-		runeCounts = make([]int, len(line.Fragments))
-		havePrev   bool
-		prevEndX   float64
-	)
-	for fi := range line.Fragments {
-		f := &line.Fragments[fi]
-		if f.Text == "" {
-			continue
-		}
-		runeCounts[fi] = utf8.RuneCountInString(f.Text)
-		if havePrev {
-			gap := f.X - prevEndX
-			threshold := f.FontSize * 0.3
-			if threshold < 1 {
-				threshold = 1
-			}
-			if gap > threshold {
-				runeByte = append(runeByte, len(text))
-				owner = append(owner, -1)
-				local = append(local, -1)
-				text = append(text, ' ')
-			}
-		}
-		k := 0
-		for _, r := range f.Text {
-			runeByte = append(runeByte, len(text))
-			owner = append(owner, fi)
-			local = append(local, k)
-			text = utf8.AppendRune(text, r)
-			k++
-		}
-		prevEndX = f.X + f.Width
-		havePrev = true
-	}
-	if len(owner) == 0 {
+	m := buildLineRuneMap(line)
+	if len(m.owner) == 0 {
 		return nil
 	}
 
 	var matches []TextMatch
-	for _, loc := range re.FindAllIndex(text, -1) {
+	for _, loc := range re.FindAllIndex(m.text, -1) {
 		b0, b1 := loc[0], loc[1]
 		if b0 == b1 {
 			continue // skip zero-width matches (e.g. "a*")
 		}
-		r0 := sort.SearchInts(runeByte, b0)
-		r1 := sort.SearchInts(runeByte, b1)
-		rect, ok := matchRect(line.Fragments, owner, local, runeCounts, r0, r1)
+		r0 := sort.SearchInts(m.runeByte, b0)
+		r1 := sort.SearchInts(m.runeByte, b1)
+		rect, ok := matchRect(line.Fragments, m.owner, m.local, m.runeCounts, r0, r1)
 		if !ok {
 			continue
 		}
 		matches = append(matches, TextMatch{
-			Text:       string(text[b0:b1]),
+			Text:       string(m.text[b0:b1]),
 			PageNumber: pageNum,
 			Rect:       rect,
 		})

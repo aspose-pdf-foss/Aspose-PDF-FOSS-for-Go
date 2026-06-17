@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Text replace — `(*Document).ReplaceText(old, replacement, opts...)` / `(*Page).ReplaceText(...)` find-and-replace, returning the number of replacements. Matching mirrors `SearchText` (literal, `ReplaceOptions{CaseInsensitive, Regex}`). The matched glyphs are removed and the replacement is redrawn at the same baseline/size/colour in a metric-compatible Standard-14 face chosen from the original's family/style, so any replacement text renders even over an embedded subset font (no line re-flow). Mirrors the find-and-replace idiom of Aspose.PDF for .NET's `TextFragmentAbsorber` + `TextFragment.Text`. Text extraction now also starts a new fragment on a large backward X jump, keeping reading order correct for out-of-order content.
 - Stamps — `TextStamp`, `ImageStamp`, and `PageNumberStamp` overlay (or underlay) content on pages, applied with `(*Page).AddStamp` / `(*Document).AddStamp`. Mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` family: shared `Rect` (zero = whole page), `HAlign`/`VAlign`, `Opacity`, `RotateAngle` (rotates about the rect centre), and `Background` (draw behind page content). `PageNumberStamp` formats `{0}` (current) / `{1}` (total) with a `StartingNumber`, rendering the correct number per page — convenient for headers/footers and watermarks.
 
 ## [0.3.0] — 2026-06-16

@@ -531,7 +531,11 @@ func (e *textExtractor) emitRune(r rune) {
 		dx := x - e.lastX
 		spaceWidth := e.computeSpaceWidth()
 		scale := e.textScaleX()
-		if dx > spaceWidth*scale*0.3 {
+		// Forward gap wider than ~a third of a space, or a significant backward
+		// jump (the next glyph sits well left of the previous — out-of-order
+		// content, e.g. text drawn over an erased run), starts a new fragment so
+		// visual ordering stays correct.
+		if dx > spaceWidth*scale*0.3 || dx < -spaceWidth*scale {
 			needNew = true
 		}
 	}

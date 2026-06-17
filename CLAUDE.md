@@ -56,6 +56,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Document).ExtractText() ([]string, error)` — returns text for all pages (one entry per page)
 - `(*Document).ExtractTextWithLayout() ([][]TextLine, error)` — returns structured text lines for each page
 - `(*Document).SearchText(query, opts...) ([]TextMatch, error)` — finds occurrences of query across all pages (each match carries its page); mirrors Aspose.PDF for .NET's `TextFragmentAbsorber`
+- `(*Document).ReplaceText(old, replacement, opts...) (int, error)` / `(*Page).ReplaceText(...)` — replaces every occurrence and returns the count; redraws the replacement at the same baseline/size/colour in a metric-compatible Standard-14 face (so any text renders even over an embedded subset font); no line re-flow; mirrors the find-and-replace idiom of Aspose.PDF for .NET's `TextFragmentAbsorber` + `TextFragment.Text` (`replace.go`)
 
 **`document_pages.go`** — page delete/split/extract operations
 - `(*Document).DeletePage(n) error` — removes page n (1-based) in place; mirrors Aspose.PDF for .NET's `Document.Pages.Delete(int)`

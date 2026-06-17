@@ -930,6 +930,19 @@ onPage, _ := page.SearchText("Summary")
 
 Each match's `Rect` is built from the per-glyph positions recorded during extraction, so the box hugs the matched text rather than being interpolated. Matches are located within a single text line (a query that straddles a line break is not found).
 
+### Text Replace
+
+```go
+doc, _ := pdf.Open("input.pdf")
+n, _ := doc.ReplaceText("2023", "2026") // every occurrence; returns the count
+doc.ReplaceText("draft", "FINAL", pdf.ReplaceOptions{CaseInsensitive: true})
+doc.ReplaceText(`\$\d+\.\d{2}`, "$0.00", pdf.ReplaceOptions{Regex: true})
+doc.ReplaceText("CONFIDENTIAL", "") // empty replacement deletes the match
+doc.Save("output.pdf")
+```
+
+The matched glyphs are removed and the replacement is drawn at the same baseline, size, and colour in a metric-compatible Standard-14 face chosen from the original's family and style — so any replacement text renders, even when the original used an embedded subset font that lacks the new glyphs (the face may shift for non-Standard-14 originals). The line is not re-flowed: a much longer replacement can overrun following content. Matches are located within a single line, like `SearchText`.
+
 ### Image Extraction
 
 ```go
