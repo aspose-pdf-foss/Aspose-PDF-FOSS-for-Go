@@ -817,7 +817,7 @@ func addFlattenDemo(doc *pdf.Document, page *pdf.Page) {
 func addAnnotations(page *pdf.Page) {
 	sectionHeader(page,
 		"Annotation Gallery",
-		"13 of 15 supported types  ·  Redact has its own page; Widget is shown via AcroForm")
+		"16 of 18 supported types  ·  Redact has its own page; Widget is shown via AcroForm")
 
 	// Honest secondary note: what the library can also do with annotations.
 	size, _ := page.Size()
@@ -1044,6 +1044,39 @@ func addAnnotations(page *pdf.Page) {
 			a.SetBorderWidth(2)
 			mustAnnot(annots.Add(a))
 		}},
+		// --- Polygon ---
+		{"Polygon", "closed shape with fill + border", func(body pdf.Rectangle) {
+			cx := (body.LLX + body.URX) / 2
+			cy := (body.LLY + body.URY) / 2
+			// Regular pentagon, ~18pt radius, apex up.
+			var verts []pdf.Point
+			for k := 0; k < 5; k++ {
+				ang := math.Pi/2 + float64(k)*2*math.Pi/5
+				verts = append(verts, pdf.Point{X: cx + 20*math.Cos(ang), Y: cy + 16*math.Sin(ang)})
+			}
+			a := pdf.NewPolygonAnnotation(page, verts)
+			a.SetColor(&pdf.Color{R: 0.8, G: 0, B: 0, A: 1})
+			a.SetInteriorColor(&pdf.Color{R: 0.6, G: 0.8, B: 1, A: 1})
+			a.SetBorderWidth(1.5)
+			mustAnnot(annots.Add(a))
+		}},
+		// --- Polyline ---
+		{"Polyline", "open vertex path with arrow ending", func(body pdf.Rectangle) {
+			midY := (body.LLY + body.URY) / 2
+			x0 := body.LLX + 20
+			w := body.URX - body.LLX - 40
+			a := pdf.NewPolylineAnnotation(page, []pdf.Point{
+				{X: x0, Y: midY - 8},
+				{X: x0 + w*0.35, Y: midY + 10},
+				{X: x0 + w*0.65, Y: midY - 10},
+				{X: x0 + w, Y: midY + 8},
+			})
+			a.SetColor(&pdf.Color{R: 0, G: 0.5, B: 0.2, A: 1})
+			a.SetBorderWidth(2)
+			a.SetEndLineEnding(pdf.LineEndingClosedArrow)
+			a.SetInteriorColor(&pdf.Color{R: 0, G: 0.5, B: 0.2, A: 1})
+			mustAnnot(annots.Add(a))
+		}},
 		// --- Stamp ---
 		{"Stamp", "predefined or custom-image stamp", func(body pdf.Rectangle) {
 			rect := centeredRect(body, 110, 35)
@@ -1066,11 +1099,21 @@ func addAnnotations(page *pdf.Page) {
 			a.SetFileDescription("Q3 financial summary")
 			mustAnnot(annots.Add(a))
 		}},
+		// --- Caret ---
+		{"Caret", "text-insertion marker (chevron)", func(body pdf.Rectangle) {
+			cx := (body.LLX + body.URX) / 2
+			cy := (body.LLY + body.URY) / 2
+			a := pdf.NewCaretAnnotation(page, pdf.Rectangle{
+				LLX: cx - 11, LLY: cy - 12, URX: cx + 11, URY: cy + 12,
+			})
+			a.SetColor(&pdf.Color{R: 0.85, G: 0.1, B: 0.1, A: 1})
+			mustAnnot(annots.Add(a))
+		}},
 	}
 
 	// Lay out as 2-column grid filled column-by-column (left column first
-	// gets cells 0..6, right column gets 7..12).
-	const rowsPerCol = 7
+	// gets cells 0..7, right column gets 8..15).
+	const rowsPerCol = 8
 	for i, c := range cells {
 		colIdx := i / rowsPerCol
 		rowIdx := i % rowsPerCol
