@@ -161,7 +161,7 @@ func main() {
 		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
-		{destRender, "Page Rendering", "image", renderPage},
+		{destRender, "Rendering & Imposition", "image", renderPage},
 	}
 	named := doc.NamedDestinations()
 	for _, s := range sections {
@@ -195,13 +195,32 @@ func main() {
 		addUnifiedFooter(p, i+1, doc.PageCount())
 	}
 
-	// Page Rendering thumbnails — render a few finished pages of this very
-	// document (now complete with logo/footer/watermark) and embed them.
-	addRenderShowcase(renderPage, []renderThumb{
-		{textPage, "Text Capabilities"},
-		{imagePage, "Image Embedding"},
-		{annotPage, "Annotation Gallery"},
-		{vectorPage, "Vector Graphics"},
+	// Rendering & Imposition — two features on one meta page. Top row: two
+	// finished pages of this very document rasterized by the pure-Go renderer.
+	// Bottom row: a 4-up N-up sheet and a saddle-stitch booklet spread, both
+	// produced from this document by the imposition API and then rendered to
+	// thumbnails (so the renderer literally draws the imposition output).
+	// Impose a finished, self-contained subset (the first 8 pages — all
+	// complete with furniture by now) rather than the whole document, so both
+	// the N-up sheet and the booklet spread are full rather than showing this
+	// still-empty render page.
+	subset, err := doc.Extract(pdf.PageRange{From: 1, To: 8})
+	if err != nil {
+		log.Fatalf("Extract for imposition: %v", err)
+	}
+	nup, err := subset.NUp(pdf.NUpOptions{Rows: 2, Cols: 2, Margin: 14, Gutter: 8, DrawBorder: true})
+	if err != nil {
+		log.Fatalf("NUp: %v", err)
+	}
+	booklet, err := subset.Booklet(pdf.BookletOptions{})
+	if err != nil {
+		log.Fatalf("Booklet: %v", err)
+	}
+	addRenderShowcase(renderPage, []impThumb{
+		renderPageThumb(textPage, "Rendered page — Text"),
+		renderPageThumb(vectorPage, "Rendered page — Vector"),
+		imposedSheetThumb(nup, "4-up imposition — NUp(2×2)"),
+		imposedSheetThumb(booklet, "Booklet spread — Booklet()"),
 	})
 
 	// --- Outline (bookmarks) ----------------------------------------
@@ -281,43 +300,74 @@ func mustAddPage(err error) {
 	}
 }
 
-// renderThumb is one page to rasterize into the Page Rendering grid.
-type renderThumb struct {
-	page  *pdf.Page
-	label string
+// impThumb is one pre-rendered thumbnail (PNG bytes) plus the source sheet's
+// aspect ratio (width/height), so the layout can fit mixed shapes — portrait
+// page/N-up sheets and the wide landscape booklet spread — into uniform slots.
+type impThumb struct {
+	img    []byte
+	aspect float64
+	label  string
 }
 
-// addRenderShowcase fills the Page Rendering meta page: it rasterizes each
-// thumb's page with the library's own pure-Go renderer (RenderPNG) and embeds
-// the result, laid out as a 2×2 grid of framed, captioned thumbnails. This page
-// literally shows the renderer drawing the rest of the document.
-func addRenderShowcase(page *pdf.Page, thumbs []renderThumb) {
-	sectionHeader(page, "Page Rendering",
-		"Pages of this very document, rasterized by the dependency-free pure-Go renderer")
+// renderPageThumb rasterizes a finished page with the pure-Go renderer.
+func renderPageThumb(p *pdf.Page, label string) impThumb {
+	var buf bytes.Buffer
+	if err := p.RenderPNG(&buf, pdf.RenderOptions{DPI: 96}); err != nil {
+		log.Fatalf("render thumbnail %q: %v", label, err)
+	}
+	sz, _ := p.Size()
+	return impThumb{img: buf.Bytes(), aspect: sz.Width / sz.Height, label: label}
+}
+
+// imposedSheetThumb renders the first sheet of an imposed document (the output
+// of NUp/Booklet) to a thumbnail.
+func imposedSheetThumb(d *pdf.Document, label string) impThumb {
+	p, err := d.Page(1)
+	if err != nil {
+		log.Fatalf("imposed sheet %q: %v", label, err)
+	}
+	return renderPageThumb(p, label)
+}
+
+// addRenderShowcase fills the Rendering & Imposition meta page: a 2×2 grid of
+// framed, captioned thumbnails. The top row shows finished pages rasterized by
+// the renderer; the bottom row shows an N-up sheet and a booklet spread the
+// imposition API built from this document and the renderer then drew. Each
+// image is fitted inside its slot preserving aspect, so portrait and landscape
+// thumbnails share one tidy grid.
+func addRenderShowcase(page *pdf.Page, thumbs []impThumb) {
+	sectionHeader(page, "Rendering & Imposition",
+		"Pages rasterized by the pure-Go renderer  ·  N-up & booklet imposition sheets")
 
 	const (
-		thumbH   = 280.0
+		slotW    = 232.0
+		slotH    = 210.0
 		gapX     = 40.0
-		gapY     = 22.0
-		captionH = 16.0
-		topY     = 700.0
+		gapY     = 34.0
+		captionH = 15.0
+		topY     = 690.0
 	)
-	thumbW := thumbH * pdf.PageFormatA4.Width / pdf.PageFormatA4.Height
-	leftX := (pdf.PageFormatA4.Width - (2*thumbW + gapX)) / 2
+	leftX := (pdf.PageFormatA4.Width - (2*slotW + gapX)) / 2
 	border := pdf.Color{R: 0.72, G: 0.72, B: 0.74, A: 1}
 
 	for i, th := range thumbs {
 		col := float64(i % 2)
 		row := float64(i / 2)
-		x := leftX + col*(thumbW+gapX)
-		yTop := topY - row*(thumbH+captionH+gapY)
-		rect := pdf.Rectangle{LLX: x, LLY: yTop - thumbH, URX: x + thumbW, URY: yTop}
+		sx := leftX + col*(slotW+gapX)
+		slotTop := topY - row*(slotH+captionH+gapY)
 
-		var buf bytes.Buffer
-		if err := th.page.RenderPNG(&buf, pdf.RenderOptions{DPI: 96}); err != nil {
-			log.Fatalf("render thumbnail %q: %v", th.label, err)
+		// Fit the image inside the slot, preserving aspect, centered.
+		dw, dh := slotW, slotH
+		if th.aspect > slotW/slotH {
+			dh = slotW / th.aspect
+		} else {
+			dw = slotH * th.aspect
 		}
-		mustVector(page.AddImageFromStream(&buf, rect))
+		ox := sx + (slotW-dw)/2
+		oy := (slotTop - slotH) + (slotH-dh)/2
+		rect := pdf.Rectangle{LLX: ox, LLY: oy, URX: ox + dw, URY: oy + dh}
+
+		mustVector(page.AddImageFromStream(bytes.NewReader(th.img), rect))
 		mustVector(page.DrawRectangle(rect, pdf.ShapeStyle{
 			LineStyle: pdf.LineStyle{Width: 0.8, Color: &border},
 		}))
@@ -326,7 +376,7 @@ func addRenderShowcase(page *pdf.Page, thumbs []renderThumb) {
 			Size:   9,
 			Color:  &pdf.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
 			HAlign: pdf.HAlignCenter,
-		}, pdf.Rectangle{LLX: x, LLY: rect.LLY - captionH, URX: x + thumbW, URY: rect.LLY - 3}))
+		}, pdf.Rectangle{LLX: sx, LLY: slotTop - slotH - captionH, URX: sx + slotW, URY: slotTop - slotH - 2}))
 	}
 }
 
