@@ -923,6 +923,10 @@ for _, m := range matches {
 hits, _ := doc.SearchText("total", pdf.SearchOptions{CaseInsensitive: true})
 nums, _ := doc.SearchText(`\$\d+\.\d{2}`, pdf.SearchOptions{Regex: true})
 
+// Limit to a region (PDF user space, per page): only matches whose box
+// intersects the rectangle are returned.
+hdr, _ := doc.SearchText("Total", pdf.SearchOptions{Rectangle: &pdf.Rectangle{LLX: 0, LLY: 740, URX: 612, URY: 792}})
+
 // Single page
 page, _ := doc.Page(1)
 onPage, _ := page.SearchText("Summary")

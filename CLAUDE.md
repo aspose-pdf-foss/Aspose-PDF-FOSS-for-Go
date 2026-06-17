@@ -81,7 +81,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `(*Page).ExtractText() (string, error)` — returns the text content of a page in visual reading order; unknown font characters become U+FFFD
 - `(*Page).ExtractTextWithLayout() ([]TextLine, error)` — returns structured text lines in visual reading order with coordinates and font info
 - `(*Page).SearchText(query string, opts ...SearchOptions) ([]TextMatch, error)` — finds occurrences of query on the page in reading order, returning a bounding `Rectangle` per match (`text_search.go`); built on the layout pipeline, matches are located within a single line; literal by default, with optional case-insensitive and RE2-regex modes. Match rectangles use the per-glyph start positions recorded during extraction (`textFragment.runeX` → unexported `TextFragment.runeX`), so sub-fragment boxes are accurate rather than interpolated (right edge approximate only when a match ends a fragment's last glyph)
-- `SearchOptions` struct — CaseInsensitive bool, Regex bool (zero value = case-sensitive literal, matching Aspose.PDF for .NET's default)
+- `SearchOptions` struct — CaseInsensitive bool, Regex bool, Rectangle *Rectangle (non-nil limits results to matches whose box intersects the region, per page; mirrors Aspose's `TextSearchOptions.Rectangle`). Zero value = case-sensitive literal, whole-page, matching Aspose.PDF for .NET's default
 - `TextMatch` struct — Text string, PageNumber int (1-based), Rect Rectangle (PDF user space)
 - `PageSize` struct — Width, Height in points (1/72 inch)
 - `Color` struct — R, G, B, A float64 (values in [0, 1])

@@ -18,6 +18,11 @@ type SearchOptions struct {
 	// Regex treats the query as an RE2 regular expression instead of a literal
 	// string. Invalid patterns are reported as an error by SearchText.
 	Regex bool
+	// Rectangle, when non-nil, limits results to matches whose bounding box
+	// intersects this region (PDF user space, applied to every page). nil
+	// searches the whole page. Mirrors Aspose.PDF for .NET's
+	// TextSearchOptions.Rectangle.
+	Rectangle *Rectangle
 }
 
 // TextMatch is a single occurrence located by SearchText.
@@ -48,7 +53,8 @@ type TextMatch struct {
 // line break is not found. An empty query, or an invalid regular expression,
 // returns an error.
 func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, error) {
-	re, err := compileSearch(query, lastSearchOption(opts))
+	opt := lastSearchOption(opts)
+	re, err := compileSearch(query, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +62,7 @@ func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, err
 	if err != nil {
 		return nil, err
 	}
-	return searchLines(lines, re, p.Number()), nil
+	return filterMatchesByRect(searchLines(lines, re, p.Number()), opt.Rectangle), nil
 }
 
 // SearchText finds every occurrence of query across all pages of the document,
@@ -67,15 +73,37 @@ func (d *Document) SearchText(query string, opts ...SearchOptions) ([]TextMatch,
 	if err != nil {
 		return nil, err
 	}
+	opt := lastSearchOption(opts)
 	var out []TextMatch
 	for _, p := range d.Pages() {
 		lines, err := p.ExtractTextWithLayout()
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, searchLines(lines, re, p.Number())...)
+		out = append(out, filterMatchesByRect(searchLines(lines, re, p.Number()), opt.Rectangle)...)
 	}
 	return out, nil
+}
+
+// filterMatchesByRect keeps only matches whose bounding box intersects r. A nil
+// r returns the matches unchanged.
+func filterMatchesByRect(matches []TextMatch, r *Rectangle) []TextMatch {
+	if r == nil {
+		return matches
+	}
+	out := matches[:0]
+	for _, m := range matches {
+		if rectsIntersect(m.Rect, *r) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// rectsIntersect reports whether two axis-aligned rectangles overlap with
+// positive area (edge-only contact does not count).
+func rectsIntersect(a, b Rectangle) bool {
+	return a.LLX < b.URX && a.URX > b.LLX && a.LLY < b.URY && a.URY > b.LLY
 }
 
 func lastSearchOption(opts []SearchOptions) SearchOptions {
