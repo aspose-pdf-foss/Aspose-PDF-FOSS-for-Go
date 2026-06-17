@@ -1875,20 +1875,13 @@ func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 	size, _ := page.Size()
 
-	// Heading.
-	mustText(page.AddText("Contents", pdf.TextStyle{
-		Font:   pdf.FontHelveticaBold,
-		Size:   30,
-		Color:  &pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1},
-		HAlign: pdf.HAlignCenter,
-	}, pdf.Rectangle{LLX: 50, LLY: size.Height - 110, URX: size.Width - 50, URY: size.Height - 70}))
-
-	// Horizontal rule under the title.
-	mustVector(page.DrawLine(
-		pdf.Point{X: 80, Y: size.Height - 125},
-		pdf.Point{X: size.Width - 80, Y: size.Height - 125},
-		pdf.LineStyle{Color: &pdf.Color{R: 0.85, G: 0.85, B: 0.9, A: 1}, Width: 1},
-	))
+	// Heading + subtitle — use the same helper as every other section page
+	// so the Contents page matches them (centered title, one-line italic
+	// subtitle, no decorative rule). The TOC is itself a showcased case, so
+	// its subtitle names the capability.
+	sectionHeader(page,
+		"Contents",
+		"Page.AddTOC  •  dotted leaders  •  logical page labels  •  clickable links")
 
 	// Build the entry list and render it with the public Page.AddTOC API —
 	// the same call any consumer would use. AddTOC draws the indented
@@ -1910,7 +1903,7 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 		}
 	}
 	if _, err := page.AddTOC(entries, pdf.Rectangle{
-		LLX: 72, LLY: 160, URX: size.Width - 100, URY: size.Height - 150,
+		LLX: 72, LLY: 160, URX: size.Width - 100, URY: size.Height - 180,
 	}, pdf.TOCOptions{
 		EntryStyle: pdf.TextStyle{
 			Font:  pdf.FontHelvetica,
