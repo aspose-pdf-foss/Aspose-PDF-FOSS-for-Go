@@ -13,6 +13,12 @@ import (
 
 // buildDocumentPDF serializes d to a PDF byte slice.
 func buildDocumentPDF(d *Document) ([]byte, error) {
+	// Incremental signature: append a new revision to the original bytes
+	// rather than rewriting, so any earlier signature stays valid.
+	if d.sign != nil && d.sign.incremental {
+		return buildIncrementalSignedPDF(d)
+	}
+
 	var encState *encryptState
 	if d.preserved != nil {
 		// Reuse the original /O, /U, /P, /ID bytes verbatim so that BOTH the

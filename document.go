@@ -26,6 +26,12 @@ type Document struct {
 	sign         *signConfig            // nil unless Sign() configured a digital signature
 	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
 
+	// Captured at open time from the trailer, used by incremental save
+	// (signing an existing PDF without rewriting it). Zero for built docs.
+	catalogNum int      // original /Root object number
+	docID      pdfArray // original trailer /ID (carried into the incremental trailer)
+	origSize   int      // original trailer /Size (new object numbers start here)
+
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
 	// only the glyphs that were actually drawn.
@@ -244,7 +250,7 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 		}
 	}
 
-	return &Document{
+	doc := &Document{
 		objects:   objects,
 		pages:     pages,
 		catalog:   catalog,
@@ -252,7 +258,22 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 		nextID:    maxObjectID(objects) + 1,
 		encrypt:   pendingEncrypt,
 		preserved: pendingPreserved,
-	}, nil
+	}
+	// Capture trailer facts needed for incremental save (Document.Sign on an
+	// existing PDF appends a revision rather than rewriting).
+	if r, ok := trailer["/Root"].(pdfRef); ok {
+		doc.catalogNum = r.Num
+	}
+	if id, ok := trailer["/ID"].(pdfArray); ok {
+		doc.docID = id
+	}
+	if sz := dictGetInt(trailer, "/Size"); sz > 0 {
+		doc.origSize = sz
+	}
+	if doc.origSize < doc.nextID {
+		doc.origSize = doc.nextID
+	}
+	return doc, nil
 }
 
 // PageCount returns the number of pages in the document.

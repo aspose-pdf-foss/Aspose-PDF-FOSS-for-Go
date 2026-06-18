@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-// Digital signatures (ISO 32000-1 §12.8). A single PKCS#7-detached
-// signature covering the whole file, invisible by default or shown as a
-// generated appearance block when SignOptions.Visible is set. Configured
-// with Sign() and applied at Save/WriteTo time, like SetEncryption.
+// Digital signatures (ISO 32000-1 §12.8). A PKCS#7-detached signature
+// covering the whole file, invisible by default or shown as a generated
+// appearance block when SignOptions.Visible is set. Configured with Sign()
+// and applied at Save/WriteTo time, like SetEncryption. Optional PAdES
+// (ETSI.CAdES.detached), DocMDP certification, and RFC 3161 trusted
+// timestamps. A second signature on an already-signed document is applied
+// as an incremental update so the earlier signature stays valid.
 //
-// SECURITY / SCOPE NOTE: one signature, "adbe.pkcs7.detached", SHA-256,
-// RSA or ECDSA keys; signs an unencrypted document. Out of scope:
-// PAdES/CAdES, RFC 3161 timestamps, LTV, DocMDP certification,
-// multiple/incremental signatures. Sign+Save is terminal — configure once
-// and save once.
+// SECURITY / SCOPE NOTE: SHA-256, RSA or ECDSA keys; signs an unencrypted
+// document. Out of scope: LTV (DSS/VRI) and signing encrypted documents.
 
 // signContentsHexLen is the fixed number of hex characters reserved for
 // the /Contents placeholder (so the PKCS#7 blob can be spliced in without
@@ -89,6 +89,13 @@ type SignOptions struct {
 	// Time-Stamp Authority over the signature and embeds it, anchoring the
 	// signing time to a trusted clock. Requires network access at sign time.
 	TimestampURL string
+
+	// Incremental appends the signature as a new revision instead of
+	// rewriting the file, preserving the original bytes verbatim. This is
+	// REQUIRED to add a second signature without invalidating earlier ones,
+	// and is auto-enabled when the document already contains a signature.
+	// Requires a document opened from an existing PDF (Open/OpenStream).
+	Incremental bool
 }
 
 // CertifyPermission is the DocMDP permission level of a certification
@@ -131,6 +138,7 @@ type signConfig struct {
 	padES                           bool
 	certify                         CertifyPermission
 	tsaURL                          string
+	incremental                     bool
 }
 
 // Sign configures a digital signature applied on the next Save/WriteTo.
@@ -154,22 +162,32 @@ func (d *Document) Sign(opts SignOptions) error {
 			return fmt.Errorf("Sign: Page %d out of range [1,%d]", opts.Page, len(d.pages))
 		}
 	}
+	// Incremental signing is required to preserve any existing signature, so
+	// auto-enable it when one is present. It needs the original source bytes.
+	incremental := opts.Incremental || len(d.collectSignatureFields()) > 0
+	if incremental && len(d.source) == 0 {
+		return fmt.Errorf("Sign: incremental signing requires a document opened from an existing PDF (Open/OpenStream)")
+	}
+	if incremental && d.catalogNum == 0 {
+		return fmt.Errorf("Sign: cannot determine catalog object number for incremental signing")
+	}
 	d.sign = &signConfig{
-		cert:       opts.Certificate,
-		key:        opts.PrivateKey,
-		chain:      opts.Chain,
-		reason:     opts.Reason,
-		location:   opts.Location,
-		contact:    opts.ContactInfo,
-		name:       opts.Name,
-		when:       opts.SigningTime,
-		visible:    opts.Visible,
-		rect:       opts.Rect,
-		page:       opts.Page,
-		appearance: opts.Appearance,
-		padES:      opts.PAdES,
-		certify:    opts.Certify,
-		tsaURL:     opts.TimestampURL,
+		cert:        opts.Certificate,
+		key:         opts.PrivateKey,
+		chain:       opts.Chain,
+		reason:      opts.Reason,
+		location:    opts.Location,
+		contact:     opts.ContactInfo,
+		name:        opts.Name,
+		when:        opts.SigningTime,
+		visible:     opts.Visible,
+		rect:        opts.Rect,
+		page:        opts.Page,
+		appearance:  opts.Appearance,
+		padES:       opts.PAdES,
+		certify:     opts.Certify,
+		tsaURL:      opts.TimestampURL,
+		incremental: incremental,
 	}
 	return nil
 }

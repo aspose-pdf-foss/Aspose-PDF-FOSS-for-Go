@@ -317,6 +317,89 @@ func TestSignWithTimestamp(t *testing.T) {
 	}
 }
 
+func TestSignMultiple(t *testing.T) {
+	k1, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1 := newSelfSigned(t, k1)
+	k2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := newSelfSigned(t, k2)
+
+	// First signature — ordinary full-rewrite.
+	doc := pdf.NewDocument(400, 300)
+	if err := doc.Sign(pdf.SignOptions{Certificate: c1, PrivateKey: k1, Name: "Alice"}); err != nil {
+		t.Fatalf("first Sign: %v", err)
+	}
+	var b1 bytes.Buffer
+	if _, err := doc.WriteTo(&b1); err != nil {
+		t.Fatalf("first WriteTo: %v", err)
+	}
+	first := b1.Bytes()
+
+	// Second signature — auto-incremental, must preserve the first.
+	doc2, err := pdf.OpenStream(bytes.NewReader(first))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if err := doc2.Sign(pdf.SignOptions{Certificate: c2, PrivateKey: k2, Name: "Bob"}); err != nil {
+		t.Fatalf("second Sign: %v", err)
+	}
+	var b2 bytes.Buffer
+	if _, err := doc2.WriteTo(&b2); err != nil {
+		t.Fatalf("second WriteTo: %v", err)
+	}
+	second := b2.Bytes()
+
+	// The incremental update appends — the original bytes are a verbatim
+	// prefix, which is exactly why the first signature stays valid.
+	if len(second) <= len(first) || !bytes.Equal(second[:len(first)], first) {
+		t.Fatal("incremental signature did not preserve the original bytes verbatim")
+	}
+
+	out, err := pdf.OpenStream(bytes.NewReader(second))
+	if err != nil {
+		t.Fatalf("reopen signed: %v", err)
+	}
+	sigs, err := out.VerifySignatures()
+	if err != nil {
+		t.Fatalf("VerifySignatures: %v", err)
+	}
+	if len(sigs) != 2 {
+		t.Fatalf("got %d signatures, want 2", len(sigs))
+	}
+	for _, s := range sigs {
+		if !s.Valid {
+			t.Errorf("signature %s not valid: %v", s.FieldName, s.Err)
+		}
+	}
+	if sigs[0].FieldName != "Signature1" || sigs[1].FieldName != "Signature2" {
+		t.Errorf("field names = %q, %q; want Signature1, Signature2", sigs[0].FieldName, sigs[1].FieldName)
+	}
+	// The first signature covers only its own revision; the second covers all.
+	if sigs[0].CoversWholeDocument {
+		t.Error("first signature should not cover the whole (extended) document")
+	}
+	if !sigs[1].CoversWholeDocument {
+		t.Error("second signature should cover the whole document")
+	}
+}
+
+func TestSignIncrementalRequiresSource(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	doc := pdf.NewDocument(200, 200) // built in memory, no source bytes
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, Incremental: true}); err == nil {
+		t.Error("Incremental sign on a built document = nil error, want an error")
+	}
+}
+
 func TestSignVisibleRequiresRect(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	cert := newSelfSigned(t, key)
