@@ -400,6 +400,58 @@ func TestSignIncrementalRequiresSource(t *testing.T) {
 	}
 }
 
+func TestSignEncrypted(t *testing.T) {
+	algs := []struct {
+		alg  pdf.EncryptionAlgorithm
+		name string
+	}{
+		{pdf.EncryptionAlgRC4_128, "RC4-128"},
+		{pdf.EncryptionAlgAES128, "AES-128"},
+		{pdf.EncryptionAlgAES256, "AES-256"},
+	}
+	for _, a := range algs {
+		t.Run(a.name, func(t *testing.T) {
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert := newSelfSigned(t, key)
+			doc := pdf.NewDocument(400, 200)
+			doc.SetEncryption(pdf.EncryptionOptions{
+				UserPassword: "u", OwnerPassword: "o", Algorithm: a.alg,
+			})
+			if err := doc.Sign(pdf.SignOptions{
+				Certificate: cert, PrivateKey: key, Name: "Encrypted Signer",
+			}); err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+			var buf bytes.Buffer
+			if _, err := doc.WriteTo(&buf); err != nil {
+				t.Fatalf("WriteTo: %v", err)
+			}
+			// The signed output is still encrypted: opening without the password
+			// must report ErrEncrypted.
+			if _, err := pdf.OpenStream(bytes.NewReader(buf.Bytes())); err == nil {
+				t.Error("signed+encrypted document opened without a password")
+			}
+			out, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "u")
+			if err != nil {
+				t.Fatalf("reopen with password: %v", err)
+			}
+			sigs, err := out.VerifySignatures()
+			if err != nil {
+				t.Fatalf("VerifySignatures: %v", err)
+			}
+			if len(sigs) != 1 || !sigs[0].Valid {
+				t.Fatalf("signature invalid: %+v", sigs)
+			}
+			if !sigs[0].CoversWholeDocument {
+				t.Error("signature should cover the whole document")
+			}
+		})
+	}
+}
+
 func TestSignVisibleRequiresRect(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	cert := newSelfSigned(t, key)

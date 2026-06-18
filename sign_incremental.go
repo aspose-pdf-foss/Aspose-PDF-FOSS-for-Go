@@ -18,17 +18,55 @@ import (
 // earlier byte moves, any signature already in the file stays valid — which
 // is what makes multiple signatures possible.
 
+// buildFreshEncryptedSignedPDF signs a freshly-built (never-opened) encrypted
+// document: it serializes the encrypted PDF without the signature, reopens it
+// to obtain a source + preserved encryption state, then signs that
+// incrementally. This keeps the output identical in shape to signing an
+// existing encrypted file (which is the only interoperable form).
+func buildFreshEncryptedSignedPDF(d *Document) ([]byte, error) {
+	password := ""
+	if d.encrypt != nil {
+		password = d.encrypt.userPassword
+	}
+	saved := d.sign
+	d.sign = nil
+	encBytes, err := buildDocumentPDF(d)
+	d.sign = saved
+	if err != nil {
+		return nil, err
+	}
+	reopened, err := OpenStreamWithPassword(bytes.NewReader(encBytes), password)
+	if err != nil {
+		return nil, fmt.Errorf("sign: reopening the encrypted document failed: %w", err)
+	}
+	cfg := *saved
+	cfg.incremental = true
+	reopened.sign = &cfg
+	// Map the 1-based page to the reopened document (page objects are equivalent).
+	return buildIncrementalSignedPDF(reopened)
+}
+
 // buildIncrementalSignedPDF appends a signature revision to d.source and
 // returns the complete signed bytes (with the PKCS#7 spliced in).
 func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 	if len(d.source) == 0 {
 		return nil, fmt.Errorf("sign: incremental signing requires a document opened from an existing PDF")
 	}
-	if d.encrypt != nil || d.preserved != nil {
-		return nil, fmt.Errorf("sign: signing an encrypted document is not supported")
-	}
 	if d.catalogNum == 0 {
 		return nil, fmt.Errorf("sign: cannot determine catalog object number for incremental signing")
+	}
+
+	// Encryption: the original bytes stay verbatim (already encrypted); only
+	// the appended signature objects are encrypted, with the same per-object
+	// scheme. The signature /Contents and /ByteRange stay plaintext (pdfRaw).
+	var encState *encryptState
+	if d.preserved != nil {
+		encState = d.preserved
+	} else if d.encrypt != nil {
+		var err error
+		if encState, err = newEncryptState(d.encrypt); err != nil {
+			return nil, fmt.Errorf("sign: %w", err)
+		}
 	}
 
 	prevXref, err := lastStartxref(d.source)
@@ -199,8 +237,13 @@ func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 	offsets := make(map[int]int64, len(emit))
 	for _, e := range emit {
 		offsets[e.num] = int64(buf.Len())
+		var encFn func([]byte) ([]byte, error)
+		if encState != nil {
+			num, gen := e.num, e.gen
+			encFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(num, gen, b) }
+		}
 		fmt.Fprintf(&buf, "%d %d obj\n", e.num, e.gen)
-		if err := writeValue(&buf, e.val, identity, nil); err != nil {
+		if err := writeValue(&buf, e.val, identity, encFn); err != nil {
 			return nil, err
 		}
 		buf.WriteString("\nendobj\n")
@@ -225,6 +268,11 @@ func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 	fmt.Fprintf(&buf, " /Size %d", size)
 	fmt.Fprintf(&buf, " /Root %d 0 R", d.catalogNum)
 	fmt.Fprintf(&buf, " /Prev %d", prevXref)
+	// Repeat /Encrypt so the newest trailer still marks the file encrypted; the
+	// original /Encrypt object is untouched in the preserved source bytes.
+	if encState != nil && d.encryptObjNum > 0 {
+		fmt.Fprintf(&buf, " /Encrypt %d 0 R", d.encryptObjNum)
+	}
 	buf.WriteString(" /ID [")
 	writeHexBytes(&buf, id0)
 	writeHexBytes(&buf, id1)

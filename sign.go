@@ -164,7 +164,13 @@ func (d *Document) Sign(opts SignOptions) error {
 	}
 	// Incremental signing is required to preserve any existing signature, so
 	// auto-enable it when one is present. It needs the original source bytes.
+	// An existing encrypted document is also signed incrementally (the only
+	// interoperable way: the original encrypted bytes stay untouched and only
+	// the appended signature objects are encrypted).
 	incremental := opts.Incremental || len(d.collectSignatureFields()) > 0
+	if (d.preserved != nil || d.encrypt != nil) && len(d.source) > 0 {
+		incremental = true
+	}
 	if incremental && len(d.source) == 0 {
 		return fmt.Errorf("Sign: incremental signing requires a document opened from an existing PDF (Open/OpenStream)")
 	}

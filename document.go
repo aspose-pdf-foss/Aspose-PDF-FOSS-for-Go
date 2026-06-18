@@ -28,9 +28,10 @@ type Document struct {
 
 	// Captured at open time from the trailer, used by incremental save
 	// (signing an existing PDF without rewriting it). Zero for built docs.
-	catalogNum int      // original /Root object number
-	docID      pdfArray // original trailer /ID (carried into the incremental trailer)
-	origSize   int      // original trailer /Size (new object numbers start here)
+	catalogNum    int      // original /Root object number
+	docID         pdfArray // original trailer /ID (carried into the incremental trailer)
+	origSize      int      // original trailer /Size (new object numbers start here)
+	encryptObjNum int      // original /Encrypt object number (0 if unencrypted)
 
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
@@ -273,6 +274,7 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, password *stri
 	if doc.origSize < doc.nextID {
 		doc.origSize = doc.nextID
 	}
+	doc.encryptObjNum = raw.encryptObjNum
 	return doc, nil
 }
 

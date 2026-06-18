@@ -19,6 +19,14 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		return buildIncrementalSignedPDF(d)
 	}
 
+	// Signing a freshly-built (no source) encrypted document: build the
+	// encrypted PDF first, then sign it incrementally — the only approach that
+	// stays interoperable, since the signature objects must be encrypted and a
+	// signed revision must sit atop the finished encrypted bytes.
+	if d.sign != nil && !d.sign.incremental && len(d.source) == 0 && (d.encrypt != nil || d.preserved != nil) {
+		return buildFreshEncryptedSignedPDF(d)
+	}
+
 	var encState *encryptState
 	if d.preserved != nil {
 		// Reuse the original /O, /U, /P, /ID bytes verbatim so that BOTH the
@@ -35,10 +43,10 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	// Digital signature: inject the signature dict + invisible Sig widget
 	// before the object snapshot below so they're written like any other
 	// object; the actual PKCS#7 is spliced into the placeholder afterwards.
+	// When the document is encrypted, the signature objects are encrypted
+	// like any other (their /Contents and /ByteRange stay plaintext because
+	// they are written as pdfRaw, per ISO 32000-1 §7.6.2).
 	if d.sign != nil {
-		if encState != nil {
-			return nil, fmt.Errorf("sign: signing an encrypted document is not supported")
-		}
 		d.buildSignatureObjects()
 	}
 

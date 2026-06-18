@@ -232,7 +232,11 @@ func decryptValueAES256(v pdfValue, decrypt func([]byte) ([]byte, error)) (pdfVa
 		}
 		return pdfHexString(plain), nil
 	case pdfDict:
+		sig := isSignatureDict(val)
 		for k, vv := range val {
+			if sig && k == "/Contents" {
+				continue // signature /Contents is never encrypted (ISO 32000-1 §7.6.2)
+			}
 			nv, err := decryptValueAES256(vv, decrypt)
 			if err != nil {
 				return nil, err

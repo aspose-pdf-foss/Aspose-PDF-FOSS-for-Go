@@ -217,7 +217,11 @@ func decryptValue(v pdfValue, key []byte) pdfValue {
 	case pdfHexString:
 		return pdfHexString(rc4Decrypted([]byte(val), key))
 	case pdfDict:
+		sig := isSignatureDict(val)
 		for k, vv := range val {
+			if sig && k == "/Contents" {
+				continue // signature /Contents is never encrypted (ISO 32000-1 §7.6.2)
+			}
 			val[k] = decryptValue(vv, key)
 		}
 		return val
@@ -231,6 +235,17 @@ func decryptValue(v pdfValue, key []byte) pdfValue {
 		return val
 	}
 	return v
+}
+
+// isSignatureDict reports whether d is a signature (or document-timestamp)
+// dictionary, whose /Contents value is exempt from encryption per ISO
+// 32000-1 §7.6.2. A /ByteRange alongside /Contents is the reliable marker.
+func isSignatureDict(d pdfDict) bool {
+	if _, ok := d["/ByteRange"]; !ok {
+		return false
+	}
+	_, ok := d["/Contents"]
+	return ok
 }
 
 func decryptString(s string, key []byte) string {
