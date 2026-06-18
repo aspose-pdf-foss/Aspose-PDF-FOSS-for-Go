@@ -20,36 +20,55 @@ func (rd *renderer) renderAnnotations() {
 	if !ok {
 		return
 	}
-	for _, a := range annots {
-		ad, ok := resolveRefToDict(objects, a)
-		if !ok {
-			continue
-		}
-		if dictGetName(ad, "/Subtype") == "/Popup" || annotHidden(objects, ad) {
-			continue
-		}
-		ap := appearanceStream(objects, ad)
-		if ap == nil {
-			// No /AP: a viewer synthesizes the appearance from the
-			// annotation's properties (ISO 32000-1 §12.5.5). Draw the markup
-			// shapes the library can build (Square/Circle/Line/Ink); others
-			// are skipped as before.
-			ap = rd.synthesizeAnnotationAppearance(ad)
-			if ap == nil {
+	// Two passes: non-widget annotations first, then form-field widgets on top.
+	// Acrobat (and pdf.js) paint interactive form fields as a separate top
+	// layer rather than in raw /Annots order, so a markup annotation drawn over
+	// a field does not hide its value. 39103.pdf relies on this: opaque white
+	// /Square "white-out" boxes appear after the widgets in /Annots and would
+	// otherwise erase every field's text. The /Annots order is preserved within
+	// each pass.
+	for pass := 0; pass < 2; pass++ {
+		for _, a := range annots {
+			ad, ok := resolveRefToDict(objects, a)
+			if !ok {
 				continue
 			}
+			isWidget := dictGetName(ad, "/Subtype") == "/Widget"
+			if (pass == 0) == isWidget {
+				continue // pass 0 = non-widgets, pass 1 = widgets
+			}
+			rd.drawAnnotation(objects, ad)
 		}
-		rect, ok := normRect(shFloats(objects, ad["/Rect"]))
-		if !ok {
-			continue
-		}
-		m, ok := annotAppearanceMatrix(objects, ap, rect)
-		if !ok {
-			continue
-		}
-		rd.widgetFieldBackground(objects, ad, rect)
-		rd.drawAnnotationAppearance(ap, m)
 	}
+}
+
+// drawAnnotation paints one annotation's appearance (its /AP/N, or a
+// synthesized one for markup shapes that carry none), mapped into its /Rect.
+// Popup and hidden / no-view annotations are skipped.
+func (rd *renderer) drawAnnotation(objects map[int]*pdfObject, ad pdfDict) {
+	if dictGetName(ad, "/Subtype") == "/Popup" || annotHidden(objects, ad) {
+		return
+	}
+	ap := appearanceStream(objects, ad)
+	if ap == nil {
+		// No /AP: a viewer synthesizes the appearance from the annotation's
+		// properties (ISO 32000-1 §12.5.5). Draw the markup shapes the library
+		// can build (Square/Circle/Line/Ink); others are skipped as before.
+		ap = rd.synthesizeAnnotationAppearance(ad)
+		if ap == nil {
+			return
+		}
+	}
+	rect, ok := normRect(shFloats(objects, ad["/Rect"]))
+	if !ok {
+		return
+	}
+	m, ok := annotAppearanceMatrix(objects, ap, rect)
+	if !ok {
+		return
+	}
+	rd.widgetFieldBackground(objects, ad, rect)
+	rd.drawAnnotationAppearance(ap, m)
 }
 
 // synthesizeAnnotationAppearance builds an appearance stream for a drawing
