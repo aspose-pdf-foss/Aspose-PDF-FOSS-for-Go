@@ -66,8 +66,9 @@ type issuerAndSerial struct {
 	SerialNumber *big.Int
 }
 
-// signerInfo is one CMS SignerInfo (RFC 5652 §5.3). SignedAttrs already
-// carries its own [0] IMPLICIT tag in FullBytes, so no struct tag is set.
+// signerInfo is one CMS SignerInfo (RFC 5652 §5.3). SignedAttrs /
+// UnsignedAttrs already carry their own [0]/[1] IMPLICIT tags in FullBytes,
+// so no struct tag is set; UnsignedAttrs is omitted when empty.
 type signerInfo struct {
 	Version            int
 	SID                issuerAndSerial
@@ -75,6 +76,7 @@ type signerInfo struct {
 	SignedAttrs        asn1.RawValue
 	SignatureAlgorithm algorithmIdentifier
 	Signature          []byte
+	UnsignedAttrs      asn1.RawValue `asn1:"optional"`
 }
 
 // signedData is the CMS SignedData (RFC 5652 §5.1).
@@ -105,7 +107,7 @@ type contentInfo struct {
 // signer cert so verifiers can build the path. SHA-256 throughout. When
 // padES is set, the ESS signing-certificate-v2 signed attribute is added,
 // making the signature CAdES/PAdES-conformant.
-func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time, padES bool) ([]byte, error) {
+func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time, padES bool, tsaURL string) ([]byte, error) {
 	if cert == nil || key == nil {
 		return nil, fmt.Errorf("pkcs7: nil certificate or key")
 	}
@@ -152,6 +154,20 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: sigAlg,
 		Signature:          signature,
+	}
+
+	// RFC 3161 timestamp: fetch a token over the signature and attach it as
+	// the signature-time-stamp unsigned attribute ([1] IMPLICIT SET).
+	if tsaURL != "" {
+		token, err := requestTimestamp(tsaURL, signature)
+		if err != nil {
+			return nil, err
+		}
+		ua, err := marshalTimestampUnsignedAttr(token)
+		if err != nil {
+			return nil, err
+		}
+		si.UnsignedAttrs = asn1.RawValue{FullBytes: ua}
 	}
 
 	certsDER, err := marshalCertSet(cert, chain)
@@ -245,16 +261,21 @@ func marshalSetOf(attrs []attribute) ([]byte, error) {
 // marshalImplicitSet encodes the attributes as [0] IMPLICIT SET OF
 // (tag 0xA0) — the form carried inside the SignerInfo.
 func marshalImplicitSet(attrs []attribute) ([]byte, error) {
+	return marshalImplicitSetTag(0, attrs)
+}
+
+// marshalImplicitSetTag encodes the attributes as a [tag] IMPLICIT SET OF —
+// tag 0 for signedAttrs, tag 1 for unsignedAttrs (RFC 5652 §5.3).
+func marshalImplicitSetTag(tag int, attrs []attribute) ([]byte, error) {
 	setBytes, err := marshalSetOf(attrs)
 	if err != nil {
 		return nil, err
 	}
-	// Re-tag the universal SET (0x31) content as context [0] (0xA0).
 	var raw asn1.RawValue
 	if _, err := asn1.Unmarshal(setBytes, &raw); err != nil {
 		return nil, err
 	}
-	out := asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: raw.Bytes}
+	out := asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: tag, IsCompound: true, Bytes: raw.Bytes}
 	return asn1.Marshal(out)
 }
 

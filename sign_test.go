@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -276,6 +277,43 @@ func TestSignCertify(t *testing.T) {
 	sigs, err := out.VerifySignatures()
 	if err != nil || len(sigs) != 1 || !sigs[0].Valid {
 		t.Fatalf("VerifySignatures (certified): %v / %+v", err, sigs)
+	}
+}
+
+// TestSignWithTimestamp signs with a real RFC 3161 TSA and confirms the
+// result still verifies. It is network-dependent, so it skips gracefully when
+// the TSA is unreachable (e.g. offline CI). Override the TSA with TSA_URL.
+func TestSignWithTimestamp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network TSA test in -short mode")
+	}
+	tsa := os.Getenv("TSA_URL")
+	if tsa == "" {
+		tsa = "http://timestamp.digicert.com"
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert, PrivateKey: key, Name: "TSA Signer",
+		PAdES: true, TimestampURL: tsa,
+	}); err != nil {
+		t.Skipf("TSA %s unreachable (%v) — skipping", tsa, err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	sigs, err := out.VerifySignatures()
+	if err != nil || len(sigs) != 1 || !sigs[0].Valid {
+		t.Fatalf("VerifySignatures (timestamped): %v / %+v", err, sigs)
 	}
 }
 

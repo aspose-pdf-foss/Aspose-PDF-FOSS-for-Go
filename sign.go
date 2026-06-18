@@ -84,6 +84,11 @@ type SignOptions struct {
 	// Mirrors Aspose.PDF for .NET's PdfFileSignature.Certify +
 	// DocMDPAccessPermissions.
 	Certify CertifyPermission
+
+	// TimestampURL, when set, fetches an RFC 3161 trusted timestamp from that
+	// Time-Stamp Authority over the signature and embeds it, anchoring the
+	// signing time to a trusted clock. Requires network access at sign time.
+	TimestampURL string
 }
 
 // CertifyPermission is the DocMDP permission level of a certification
@@ -125,6 +130,7 @@ type signConfig struct {
 	appearance                      *SignatureAppearance
 	padES                           bool
 	certify                         CertifyPermission
+	tsaURL                          string
 }
 
 // Sign configures a digital signature applied on the next Save/WriteTo.
@@ -163,6 +169,7 @@ func (d *Document) Sign(opts SignOptions) error {
 		appearance: opts.Appearance,
 		padES:      opts.PAdES,
 		certify:    opts.Certify,
+		tsaURL:     opts.TimestampURL,
 	}
 	return nil
 }
@@ -346,7 +353,7 @@ func (d *Document) applySignature(raw []byte) ([]byte, error) {
 	if when.IsZero() {
 		when = time.Now()
 	}
-	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when, d.sign.padES)
+	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when, d.sign.padES, d.sign.tsaURL)
 	if err != nil {
 		return nil, err
 	}
