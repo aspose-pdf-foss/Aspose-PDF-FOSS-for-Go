@@ -71,6 +71,12 @@ type SignOptions struct {
 	// Aspose.PDF for .NET's SignatureCustomAppearance). nil = a sensible
 	// default (signer name + date, plus reason/location when set).
 	Appearance *SignatureAppearance
+
+	// PAdES produces an ETSI.CAdES.detached (PAdES baseline) signature: the
+	// CMS carries the ESS signing-certificate-v2 attribute and /SubFilter is
+	// /ETSI.CAdES.detached. The zero value produces a classic
+	// /adbe.pkcs7.detached signature.
+	PAdES bool
 }
 
 // SignatureAppearance controls the visible signature block's content and
@@ -98,6 +104,7 @@ type signConfig struct {
 	rect                            Rectangle
 	page                            int
 	appearance                      *SignatureAppearance
+	padES                           bool
 }
 
 // Sign configures a digital signature applied on the next Save/WriteTo.
@@ -134,6 +141,7 @@ func (d *Document) Sign(opts SignOptions) error {
 		rect:       opts.Rect,
 		page:       opts.Page,
 		appearance: opts.Appearance,
+		padES:      opts.PAdES,
 	}
 	return nil
 }
@@ -151,10 +159,14 @@ func (d *Document) buildSignatureObjects() {
 
 	sigID := d.nextID
 	d.nextID++
+	subFilter := pdfName("/adbe.pkcs7.detached")
+	if d.sign.padES {
+		subFilter = "/ETSI.CAdES.detached"
+	}
 	sigDict := pdfDict{
 		"/Type":      pdfName("/Sig"),
 		"/Filter":    pdfName("/Adobe.PPKLite"),
-		"/SubFilter": pdfName("/adbe.pkcs7.detached"),
+		"/SubFilter": subFilter,
 		"/ByteRange": pdfRaw([]byte(byteRangePlaceholder)),
 		"/Contents":  pdfRaw(contentsPlaceholder()),
 		"/M":         pdfDateString(when),
@@ -295,7 +307,7 @@ func (d *Document) applySignature(raw []byte) ([]byte, error) {
 	if when.IsZero() {
 		when = time.Now()
 	}
-	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when)
+	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when, d.sign.padES)
 	if err != nil {
 		return nil, err
 	}

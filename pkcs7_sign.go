@@ -31,7 +31,20 @@ var (
 	oidDigestSHA256      = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
 	oidRSAEncryption     = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 	oidECDSAWithSHA256   = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2}
+	oidAttrSigningCertV2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47} // ESS signing-certificate-v2 (PAdES/CAdES)
 )
+
+// essCertIDv2 / signingCertificateV2 implement the ESS signing-certificate-v2
+// signed attribute (RFC 5035 §5.4), required by PAdES/CAdES. The hash
+// algorithm defaults to SHA-256, so it is omitted and only the cert hash is
+// carried.
+type essCertIDv2 struct {
+	CertHash []byte // SHA-256 of the signer certificate DER
+}
+
+type signingCertificateV2 struct {
+	Certs []essCertIDv2
+}
 
 // algorithmIdentifier is the X.509 AlgorithmIdentifier. For digest
 // algorithms the parameters are an explicit ASN.1 NULL; for ECDSA they
@@ -89,8 +102,10 @@ type contentInfo struct {
 
 // buildPKCS7Detached produces a DER-encoded CMS SignedData over content
 // (detached), signed by key for cert. chain is included alongside the
-// signer cert so verifiers can build the path. SHA-256 throughout.
-func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time) ([]byte, error) {
+// signer cert so verifiers can build the path. SHA-256 throughout. When
+// padES is set, the ESS signing-certificate-v2 signed attribute is added,
+// making the signature CAdES/PAdES-conformant.
+func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time, padES bool) ([]byte, error) {
 	if cert == nil || key == nil {
 		return nil, fmt.Errorf("pkcs7: nil certificate or key")
 	}
@@ -98,8 +113,9 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 	h.Write(content)
 	msgDigest := h.Sum(nil)
 
-	// Signed attributes: contentType, signingTime, messageDigest.
-	signedAttrs, err := buildSignedAttrs(msgDigest, signingTime)
+	// Signed attributes: contentType, signingTime, messageDigest (+ ESS
+	// signing-certificate-v2 for PAdES).
+	signedAttrs, err := buildSignedAttrs(msgDigest, signingTime, cert, padES)
 	if err != nil {
 		return nil, err
 	}
@@ -167,10 +183,11 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 	return out, nil
 }
 
-// buildSignedAttrs returns the three signed attributes (sorted by their
-// DER encoding is not required for signing as long as the same bytes are
-// hashed and embedded, but we keep a stable, conventional order).
-func buildSignedAttrs(messageDigest []byte, signingTime time.Time) ([]attribute, error) {
+// buildSignedAttrs returns the signed attributes: contentType, signingTime,
+// messageDigest, and — when padES is set — the ESS signing-certificate-v2
+// attribute binding the signer certificate (PAdES/CAdES). The conventional
+// order is kept stable (the same bytes are hashed and embedded).
+func buildSignedAttrs(messageDigest []byte, signingTime time.Time, cert *x509.Certificate, padES bool) ([]attribute, error) {
 	ctVal, err := asn1.Marshal(oidData)
 	if err != nil {
 		return nil, err
@@ -183,11 +200,27 @@ func buildSignedAttrs(messageDigest []byte, signingTime time.Time) ([]attribute,
 	if err != nil {
 		return nil, err
 	}
-	return []attribute{
+	attrs := []attribute{
 		{Type: oidAttrContentType, Values: []asn1.RawValue{{FullBytes: ctVal}}},
 		{Type: oidAttrSigningTime, Values: []asn1.RawValue{{FullBytes: stVal}}},
 		{Type: oidAttrMessageDigest, Values: []asn1.RawValue{{FullBytes: mdVal}}},
-	}, nil
+	}
+	if padES {
+		certHash := sha256Sum(cert.Raw)
+		scVal, err := asn1.Marshal(signingCertificateV2{Certs: []essCertIDv2{{CertHash: certHash}}})
+		if err != nil {
+			return nil, err
+		}
+		attrs = append(attrs, attribute{Type: oidAttrSigningCertV2, Values: []asn1.RawValue{{FullBytes: scVal}}})
+	}
+	return attrs, nil
+}
+
+// sha256Sum returns SHA-256(b).
+func sha256Sum(b []byte) []byte {
+	h := crypto.SHA256.New()
+	h.Write(b)
+	return h.Sum(nil)
 }
 
 // marshalSetOf encodes the attributes as a universal SET OF (tag 0x31) —

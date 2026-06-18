@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,36 @@ func TestSignInvisibleBlankStaysBlank(t *testing.T) {
 	p1, _ := out.Page(1)
 	if hasNonWhitePixel(t, p1) {
 		t.Error("invisible signature painted something on a blank page")
+	}
+}
+
+func TestSignPAdES(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert, PrivateKey: key, Name: "PAdES Signer", PAdES: true,
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	s := raw(t, doc)
+	if !strings.Contains(s, "/ETSI.CAdES.detached") {
+		t.Error("PAdES signature missing /SubFilter /ETSI.CAdES.detached")
+	}
+	if strings.Contains(s, "/adbe.pkcs7.detached") {
+		t.Error("PAdES signature unexpectedly used /adbe.pkcs7.detached")
+	}
+	// The ESS attribute is inside the signed set, so verification still holds.
+	out, err := pdf.OpenStream(bytes.NewReader([]byte(s)))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	sigs, err := out.VerifySignatures()
+	if err != nil || len(sigs) != 1 || !sigs[0].Valid {
+		t.Fatalf("VerifySignatures (PAdES): %v / %+v", err, sigs)
 	}
 }
 
