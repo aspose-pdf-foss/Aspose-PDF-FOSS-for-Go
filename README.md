@@ -318,6 +318,11 @@ doc.AddTextWatermark("APPROVED", pdf.TextStyle{Size: 48})
 doc.Save("restricted_signed.pdf")          // still encrypted
 doc.RemoveEncryption()
 doc.Save("decrypted_copy.pdf")             // plaintext
+
+// Change the password, keeping the current algorithm and permissions.
+doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
+doc.ChangePassword("newuserpass", "")      // empty owner → same as user
+doc.Save("restricted.pdf")
 ```
 
 `Permissions` fields map to ISO 32000-1 §7.6.3.2 Table 22 bits 3, 4, 5, 6, 9, 10, 11, 12. The library encodes them with the Adobe convention (reserved bits 7-8 and 13-32 set high). Permissions are enforced by PDF viewers — the library itself is not a DRM mechanism.

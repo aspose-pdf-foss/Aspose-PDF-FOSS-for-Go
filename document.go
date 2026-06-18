@@ -439,6 +439,49 @@ func (d *Document) RemoveEncryption() {
 	d.encrypt = nil
 }
 
+// ChangePassword re-encrypts the document with new passwords on the next Save,
+// keeping the current encryption algorithm and permissions. The document must
+// already be open and decrypted (via OpenWithPassword / OpenStreamWithPassword)
+// — the password that unlocked it is the "old" password. If newOwnerPassword is
+// empty it defaults to newUserPassword. Returns an error if the document is not
+// encrypted; to encrypt a plaintext document use SetPassword / SetEncryption.
+// Mirrors Aspose.PDF for .NET's Document.ChangePasswords.
+//
+// Example:
+//
+//	doc, _ := asposepdf.OpenWithPassword("locked.pdf", "old")
+//	doc.ChangePassword("new", "")
+//	doc.Save("locked.pdf")
+func (d *Document) ChangePassword(newUserPassword, newOwnerPassword string) error {
+	var (
+		alg      EncryptionAlgorithm
+		permBits int32
+		hasPerms bool
+	)
+	switch {
+	case d.preserved != nil:
+		// The original /Encrypt parsed at open time carries the true algorithm
+		// and /P bits — preserve both so only the passwords change.
+		alg, permBits, hasPerms = d.preserved.algorithm, d.preserved.permissions, true
+	case d.encrypt != nil:
+		alg, permBits, hasPerms = d.encrypt.algorithm, d.encrypt.permissions, d.encrypt.hasPermissions
+	default:
+		return fmt.Errorf("ChangePassword: document is not encrypted (use SetPassword or SetEncryption)")
+	}
+	if newOwnerPassword == "" {
+		newOwnerPassword = newUserPassword
+	}
+	d.preserved = nil // re-encrypt from the new config rather than reuse originals
+	d.encrypt = &encryptConfig{
+		algorithm:      alg,
+		userPassword:   newUserPassword,
+		ownerPassword:  newOwnerPassword,
+		permissions:    permBits,
+		hasPermissions: hasPerms,
+	}
+	return nil
+}
+
 // SetEncryption configures every encryption-related setting at once from
 // an EncryptionOptions struct. It replaces any prior configuration set by
 // SetPassword or SetPermissions. See EncryptionOptions for field-level
