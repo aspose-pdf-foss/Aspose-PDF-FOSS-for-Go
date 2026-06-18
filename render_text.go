@@ -25,15 +25,15 @@ type textState struct {
 // Only embedded TrueType (Type0/CIDFontType2 with /FontFile2, and simple
 // /TrueType) fonts are renderable here; Standard-14 outlines arrive in P4.
 type renderFont struct {
-	prog     *ttfFont    // embedded/substitute TrueType (glyf) program
-	cff      *cffFont    // embedded CFF program (/FontFile3); mutually exclusive with prog
-	t1       *type1Font  // embedded Type1 program (/FontFile)
-	type3    *type3Font  // Type3 font: glyphs are content streams, not outlines
+	prog     *ttfFont                    // embedded/substitute TrueType (glyf) program
+	cff      *cffFont                    // embedded CFF program (/FontFile3); mutually exclusive with prog
+	t1       *type1Font                  // embedded Type1 program (/FontFile)
+	type3    *type3Font                  // Type3 font: glyphs are content streams, not outlines
 	synth    func(uint32) []glyphContour // synthesized outlines by code (non-embedded ZapfDingbats)
 	em       float64
 	isType0  bool
-	cidToGID []uint16 // nil → identity (GID = CID)
-	fallback bool     // prog is the bundled substitute (non-embedded font)
+	cidToGID []uint16        // nil → identity (GID = CID)
+	fallback bool            // prog is the bundled substitute (non-embedded font)
 	cjkUni   map[uint16]rune // non-embedded CJK: CID → Unicode (glyph via prog's cmap)
 	cjkAscii map[uint16]rune // CID → ASCII rune for Latin codes the CMap leaves Unicode-less
 	fi       fontInfo
@@ -288,21 +288,44 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 				rf.em = float64(cjk.unitsPerEm)
 			}
 		}
-	} else if rf.cidToGID == nil {
-		// Non-embedded Type0 CIDFontType2 with Identity CIDToGIDMap: producers
-		// emit the original font's glyph IDs as CIDs (no ToUnicode, GID-as-CID).
-		// If the actual named font is installed (e.g. Yu Gothic — YuGothM.ttc),
-		// use it: its glyph IDs are exactly the document's CIDs, so the text
-		// renders in the correct face. Otherwise substitute a metric-compatible
-		// family whose Latin glyph order matches and use the CID as a GID
-		// directly — an approximate render rather than blank text.
-		fb := fontRepo.findSystemExact(fi)
-		if fb == nil {
+	} else {
+		// Non-embedded Type0 / CIDFontType2 with no Adobe CJK ordering.
+		// Preference order:
+		//  1. Identity /CIDToGIDMap + the exact named font installed — its glyph
+		//     IDs are exactly the document's CIDs (e.g. Yu Gothic / YuGothM.ttc),
+		//     an exact render via GID-as-CID.
+		//  2. A /ToUnicode CMap (Identity-H) — substitute a metric-compatible
+		//     face and reach glyphs through Unicode (code=CID → /ToUnicode rune →
+		//     substitute glyph). This covers an explicit (non-Identity)
+		//     /CIDToGIDMap, e.g. Arial in a visible signature appearance, whose
+		//     original GIDs are useless against a substitute. Reuses the cjkUni
+		//     machinery, which gid() consults before the /CIDToGIDMap.
+		//  3. Identity /CIDToGIDMap, no ToUnicode, font not installed — GID-as-CID
+		//     against a substitute: approximate, but not blank.
+		var fb *ttfFont
+		viaUnicode := false
+		if rf.cidToGID == nil {
+			fb = fontRepo.findSystemExact(fi)
+		}
+		if fb == nil && fi.toUnicode != nil && fi.cidCMap == nil {
+			fb = fontRepo.find(fi)
+			if fb == nil && isStd14Alias(fi.name) {
+				fb = fontRepo.findSystemStd14(fi)
+			}
+			if fb == nil {
+				fb = fallbackFontFor(fi)
+			}
+			viaUnicode = fb != nil
+		}
+		if fb == nil && rf.cidToGID == nil {
 			fb = fallbackFontFor(fi)
 		}
 		if fb != nil {
 			rf.prog = fb
 			rf.fallback = true
+			if viaUnicode {
+				rf.cjkUni = fi.toUnicode
+			}
 			if fb.unitsPerEm != 0 {
 				rf.em = float64(fb.unitsPerEm)
 			}
@@ -576,7 +599,7 @@ func renderGlyphContour(fl *flattener, c glyphContour, m [6]float64, em float64)
 // gid maps a character code to a glyph ID for this font.
 func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
-		cid := uint16(code) // showText passes the resolved CID as the code
+		cid := uint16(code)  // showText passes the resolved CID as the code
 		if f.cjkUni != nil { // non-embedded CJK: CID → Unicode → GID via cmap
 			r := f.cjkUni[cid]
 			if r == 0 {
