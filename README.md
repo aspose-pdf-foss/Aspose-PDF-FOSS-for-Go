@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
 
-A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write Info + XMP metadata, encrypt with RC4-128 / AES-128 / AES-256, fill, build, and style AcroForms, attach and render annotations, create bookmark trees, draw text and vector graphics, embed and subset TrueType fonts, apply watermarks, place images, validate document structure, and render pages to raster images (PNG/JPEG/GIF/BMP and multi-page TIFF). No external dependencies — standard library only.
+A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write Info + XMP metadata, encrypt with RC4-128 / AES-128 / AES-256, fill, build, and style AcroForms, attach and render annotations, create bookmark trees, draw text and vector graphics, embed TrueType and OpenType fonts (with subsetting), apply watermarks, place images, validate document structure, and render pages to raster images (PNG/JPEG/GIF/BMP and multi-page TIFF). No external dependencies — standard library only.
 
 Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
 
@@ -1287,20 +1287,26 @@ page.AddText("Revenue", pdf.TextStyle{
 doc.Save("output.pdf")
 ```
 
-#### Embedded TrueType fonts and subsetting
+#### Embedded TrueType / OpenType fonts and subsetting
 
 ```go
 doc := pdf.NewDocument(595, 842)
 page, _ := doc.Page(1)
 
-// Embed a TTF for full Unicode coverage (Cyrillic, CJK, accents, …)
+// Embed a TrueType (.ttf) font for full Unicode coverage (Cyrillic, CJK, …)
 deja, _ := doc.LoadFont("DejaVuSans.ttf")
 page.AddText("Привет, мир! — Ñoño café", pdf.TextStyle{Font: deja, Size: 16},
     pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 740})
 
-// Shrink every embedded font to just the glyphs drawn — call once,
-// after all text is added and before Save (a 760 KB font drops to a
-// few KB). Returns the number of fonts subsetted.
+// OpenType-CFF (.otf) fonts load the same way — embedded as CIDFontType0 /
+// FontFile3 (the renderer and external viewers both draw it):
+serif, _ := doc.LoadFont("SourceSerif4-Regular.otf")
+page.AddText("OpenType-CFF embedding", pdf.TextStyle{Font: serif, Size: 16},
+    pdf.Rectangle{LLX: 50, LLY: 660, URX: 545, URY: 700})
+
+// Shrink every embedded TrueType font to just the glyphs drawn — call once,
+// after all text is added and before Save (a 760 KB font drops to a few KB).
+// Returns the number of fonts subsetted. (Embedded .otf keeps its full program.)
 doc.SubsetFonts()
 doc.Save("output.pdf")
 ```
