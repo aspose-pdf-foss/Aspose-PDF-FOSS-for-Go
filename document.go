@@ -23,6 +23,8 @@ type Document struct {
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
 	js           *JavaScriptCollection  // nil until first JavaScript() call
+	sign         *signConfig            // nil unless Sign() configured a digital signature
+	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
 
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
@@ -118,6 +120,7 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		if xref, trailer, perr := parseXRef(data, startOff); perr == nil {
 			doc, derr := buildFromXRef(data, xref, trailer, password)
 			if derr == nil {
+				doc.source = data
 				return doc, nil
 			}
 			if errors.Is(derr, ErrEncrypted) {
@@ -142,6 +145,7 @@ func openStreamCore(r io.Reader, password *string) (*Document, error) {
 		}
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, derr))
 	}
+	doc.source = data
 	return doc, nil
 }
 

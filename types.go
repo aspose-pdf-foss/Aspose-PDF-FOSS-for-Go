@@ -31,6 +31,13 @@ type pdfName string
 // interop trap.
 type pdfHexString []byte
 
+// pdfRaw is written to the output verbatim — no escaping, encryption, or
+// reference remapping. Used to reserve fixed-width, patch-in-place
+// placeholders for the digital-signature /Contents and /ByteRange entries,
+// whose exact byte layout must survive serialization unchanged so the
+// signature can be spliced in afterwards.
+type pdfRaw []byte
+
 // pdfDict is a PDF dictionary.
 type pdfDict map[string]pdfValue
 

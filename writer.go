@@ -26,6 +26,16 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		}
 	}
 
+	// Digital signature: inject the signature dict + invisible Sig widget
+	// before the object snapshot below so they're written like any other
+	// object; the actual PKCS#7 is spliced into the placeholder afterwards.
+	if d.sign != nil {
+		if encState != nil {
+			return nil, fmt.Errorf("sign: signing an encrypted document is not supported")
+		}
+		d.buildSignatureObjects()
+	}
+
 	// Build outline objects up-front so they're picked up by the
 	// contentIDs snapshot below and remapped along with everything else.
 	outlinesRef, outlineObjs := buildOutlineObjects(d)
@@ -236,6 +246,9 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	buf.WriteString(">>\n")
 	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOffset)
 
+	if d.sign != nil {
+		return d.applySignature(buf.Bytes())
+	}
 	return buf.Bytes(), nil
 }
 
@@ -289,6 +302,9 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		buf.WriteString(strconv.FormatFloat(val, 'g', -1, 64))
 	case pdfName:
 		buf.WriteString(string(val))
+	case pdfRaw:
+		// Verbatim — used for signature /Contents and /ByteRange placeholders.
+		buf.Write(val)
 	case string:
 		if encFn != nil {
 			enc, err := encFn([]byte(val))
