@@ -44,9 +44,29 @@ func buildFlateStream(data []byte) *pdfStream {
 	}
 }
 
-// buildFontDescriptor creates a /FontDescriptor dict referencing the given
-// FontFile2 object ID.
-func buildFontDescriptor(f *ttfFont, fontFile2ID int) pdfDict {
+// buildFontFile3Stream wraps the full OpenType (sfnt/OTTO) program of a
+// CFF-based font as a FlateDecode-compressed /FontFile3 stream with
+// /Subtype /OpenType (ISO 32000-1 §9.9 Table 126). The whole font file is
+// embedded (cmap included), which is the most broadly compatible way to
+// embed an OpenType-CFF font into a CIDFontType0 descendant.
+func buildFontFile3Stream(f *ttfFont) *pdfStream {
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	_, _ = zw.Write(f.data)
+	_ = zw.Close()
+	return &pdfStream{
+		Dict: pdfDict{
+			"/Subtype": pdfName("/OpenType"),
+			"/Filter":  pdfName("/FlateDecode"),
+		},
+		Data: buf.Bytes(),
+	}
+}
+
+// buildFontDescriptor creates a /FontDescriptor dict referencing the embedded
+// font program under fontFileKey (/FontFile2 for TrueType, /FontFile3 for
+// OpenType-CFF).
+func buildFontDescriptor(f *ttfFont, fontFileKey string, fontFileID int) pdfDict {
 	scale := func(v int16) int {
 		// Scale FUnits to 1/1000 em.
 		return int(float64(v) * 1000.0 / float64(f.unitsPerEm))
@@ -91,7 +111,7 @@ func buildFontDescriptor(f *ttfFont, fontFile2ID int) pdfDict {
 		"/Descent":     scale(f.descent),
 		"/CapHeight":   cap,
 		"/StemV":       stemV,
-		"/FontFile2":   pdfRef{Num: fontFile2ID},
+		fontFileKey:    pdfRef{Num: fontFileID},
 	}
 }
 
@@ -204,7 +224,7 @@ func buildToUnicodeCMap(f *ttfFont) *pdfStream {
 // and returns the object ID of the Type0 font dict.
 func embedFont(d *Document, f *ttfFont) int {
 	fontFile2ID := d.addObject(buildFontFile2Stream(f))
-	descriptor := buildFontDescriptor(f, fontFile2ID)
+	descriptor := buildFontDescriptor(f, "/FontFile2", fontFile2ID)
 	descriptorID := d.addObject(descriptor)
 
 	cidDict := pdfDict{
@@ -218,6 +238,47 @@ func embedFont(d *Document, f *ttfFont) int {
 		},
 		"/FontDescriptor": pdfRef{Num: descriptorID},
 		"/CIDToGIDMap":    pdfName("/Identity"),
+		"/W":              buildWArray(f),
+		"/DW":             defaultCIDWidth,
+	}
+	cidID := d.addObject(cidDict)
+
+	tuID := d.addObject(buildToUnicodeCMap(f))
+
+	type0 := pdfDict{
+		"/Type":            pdfName("/Font"),
+		"/Subtype":         pdfName("/Type0"),
+		"/BaseFont":        pdfName("/" + f.postScriptName),
+		"/Encoding":        pdfName("/Identity-H"),
+		"/DescendantFonts": pdfArray{pdfRef{Num: cidID}},
+		"/ToUnicode":       pdfRef{Num: tuID},
+	}
+	return d.addObject(type0)
+}
+
+// embedCFFFont embeds an OpenType-CFF (.otf) font as a Type0 composite font
+// with a CIDFontType0 descendant and an OpenType /FontFile3, returning the
+// object ID of the Type0 font dict. It parallels embedFont (the TrueType
+// path) but differs in three places per ISO 32000-1 §9.7.4: the font program
+// is /FontFile3 (Subtype OpenType), the descendant is /CIDFontType0, and there
+// is no /CIDToGIDMap (for a non-CID-keyed CFF the CID is used directly as the
+// glyph index, which matches our Identity-H glyph-ID emission). Caller has
+// already rejected CID-keyed CFF.
+func embedCFFFont(d *Document, f *ttfFont) int {
+	fontFile3ID := d.addObject(buildFontFile3Stream(f))
+	descriptor := buildFontDescriptor(f, "/FontFile3", fontFile3ID)
+	descriptorID := d.addObject(descriptor)
+
+	cidDict := pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/CIDFontType0"),
+		"/BaseFont": pdfName("/" + f.postScriptName),
+		"/CIDSystemInfo": pdfDict{
+			"/Registry":   "Adobe",
+			"/Ordering":   "Identity",
+			"/Supplement": 0,
+		},
+		"/FontDescriptor": pdfRef{Num: descriptorID},
 		"/W":              buildWArray(f),
 		"/DW":             defaultCIDWidth,
 	}
@@ -255,6 +316,11 @@ func (d *Document) SubsetFonts() (int, error) {
 	count := 0
 	for _, ef := range d.embeddedFonts {
 		if ef == nil || len(ef.usedGlyphs) == 0 {
+			continue
+		}
+		// CFF (OpenType) subsetting is not supported; the whole /FontFile3
+		// is kept. Only TrueType (glyf) fonts are subset here.
+		if ef.ttf.cff != nil {
 			continue
 		}
 		res, err := subsetTTF(ef.ttf, ef.usedGlyphs)

@@ -119,16 +119,24 @@ func (d *Document) loadFontFromBytes(data []byte) (Font, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load font: %w", err)
 	}
-	if ttf.cff != nil {
-		// OpenType-CFF has no glyf table; it can't be embedded as /FontFile2.
-		// (The renderer can still draw such fonts via /FontFile3 or the
-		// FontRepository, but writing them is not supported.)
-		return nil, fmt.Errorf("load font: OpenType-CFF (.otf) embedding is not supported; use a TrueType (.ttf) font")
-	}
 	if ttf.postScriptName == "" {
 		return nil, fmt.Errorf("load font: no PostScript name or Full Name in the font's name table")
 	}
-	fontID := embedFont(d, ttf)
+	// OpenType-CFF (.otf) has no glyf table, so it can't be embedded as a
+	// TrueType /FontFile2. It is instead embedded as a /FontFile3 (Subtype
+	// OpenType) with a CIDFontType0 descendant (embedCFFFont). CID-keyed CFF
+	// programs (those carrying a ROS) are not yet supported: our encoder
+	// emits glyph IDs as Identity-H CIDs, which only equals the glyph for a
+	// non-CID-keyed CFF (ISO 32000-1 §9.7.4.2).
+	var fontID int
+	if ttf.cff != nil {
+		if ttf.cff.isCID {
+			return nil, fmt.Errorf("load font: CID-keyed OpenType-CFF (.otf) embedding is not yet supported")
+		}
+		fontID = embedCFFFont(d, ttf)
+	} else {
+		fontID = embedFont(d, ttf)
+	}
 	ef := &embeddedFont{
 		doc:          d,
 		ttf:          ttf,

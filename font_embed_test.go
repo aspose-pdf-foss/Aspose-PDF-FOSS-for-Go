@@ -46,7 +46,7 @@ func TestBuildFontDescriptor(t *testing.T) {
 		t.Fatal(err)
 	}
 	fontFileID := 42
-	desc := buildFontDescriptor(f, fontFileID)
+	desc := buildFontDescriptor(f, "/FontFile2", fontFileID)
 
 	if desc["/Type"] != pdfName("/FontDescriptor") {
 		t.Errorf("/Type = %v", desc["/Type"])
