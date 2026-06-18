@@ -59,7 +59,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Info metadata** — read and write the document `/Info` dictionary (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries) via `Document.Info()/SetInfo()/ClearInfo()` and the `DocumentInfo` struct; mirrors Aspose.PDF for .NET's `Document.Info`. (In Aspose.PDF for .NET, `Document.Metadata` is the XMP store — here `Document.XMP()`.)
 - **XMP metadata** — full CRUD of the `/Catalog/Metadata` RDF/XML packet (ISO 32000-1 §14.3.2) via `Document.XMP()/SetXMP()/ClearXMP()` and a raw `XMPRaw()/SetXMPRaw()` escape hatch. `XMPMetadata` models Dublin Core / XMP Basic / PDF schemas (title, authors, description, keywords, creator tool, producer, create/modify/metadata dates) plus arbitrary namespaced custom properties; parser handles both attribute and `rdf:Alt`/`Seq`/`Bag` element forms. `SyncInfoToXMP()` mirrors the `/Info` dictionary into XMP as the spec recommends
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
-- **Digital signatures** — sign (`Document.Sign`) with an invisible PKCS#7-detached signature (SHA-256, RSA or ECDSA) covering the whole file, and verify (`Document.VerifySignatures`) integrity, coverage, and the signer certificate. The PKCS#7/CMS is built on the standard library alone (no external dependency); output validates in OpenSSL and pyHanko. Keys are passed as `crypto.Signer` + `*x509.Certificate` — no `.p12` file required
+- **Digital signatures** — sign (`Document.Sign`) with a PKCS#7-detached signature (SHA-256, RSA or ECDSA) covering the whole file — invisible or a visible "Digitally signed by …" appearance block — and verify (`Document.VerifySignatures`) integrity, coverage, and the signer certificate. The PKCS#7/CMS is built on the standard library alone (no external dependency); output validates in OpenSSL and pyHanko. Keys are passed as `crypto.Signer` + `*x509.Certificate` — no `.p12` file required
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
@@ -346,6 +346,10 @@ doc.Sign(pdf.SignOptions{
     PrivateKey:  key, // *rsa.PrivateKey and *ecdsa.PrivateKey both satisfy crypto.Signer
     Reason:      "I approve this document",
     Name:        "Jane Doe",
+    // Optional: draw a visible "Digitally signed by …" block on the page.
+    Visible: true,
+    Rect:    pdf.Rectangle{LLX: 60, LLY: 60, URX: 360, URY: 140},
+    // Page: 1 (default); Appearance: customize text/style à la SignatureCustomAppearance.
 })
 doc.Save("signed.pdf") // signature is computed and spliced in on Save
 
@@ -359,8 +363,10 @@ for _, s := range sigs {
 }
 ```
 
-`Document.Sign` adds one **invisible PKCS#7-detached** signature (SHA-256; RSA or ECDSA),
+`Document.Sign` adds one **PKCS#7-detached** signature (SHA-256; RSA or ECDSA),
 covering the whole file, configured like encryption and applied on `Save`/`WriteTo`.
+It is invisible by default, or **visible** (`Visible` + `Rect` + `Page`) — drawing a
+"Digitally signed by …" block whose text/style you can tune via `SignatureAppearance`.
 `Document.VerifySignatures` returns a `SignatureVerification` per signature field —
 `Valid` (cryptographically valid **and** the document is unchanged), `IntegrityOK`,
 `CoversWholeDocument`, and the signer `Certificate`. **Trust-chain validation is the

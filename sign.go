@@ -11,15 +11,16 @@ import (
 	"time"
 )
 
-// Digital signatures (ISO 32000-1 §12.8). A single invisible PKCS#7
-// detached signature covering the whole file. The signature is configured
+// Digital signatures (ISO 32000-1 §12.8). A single PKCS#7-detached
+// signature covering the whole file, invisible by default or shown as a
+// generated appearance block when SignOptions.Visible is set. Configured
 // with Sign() and applied at Save/WriteTo time, like SetEncryption.
 //
-// SECURITY / SCOPE NOTE (v1): one signature, "adbe.pkcs7.detached",
-// SHA-256, RSA or ECDSA keys; invisible (zero-rect) widget; signs an
-// unencrypted document. Out of scope: PAdES/CAdES, RFC 3161 timestamps,
-// LTV, visible appearances, DocMDP certification, multiple/incremental
-// signatures. Sign+Save is terminal — configure once and save once.
+// SECURITY / SCOPE NOTE: one signature, "adbe.pkcs7.detached", SHA-256,
+// RSA or ECDSA keys; signs an unencrypted document. Out of scope:
+// PAdES/CAdES, RFC 3161 timestamps, LTV, DocMDP certification,
+// multiple/incremental signatures. Sign+Save is terminal — configure once
+// and save once.
 
 // signContentsHexLen is the fixed number of hex characters reserved for
 // the /Contents placeholder (so the PKCS#7 blob can be spliced in without
@@ -56,6 +57,35 @@ type SignOptions struct {
 	ContactInfo string              // optional /ContactInfo
 	Name        string              // optional /Name (signer name shown by viewers)
 	SigningTime time.Time           // zero → time of signing
+
+	// Visible draws the signature on the page as a widget in Rect with a
+	// generated appearance (mirrors Aspose.PDF for .NET's
+	// PdfFileSignature.Sign(..., visible, rect, ...)). The zero value keeps
+	// the signature invisible.
+	Visible bool
+	// Rect is the widget rectangle in PDF user space (required when Visible).
+	Rect Rectangle
+	// Page is the 1-based page for the visible widget; 0 means page 1.
+	Page int
+	// Appearance customizes the visible block's text and style (mirrors
+	// Aspose.PDF for .NET's SignatureCustomAppearance). nil = a sensible
+	// default (signer name + date, plus reason/location when set).
+	Appearance *SignatureAppearance
+}
+
+// SignatureAppearance controls the visible signature block's content and
+// styling. Mirrors the intent of Aspose.PDF for .NET's
+// SignatureCustomAppearance. The zero value (with the Show… flags false)
+// is only used when an explicit *SignatureAppearance is supplied; passing
+// nil to SignOptions.Appearance yields the full default block.
+type SignatureAppearance struct {
+	ShowName     bool    // "Digitally signed by <signer>"
+	ShowDate     bool    // "Date: <signing time>"
+	ShowReason   bool    // "Reason: <reason>" (only if a reason is set)
+	ShowLocation bool    // "Location: <location>" (only if a location is set)
+	Font         Font    // text font; nil = Helvetica
+	FontSize     float64 // text size in points; 0 = auto-fit to the rectangle
+	Color        *Color  // text color; nil = dark blue
 }
 
 type signConfig struct {
@@ -64,6 +94,10 @@ type signConfig struct {
 	chain                           []*x509.Certificate
 	reason, location, contact, name string
 	when                            time.Time
+	visible                         bool
+	rect                            Rectangle
+	page                            int
+	appearance                      *SignatureAppearance
 }
 
 // Sign configures a digital signature applied on the next Save/WriteTo.
@@ -79,15 +113,27 @@ func (d *Document) Sign(opts SignOptions) error {
 	default:
 		return fmt.Errorf("Sign: unsupported key algorithm %v (RSA or ECDSA)", opts.Certificate.PublicKeyAlgorithm)
 	}
+	if opts.Visible {
+		if opts.Rect.URX <= opts.Rect.LLX || opts.Rect.URY <= opts.Rect.LLY {
+			return fmt.Errorf("Sign: Visible signature requires a non-empty Rect")
+		}
+		if opts.Page < 0 || opts.Page > len(d.pages) {
+			return fmt.Errorf("Sign: Page %d out of range [1,%d]", opts.Page, len(d.pages))
+		}
+	}
 	d.sign = &signConfig{
-		cert:     opts.Certificate,
-		key:      opts.PrivateKey,
-		chain:    opts.Chain,
-		reason:   opts.Reason,
-		location: opts.Location,
-		contact:  opts.ContactInfo,
-		name:     opts.Name,
-		when:     opts.SigningTime,
+		cert:       opts.Certificate,
+		key:        opts.PrivateKey,
+		chain:      opts.Chain,
+		reason:     opts.Reason,
+		location:   opts.Location,
+		contact:    opts.ContactInfo,
+		name:       opts.Name,
+		when:       opts.SigningTime,
+		visible:    opts.Visible,
+		rect:       opts.Rect,
+		page:       opts.Page,
+		appearance: opts.Appearance,
 	}
 	return nil
 }
@@ -127,8 +173,14 @@ func (d *Document) buildSignatureObjects() {
 	}
 	d.objects[sigID] = &pdfObject{Num: sigID, Value: sigDict}
 
-	// Combined signature field + invisible widget annotation on page 1.
-	page1 := d.pages[0]
+	// Signature field + widget annotation. Invisible by default (zero rect);
+	// when configured Visible, a real rect + a generated /AP/N appearance on
+	// the chosen page.
+	pageIdx := 0
+	if d.sign.page > 0 {
+		pageIdx = d.sign.page - 1
+	}
+	page := d.pages[pageIdx]
 	fieldID := d.nextID
 	d.nextID++
 	fieldDict := pdfDict{
@@ -139,7 +191,16 @@ func (d *Document) buildSignatureObjects() {
 		"/V":       pdfRef{Num: sigID},
 		"/Rect":    pdfArray{0.0, 0.0, 0.0, 0.0},
 		"/F":       132, // Print (4) + Locked (128)
-		"/P":       pdfRef{Num: page1.Num},
+		"/P":       pdfRef{Num: page.Num},
+	}
+	if d.sign.visible {
+		r := d.sign.rect
+		fieldDict["/Rect"] = pdfArray{r.LLX, r.LLY, r.URX, r.URY}
+		apID := d.nextID
+		d.nextID++
+		ap := generateSignatureAppearance(d.sign, d, when, r.URX-r.LLX, r.URY-r.LLY)
+		d.objects[apID] = &pdfObject{Num: apID, Value: ap}
+		fieldDict["/AP"] = pdfDict{"/N": pdfRef{Num: apID}}
 	}
 	d.objects[fieldID] = &pdfObject{Num: fieldID, Value: fieldDict}
 
@@ -149,7 +210,7 @@ func (d *Document) buildSignatureObjects() {
 	acro["/SigFlags"] = 3
 
 	// Page /Annots: the widget is its own annotation.
-	appendAnnotToPage(d.objects, page1, pdfRef{Num: fieldID})
+	appendAnnotToPage(d.objects, page, pdfRef{Num: fieldID})
 }
 
 // acroFormDict returns the catalog's /AcroForm as a live, mutable dict,

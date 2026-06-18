@@ -161,3 +161,70 @@ func TestVerifySignaturesNeedsSource(t *testing.T) {
 		t.Error("VerifySignatures on a built document = nil error, want an error")
 	}
 }
+
+func TestSignVisibleRenders(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+
+	// A blank page: the only thing that can paint non-white is the visible
+	// signature block, so a non-white pixel proves it rendered.
+	doc := pdf.NewDocument(320, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert, PrivateKey: key, Name: "Test Signer", Reason: "Approved",
+		Visible: true, Rect: pdf.Rectangle{LLX: 20, LLY: 20, URX: 300, URY: 120},
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	// Signature still valid with a visible appearance.
+	sigs, err := out.VerifySignatures()
+	if err != nil || len(sigs) != 1 || !sigs[0].Valid {
+		t.Fatalf("VerifySignatures after visible sign: %v / %+v", err, sigs)
+	}
+	// The appearance actually paints.
+	p1, _ := out.Page(1)
+	if !hasNonWhitePixel(t, p1) {
+		t.Error("visible signature block rendered nothing")
+	}
+}
+
+func TestSignInvisibleBlankStaysBlank(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+
+	doc := pdf.NewDocument(320, 200) // blank
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, Name: "X"}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	out, _ := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	p1, _ := out.Page(1)
+	if hasNonWhitePixel(t, p1) {
+		t.Error("invisible signature painted something on a blank page")
+	}
+}
+
+func TestSignVisibleRequiresRect(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	cert := newSelfSigned(t, key)
+	doc := pdf.NewDocument(320, 200)
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, Visible: true}); err == nil {
+		t.Error("Visible sign with empty Rect = nil error, want an error")
+	}
+}
