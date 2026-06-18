@@ -251,6 +251,34 @@ func TestSignPAdES(t *testing.T) {
 	}
 }
 
+func TestSignCertify(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert, PrivateKey: key, Name: "Author", Certify: pdf.CertifyFillForms,
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	s := raw(t, doc)
+	for _, want := range []string{"/DocMDP", "/TransformParams", "/Perms"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("certified signature missing %s", want)
+		}
+	}
+	out, err := pdf.OpenStream(bytes.NewReader([]byte(s)))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	sigs, err := out.VerifySignatures()
+	if err != nil || len(sigs) != 1 || !sigs[0].Valid {
+		t.Fatalf("VerifySignatures (certified): %v / %+v", err, sigs)
+	}
+}
+
 func TestSignVisibleRequiresRect(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	cert := newSelfSigned(t, key)

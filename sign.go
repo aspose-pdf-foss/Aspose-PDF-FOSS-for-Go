@@ -77,7 +77,26 @@ type SignOptions struct {
 	// /ETSI.CAdES.detached. The zero value produces a classic
 	// /adbe.pkcs7.detached signature.
 	PAdES bool
+
+	// Certify makes this a certification (author / DocMDP) signature that
+	// records which later changes are permitted without invalidating it.
+	// The zero value (NotCertified) is an ordinary approval signature.
+	// Mirrors Aspose.PDF for .NET's PdfFileSignature.Certify +
+	// DocMDPAccessPermissions.
+	Certify CertifyPermission
 }
+
+// CertifyPermission is the DocMDP permission level of a certification
+// signature (ISO 32000-1 §12.8.2.2 Table 254). Its integer value is the /P
+// entry written to /TransformParams.
+type CertifyPermission int
+
+const (
+	NotCertified       CertifyPermission = iota // ordinary approval signature (default)
+	CertifyNoChanges                            // P=1: no changes permitted
+	CertifyFillForms                            // P=2: form filling and signing
+	CertifyAnnotations                          // P=3: form filling, signing, and annotations
+)
 
 // SignatureAppearance controls the visible signature block's content and
 // styling. Mirrors the intent of Aspose.PDF for .NET's
@@ -105,6 +124,7 @@ type signConfig struct {
 	page                            int
 	appearance                      *SignatureAppearance
 	padES                           bool
+	certify                         CertifyPermission
 }
 
 // Sign configures a digital signature applied on the next Save/WriteTo.
@@ -142,6 +162,7 @@ func (d *Document) Sign(opts SignOptions) error {
 		page:       opts.Page,
 		appearance: opts.Appearance,
 		padES:      opts.PAdES,
+		certify:    opts.Certify,
 	}
 	return nil
 }
@@ -182,6 +203,24 @@ func (d *Document) buildSignatureObjects() {
 	}
 	if d.sign.contact != "" {
 		sigDict["/ContactInfo"] = d.sign.contact
+	}
+	// Certification (DocMDP) signature: record the permitted-changes level via
+	// /Reference, and point the catalog's /Perms/DocMDP at this signature
+	// (ISO 32000-1 §12.8.2.2). Only valid as the document's first signature.
+	if d.sign.certify > NotCertified {
+		sigDict["/Reference"] = pdfArray{pdfDict{
+			"/Type":            pdfName("/SigRef"),
+			"/TransformMethod": pdfName("/DocMDP"),
+			"/TransformParams": pdfDict{
+				"/Type": pdfName("/TransformParams"),
+				"/P":    int(d.sign.certify),
+				"/V":    pdfName("/1.2"),
+			},
+		}}
+		if d.catalog == nil {
+			d.catalog = pdfDict{}
+		}
+		d.catalog["/Perms"] = pdfDict{"/DocMDP": pdfRef{Num: sigID}}
 	}
 	d.objects[sigID] = &pdfObject{Num: sigID, Value: sigDict}
 
