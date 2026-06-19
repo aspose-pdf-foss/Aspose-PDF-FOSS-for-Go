@@ -137,37 +137,10 @@ func (a *FileAttachmentAnnotation) SetFileFromStream(r io.Reader, name string) e
 	return a.embedFileBytes(data, name, detectMIMEType(name))
 }
 
-// embedFileBytes is the common implementation: build /EmbeddedFile
-// stream, build /Filespec dict, wire annotation's /FS reference.
+// embedFileBytes builds the /EmbeddedFile stream + /Filespec dict (shared with
+// the document-level EmbeddedFiles collection) and wires the annotation's /FS.
 func (a *FileAttachmentAnnotation) embedFileBytes(data []byte, name, mimeType string) error {
-	// /EmbeddedFile stream.
-	embeddedStream := &pdfStream{
-		Dict: pdfDict{
-			"/Type":    pdfName("/EmbeddedFile"),
-			"/Subtype": pdfName("/" + escapePDFName(mimeType)),
-			"/Length":  len(data),
-		},
-		Data:    data,
-		Decoded: false, // already raw — let writer not re-compress
-	}
-	embedID := a.doc.nextID
-	a.doc.nextID++
-	a.doc.objects[embedID] = &pdfObject{Num: embedID, Value: embeddedStream}
-
-	// /Filespec dict.
-	filespec := pdfDict{
-		"/Type": pdfName("/Filespec"),
-		"/F":    name,
-		"/UF":   name,
-		"/EF": pdfDict{
-			"/F":  pdfRef{Num: embedID},
-			"/UF": pdfRef{Num: embedID},
-		},
-	}
-	fsID := a.doc.nextID
-	a.doc.nextID++
-	a.doc.objects[fsID] = &pdfObject{Num: fsID, Value: filespec}
-
+	fsID := a.doc.buildEmbeddedFilespec(data, name, mimeType, "")
 	a.dict["/FS"] = pdfRef{Num: fsID}
 	return nil
 }
