@@ -33,6 +33,12 @@ type Page struct {
 	doc         *Document
 	index       int // 0-based index in doc.pages
 	annotations *AnnotationCollection
+
+	// obj, when non-nil, is a detached page dictionary used as a drawing
+	// surface that is NOT part of doc.pages — the canvas behind an XForm. The
+	// full *Page drawing API (AddText, Draw*, AddImage, …) then targets it,
+	// and its content/resources are harvested into a Form XObject.
+	obj *pdfObject
 }
 
 // Number returns the 1-based page number within the document.
@@ -40,8 +46,12 @@ func (p *Page) Number() int {
 	return p.index + 1
 }
 
-// pageObj returns the underlying pdfObject for this page.
+// pageObj returns the underlying pdfObject for this page (the detached XForm
+// canvas when set, otherwise the page at this index in the document).
 func (p *Page) pageObj() *pdfObject {
+	if p.obj != nil {
+		return p.obj
+	}
 	return p.doc.pages[p.index]
 }
 
