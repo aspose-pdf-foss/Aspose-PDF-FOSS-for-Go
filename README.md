@@ -1234,8 +1234,13 @@ f, _ := os.Open("photo.png")
 page.AddImageFromStream(f, pdf.Rectangle{LLX: 50, LLY: 50, URX: 250, URY: 250})
 f.Close()
 
+// Tiny one-off image inline in the content stream (BI/ID/EI) rather than an XObject
+page.AddInlineImage("icon.png", pdf.Rectangle{LLX: 20, LLY: 20, URX: 44, URY: 44})
+
 doc.Save("output.pdf")
 ```
+
+> Inline images (`AddInlineImage`) suit tiny pictures like icons or rules; for anything larger, `AddImage` (an Image XObject) is the recommended default.
 
 ### Image to PDF
 

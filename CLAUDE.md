@@ -120,6 +120,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `Rectangle` struct — LLX, LLY, URX, URY (PDF rectangle in points)
 - `(*Page).AddImage(path, rect) error` — adds an image from a file to the page; format detected by magic bytes (JPEG, PNG)
 - `(*Page).AddImageFromStream(r, rect) error` — adds an image from an io.Reader to the page
+- `(*Page).AddInlineImage(path, rect) error` / `(*Page).AddInlineImageFromStream(r, rect) error` — draws a small image **inline** in the content stream (`BI … ID … EI`, ISO 32000-1 §8.9.7) instead of as an Image XObject; for tiny one-off pictures (icons, rules). PNG and JPEG inputs; both are decoded to 8-bpc samples and re-stored as Flate, then ASCIIHex-wrapped (`/F [/AHx /Fl]`) so the `EI` boundary is unambiguous (the `>` EOD never recurs in hex — a binary or ASCII85 stream can contain a spurious `>EI`). PNG alpha is flattened over white (inline images cannot carry a soft mask). `AddImage` (an XObject) stays the recommended default for anything but tiny images (`image_inline_write.go`)
 - `ImageToDocument(path, opts...) (*Document, error)` — creates a single-page PDF from an image file; DPI-aware page sizing
 - `ImageToDocumentFromStream(r, opts...) (*Document, error)` — creates a single-page PDF from an image reader
 - `ImageToDocumentOptions` struct — PageWidth, PageHeight, MarginLeft, MarginRight, MarginTop, MarginBottom
