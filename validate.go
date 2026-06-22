@@ -110,7 +110,73 @@ func Validate(inputPath string) (*ValidationReport, error) {
 	// declaration — Acrobat reports "Insufficient data for an image".
 	validateStreamFilters(doc, report)
 
+	// 9. Image XObjects must declare /ColorSpace and /BitsPerComponent
+	// (ISO 32000-1 §8.9.5), except image masks and JPXDecode images. A producer
+	// that omits them yields a blank image in Acrobat (we infer them tolerantly).
+	validateImageXObjects(doc, report)
+
 	return report, nil
+}
+
+// validateImageXObjects reports an OBJECT_ERROR for every image XObject missing
+// a required /ColorSpace or /BitsPerComponent. Image masks (/ImageMask true)
+// need neither, and JPXDecode (JPEG2000) images may derive both from the
+// codestream, so both are exempt. Rendering stays tolerant — this is diagnostics
+// for Acrobat compatibility.
+func validateImageXObjects(doc *rawDocument, report *ValidationReport) {
+	for objNum, entry := range doc.xref.entries {
+		if entry.Free {
+			continue
+		}
+		obj, err := doc.getObject(objNum)
+		if err != nil {
+			continue
+		}
+		s, ok := obj.Value.(*pdfStream)
+		if !ok || dictGetName(s.Dict, "/Subtype") != "/Image" {
+			continue
+		}
+		if isImageMaskDict(doc, s.Dict) || streamHasFilter(s.Dict, "/JPXDecode") {
+			continue
+		}
+		if _, ok := s.Dict["/ColorSpace"]; !ok {
+			report.add("OBJECT_ERROR", fmt.Sprintf(
+				"object %d: image XObject missing required /ColorSpace (ISO 32000-1 §8.9.5)", objNum))
+		}
+		if _, ok := s.Dict["/BitsPerComponent"]; !ok {
+			report.add("OBJECT_ERROR", fmt.Sprintf(
+				"object %d: image XObject missing required /BitsPerComponent (ISO 32000-1 §8.9.5)", objNum))
+		}
+	}
+}
+
+// isImageMaskDict reports whether an image dict is a stencil mask (/ImageMask
+// true), accepting an indirect boolean.
+func isImageMaskDict(doc *rawDocument, d pdfDict) bool {
+	v := d["/ImageMask"]
+	if ref, ok := v.(pdfRef); ok {
+		if o, err := doc.getObject(ref.Num); err == nil {
+			v = o.Value
+		}
+	}
+	b, _ := v.(bool)
+	return b
+}
+
+// streamHasFilter reports whether the stream dict's /Filter (a name or array of
+// names) includes the given filter name.
+func streamHasFilter(d pdfDict, name string) bool {
+	switch f := d["/Filter"].(type) {
+	case pdfName:
+		return string(f) == name
+	case pdfArray:
+		for _, e := range f {
+			if n, ok := e.(pdfName); ok && string(n) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateStreamFilters reports a STREAM_ERROR for every stream that has no
