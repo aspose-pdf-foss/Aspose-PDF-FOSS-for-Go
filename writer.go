@@ -27,130 +27,22 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		return buildFreshEncryptedSignedPDF(d)
 	}
 
-	var encState *encryptState
-	if d.preserved != nil {
-		// Reuse the original /O, /U, /P, /ID bytes verbatim so that BOTH the
-		// original user and owner passwords survive edit-in-place re-save.
-		encState = d.preserved
-	} else if d.encrypt != nil {
-		var err error
-		encState, err = newEncryptState(d.encrypt)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt: %w", err)
-		}
+	asm, err := d.assemble()
+	if err != nil {
+		return nil, err
 	}
-
-	// Digital signature: inject the signature dict + invisible Sig widget
-	// before the object snapshot below so they're written like any other
-	// object; the actual PKCS#7 is spliced into the placeholder afterwards.
-	// When the document is encrypted, the signature objects are encrypted
-	// like any other (their /Contents and /ByteRange stay plaintext because
-	// they are written as pdfRaw, per ISO 32000-1 §7.6.2).
-	if d.sign != nil {
-		d.buildSignatureObjects()
-	}
-
-	// Build outline objects up-front so they're picked up by the
-	// contentIDs snapshot below and remapped along with everything else.
-	outlinesRef, outlineObjs := buildOutlineObjects(d)
-	for _, obj := range outlineObjs {
-		d.objects[obj.Num] = obj
-	}
-
-	// Build named-destination tree objects up-front so they're picked up by
-	// the contentIDs snapshot below and remapped along with everything else.
-	// When the original catalog already had a /Names dict (either as an
-	// indirect ref or as a direct dict per ISO 32000-1 §7.7.4), merge its
-	// non-/Dests subentries (JavaScript, EmbeddedFiles, etc.) into the
-	// synthesized /Names dict NOW so the merged value is the one written
-	// during the content-write loop below. Doing it later would be too
-	// late — the object's bytes are already on disk by then.
-	ndTreeRef, ndNamesDictRef, ndObjs := buildNamedDestTree(d)
-	if ndTreeRef.Num != 0 {
-		var preserved pdfDict
-		switch v := d.catalog["/Names"].(type) {
-		case pdfRef:
-			if obj, ok := d.objects[v.Num]; ok {
-				if dict, ok := obj.Value.(pdfDict); ok {
-					preserved = pdfDict{}
-					for k, val := range dict {
-						if k != "/Dests" {
-							preserved[k] = deepCopyValue(val)
-						}
-					}
-				}
-			}
-		case pdfDict:
-			preserved = pdfDict{}
-			for k, val := range v {
-				if k != "/Dests" {
-					preserved[k] = deepCopyValue(val)
-				}
-			}
-		}
-		if len(preserved) > 0 {
-			// ndObjs[1] is the parent /Names dict synthesized by
-			// buildNamedDestTree with only /Dests; fold the preserved
-			// siblings in before it gets serialized.
-			namesObj := ndObjs[1]
-			if dict, ok := namesObj.Value.(pdfDict); ok {
-				for k, val := range preserved {
-					dict[k] = val
-				}
-			}
-		}
-	}
-	for _, obj := range ndObjs {
-		d.objects[obj.Num] = obj
-	}
-
-	// Assign sequential output IDs to all content objects.
-	// Reserve IDs for structural objects built by the writer.
-	contentIDs := sortedObjectIDs(d.objects)
-	remap := make(map[int]int, len(contentIDs))
-	nextOut := 1
-	for _, id := range contentIDs {
-		remap[id] = nextOut
-		nextOut++
-	}
-	pagesObjID := nextOut
-	nextOut++
-	catalogObjID := nextOut
-	nextOut++
-	var infoObjID int
-	if d.info != nil {
-		infoObjID = nextOut
-		nextOut++
-	}
-	var encryptObjID int
-	if encState != nil {
-		encryptObjID = nextOut
-		nextOut++
-	}
-	totalObjects := nextOut // exclusive upper bound
-
-	remapFn := func(n int) int {
-		if out, ok := remap[n]; ok {
-			return out
-		}
-		return n
-	}
-
-	// Patch /Parent in every page dict to point to the new /Pages node.
-	// Use pdfDirectRef so the writer outputs the ID as-is without remapping.
-	for _, page := range d.pages {
-		if dict, ok := page.Value.(pdfDict); ok {
-			dict["/Parent"] = pdfDirectRef{Num: pagesObjID}
-		}
-	}
+	encState := asm.encState
+	contentIDs := asm.contentIDs
+	remap := asm.remap
+	pagesObjID := asm.pagesObjID
+	catalogObjID := asm.catalogObjID
+	infoObjID := asm.infoObjID
+	encryptObjID := asm.encryptObjID
+	totalObjects := asm.totalObjects
+	remapFn := asm.remapFn()
 
 	var buf bytes.Buffer
-	header := "%PDF-1.4\n"
-	if d.encrypt != nil && d.encrypt.algorithm == EncryptionAlgAES256 {
-		// ISO 32000-2 requires PDF 2.0 for V=5 R=6 encryption.
-		header = "%PDF-2.0\n"
-	}
-	buf.WriteString(header)
+	buf.WriteString(asm.header)
 	buf.WriteString("%\xe2\xe3\xcf\xd3\n") // binary marker
 
 	offsets := make(map[int]int64, totalObjects)
@@ -179,29 +71,7 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	// writer-built node; other refs are remapped by writeValue. Deep-copy
 	// so that building the output catalog never aliases d.catalog.
 	offsets[catalogObjID] = int64(buf.Len())
-	catOut := make(pdfDict, len(d.catalog)+2)
-	for k, v := range d.catalog {
-		if k == "/Pages" {
-			continue
-		}
-		catOut[k] = deepCopyValue(v)
-	}
-	catOut["/Type"] = pdfName("/Catalog")
-	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
-	// If we built a fresh outline tree, override any stale /Outlines ref
-	// preserved from the original catalog with our new one. writeValue will
-	// auto-remap the pdfRef to the output ID.
-	if outlinesRef.Num != 0 {
-		catOut["/Outlines"] = outlinesRef
-	}
-	// /Names/Dests if the collection is non-empty. The synthesized /Names
-	// dict was already merged with the original catalog's /Names siblings
-	// up-front (see buildNamedDestTree call site), so all we do here is
-	// point /Catalog/Names at the merged dict and let writeValue remap the
-	// ref to the output ID.
-	if ndTreeRef.Num != 0 {
-		catOut["/Names"] = ndNamesDictRef
-	}
+	catOut := asm.catalog
 	var catalogEncFn func([]byte) ([]byte, error)
 	if encState != nil {
 		catalogEncFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(catalogObjID, 0, b) }

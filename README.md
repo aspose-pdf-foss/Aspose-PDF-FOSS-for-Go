@@ -84,6 +84,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Stream I/O** — open PDFs from any `io.Reader` via `OpenStream`/`OpenStreamWithPassword`; serialize to any `io.Writer` via `Document.WriteTo` (implements `io.WriterTo`)
 - **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press
 - **Font embedding & subsetting** — embed TrueType (`.ttf`) and OpenType-CFF (`.otf`) fonts with `Document.LoadFont` (full Unicode, Identity-H): TTF as `CIDFontType2`/`FontFile2`, OTF as `CIDFontType0`/`FontFile3`. Or resolve a font **by family name** with `Document.LoadFontByName("Calibri", bold, italic)` — searches registered folders/files (`AddFontFolder`/`AddFontFile`) then the OS fonts, and embeds the match (a `.ttc` collection face is re-wrapped as a standalone sfnt); mirrors Aspose.PDF for .NET's `FontRepository.FindFont`. `Document.SubsetFonts()` rebuilds each embedded TrueType font to keep only the glyphs actually drawn (composite-glyph aware, regenerates `glyf`/`loca`/`hmtx`/`CIDToGIDMap`), typically shrinking a font from hundreds of KB to a few KB (OTF keeps its full program)
+- **Linearization (fast web view)** — `Document.SaveLinearized(path)` / `WriteToLinearized(w)` write a linearized PDF (ISO 32000-1 Annex F) with the first page's objects and a hint table at the front of the file, so a viewer can render page 1 before the whole file downloads (Acrobat shows "Fast Web View: Yes"). The output is an ordinary PDF any reader opens normally; qpdf-validated for documents without cross-page shared resources. Mirrors the intent of Aspose.PDF for .NET's linearized save
 - **Tiling patterns** — `Document.CreateTilingPattern(w, h)` returns a pattern whose `Canvas()` you draw a cell into, then fill any shape with the repeating motif by setting `ShapeStyle.FillTiling` (with `SetStep` for gaps/overlap). Complements gradient fills for hatching, textures and repeated motifs; mirrors Aspose.PDF for .NET's colored tiling patterns
 - **Reusable Form XObjects** — `Document.CreateForm(w, h)` returns an `XForm` you draw into once (via `Canvas()`, the full page drawing API), then place on any number of pages and positions with `Page.AddForm(form, rect)` — a single shared content stream behind many `Do` invocations. List a page's existing forms with `Page.Forms()` (re-place them anywhere), and copy a form with its whole resource graph into another document with `Document.ImportForm`. Ideal for page templates, shared headers/footers and watermarks; mirrors Aspose.PDF for .NET's `XForm`
 - **Layers (optional content)** — author OCG layers with `Document.AddLayer(name)`, bracket page content with `Page.BeginLayer`/`EndLayer`, and toggle default visibility via `Layer.SetVisible`. The built-in renderer drops hidden layers, viewers expose them in the Layers panel, and names + visibility round-trip; mirrors Aspose.PDF for .NET's `Document.Layers`
@@ -1307,6 +1308,18 @@ optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
 fmt.Printf("optimized %d images\n", optimized)
 doc.Save("smaller.pdf")
 ```
+
+### Linearizing for Fast Web View
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Write a linearized ("fast web view") PDF: the first page and a hint table
+// sit at the front so a viewer can render page 1 before the whole file lands.
+doc.SaveLinearized("web-optimized.pdf")
+```
+
+> The output is an ordinary PDF that any reader opens normally (Acrobat shows "Fast Web View: Yes"). Encryption and signing cannot be combined with linearization. Mirrors the intent of Aspose.PDF for .NET's linearized save.
 
 ### Creating Blank Documents
 
