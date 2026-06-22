@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 )
 
@@ -44,6 +45,95 @@ func (x *XForm) Canvas() *Page { return x.canvas }
 // Size returns the form's width and height in points.
 func (x *XForm) Size() (width, height float64) { return x.bbox.URX, x.bbox.URY }
 
+// ensureBuilt materialises the /Form XObject object in x.doc (once) from the
+// canvas content, returning its object number. A form obtained from Page.Forms
+// already has its object, so it is returned unchanged.
+func (x *XForm) ensureBuilt() (int, error) {
+	if x.formID != 0 {
+		return x.formID, nil
+	}
+	stream, err := x.build()
+	if err != nil {
+		return 0, err
+	}
+	x.formID = x.doc.nextID
+	x.doc.nextID++
+	x.doc.objects[x.formID] = &pdfObject{Num: x.formID, Value: stream}
+	return x.formID, nil
+}
+
+// Forms returns the Form XObjects referenced by the page's resources — the
+// reusable content groups already present (e.g. parsed from a loaded PDF or
+// placed earlier). Each can be re-placed on any page of the same document with
+// AddForm, or imported into another document with Document.ImportForm.
+func (p *Page) Forms() []*XForm {
+	resources := p.pageResources()
+	if resources == nil {
+		return nil
+	}
+	xobj, ok := resolveRefToDict(p.doc.objects, resources["/XObject"])
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(xobj))
+	for k := range xobj {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	var out []*XForm
+	seen := map[int]bool{}
+	for _, name := range names {
+		ref, ok := xobj[name].(pdfRef)
+		if !ok || seen[ref.Num] {
+			continue
+		}
+		obj, ok := p.doc.objects[ref.Num]
+		if !ok {
+			continue
+		}
+		st, ok := obj.Value.(*pdfStream)
+		if !ok || dictGetName(st.Dict, "/Subtype") != "/Form" {
+			continue
+		}
+		seen[ref.Num] = true
+		out = append(out, &XForm{doc: p.doc, formID: ref.Num, bbox: bboxFromForm(p.doc, st)})
+	}
+	return out
+}
+
+// ImportForm copies a Form XObject (and its whole resource graph: fonts,
+// images, nested forms, …) from another document into this one, returning a new
+// XForm ready to place with Page.AddForm. A form already belonging to this
+// document is returned unchanged.
+func (d *Document) ImportForm(form *XForm) (*XForm, error) {
+	if form == nil {
+		return nil, fmt.Errorf("ImportForm: nil form")
+	}
+	if form.doc == d {
+		return form, nil
+	}
+	srcID, err := form.ensureBuilt()
+	if err != nil {
+		return nil, err
+	}
+	idMap := map[int]int{}
+	remapped := d.importGraph(form.doc.objects, pdfRef{Num: srcID}, idMap)
+	ref, ok := remapped.(pdfRef)
+	if !ok {
+		return nil, fmt.Errorf("ImportForm: failed to import the form object")
+	}
+	return &XForm{doc: d, formID: ref.Num, bbox: form.bbox}, nil
+}
+
+// bboxFromForm reads a Form XObject's /BBox as a Rectangle (zero if missing).
+func bboxFromForm(d *Document, st *pdfStream) Rectangle {
+	if bb := shFloats(d.objects, st.Dict["/BBox"]); len(bb) >= 4 {
+		return Rectangle{LLX: bb[0], LLY: bb[1], URX: bb[2], URY: bb[3]}
+	}
+	return Rectangle{}
+}
+
 // build harvests the canvas content + resources into a /Form XObject stream.
 func (x *XForm) build() (*pdfStream, error) {
 	content, err := x.canvas.contentStreams()
@@ -66,23 +156,17 @@ func (p *Page) AddForm(form *XForm, rect Rectangle) error {
 		return fmt.Errorf("AddForm: nil form")
 	}
 	if form.doc != p.doc {
-		return fmt.Errorf("AddForm: form belongs to a different document")
+		return fmt.Errorf("AddForm: form belongs to a different document (use Document.ImportForm first)")
 	}
 	if rect.URX <= rect.LLX || rect.URY <= rect.LLY {
 		return fmt.Errorf("AddForm: rect must be non-empty")
 	}
 
-	if form.formID == 0 {
-		stream, err := form.build()
-		if err != nil {
-			return err
-		}
-		form.formID = p.doc.nextID
-		p.doc.nextID++
-		p.doc.objects[form.formID] = &pdfObject{Num: form.formID, Value: stream}
+	id, err := form.ensureBuilt()
+	if err != nil {
+		return err
 	}
-
-	name := p.registerFormXObject(pdfRef{Num: form.formID})
+	name := p.registerFormXObject(pdfRef{Num: id})
 
 	// Map the form bbox onto rect (scale per axis, then translate).
 	bw, bh := form.bbox.URX-form.bbox.LLX, form.bbox.URY-form.bbox.LLY
