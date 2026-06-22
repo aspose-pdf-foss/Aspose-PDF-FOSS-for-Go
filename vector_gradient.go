@@ -66,6 +66,12 @@ func NewRadialGradient(cx, cy, r float64, stops ...GradientStop) RadialGradient 
 // used verbatim (identity matrix) because the public API works directly in
 // PDF user space.
 func (p *Page) resolveShapeGradient(style *ShapeStyle) error {
+	// A tiling-pattern fill also resolves to a /Pattern resource; handle it here
+	// so every Draw* call site picks it up (it sets FillPattern, which then
+	// short-circuits the gradient path below).
+	if err := p.resolveShapeTiling(style); err != nil {
+		return err
+	}
 	if style.FillGradient == nil || style.FillPattern != "" {
 		return nil
 	}

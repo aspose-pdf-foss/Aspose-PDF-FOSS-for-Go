@@ -99,7 +99,7 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 //	""   — neither (caller should skip emission entirely)
 func paintOp(s ShapeStyle) string {
 	stroke := s.LineStyle.Width > 0
-	fill := s.FillColor != nil || s.FillPattern != "" || s.FillGradient != nil
+	fill := s.FillColor != nil || s.FillPattern != "" || s.FillGradient != nil || s.FillTiling != nil
 	switch {
 	case stroke && fill:
 		return "B"

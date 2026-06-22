@@ -35,12 +35,18 @@ type LineStyle struct {
 // RadialGradient. It takes precedence over FillColor; the draw call
 // registers the necessary PDF shading pattern on the page automatically.
 //
+// FillTiling, when non-nil, fills the shape with a repeating TilingPattern
+// (a user-drawn cell tiled across the shape). It takes precedence over
+// FillColor; the draw call registers the PatternType 1 pattern automatically.
+// Precedence on fill: FillTiling → FillGradient → FillPattern → FillColor.
+//
 // Mirrors Aspose.PDF for .NET's GraphInfo (stroke + fill).
 type ShapeStyle struct {
 	LineStyle
-	FillColor    *Color   // nil = no fill
-	FillPattern  string   // optional PDF pattern resource name (e.g. "/P0"); overrides FillColor when set
-	FillGradient Gradient // optional linear/radial gradient fill; overrides FillColor
+	FillColor    *Color         // nil = no fill
+	FillPattern  string         // optional PDF pattern resource name (e.g. "/P0"); overrides FillColor when set
+	FillGradient Gradient       // optional linear/radial gradient fill; overrides FillColor
+	FillTiling   *TilingPattern // optional repeating tiling-pattern fill; overrides FillColor
 }
 
 // pathOpKind enumerates the kinds of operations a Path can contain.
