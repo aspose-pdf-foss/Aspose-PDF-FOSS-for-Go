@@ -74,6 +74,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
+- **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
 - **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, strikethrough, rotation, and behind-content mode
@@ -1390,6 +1391,16 @@ optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
 fmt.Printf("optimized %d images\n", optimized)
 doc.Save("smaller.pdf")
 ```
+
+### Converting to Grayscale
+
+```go
+doc, _ := pdf.Open("color.pdf")
+doc.ConvertToGrayscale() // text, vector, images, shadings, annotations → grey
+doc.Save("grayscale.pdf")
+```
+
+`ConvertToGrayscale` maps every colour to its luminance grey in place — content-stream device colours, raster images (re-encoded as DeviceGray), axial/radial shadings and patterns, and annotation colours/appearances, recursing through Form XObjects. Geometry, text and layout are unchanged. Separation/DeviceN, Indexed and PostScript/sampled shading functions are best-effort. Mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`.
 
 ### Linearizing for Fast Web View
 
