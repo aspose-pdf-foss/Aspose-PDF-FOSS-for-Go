@@ -23,6 +23,7 @@ type Document struct {
 	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
 	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
 	js           *JavaScriptCollection  // nil until first JavaScript() call
+	tagged       *TaggedContent         // nil until first TaggedContent() call
 	sign         *signConfig            // nil unless Sign() configured a digital signature
 	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
 

@@ -64,7 +64,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
 - **Validate** — check structural integrity of a PDF file
-- **PDF/UA validation** — `Document.ValidatePDFUA()` reports accessibility (PDF/UA-1) violations: not a Tagged PDF, no structure tree / `/ParentTree`, no `/Lang`, no displayed title, figures/formulas without alternate text, accessibility blocked by encryption; mirrors Aspose.PDF for .NET's `Document.Validate(PdfFormat.PDF_UA_1)` (read-only — tagged-content authoring is upcoming)
+- **Tagged PDF / PDF/UA** — author accessible PDFs: `Document.TaggedContent()` builds a logical structure tree as you draw — `Page.TagContent(parent, type, draw)` brackets a drawing block in marked content and adds a structure element, `StructElement.AddChild` nests grouping elements (Table→TR→TD, lists), and `SetAlt` adds alternate text. `Document.ValidatePDFUA()` reports PDF/UA-1 violations (not tagged, no structure tree/`/ParentTree`/`/Lang`/displayed title, figures without alt text, accessibility blocked by encryption). Mirrors Aspose.PDF for .NET's `Document.TaggedContent` / `Document.Validate(PdfFormat.PDF_UA_1)`
 - **PDF/A validate + convert** — `Document.ValidatePDFA(PDFA1B/2B/3B)` reports archival-conformance violations (XMP `pdfaid`, font embedding, encryption, JavaScript, OutputIntent vs. device colour, transparency, annotation flags, …) for the basic levels, and `Document.ConvertToPDFA(...)` adjusts the document toward conformance (strip encryption/JavaScript, add an sRGB ICC OutputIntent, write the `pdfaid` XMP packet) returning a report of what remains; mirrors Aspose.PDF for .NET's `Document.Validate`/`Document.Convert(PdfFormat)`
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
@@ -1118,7 +1118,40 @@ if !report.Conformant {
 }
 ```
 
-`ValidatePDFUA` is a read-only check of the PDF/UA-1 (ISO 14289-1) accessibility prerequisites: the document is a Tagged PDF with a logical structure tree (`/StructTreeRoot` + `/ParentTree`), declares a default language (`/Lang`) and a displayed title (`/ViewerPreferences/DisplayDocTitle`), gives every figure/formula alternate text, and does not block accessibility through encryption. The tagged-content authoring side (and full reading-order/heading checks) are upcoming; use PAC or veraPDF-UA for final sign-off. Mirrors Aspose.PDF for .NET's `Document.Validate(PdfFormat.PDF_UA_1)`.
+`ValidatePDFUA` is a read-only check of the PDF/UA-1 (ISO 14289-1) accessibility prerequisites: the document is a Tagged PDF with a logical structure tree (`/StructTreeRoot` + `/ParentTree`), declares a default language (`/Lang`) and a displayed title (`/ViewerPreferences/DisplayDocTitle`), gives every figure/formula alternate text, and does not block accessibility through encryption. Use PAC or veraPDF-UA for final sign-off. Mirrors Aspose.PDF for .NET's `Document.Validate(PdfFormat.PDF_UA_1)`.
+
+### Authoring a Tagged (Accessible) PDF
+
+```go
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+tc := doc.TaggedContent()
+tc.SetTitle("Quarterly Report")
+tc.SetLanguage("en-US")
+page, _ := doc.Page(1)
+
+// Each TagContent call brackets the drawing in marked content and adds a
+// structure element, so the result is a Tagged PDF.
+page.TagContent(tc.Root(), pdf.StructH1, func() error {
+    return page.AddText("Quarterly Report", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 24},
+        pdf.Rectangle{LLX: 50, LLY: 760, URX: 545, URY: 800})
+})
+page.TagContent(tc.Root(), pdf.StructP, func() error {
+    return page.AddText("This report covers Q3 results.", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12},
+        pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750})
+})
+fig, _ := page.TagContent(tc.Root(), pdf.StructFigure, func() error {
+    return page.AddImage("chart.png", pdf.Rectangle{LLX: 50, LLY: 540, URX: 300, URY: 680})
+})
+fig.SetAlt("Bar chart of Q3 sales by region") // required for figures
+
+// Grouping elements nest (Table → TR → TD, lists, …):
+tbl := tc.Root().AddChild(pdf.StructTable)
+row := tbl.AddChild(pdf.StructTR)
+cell := row.AddChild(pdf.StructTD)
+page.TagContent(cell, pdf.StructP, func() error { /* draw the cell */ return nil })
+
+doc.Save("accessible.pdf") // doc.ValidatePDFUA() is now Conformant
+```
 
 ### Text Extraction
 
