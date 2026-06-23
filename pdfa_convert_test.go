@@ -49,26 +49,60 @@ func TestConvertToPDFAEmbeddedFont(t *testing.T) {
 	}
 }
 
-// TestConvertToPDFAFixesMetadataAndColor: even a Standard-14 document has its XMP
-// and OutputIntent fixed (only the un-embeddable font remains).
-func TestConvertToPDFAFixesMetadataAndColor(t *testing.T) {
+// TestConvertToPDFAEmbedsStandard14: a Standard-14 document becomes fully
+// conformant (the fonts are auto-embedded) and its text survives.
+func TestConvertToPDFAEmbedsStandard14(t *testing.T) {
 	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
 	p, _ := doc.Page(1)
-	p.AddText("Hi", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 18},
-		pdf.Rectangle{LLX: 50, LLY: 700, URX: 400, URY: 740})
+	p.AddText("Helvetica line", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 720, URX: 500, URY: 760})
+	p.AddText("Times line", pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 680, URX: 500, URY: 720})
+	p.AddText("Courier line", pdf.TextStyle{Font: pdf.FontCourier, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 640, URX: 500, URY: 680})
 
 	rep, err := doc.ConvertToPDFA(pdf.PDFA1B)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasRule(rep, "XMP_MISSING") || hasRule(rep, "XMP_PDFAID_MISSING") {
-		t.Error("XMP still missing after conversion")
+	if !rep.Conformant {
+		t.Fatalf("Standard-14 document not conformant after conversion: %+v", rep.Issues)
 	}
-	if hasRule(rep, "COLOR_NO_OUTPUT_INTENT") {
-		t.Error("OutputIntent still missing after conversion")
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := out.Page(1)
+	txt, _ := page.ExtractText()
+	for _, want := range []string{"Helvetica line", "Times line", "Courier line"} {
+		if !bytes.Contains([]byte(txt), []byte(want)) {
+			t.Errorf("text %q lost after embedding+round-trip; got %q", want, txt)
+		}
+	}
+	if rt := out.ValidatePDFA(pdf.PDFA1B); !rt.Conformant {
+		t.Errorf("not conformant after round-trip: %+v", rt.Issues)
+	}
+}
+
+// TestConvertToPDFASymbolRemains: Symbol/ZapfDingbats have no Latin substitute
+// and stay a reported violation.
+func TestConvertToPDFASymbolRemains(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	p.AddText("abcd", pdf.TextStyle{Font: pdf.FontSymbol, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 400, URY: 740})
+	rep, err := doc.ConvertToPDFA(pdf.PDFA1B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(rep, "XMP_MISSING") || hasRule(rep, "COLOR_NO_OUTPUT_INTENT") {
+		t.Error("metadata/colour should still be fixed even with a Symbol font")
 	}
 	if !hasRule(rep, "FONT_NOT_EMBEDDED") {
-		t.Error("expected the Standard-14 font to remain a violation")
+		t.Error("expected Symbol to remain a FONT_NOT_EMBEDDED violation")
 	}
 }
 

@@ -19,15 +19,16 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 //   - removes JavaScript and Launch actions (document-level and per-annotation);
 //   - removes file attachments for PDF/A-1;
 //   - sets annotation flags (Print on, Hidden/NoView off);
+//   - embeds non-embedded simple fonts (Standard-14 and other single-byte
+//     Type1/TrueType) using the bundled metric-compatible substitutes;
 //   - adds an sRGB ICC OutputIntent (so device colours are colour-managed);
 //   - writes an XMP packet carrying the pdfaid identifier (synced from /Info).
 //
-// It does NOT embed fonts that are not already embedded (Standard-14 fonts have
-// no glyph program to embed — load a real font with LoadFont instead) and does
-// not remove transparency for PDF/A-1. The returned report lists those and any
-// other remaining issues; when Conformant is true the document satisfies the
-// checks in ValidatePDFA. Mirrors the intent of Aspose.PDF for .NET's
-// Document.Convert(PdfFormat).
+// Symbol and ZapfDingbats have no Latin substitute and remain a reported
+// violation; composite (Type0/CJK) and Type3 fonts, and PDF/A-1 transparency,
+// are not auto-fixed. The returned report lists any remaining issues; when
+// Conformant is true the document satisfies the checks in ValidatePDFA. Mirrors
+// the intent of Aspose.PDF for .NET's Document.Convert(PdfFormat).
 //
 // The changes are applied to the in-memory document; call Save/WriteTo to write
 // the converted file.
@@ -41,11 +42,80 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 		d.removePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
+	d.embedStandardFonts()
 	d.addSRGBOutputIntent()
 	if err := d.setPDFAMetadata(format); err != nil {
 		return nil, err
 	}
 	return d.ValidatePDFA(format), nil
+}
+
+// embedStandardFonts replaces every non-embedded simple font (Standard-14 or any
+// other single-byte Type1/TrueType) with an embedded TrueType built from the
+// bundled metric-compatible substitute (Arimo↔Helvetica, Tinos↔Times,
+// Cousine↔Courier, …) so the document carries its own glyph programs. The
+// existing character codes and encoding are preserved, so content streams are
+// untouched. Symbol and ZapfDingbats have no Latin substitute and are left as a
+// reported violation; composite (Type0) and Type3 fonts are out of scope.
+func (d *Document) embedStandardFonts() {
+	for _, obj := range d.objects {
+		dict, ok := obj.Value.(pdfDict)
+		if !ok || dictGetName(dict, "/Type") != "/Font" {
+			continue
+		}
+		switch dictGetName(dict, "/Subtype") {
+		case "/Type1", "/TrueType", "/MMType1":
+		default:
+			continue
+		}
+		if fontDescriptorHasFile(d.objects, dict) {
+			continue // already embedded
+		}
+		fi := resolveFont(d.objects, dict)
+		f := fallbackFontFor(fi)
+		if f == nil {
+			continue // Symbol / ZapfDingbats — no metric-compatible substitute
+		}
+		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f)
+	}
+}
+
+// buildEmbeddedSimpleFont constructs an embedded simple TrueType font dict that
+// substitutes f for the non-embedded font orig, preserving its character codes,
+// encoding and per-code widths (computed from f's own glyph advances so the
+// dictionary and font program agree, as PDF/A requires).
+func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont) pdfDict {
+	scale := func(w uint16) int {
+		return int(float64(w)*1000.0/float64(f.unitsPerEm) + 0.5)
+	}
+	widths := make(pdfArray, 256)
+	for c := 0; c < 256; c++ {
+		w := 0
+		if r := fi.encoding[c]; r != 0 {
+			if gid := f.glyphID(r); int(gid) < len(f.glyphWidths) {
+				w = scale(f.glyphWidths[gid])
+			}
+		}
+		widths[c] = w
+	}
+	fontFileID := d.addObject(buildFontFile2Stream(f))
+	descID := d.addObject(buildFontDescriptor(f, "/FontFile2", fontFileID))
+
+	out := pdfDict{
+		"/Type":           pdfName("/Font"),
+		"/Subtype":        pdfName("/TrueType"),
+		"/BaseFont":       pdfName("/" + f.postScriptName),
+		"/FirstChar":      0,
+		"/LastChar":       255,
+		"/Widths":         widths,
+		"/FontDescriptor": pdfRef{Num: descID},
+	}
+	if enc, ok := orig["/Encoding"]; ok {
+		out["/Encoding"] = enc // keep the original code→glyph mapping
+	} else {
+		out["/Encoding"] = pdfName("/WinAnsiEncoding")
+	}
+	return out
 }
 
 func isPDFAForbiddenAction(dict pdfDict) bool {

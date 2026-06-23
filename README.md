@@ -1102,7 +1102,7 @@ if !report.Conformant {
 doc.Save("archival.pdf")
 ```
 
-`ConvertToPDFA` removes encryption, JavaScript/Launch actions and (for PDF/A-1) attachments, sets annotation print flags, adds an sRGB ICC OutputIntent (generated in pure Go), and writes a `pdfaid` XMP packet — then returns a report of whatever still fails. Fonts must already be embedded (`LoadFont`); Standard-14 fonts and PDF/A-1 transparency are not auto-fixed. Confirm full conformance with a dedicated validator such as veraPDF. Mirrors Aspose.PDF for .NET's `Document.Convert(PdfFormat)`.
+`ConvertToPDFA` removes encryption, JavaScript/Launch actions and (for PDF/A-1) attachments, sets annotation print flags, **auto-embeds non-embedded simple fonts** (Standard-14 and other single-byte Type1/TrueType, using the bundled metric-compatible clones — text is preserved), adds an sRGB ICC OutputIntent (generated in pure Go), and writes a `pdfaid` XMP packet — then returns a report of whatever still fails. A document built with `AddText` converts to fully conformant in one call. `Symbol`/`ZapfDingbats`, composite fonts and PDF/A-1 transparency are not auto-fixed (surfaced in the report). Confirm full conformance with a dedicated validator such as veraPDF. Mirrors Aspose.PDF for .NET's `Document.Convert(PdfFormat)`.
 
 ### Text Extraction
 
