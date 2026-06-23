@@ -87,6 +87,46 @@ func TestConvertToPDFAEmbedsStandard14(t *testing.T) {
 	}
 }
 
+// TestConvertToPDFAAccessible: a tagged document converts to a fully conformant
+// PDF/A-1a (accessible) file and stays conformant after a round-trip.
+func TestConvertToPDFAAccessible(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	tc := doc.TaggedContent()
+	tc.SetTitle("Accessible Archive")
+	tc.SetLanguage("en-US")
+	p, _ := doc.Page(1)
+	if _, err := p.TagContent(tc.Root(), pdf.StructH1, func() error {
+		return p.AddText("Accessible Archive", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 22},
+			pdf.Rectangle{LLX: 50, LLY: 760, URX: 545, URY: 800})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.TagContent(tc.Root(), pdf.StructP, func() error {
+		return p.AddText("Body text.", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12},
+			pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 740})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := doc.ConvertToPDFA(pdf.PDFA1A)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Conformant {
+		t.Fatalf("tagged document not PDF/A-1a conformant after conversion: %+v", rep.Issues)
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt := out.ValidatePDFA(pdf.PDFA1A); !rt.Conformant {
+		t.Errorf("not PDF/A-1a conformant after round-trip: %+v", rt.Issues)
+	}
+}
+
 // TestConvertToPDFASymbolRemains: Symbol/ZapfDingbats have no Latin substitute
 // and stay a reported violation.
 func TestConvertToPDFASymbolRemains(t *testing.T) {

@@ -103,9 +103,28 @@ func TestValidatePDFAEncrypted(t *testing.T) {
 func TestValidatePDFAFormatString(t *testing.T) {
 	for f, want := range map[pdf.PDFAFormat]string{
 		pdf.PDFA1B: "PDF/A-1B", pdf.PDFA2B: "PDF/A-2B", pdf.PDFA3B: "PDF/A-3B",
+		pdf.PDFA1A: "PDF/A-1A", pdf.PDFA2A: "PDF/A-2A", pdf.PDFA3A: "PDF/A-3A",
 	} {
 		if got := f.String(); !strings.EqualFold(got, want) {
 			t.Errorf("%d.String() = %q, want %q", f, got, want)
+		}
+	}
+}
+
+// TestValidatePDFAAccessibleRequiresTagging: an untagged document fails the "a"
+// levels with the tagging rules but is fine at the "b" levels.
+func TestValidatePDFAAccessibleRequiresTagging(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	repA := doc.ValidatePDFA(pdf.PDFA1A)
+	for _, want := range []string{"NOT_TAGGED", "NO_STRUCT_TREE", "NO_LANG"} {
+		if !hasRule(repA, want) {
+			t.Errorf("expected %s when validating an untagged document as PDF/A-1A", want)
+		}
+	}
+	repB := doc.ValidatePDFA(pdf.PDFA1B)
+	for _, unexpected := range []string{"NOT_TAGGED", "NO_STRUCT_TREE", "NO_LANG"} {
+		if hasRule(repB, unexpected) {
+			t.Errorf("PDF/A-1B should not require tagging, but got %s", unexpected)
 		}
 	}
 }

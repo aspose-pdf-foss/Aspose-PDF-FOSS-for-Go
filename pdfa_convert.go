@@ -254,7 +254,7 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 	}
 	custom = append(custom,
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())},
-		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: "B"},
+		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
 	)
 	meta.Custom = custom
 	return d.SetXMP(meta)

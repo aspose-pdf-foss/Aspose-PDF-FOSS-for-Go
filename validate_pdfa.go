@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// PDFAFormat identifies a PDF/A conformance level. Only the "b" (basic) levels
-// are validated — visual reproducibility without the structure-tree/tagging
-// requirements of the "a" (accessible) levels, which depend on a tagged PDF and
-// are out of scope here. Mirrors the PDF/A members of Aspose.PDF for .NET's
+// PDFAFormat identifies a PDF/A conformance level. The "b" (basic) levels cover
+// visual reproducibility; the "a" (accessible) levels add the PDF/A "a"
+// requirement of a Tagged PDF logical structure tree (author one with
+// (*Document).TaggedContent). Mirrors the PDF/A members of Aspose.PDF for .NET's
 // PdfFormat enum.
 type PDFAFormat int
 
@@ -19,33 +19,37 @@ const (
 	PDFA1B PDFAFormat = iota // PDF/A-1b (ISO 19005-1, PDF 1.4)
 	PDFA2B                   // PDF/A-2b (ISO 19005-2, PDF 1.7)
 	PDFA3B                   // PDF/A-3b (ISO 19005-3, PDF 1.7; allows embedded files)
+	PDFA1A                   // PDF/A-1a (ISO 19005-1, accessible/tagged)
+	PDFA2A                   // PDF/A-2a (ISO 19005-2, accessible/tagged)
+	PDFA3A                   // PDF/A-3a (ISO 19005-3, accessible/tagged)
 )
 
 // String returns the human-readable conformance name, e.g. "PDF/A-1B".
 func (f PDFAFormat) String() string {
-	switch f {
-	case PDFA1B:
-		return "PDF/A-1B"
-	case PDFA2B:
-		return "PDF/A-2B"
-	case PDFA3B:
-		return "PDF/A-3B"
-	default:
-		return "PDF/A"
-	}
+	return fmt.Sprintf("PDF/A-%d%s", f.part(), f.conformance())
 }
 
 // part returns the PDF/A part number (1, 2 or 3) the format belongs to.
 func (f PDFAFormat) part() int {
 	switch f {
-	case PDFA1B:
+	case PDFA1B, PDFA1A:
 		return 1
-	case PDFA2B:
+	case PDFA2B, PDFA2A:
 		return 2
-	case PDFA3B:
+	case PDFA3B, PDFA3A:
 		return 3
 	default:
 		return 0
+	}
+}
+
+// conformance returns the conformance-level letter ("A" or "B").
+func (f PDFAFormat) conformance() string {
+	switch f {
+	case PDFA1A, PDFA2A, PDFA3A:
+		return "A"
+	default:
+		return "B"
 	}
 }
 
@@ -94,6 +98,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckMetadata(r)
 	d.pdfaCheckFilters(format, r)
 	d.pdfaCheckEmbeddedFiles(format, r)
+	d.pdfaCheckTagged(format, r)
 	return r
 }
 
@@ -120,8 +125,31 @@ func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 	if want := fmt.Sprintf("%d", format.part()); part != want {
 		r.add("XMP_PART_MISMATCH", fmt.Sprintf("XMP pdfaid:part is %q but %s requires %q", part, format, want))
 	}
-	if !strings.EqualFold(conf, "B") {
-		r.add("XMP_CONFORMANCE_MISMATCH", fmt.Sprintf("XMP pdfaid:conformance is %q but a basic (B) level was requested", conf))
+	if want := format.conformance(); !strings.EqualFold(conf, want) {
+		r.add("XMP_CONFORMANCE_MISMATCH", fmt.Sprintf("XMP pdfaid:conformance is %q but %s requires %q", conf, format, want))
+	}
+}
+
+// pdfaCheckTagged enforces the additional Tagged-PDF requirements of the
+// accessible ("a") conformance levels.
+func (d *Document) pdfaCheckTagged(format PDFAFormat, r *PDFAValidationReport) {
+	if format.conformance() != "A" {
+		return
+	}
+	marked := false
+	if mi, ok := resolveRefToDict(d.objects, d.catalog["/MarkInfo"]); ok {
+		if b, ok := resolveRef(d.objects, mi["/Marked"]).(bool); ok && b {
+			marked = true
+		}
+	}
+	if !marked {
+		r.add("NOT_TAGGED", fmt.Sprintf("%s requires a Tagged PDF (/MarkInfo /Marked true)", format))
+	}
+	if _, ok := resolveRefToDict(d.objects, d.catalog["/StructTreeRoot"]); !ok {
+		r.add("NO_STRUCT_TREE", fmt.Sprintf("%s requires a logical structure tree (/StructTreeRoot)", format))
+	}
+	if pdfStringValue(resolveRef(d.objects, d.catalog["/Lang"])) == "" {
+		r.add("NO_LANG", fmt.Sprintf("%s requires a default natural language (/Catalog/Lang)", format))
 	}
 }
 
