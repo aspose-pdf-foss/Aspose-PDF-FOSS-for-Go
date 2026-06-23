@@ -64,7 +64,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
 - **Validate** — check structural integrity of a PDF file
-- **PDF/A validation** — `Document.ValidatePDFA(PDFA1B/2B/3B)` reports archival-conformance violations (XMP `pdfaid`, font embedding, encryption, JavaScript, OutputIntent vs. device colour, transparency, annotation flags, …) for the basic levels; mirrors Aspose.PDF for .NET's `Document.Validate(PdfFormat)`
+- **PDF/A validate + convert** — `Document.ValidatePDFA(PDFA1B/2B/3B)` reports archival-conformance violations (XMP `pdfaid`, font embedding, encryption, JavaScript, OutputIntent vs. device colour, transparency, annotation flags, …) for the basic levels, and `Document.ConvertToPDFA(...)` adjusts the document toward conformance (strip encryption/JavaScript, add an sRGB ICC OutputIntent, write the `pdfaid` XMP packet) returning a report of what remains; mirrors Aspose.PDF for .NET's `Document.Validate`/`Document.Convert(PdfFormat)`
 - **Text extraction** — extract text from pages in visual reading order with full layout info (coordinates, font, bold/italic, color, sub/superscript)
 - **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
 - **Add images** — place JPEG or PNG images onto existing pages with precise positioning via PDF rectangles
@@ -1085,7 +1085,24 @@ if !report.Conformant {
 }
 ```
 
-`ValidatePDFA` is a read-only diagnostic for the basic ("b") PDF/A levels (ISO 19005-1/2/3). It checks the XMP `pdfaid` identifier, font embedding, encryption, JavaScript/Launch actions, ICC OutputIntent vs. device colour, transparency (PDF/A-1), annotation flags/appearances, an uncompressed `/Metadata` stream, and LZW/embedded-file restrictions. The "a" (tagged/accessible) levels and the conformance writer are not yet implemented. Mirrors the intent of Aspose.PDF for .NET's `Document.Validate(PdfFormat)`.
+`ValidatePDFA` is a read-only diagnostic for the basic ("b") PDF/A levels (ISO 19005-1/2/3). It checks the XMP `pdfaid` identifier, font embedding, encryption, JavaScript/Launch actions, ICC OutputIntent vs. device colour, transparency (PDF/A-1), annotation flags/appearances, an uncompressed `/Metadata` stream, and LZW/embedded-file restrictions. The "a" (tagged/accessible) levels are out of scope. Mirrors the intent of Aspose.PDF for .NET's `Document.Validate(PdfFormat)`.
+
+To make a document conformant, use `ConvertToPDFA`:
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+report, _ := doc.ConvertToPDFA(pdf.PDFA1B)
+if !report.Conformant {
+    // remaining issues the library can't fix automatically (e.g. embed fonts)
+    for _, issue := range report.Issues {
+        fmt.Println(issue.Rule, issue.Message)
+    }
+}
+doc.Save("archival.pdf")
+```
+
+`ConvertToPDFA` removes encryption, JavaScript/Launch actions and (for PDF/A-1) attachments, sets annotation print flags, adds an sRGB ICC OutputIntent (generated in pure Go), and writes a `pdfaid` XMP packet — then returns a report of whatever still fails. Fonts must already be embedded (`LoadFont`); Standard-14 fonts and PDF/A-1 transparency are not auto-fixed. Confirm full conformance with a dedicated validator such as veraPDF. Mirrors Aspose.PDF for .NET's `Document.Convert(PdfFormat)`.
 
 ### Text Extraction
 
