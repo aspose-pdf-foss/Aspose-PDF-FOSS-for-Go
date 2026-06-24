@@ -1493,7 +1493,16 @@ flow.AddParagraph(longText, pdf.TextStyle{})
 flow.Render()
 ```
 
-Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox` / columns. (Text flow-around a floated box is not yet implemented.)
+**Text flow-around** floats a box against a column edge and wraps the following paragraphs around it:
+
+```go
+sidebar := pdf.NewFloatingBox().SetBackground(&pdf.Color{R: 0.9, G: 0.95, B: 1, A: 1}).
+    AddParagraph("A pull quote or sidebar.", pdf.TextStyle{})
+flow.AddFloatBox(sidebar, pdf.FloatLeft, 150) // body text wraps to its right, then full width below
+flow.AddParagraph(longBody, pdf.TextStyle{})
+```
+
+Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox` / columns / floats.
 
 ### Creating Blank Documents
 

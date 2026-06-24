@@ -46,6 +46,7 @@ const (
 	fkList
 	fkSpacer
 	fkBox
+	fkFloat
 )
 
 type flowElem struct {
@@ -61,6 +62,8 @@ type flowElem struct {
 	ordered    bool
 	height     float64
 	box        *FloatingBox
+	floatSide  FloatSide
+	floatW     float64
 }
 
 // NewFlow creates a flow that renders into the document d.
@@ -156,6 +159,7 @@ type flowState struct {
 	boxed                 bool           // true = single rectangle, no pagination
 	col, cols             int            // current column / column count
 	colGap                float64        // gap between columns
+	floats                []activeFloat  // floated boxes the text currently wraps around
 }
 
 // errBoxFull stops layout inside a floating box when its rectangle is full.
@@ -222,6 +226,7 @@ func (s *flowState) advance() error {
 	if s.col < s.cols-1 {
 		s.col++
 		s.y = s.top
+		s.floats = nil
 		return nil
 	}
 	return s.newPage()
@@ -243,6 +248,7 @@ func (s *flowState) newPage() error {
 	s.page = p
 	s.col = 0
 	s.y = s.top
+	s.floats = nil
 	s.pages++
 	return nil
 }
@@ -267,6 +273,8 @@ func (s *flowState) place(el flowElem) error {
 		return s.flowList(el)
 	case fkBox:
 		return s.flowBox(el.box)
+	case fkFloat:
+		return s.placeFloat(el)
 	}
 	return nil
 }
@@ -285,6 +293,9 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 		return err
 	}
 	lh := style.Size * lineSpacingOf(style)
+	if len(s.floats) > 0 {
+		return s.flowTextAround(text, style, st, width, lh)
+	}
 	lines := wrapText(text, width, s.contentW)
 	for len(lines) > 0 {
 		fit := int((s.y - s.bottom) / lh)
@@ -314,6 +325,7 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 }
 
 func (s *flowState) flowImage(el flowElem) error {
+	s.dropBelowFloats()
 	w, h := resolveImageSize(el)
 	if w <= 0 {
 		return fmt.Errorf("flow: image width must be positive")
@@ -349,6 +361,7 @@ func (s *flowState) flowTable(t *Table) error {
 	if t == nil {
 		return nil
 	}
+	s.dropBelowFloats()
 	heights, err := computeRowHeights(t)
 	if err != nil {
 		return err
@@ -400,6 +413,7 @@ func (s *flowState) flowTable(t *Table) error {
 }
 
 func (s *flowState) flowList(el flowElem) error {
+	s.dropBelowFloats()
 	style := paragraphStyle(el.style)
 	listH := listHeight(el.items, style, s.contentW)
 	if listH > s.y-s.bottom && listH <= s.top-s.bottom {

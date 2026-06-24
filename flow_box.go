@@ -95,6 +95,7 @@ func (s *flowState) flowBox(box *FloatingBox) error {
 	if box == nil {
 		return nil
 	}
+	s.dropBelowFloats()
 	innerW := s.contentW - box.padding.Left - box.padding.Right
 	if innerW <= 0 {
 		return fmt.Errorf("flow: box padding leaves no width")
