@@ -45,9 +45,10 @@ type Table struct {
 	defaultCellStyle   TextStyle
 	rows               []*Row
 	repeatingRowsCount int
-	overflowTop        float64 // 0 = use default 50
-	overflowBottom     float64 // 0 = use default 50
-	overflowSet        bool    // true once SetOverflowMargins has been called
+	tagger             *tableTagger // non-nil while AddTaggedTable is rendering
+	overflowTop        float64      // 0 = use default 50
+	overflowBottom     float64      // 0 = use default 50
+	overflowSet        bool         // true once SetOverflowMargins has been called
 }
 
 // Row is a single row within a Table.

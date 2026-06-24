@@ -1154,6 +1154,19 @@ page.TagContent(cell, pdf.StructP, func() error { /* draw the cell */ return nil
 doc.Save("accessible.pdf") // doc.ValidatePDFUA() is now Conformant
 ```
 
+Tables tag themselves — `AddTaggedTable` renders a `Table` and builds its `/Table → /TR → /TH/TD` structure in one call (repeating header rows become `/TH`; backgrounds and borders are marked as artifacts):
+
+```go
+t := pdf.NewTable().SetColumnWidths([]float64{150, 150, 150})
+t.SetRepeatingRowsCount(1) // first row is the header
+t.AddRow().AddCells("Region", "Q3", "Q4")
+t.AddRow().AddCells("North", "$1.2M", "$1.5M")
+
+tableElem, _, _ := page.AddTaggedTable(tc, tc.Root(), t,
+    pdf.Rectangle{LLX: 50, LLY: 500, URX: 550, URY: 720})
+_ = tableElem
+```
+
 ### Text Extraction
 
 ```go

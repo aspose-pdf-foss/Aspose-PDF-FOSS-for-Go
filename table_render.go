@@ -596,9 +596,17 @@ func drawRowRange(
 			style := effectiveCellStyle(t, cell)
 
 			if bg := effectiveCellBackground(cell); bg != nil {
-				if err := targetPage.appendToContentStream([]byte(
-					drawCellBackground(cellLLX, cellLLY, cellURX, cellURY, bg),
-				)); err != nil {
+				emit := func() error {
+					return targetPage.appendToContentStream([]byte(
+						drawCellBackground(cellLLX, cellLLY, cellURX, cellURY, bg),
+					))
+				}
+				if t.tagger != nil {
+					err = targetPage.artifact(emit)
+				} else {
+					err = emit()
+				}
+				if err != nil {
 					return drawnHeight, fmt.Errorf("row %d col %d background: %w", i, col, err)
 				}
 			}
@@ -609,14 +617,22 @@ func drawRowRange(
 				URY: cellURY - margin.Top,
 			}
 			if interior.URX > interior.LLX && interior.URY > interior.LLY {
-				if cell.hasImage {
-					if err := drawImageInCell(targetPage, cell, interior, style); err != nil {
-						return drawnHeight, fmt.Errorf("row %d col %d image: %w", i, col, err)
+				drawContent := func() error {
+					if cell.hasImage {
+						return drawImageInCell(targetPage, cell, interior, style)
 					}
-				} else if cell.text != "" {
-					if err := targetPage.AddText(cell.text, style, interior); err != nil {
-						return drawnHeight, fmt.Errorf("row %d col %d text: %w", i, col, err)
+					if cell.text != "" {
+						return targetPage.AddText(cell.text, style, interior)
 					}
+					return nil
+				}
+				if t.tagger != nil {
+					err = t.tagger.tagCell(targetPage, i, drawContent)
+				} else {
+					err = drawContent()
+				}
+				if err != nil {
+					return drawnHeight, fmt.Errorf("row %d col %d content: %w", i, col, err)
 				}
 			}
 			border := effectiveCellBorder(t, cell)
@@ -629,7 +645,15 @@ func drawRowRange(
 		drawnHeight += rowH
 	}
 	if borderOps.Len() > 0 {
-		if err := targetPage.appendToContentStream([]byte(borderOps.String())); err != nil {
+		emit := func() error {
+			return targetPage.appendToContentStream([]byte(borderOps.String()))
+		}
+		if t.tagger != nil {
+			err = targetPage.artifact(emit)
+		} else {
+			err = emit()
+		}
+		if err != nil {
 			return drawnHeight, fmt.Errorf("rows [%d..%d] borders: %w", startRow, endRow, err)
 		}
 	}
@@ -653,7 +677,11 @@ func drawOuterBorder(targetPage *Page, t *Table, rect Rectangle, topY, drawnHeig
 	if ops == "" {
 		return nil
 	}
-	return targetPage.appendToContentStream([]byte(ops))
+	emit := func() error { return targetPage.appendToContentStream([]byte(ops)) }
+	if t.tagger != nil {
+		return targetPage.artifact(emit)
+	}
+	return emit()
 }
 
 // overlayTextStyle returns base with every non-zero field of overlay applied
