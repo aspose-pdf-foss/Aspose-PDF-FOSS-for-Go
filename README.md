@@ -1470,7 +1470,21 @@ flow := doc.NewFlow(pdf.FlowOptions{Tagged: tc})
 // … add elements … then flow.Render(); doc.ValidatePDFUA() is Conformant
 ```
 
-Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model. (Floating boxes, text flow-around and multi-column layout are not yet implemented.)
+**Floating boxes** are positioned containers (border/background/padding + their own content). Place one absolutely on a page, or insert it into a flow where it takes its measured height:
+
+```go
+box := pdf.NewFloatingBox().
+    SetBackground(&pdf.Color{R: 0.95, G: 0.95, B: 0.8, A: 1}).
+    SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
+    SetPadding(pdf.MarginInfo{Top: 10, Right: 10, Bottom: 10, Left: 10}).
+    AddHeading(3, "Note", pdf.TextStyle{}).
+    AddParagraph("A callout box; its content flows inside.", pdf.TextStyle{})
+
+page.AddFloatingBox(box, pdf.Rectangle{LLX: 300, LLY: 600, URX: 545, URY: 760}) // absolute
+flow.AddFloatingBox(box) // or in the flow, at its measured height
+```
+
+Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox`. (Text flow-around and multi-column layout are not yet implemented.)
 
 ### Creating Blank Documents
 

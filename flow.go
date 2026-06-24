@@ -41,6 +41,7 @@ const (
 	fkTable
 	fkList
 	fkSpacer
+	fkBox
 )
 
 type flowElem struct {
@@ -55,6 +56,7 @@ type flowElem struct {
 	items      []string
 	ordered    bool
 	height     float64
+	box        *FloatingBox
 }
 
 // NewFlow creates a flow that renders into the document d.
@@ -126,6 +128,13 @@ func (f *Flow) AddSpacer(height float64) *Flow {
 	return f
 }
 
+// AddFloatingBox appends a floating box, which takes its measured height in the
+// flow (moving to a new page if it does not fit).
+func (f *Flow) AddFloatingBox(box *FloatingBox) *Flow {
+	f.elems = append(f.elems, flowElem{kind: fkBox, box: box})
+	return f
+}
+
 // flowState carries the cursor during Render.
 type flowState struct {
 	f                     *Flow
@@ -133,7 +142,12 @@ type flowState struct {
 	y                     float64
 	contentW, top, bottom float64
 	pages                 int
+	parent                *StructElement // tagging parent (nil = untagged)
+	boxed                 bool           // true = single rectangle, no pagination
 }
+
+// errBoxFull stops layout inside a floating box when its rectangle is full.
+var errBoxFull = fmt.Errorf("flow: box full")
 
 // Render lays out the queued elements into the document and returns the number
 // of pages the flow occupies.
@@ -146,6 +160,9 @@ func (f *Flow) Render() (int, error) {
 	}
 	if s.contentW <= 0 || s.top <= s.bottom {
 		return 0, fmt.Errorf("flow: margins leave no content area")
+	}
+	if f.tc != nil {
+		s.parent = f.tc.Root()
 	}
 	if err := s.startPage(); err != nil {
 		return 0, err
@@ -177,6 +194,9 @@ func (s *flowState) startPage() error {
 }
 
 func (s *flowState) newPage() error {
+	if s.boxed {
+		return errBoxFull
+	}
 	if err := s.f.doc.AddBlankPage(s.f.w, s.f.h); err != nil {
 		return err
 	}
@@ -208,6 +228,8 @@ func (s *flowState) place(el flowElem) error {
 		return s.flowTable(el.table)
 	case fkList:
 		return s.flowList(el)
+	case fkBox:
+		return s.flowBox(el.box)
 	}
 	return nil
 }
@@ -255,16 +277,9 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 }
 
 func (s *flowState) flowImage(el flowElem) error {
-	w, h := el.imgW, el.imgH
+	w, h := resolveImageSize(el)
 	if w <= 0 {
 		return fmt.Errorf("flow: image width must be positive")
-	}
-	if h <= 0 {
-		if iw, ih, err := imageAspect(el.imgPath); err == nil && iw > 0 {
-			h = w * float64(ih) / float64(iw)
-		} else {
-			h = w
-		}
 	}
 	if h > s.top-s.bottom {
 		// Scale down to fit a full content area.
@@ -278,8 +293,8 @@ func (s *flowState) flowImage(el flowElem) error {
 	rect := Rectangle{LLX: s.f.mL, LLY: s.y - h, URX: s.f.mL + w, URY: s.y}
 	st := StructFigure
 	draw := func() error { return s.page.AddImage(el.imgPath, rect) }
-	if s.f.tc != nil {
-		fig, err := s.page.TagContent(s.f.tc.Root(), st, draw)
+	if s.parent != nil {
+		fig, err := s.page.TagContent(s.parent, st, draw)
 		if err != nil {
 			return err
 		}
@@ -324,8 +339,8 @@ func (s *flowState) flowTable(t *Table) error {
 	}
 	rect := Rectangle{LLX: s.f.mL, LLY: s.bottom, URX: s.f.mL + tableW, URY: s.y}
 	var pagesAdded int
-	if s.f.tc != nil {
-		_, pagesAdded, err = s.page.AddTaggedTable(s.f.tc, s.f.tc.Root(), t, rect)
+	if s.parent != nil {
+		_, pagesAdded, err = s.page.AddTaggedTable(s.f.tc, s.parent, t, rect)
 	} else {
 		pagesAdded, err = s.page.AddTable(t, rect)
 	}
@@ -357,8 +372,8 @@ func (s *flowState) flowList(el flowElem) error {
 	}
 	rect := Rectangle{LLX: s.f.mL, LLY: s.bottom, URX: s.f.mL + s.contentW, URY: s.y}
 	var list *StructElement
-	if s.f.tc != nil {
-		list = s.f.tc.Root().AddChild(StructList)
+	if s.parent != nil {
+		list = s.parent.AddChild(StructList)
 	}
 	used, err := drawList(s.page, el.items, style, rect, el.ordered, list)
 	if err != nil {
@@ -371,8 +386,8 @@ func (s *flowState) flowList(el flowElem) error {
 // draw runs the drawing callback, wrapping it in a structure element of type st
 // when the flow is tagged.
 func (s *flowState) draw(st StructType, fn func() error) error {
-	if s.f.tc != nil {
-		_, err := s.page.TagContent(s.f.tc.Root(), st, fn)
+	if s.parent != nil {
+		_, err := s.page.TagContent(s.parent, st, fn)
 		return err
 	}
 	return fn()
