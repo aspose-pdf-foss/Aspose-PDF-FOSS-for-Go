@@ -1484,7 +1484,16 @@ page.AddFloatingBox(box, pdf.Rectangle{LLX: 300, LLY: 600, URX: 545, URY: 760}) 
 flow.AddFloatingBox(box) // or in the flow, at its measured height
 ```
 
-Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox`. (Text flow-around and multi-column layout are not yet implemented.)
+**Multi-column** layout is one option away — content fills each column top-to-bottom, then the next column, then the next page:
+
+```go
+flow := doc.NewFlow(pdf.FlowOptions{Columns: 2}) // two-column newsletter
+flow.AddHeading(2, "Newsletter", pdf.TextStyle{})
+flow.AddParagraph(longText, pdf.TextStyle{})
+flow.Render()
+```
+
+Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox` / columns. (Text flow-around a floated box is not yet implemented.)
 
 ### Creating Blank Documents
 

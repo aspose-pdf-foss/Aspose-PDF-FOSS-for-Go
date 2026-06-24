@@ -20,6 +20,8 @@ type Flow struct {
 	w, h           float64
 	mL, mR, mT, mB float64
 	paraGap        float64
+	cols           int
+	colGap         float64
 	tc             *TaggedContent
 	elems          []flowElem
 }
@@ -29,6 +31,8 @@ type FlowOptions struct {
 	Format                                           PageFormat     // zero → A4
 	MarginLeft, MarginRight, MarginTop, MarginBottom float64        // zero → 54pt
 	ParagraphSpacing                                 float64        // gap after each block; zero → 6pt
+	Columns                                          int            // ≤1 → single column; >1 → multi-column flow
+	ColumnGap                                        float64        // gap between columns; zero → 18pt
 	Tagged                                           *TaggedContent // non-nil → auto-tag elements (Tagged PDF / PDF/UA)
 }
 
@@ -71,6 +75,10 @@ func (d *Document) NewFlow(opts FlowOptions) *Flow {
 		}
 		return v
 	}
+	cols := opts.Columns
+	if cols < 1 {
+		cols = 1
+	}
 	return &Flow{
 		doc:     d,
 		w:       format.Width,
@@ -80,6 +88,8 @@ func (d *Document) NewFlow(opts FlowOptions) *Flow {
 		mT:      def(opts.MarginTop, 54),
 		mB:      def(opts.MarginBottom, 54),
 		paraGap: def(opts.ParagraphSpacing, 6),
+		cols:    cols,
+		colGap:  def(opts.ColumnGap, 18),
 		tc:      opts.Tagged,
 	}
 }
@@ -144,6 +154,8 @@ type flowState struct {
 	pages                 int
 	parent                *StructElement // tagging parent (nil = untagged)
 	boxed                 bool           // true = single rectangle, no pagination
+	col, cols             int            // current column / column count
+	colGap                float64        // gap between columns
 }
 
 // errBoxFull stops layout inside a floating box when its rectangle is full.
@@ -152,14 +164,22 @@ var errBoxFull = fmt.Errorf("flow: box full")
 // Render lays out the queued elements into the document and returns the number
 // of pages the flow occupies.
 func (f *Flow) Render() (int, error) {
+	cols := f.cols
+	if cols < 1 {
+		cols = 1
+	}
+	totalW := f.w - f.mL - f.mR
+	colW := (totalW - float64(cols-1)*f.colGap) / float64(cols)
 	s := &flowState{
 		f:        f,
-		contentW: f.w - f.mL - f.mR,
+		contentW: colW,
 		top:      f.h - f.mT,
 		bottom:   f.mB,
+		cols:     cols,
+		colGap:   f.colGap,
 	}
-	if s.contentW <= 0 || s.top <= s.bottom {
-		return 0, fmt.Errorf("flow: margins leave no content area")
+	if colW <= 0 || s.top <= s.bottom {
+		return 0, fmt.Errorf("flow: margins/columns leave no content area")
 	}
 	if f.tc != nil {
 		s.parent = f.tc.Root()
@@ -193,10 +213,26 @@ func (s *flowState) startPage() error {
 	return s.newPage()
 }
 
-func (s *flowState) newPage() error {
+// advance moves to the next column, or the next page once the last column on the
+// current page is full. Inside a box it stops layout instead (errBoxFull).
+func (s *flowState) advance() error {
 	if s.boxed {
 		return errBoxFull
 	}
+	if s.col < s.cols-1 {
+		s.col++
+		s.y = s.top
+		return nil
+	}
+	return s.newPage()
+}
+
+// colLeft is the left X of the current column.
+func (s *flowState) colLeft() float64 {
+	return s.f.mL + float64(s.col)*(s.contentW+s.colGap)
+}
+
+func (s *flowState) newPage() error {
 	if err := s.f.doc.AddBlankPage(s.f.w, s.f.h); err != nil {
 		return err
 	}
@@ -205,6 +241,7 @@ func (s *flowState) newPage() error {
 		return err
 	}
 	s.page = p
+	s.col = 0
 	s.y = s.top
 	s.pages++
 	return nil
@@ -215,7 +252,7 @@ func (s *flowState) place(el flowElem) error {
 	case fkSpacer:
 		s.y -= el.height
 		if s.y < s.bottom {
-			return s.newPage()
+			return s.advance()
 		}
 		return nil
 	case fkParagraph:
@@ -252,7 +289,7 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 	for len(lines) > 0 {
 		fit := int((s.y - s.bottom) / lh)
 		if fit < 1 {
-			if err := s.newPage(); err != nil {
+			if err := s.advance(); err != nil {
 				return err
 			}
 			fit = int((s.y - s.bottom) / lh)
@@ -266,7 +303,7 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 		chunk := strings.Join(lines[:fit], "\n")
 		lines = lines[fit:]
 		blockH := float64(fit) * lh
-		rect := Rectangle{LLX: s.f.mL, LLY: s.y - blockH, URX: s.f.mL + s.contentW, URY: s.y}
+		rect := Rectangle{LLX: s.colLeft(), LLY: s.y - blockH, URX: s.colLeft() + s.contentW, URY: s.y}
 		if err := s.draw(st, func() error { return s.page.AddText(chunk, style, rect) }); err != nil {
 			return err
 		}
@@ -286,11 +323,11 @@ func (s *flowState) flowImage(el flowElem) error {
 		h = s.top - s.bottom
 	}
 	if s.y-h < s.bottom {
-		if err := s.newPage(); err != nil {
+		if err := s.advance(); err != nil {
 			return err
 		}
 	}
-	rect := Rectangle{LLX: s.f.mL, LLY: s.y - h, URX: s.f.mL + w, URY: s.y}
+	rect := Rectangle{LLX: s.colLeft(), LLY: s.y - h, URX: s.colLeft() + w, URY: s.y}
 	st := StructFigure
 	draw := func() error { return s.page.AddImage(el.imgPath, rect) }
 	if s.parent != nil {
@@ -333,11 +370,11 @@ func (s *flowState) flowTable(t *Table) error {
 	// Place on the current page if it fits; otherwise on a fresh page; tables
 	// taller than a page are paginated by AddTable.
 	if tableH > s.y-s.bottom && tableH <= s.top-s.bottom {
-		if err := s.newPage(); err != nil {
+		if err := s.advance(); err != nil {
 			return err
 		}
 	}
-	rect := Rectangle{LLX: s.f.mL, LLY: s.bottom, URX: s.f.mL + tableW, URY: s.y}
+	rect := Rectangle{LLX: s.colLeft(), LLY: s.bottom, URX: s.colLeft() + tableW, URY: s.y}
 	var pagesAdded int
 	if s.parent != nil {
 		_, pagesAdded, err = s.page.AddTaggedTable(s.f.tc, s.parent, t, rect)
@@ -366,11 +403,11 @@ func (s *flowState) flowList(el flowElem) error {
 	style := paragraphStyle(el.style)
 	listH := listHeight(el.items, style, s.contentW)
 	if listH > s.y-s.bottom && listH <= s.top-s.bottom {
-		if err := s.newPage(); err != nil {
+		if err := s.advance(); err != nil {
 			return err
 		}
 	}
-	rect := Rectangle{LLX: s.f.mL, LLY: s.bottom, URX: s.f.mL + s.contentW, URY: s.y}
+	rect := Rectangle{LLX: s.colLeft(), LLY: s.bottom, URX: s.colLeft() + s.contentW, URY: s.y}
 	var list *StructElement
 	if s.parent != nil {
 		list = s.parent.AddChild(StructList)

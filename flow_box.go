@@ -101,11 +101,11 @@ func (s *flowState) flowBox(box *FloatingBox) error {
 	}
 	boxH := measureFlowElems(box.elems, innerW, box.paraGap) + box.padding.Top + box.padding.Bottom
 	if boxH > s.y-s.bottom && boxH <= s.top-s.bottom {
-		if err := s.newPage(); err != nil {
+		if err := s.advance(); err != nil {
 			return err
 		}
 	}
-	rect := Rectangle{LLX: s.f.mL, LLY: s.y - boxH, URX: s.f.mL + s.contentW, URY: s.y}
+	rect := Rectangle{LLX: s.colLeft(), LLY: s.y - boxH, URX: s.colLeft() + s.contentW, URY: s.y}
 	if err := drawBoxFrame(s.page, box, rect); err != nil {
 		return err
 	}
