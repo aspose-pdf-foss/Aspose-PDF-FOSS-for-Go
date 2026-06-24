@@ -30,23 +30,56 @@ func (p *Page) AddTaggedList(tc *TaggedContent, parent *StructElement, items []s
 	if parent == nil {
 		parent = tc.root
 	}
-	size := style.Size
+	list := parent.AddChild(StructList)
+	if _, err := drawList(p, items, style, rect, ordered, list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// listMetrics returns the label column width and inter-item gap for a list at
+// the given font size.
+func listMetrics(size float64) (labelW, gap float64) {
 	if size <= 0 {
 		size = 12
 	}
-	labelW := size * 1.9 // room for "99." and a gap
-	gap := size * 0.4
+	return size * 1.9, size * 0.4 // room for "99." plus a gap
+}
+
+// listHeight returns the total height a list of items occupies within contentW.
+func listHeight(items []string, style TextStyle, contentW float64) float64 {
+	labelW, gap := listMetrics(style.Size)
+	bodyW := contentW - labelW
+	if bodyW <= 0 {
+		return 0
+	}
+	var total float64
+	for _, item := range items {
+		lines, lineH, err := measureText(item, style, bodyW)
+		if err != nil || lines < 1 {
+			lines = 1
+		}
+		total += float64(lines)*lineH + gap
+	}
+	return total
+}
+
+// drawList lays out a bulleted/numbered list in rect and returns the height
+// consumed. When list is non-nil each item is tagged as /LI → /Lbl+/LBody under
+// it (the page must belong to a tagged document); otherwise the items are drawn
+// untagged.
+func drawList(page *Page, items []string, style TextStyle, rect Rectangle, ordered bool, list *StructElement) (float64, error) {
+	labelW, gap := listMetrics(style.Size)
 	bodyW := rect.URX - (rect.LLX + labelW)
 	if bodyW <= 0 {
-		return nil, fmt.Errorf("AddTaggedList: rect too narrow for the list")
+		return 0, fmt.Errorf("list: rect too narrow")
 	}
-
-	list := parent.AddChild(StructList)
-	y := rect.URY
+	startY := rect.URY
+	y := startY
 	for i, item := range items {
 		lines, lineH, err := measureText(item, style, bodyW)
 		if err != nil {
-			return nil, err
+			return startY - y, err
 		}
 		if lines < 1 {
 			lines = 1
@@ -55,25 +88,32 @@ func (p *Page) AddTaggedList(tc *TaggedContent, parent *StructElement, items []s
 		if y-itemH < rect.LLY {
 			break // would overflow the rectangle
 		}
-		label := "•" // bullet
+		label := "•"
 		if ordered {
 			label = fmt.Sprintf("%d.", i+1)
 		}
 		labelRect := Rectangle{LLX: rect.LLX, LLY: y - lineH, URX: rect.LLX + labelW - gap, URY: y}
 		bodyRect := Rectangle{LLX: rect.LLX + labelW, LLY: y - itemH, URX: rect.URX, URY: y}
+		drawLabel := func() error { return page.AddText(label, style, labelRect) }
+		drawBody := func() error { return page.AddText(item, style, bodyRect) }
 
-		li := list.AddChild(StructListItem)
-		if _, err := p.TagContent(li, StructLabel, func() error {
-			return p.AddText(label, style, labelRect)
-		}); err != nil {
-			return nil, err
-		}
-		if _, err := p.TagContent(li, StructListBody, func() error {
-			return p.AddText(item, style, bodyRect)
-		}); err != nil {
-			return nil, err
+		if list != nil {
+			li := list.AddChild(StructListItem)
+			if _, err := page.TagContent(li, StructLabel, drawLabel); err != nil {
+				return startY - y, err
+			}
+			if _, err := page.TagContent(li, StructListBody, drawBody); err != nil {
+				return startY - y, err
+			}
+		} else {
+			if err := drawLabel(); err != nil {
+				return startY - y, err
+			}
+			if err := drawBody(); err != nil {
+				return startY - y, err
+			}
 		}
 		y -= itemH + gap
 	}
-	return list, nil
+	return startY - y, nil
 }

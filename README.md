@@ -61,6 +61,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Digital signatures** — sign (`Document.Sign`) with a PKCS#7-detached signature (SHA-256, RSA or ECDSA) covering the whole file — invisible or a visible "Digitally signed by …" appearance block, optionally **PAdES** (ETSI.CAdES.detached), a **certification** (DocMDP) signature, and an **RFC 3161 trusted timestamp** — and verify (`Document.VerifySignatures`) integrity, coverage, and the signer certificate. **Multiple signatures** are supported: re-signing an already-signed document appends an incremental update so earlier signatures stay valid. **Encrypted documents** (RC4-128 / AES-128 / AES-256) can be signed as well. The PKCS#7/CMS is built on the standard library alone (no external dependency); output validates in OpenSSL and pyHanko (incl. the timestamp token as trusted, earlier signatures as intact, and encrypted files as `ENTIRE_FILE`). Keys are passed as `crypto.Signer` + `*x509.Certificate` — no `.p12` file required
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
+- **Flow layout (document generator)** — `Document.NewFlow(...)` lays content out top-to-bottom and **paginates automatically**: chainable `AddParagraph`/`AddHeading`/`AddImage`/`AddTable`/`AddList`/`AddSpacer`, then `Render()`. An additive layer over the Rectangle API; set `FlowOptions.Tagged` and every element is auto-tagged for a one-call PDF/UA-conformant report. Mirrors Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model (floating boxes/columns TBD)
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
 - **Validate** — check structural integrity of a PDF file
@@ -1441,6 +1442,35 @@ doc.SaveLinearized("web-optimized.pdf")
 ```
 
 > The output is an ordinary PDF that any reader opens normally (Acrobat shows "Fast Web View: Yes"). Encryption and signing cannot be combined with linearization. Mirrors the intent of Aspose.PDF for .NET's linearized save.
+
+### Flow Layout (Auto-Paginating Document Generator)
+
+Instead of positioning every element by `Rectangle`, build a document that **flows** top-to-bottom and paginates itself:
+
+```go
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+
+flow := doc.NewFlow(pdf.FlowOptions{}) // default A4, 54pt margins
+flow.AddHeading(1, "Annual Report", pdf.TextStyle{})
+flow.AddParagraph(longText, pdf.TextStyle{})       // wraps and splits across pages
+flow.AddImage("chart.png", 300, 0)                 // height 0 → preserve aspect
+flow.AddTable(table)                               // paginates if tall
+flow.AddList([]string{"First", "Second"}, true, pdf.TextStyle{})
+
+pages, _ := flow.Render() // lays it all out, appending pages as needed
+doc.Save("report.pdf")
+```
+
+The flow is an additive layer over the Rectangle drawing API (it computes the rectangles for you). Set `FlowOptions.Tagged` to a `TaggedContent` and every element is **auto-tagged** — one call produces a PDF/UA-conformant accessible document:
+
+```go
+tc := doc.TaggedContent()
+tc.SetTitle("Report"); tc.SetLanguage("en-US")
+flow := doc.NewFlow(pdf.FlowOptions{Tagged: tc})
+// … add elements … then flow.Render(); doc.ValidatePDFUA() is Conformant
+```
+
+Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model. (Floating boxes, text flow-around and multi-column layout are not yet implemented.)
 
 ### Creating Blank Documents
 
