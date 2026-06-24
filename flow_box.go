@@ -67,6 +67,11 @@ func (b *FloatingBox) SetBackground(c *Color) *FloatingBox { b.background = c; r
 // SetPadding sets the inner padding between the border and the content.
 func (b *FloatingBox) SetPadding(m MarginInfo) *FloatingBox { b.padding = m; return b }
 
+// SetSpacing sets the vertical gap between the box's elements (default 6pt). Set
+// it to 0 for a single-paragraph box so the content sits flush with the padding
+// (and symmetric padding then centres it vertically).
+func (b *FloatingBox) SetSpacing(gap float64) *FloatingBox { b.paraGap = gap; return b }
+
 // AddFloatingBox draws box at an absolute position inside rect: it paints the
 // background and border, then lays out the box content within rect minus
 // padding (content that overflows the box is clipped). When the document is
@@ -125,11 +130,7 @@ func (s *flowState) flowBox(box *FloatingBox) error {
 // pagination) and returns the height consumed. parent is the tagging container
 // (nil = untagged).
 func (b *FloatingBox) layout(page *Page, contentRect Rectangle, parent *StructElement) (float64, error) {
-	gap := b.paraGap
-	if gap <= 0 {
-		gap = 6
-	}
-	sf := &Flow{doc: page.doc, mL: contentRect.LLX, paraGap: gap, tc: page.docTagged()}
+	sf := &Flow{doc: page.doc, mL: contentRect.LLX, paraGap: b.paraGap, tc: page.docTagged()}
 	s := &flowState{
 		f:        sf,
 		page:     page,
@@ -159,24 +160,61 @@ func (p *Page) docTagged() *TaggedContent {
 	return p.doc.tagged
 }
 
-// drawBoxFrame paints the box background and border (as an artifact when tagged).
+// drawBoxFrame paints the box background and border, honoring BorderInfo.Sides
+// (so a single side renders as a rule rather than a full outline). Drawn as an
+// artifact when the document is tagged.
 func drawBoxFrame(page *Page, box *FloatingBox, rect Rectangle) error {
-	if box.background == nil && (box.border.Sides == BorderSideNone || box.border.Width <= 0) {
+	hasBorder := box.border.Sides != BorderSideNone && box.border.Width > 0
+	if box.background == nil && !hasBorder {
 		return nil
 	}
-	style := ShapeStyle{FillColor: box.background}
-	if box.border.Sides != BorderSideNone && box.border.Width > 0 {
+	paint := func() error {
+		if box.background != nil {
+			if err := page.DrawRectangle(rect, ShapeStyle{FillColor: box.background}); err != nil {
+				return err
+			}
+		}
+		if !hasBorder {
+			return nil
+		}
 		col := box.border.Color
 		if col == nil {
 			col = &Color{A: 1}
 		}
-		style.LineStyle = LineStyle{Color: col, Width: box.border.Width}
+		ls := LineStyle{Color: col, Width: box.border.Width}
+		if box.border.Sides == BorderSideAll {
+			return page.DrawRectangle(rect, ShapeStyle{LineStyle: ls})
+		}
+		tl := Point{X: rect.LLX, Y: rect.URY}
+		tr := Point{X: rect.URX, Y: rect.URY}
+		bl := Point{X: rect.LLX, Y: rect.LLY}
+		br := Point{X: rect.URX, Y: rect.LLY}
+		if box.border.Sides&BorderSideTop != 0 {
+			if err := page.DrawLine(tl, tr, ls); err != nil {
+				return err
+			}
+		}
+		if box.border.Sides&BorderSideRight != 0 {
+			if err := page.DrawLine(tr, br, ls); err != nil {
+				return err
+			}
+		}
+		if box.border.Sides&BorderSideBottom != 0 {
+			if err := page.DrawLine(bl, br, ls); err != nil {
+				return err
+			}
+		}
+		if box.border.Sides&BorderSideLeft != 0 {
+			if err := page.DrawLine(tl, bl, ls); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	draw := func() error { return page.DrawRectangle(rect, style) }
 	if page.doc != nil && page.doc.tagged != nil {
-		return page.artifact(draw)
+		return page.artifact(paint)
 	}
-	return draw()
+	return paint()
 }
 
 // boxContentRect returns the rectangle inside rect after applying padding.

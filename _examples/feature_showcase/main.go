@@ -70,6 +70,7 @@ const (
 	destLandscape = "section.landscape"
 	destVector    = "section.vector"
 	destFlatten   = "section.flatten"
+	destFlow      = "section.flow"
 	destRender    = "section.render"
 )
 
@@ -138,6 +139,15 @@ func main() {
 	flattenPage, _ := doc.Page(doc.PageCount())
 	addFlattenDemo(doc, flattenPage)
 
+	// Flow Layout & Floats — "Giants of Physics", a two-column tribute laid out
+	// entirely by the document-generator flow engine (NewFlow): a portrait,
+	// heading, prose, a formula card and a pull-quote per column, split with a
+	// column break. The flow appends its own page(s) at the end, so capture the
+	// first one for the TOC/outline anchor.
+	flowStartCount := doc.PageCount()
+	addFlowShowcase(doc)
+	flowPage, _ := doc.Page(flowStartCount + 1)
+
 	// Page Rendering — a meta page whose thumbnails are renders of other pages
 	// of this very document, produced by the pure-Go renderer. Its content is
 	// filled in below, after the per-page furniture so the thumbnails show the
@@ -161,6 +171,7 @@ func main() {
 		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
+		{destFlow, "Flow Layout — Giants of Physics", "flow", flowPage},
 		{destRender, "Rendering & Imposition", "image", renderPage},
 	}
 	named := doc.NamedDestinations()
@@ -617,7 +628,7 @@ func addPageImage(page *pdf.Page) {
 	imgH := imgW * srcH / srcW
 	x := (size.Width - imgW) / 2
 	y := (size.Height - imgH) / 2
-	if err := page.AddImage("testdata/starry-night.jpg", pdf.Rectangle{
+	if err := page.AddImage("_examples/feature_showcase/assets/starry-night.jpg", pdf.Rectangle{
 		LLX: x, LLY: y, URX: x + imgW, URY: y + imgH,
 	}); err != nil {
 		log.Fatalf("add image: %v", err)
@@ -862,6 +873,122 @@ func addFlattenDemo(doc *pdf.Document, page *pdf.Page) {
 			HAlign: pdf.HAlignCenter,
 		},
 		pdf.Rectangle{LLX: 40, LLY: 495, URX: size.Width - 40, URY: 515}))
+}
+
+// ---------------------------------------------------------------------
+// Flow Layout — "Giants of Physics"
+//
+// A two-column tribute laid out entirely by the document-generator flow
+// engine (Document.NewFlow): a portrait, heading, prose, a formula card
+// and a pull-quote per column, split with AddColumnBreak so Newton owns
+// the left column and Einstein the right. Exercises AddImage, AddHeading,
+// AddParagraph, AddFloatingBox, AddList, Columns and AddColumnBreak.
+// ---------------------------------------------------------------------
+
+const (
+	assetNewton   = "_examples/feature_showcase/assets/newton.jpg"
+	assetEinstein = "_examples/feature_showcase/assets/einstein.jpg"
+)
+
+func addFlowShowcase(doc *pdf.Document) {
+	start := doc.PageCount()
+	indigo := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	ink := &pdf.Color{R: 0.15, G: 0.16, B: 0.20, A: 1}
+	muted := &pdf.Color{R: 0.42, G: 0.42, B: 0.48, A: 1}
+
+	// The formula card uses the embedded DejaVu Sans so the sub/superscripts
+	// (m₁m₂, r², mc²) render; the Standard-14 fonts cover the rest.
+	formulaFont, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		log.Fatalf("flow: load DejaVu: %v", err)
+	}
+
+	body := pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9.5, Color: ink, LineSpacing: 1.4}
+	h2 := pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 15, Color: indigo}
+	caption := pdf.TextStyle{Font: pdf.FontHelveticaOblique, Size: 8, Color: muted, HAlign: pdf.HAlignCenter}
+	lede := pdf.TextStyle{Font: pdf.FontHelveticaBoldOblique, Size: 10, Color: indigo, LineSpacing: 1.3}
+
+	// Landscape "centerfold": two columns wide enough for the portrait to be
+	// floated so the heading and prose wrap around it (text flow-around).
+	flow := doc.NewFlow(pdf.FlowOptions{
+		Format:           pdf.PageFormatA4.Landscape(),
+		Columns:          2,
+		ColumnGap:        34,
+		MarginLeft:       48,
+		MarginRight:      48,
+		MarginTop:        128,
+		MarginBottom:     52,
+		ParagraphSpacing: 7,
+	})
+
+	giant := func(img, name, dates, tagline, prose, formula, quote string, bullets []string, accent *pdf.Color) {
+		// Portrait + caption as a left-floated box; the heading and prose wrap
+		// around it — to its right and then on under it at full column width.
+		flow.AddFloatBox(pdf.NewFloatingBox().
+			SetSpacing(2).
+			AddImage(img, 112, 0).
+			AddParagraph(dates, caption), pdf.FloatLeft, 112)
+		flow.AddHeading(2, name, h2)
+		flow.AddParagraph(tagline, lede)
+		flow.AddParagraph(prose, body)
+		// Formula card — an in-flow FloatingBox (SetSpacing(0) + symmetric
+		// padding centres the single line vertically).
+		flow.AddFloatingBox(pdf.NewFloatingBox().
+			SetSpacing(0).
+			SetBackground(&pdf.Color{R: 0.95, G: 0.96, B: 1, A: 1}).
+			SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 0.7, Color: accent}).
+			SetPadding(pdf.MarginInfo{Top: 11, Right: 8, Bottom: 11, Left: 8}).
+			AddParagraph(formula, pdf.TextStyle{Font: formulaFont, Size: 15, Color: indigo, HAlign: pdf.HAlignCenter}))
+		// Pull-quote — an in-flow FloatingBox with a left rule, text centred.
+		flow.AddFloatingBox(pdf.NewFloatingBox().
+			SetSpacing(0).
+			SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideLeft, Width: 3, Color: accent}).
+			SetPadding(pdf.MarginInfo{Top: 9, Right: 6, Bottom: 9, Left: 12}).
+			AddParagraph(quote, pdf.TextStyle{Font: pdf.FontTimesItalic, Size: 10, Color: muted, LineSpacing: 1.15}))
+		flow.AddList(bullets, false, pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9, Color: ink, LineSpacing: 1.3})
+	}
+
+	giant(assetNewton,
+		"Isaac Newton",
+		"Woolsthorpe, 1643  —  London, 1727",
+		"The architect of classical mechanics.",
+		"Newton's Principia Mathematica (1687) unified terrestrial and celestial motion under a single law of universal gravitation, and his three laws of motion became the bedrock of physics for the next two centuries. Working in near-isolation during the plague years at Woolsthorpe, he also co-invented the calculus, and in the Opticks he demonstrated with prisms that white light is a mixture of colours. A reflecting telescope of his own design and studies of cooling and the speed of sound rounded out a singular career. As Lucasian Professor at Cambridge, and later Master of the Royal Mint, he pursued mathematics, alchemy and theology with the same relentless focus. Elected President of the Royal Society in 1703, he was knighted by Queen Anne two years later — the first man of science to be so honoured.",
+		"F  =  G · m₁m₂ / r²",
+		"“If I have seen further it is by standing on the shoulders of Giants.”",
+		[]string{
+			"Laws of motion & universal gravitation",
+			"Co-invention of the calculus",
+			"Decomposition of white light (Opticks)",
+			"The reflecting telescope",
+		},
+		&pdf.Color{R: 0.55, G: 0.45, B: 0.20, A: 1})
+
+	flow.AddColumnBreak() // Newton fills the left column; Einstein opens the right.
+
+	giant(assetEinstein,
+		"Albert Einstein",
+		"Ulm, 1879  —  Princeton, 1955",
+		"The author of relativity.",
+		"Einstein's 1905 “miracle year” produced special relativity, the explanation of Brownian motion, the photoelectric effect — for which he received the 1921 Nobel Prize — and the mass–energy equivalence E = mc². A decade later, general relativity recast gravity as the curvature of spacetime, a description confirmed again and again, from starlight bending around the Sun in 1919 to the gravitational waves detected a century later. Born in Ulm and schooled in Munich and Zurich, he sketched his earliest ideas while working as a clerk in the Bern patent office. He left Germany for good in 1933, settled at the Institute for Advanced Study in Princeton, and spent his final years there — an outspoken advocate for pacifism and civil rights — pursuing a unified field theory.",
+		"E  =  mc²",
+		"“Imagination is more important than knowledge.”",
+		[]string{
+			"Special & general relativity",
+			"Mass–energy equivalence, E = mc²",
+			"Photoelectric effect (1921 Nobel Prize)",
+			"Foundations of modern cosmology",
+		},
+		&pdf.Color{R: 0.20, G: 0.40, B: 0.60, A: 1})
+
+	if _, err := flow.Render(); err != nil {
+		log.Fatalf("flow showcase: %v", err)
+	}
+
+	// Standard showcase header, drawn on the flow's first page (the flow left a
+	// top margin clear for it).
+	first, _ := doc.Page(start + 1)
+	sectionHeader(first, "Flow Layout — Giants of Physics",
+		"two columns  •  portraits floated with text wrap-around  •  formula cards  •  pull-quotes  •  lists  •  auto-layout")
 }
 
 func addAnnotations(page *pdf.Page) {
@@ -1390,7 +1517,7 @@ func addSalesReport(doc *pdf.Document, page *pdf.Page) {
 	logoRow := table.AddRow().SetHeight(54).SetBackground(navy)
 	logoRow.AddCell("").
 		SetColSpan(4).
-		SetImage("testdata/sales-banner.jpg").
+		SetImage("_examples/feature_showcase/assets/sales-banner.jpg").
 		SetHAlign(pdf.HAlignCenter).
 		SetVAlign(pdf.VAlignMiddle)
 
@@ -1802,7 +1929,7 @@ func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 	const logoSize = 220.0
 	logoX := (size.Width - logoSize) / 2
 	logoY := size.Height - 100 - logoSize // 100pt margin from the top
-	if svg, err := doc.LoadSVG("testdata/aspose-pinwheel.svg"); err == nil {
+	if svg, err := doc.LoadSVG("_examples/feature_showcase/assets/aspose-pinwheel.svg"); err == nil {
 		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
 			LLX: logoX, LLY: logoY, URX: logoX + logoSize, URY: logoY + logoSize,
 		}))
@@ -1871,7 +1998,7 @@ func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 	srcStart := srcEnd - srcW
 	ghEnd := srcStart - textGap
 	ghStart := ghEnd - githubW
-	if svg, err := doc.LoadSVG("testdata/github-mark.svg"); err == nil {
+	if svg, err := doc.LoadSVG("_examples/feature_showcase/assets/github-mark.svg"); err == nil {
 		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
 			LLX: ghStart, LLY: linkY, URX: ghEnd, URY: linkY + iconH,
 		}))
@@ -1897,7 +2024,7 @@ func addCoverPage(doc *pdf.Document, page *pdf.Page) {
 	goEnd := goStart + goW
 	apiStart := goEnd + textGap
 	apiEnd := apiStart + apiW
-	if svg, err := doc.LoadSVG("testdata/go-logo.svg"); err == nil {
+	if svg, err := doc.LoadSVG("_examples/feature_showcase/assets/go-logo.svg"); err == nil {
 		mustErr(page.AddSVGObject(svg, pdf.Rectangle{
 			LLX: goStart, LLY: linkY, URX: goEnd, URY: linkY + iconH,
 		}))

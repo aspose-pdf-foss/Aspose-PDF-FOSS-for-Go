@@ -67,6 +67,30 @@ func TestFlowColumnsPaginate(t *testing.T) {
 	}
 }
 
+// TestFlowColumnBreak: AddColumnBreak moves the following content to the next
+// column, so a short left column still leaves the right column populated at top.
+func TestFlowColumnBreak(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	flow := doc.NewFlow(pdf.FlowOptions{Columns: 2})
+	flow.AddHeading(2, "Left heading", pdf.TextStyle{})
+	flow.AddParagraph("Just a little content on the left.", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11})
+	flow.AddColumnBreak()
+	flow.AddHeading(2, "Right heading", pdf.TextStyle{})
+	flow.AddParagraph("Content forced into the right column.", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11})
+	if _, err := flow.Render(); err != nil {
+		t.Fatal(err)
+	}
+	img, err := doc.RenderImage(1, pdf.RenderOptions{DPI: 96})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both headings sit in the same top band — one in each half of the page.
+	left, right := darkTextHalves(img, 70, 110, (img.Bounds().Min.X+img.Bounds().Max.X)/2)
+	if left == 0 || right == 0 {
+		t.Errorf("column break did not populate both columns: left=%d right=%d", left, right)
+	}
+}
+
 // TestFlowColumnsTagged: a tagged multi-column flow validates as PDF/UA and
 // round-trips.
 func TestFlowColumnsTagged(t *testing.T) {

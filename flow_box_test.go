@@ -75,6 +75,51 @@ func TestFloatingBoxInFlowTagged(t *testing.T) {
 	}
 }
 
+// TestFloatingBoxSideBorder: a box with BorderSideLeft renders only a left rule,
+// not a full outline.
+func TestFloatingBoxSideBorder(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	box := pdf.NewFloatingBox().
+		SetSpacing(0).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideLeft, Width: 4, Color: &pdf.Color{R: 0.9, A: 1}}).
+		SetPadding(pdf.MarginInfo{Top: 12, Right: 12, Bottom: 12, Left: 12}).
+		AddParagraph("Quote text", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12})
+	// rect spans x 100..300 pt, y 600..700 pt.
+	if err := p.AddFloatingBox(box, pdf.Rectangle{LLX: 100, LLY: 600, URX: 300, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+	img, err := doc.RenderImage(1, pdf.RenderOptions{DPI: 96})
+	if err != nil {
+		t.Fatal(err)
+	}
+	isRed := func(x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		return r > 40000 && g < 25000 && b < 25000
+	}
+	px := 96.0 / 72.0
+	ym := int((842 - 650) * px) // mid-height of the box
+	// The left edge carries the red rule; the right edge does not.
+	leftEdge := false
+	for x := int(98 * px); x < int(106*px); x++ {
+		if isRed(x, ym) {
+			leftEdge = true
+		}
+	}
+	rightEdge := false
+	for x := int(296 * px); x < int(304*px); x++ {
+		if isRed(x, ym) {
+			rightEdge = true
+		}
+	}
+	if !leftEdge {
+		t.Error("expected a left border rule")
+	}
+	if rightEdge {
+		t.Error("BorderSideLeft drew a right edge (full outline) — Sides not honored")
+	}
+}
+
 // TestFloatingBoxErrors covers the rejected inputs.
 func TestFloatingBoxErrors(t *testing.T) {
 	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)

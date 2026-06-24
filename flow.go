@@ -47,6 +47,7 @@ const (
 	fkSpacer
 	fkBox
 	fkFloat
+	fkColBreak
 )
 
 type flowElem struct {
@@ -138,6 +139,14 @@ func (f *Flow) AddList(items []string, ordered bool, style TextStyle) *Flow {
 // AddSpacer appends vertical space.
 func (f *Flow) AddSpacer(height float64) *Flow {
 	f.elems = append(f.elems, flowElem{kind: fkSpacer, height: height})
+	return f
+}
+
+// AddColumnBreak forces the following content to start in the next column (or,
+// from the last column, on the next page). A no-op in a single-column flow that
+// is already at the top of a page.
+func (f *Flow) AddColumnBreak() *Flow {
+	f.elems = append(f.elems, flowElem{kind: fkColBreak})
 	return f
 }
 
@@ -275,6 +284,12 @@ func (s *flowState) place(el flowElem) error {
 		return s.flowBox(el.box)
 	case fkFloat:
 		return s.placeFloat(el)
+	case fkColBreak:
+		// Already at the top of a fresh column with nothing drawn: stay put.
+		if s.y >= s.top {
+			return nil
+		}
+		return s.advance()
 	}
 	return nil
 }
