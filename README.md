@@ -1167,6 +1167,21 @@ tableElem, _, _ := page.AddTaggedTable(tc, tc.Root(), t,
 _ = tableElem
 ```
 
+Lists tag themselves too, and decoration (headers/footers, page numbers) is marked as an artifact so it stays out of the structure tree:
+
+```go
+// Bulleted (ordered=false) or numbered (ordered=true) list → /L → /LI → /Lbl+/LBody
+page.AddTaggedList(tc, tc.Root(), []string{"Apples", "Oranges", "Pears"},
+    pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12},
+    pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 720}, false)
+
+// A running footer is decoration, not structure:
+page.TagArtifact(func() error {
+    return page.AddText("Confidential", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9},
+        pdf.Rectangle{LLX: 50, LLY: 30, URX: 545, URY: 45})
+})
+```
+
 ### Text Extraction
 
 ```go
