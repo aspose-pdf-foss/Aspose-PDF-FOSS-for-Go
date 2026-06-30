@@ -41,4 +41,5 @@ type TextStyle struct {
 	Strikethrough bool
 	Rotation      float64 // degrees counter-clockwise; pivot = lower-left corner of rect; default 0
 	Behind        bool    // if true, text is drawn under existing page content; default false
+	RTL           bool    // if true, the paragraph base direction is right-to-left (Hebrew/Arabic); default false (auto-detected from the text when it contains RTL characters)
 }

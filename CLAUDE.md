@@ -146,7 +146,7 @@ Pure Go library. No external dependencies. All code is in the root package `aspo
 - `HAlign` — `HAlignLeft`, `HAlignCenter`, `HAlignRight`
 - `VAlign` — `VAlignTop`, `VAlignMiddle`, `VAlignBottom`
 - `TextStyle` struct — Font, Size, Color, Background, HAlign, VAlign, LineSpacing, Underline, Strikethrough, Rotation, Behind
-- `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, optional underline/strikethrough, rotation, and behind-content mode
+- `(*Page).AddText(text, style, rect) error` — draws text inside a rectangle with word wrap, alignment, clipping, optional underline/strikethrough, rotation, and behind-content mode. **RTL / bidirectional** (`bidi.go`, epic `pdf-go-emak` phase 1): when the text is `TextStyle.RTL` or contains any strong right-to-left character, each wrapped line is reordered into visual order by a pragmatic Unicode Bidi Algorithm (UAX #9: classes W1–W7 / N1–N2 / I1–I2 over a single line, L2 reordering, L4 mirroring) before glyph emission, and an RTL base paragraph defaults to right alignment. This runs entirely in the layout layer — the encoder and renderer are untouched. Hebrew is complete; Arabic is correctly ordered but glyphs are still isolated (contextual shaping is phase 2). Out of scope (phase 1): explicit embedding/isolate codes, the bracket-pair rule N0, and the L1 trailing-whitespace reset
 - `(*Document).AddTextWatermark(text, style, pageNums...) error` — applies a text watermark to all or selected pages using full-page rectangle from MediaBox
 
 **`stamp.go`** — stamp/overlay family; mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` hierarchy

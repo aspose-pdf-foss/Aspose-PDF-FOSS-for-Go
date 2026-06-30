@@ -83,6 +83,20 @@ func renderTextInBuilder(
 		return nil
 	}
 
+	// Bidirectional (RTL) layout: when the text is explicitly RTL or contains
+	// any strong right-to-left character, reorder each line into visual order
+	// (so the left-to-right glyph emission below draws it correctly) and flip
+	// the default alignment to the right for an RTL base paragraph.
+	needBidi := style.RTL || bidiHasStrongRTL(text)
+	baseLevel := 0
+	if needBidi {
+		baseLevel = bidiBaseLevel(text, style.RTL)
+	}
+	hAlign := style.HAlign
+	if baseLevel%2 == 1 && hAlign == HAlignLeft {
+		hAlign = HAlignRight
+	}
+
 	// Line height and total text height.
 	lineHeight := fontSize * lineSpacing
 	totalTextHeight := float64(len(lines)) * lineHeight
@@ -139,11 +153,14 @@ func renderTextInBuilder(
 		if line == "" {
 			continue
 		}
+		if needBidi {
+			line = bidiVisualString(line, baseLevel)
+		}
 		lineWidth := measureString(line, width)
 
 		// Horizontal alignment.
 		var x float64
-		switch style.HAlign {
+		switch hAlign {
 		case HAlignCenter:
 			x = rect.LLX + (rectWidth-lineWidth)/2
 		case HAlignRight:
