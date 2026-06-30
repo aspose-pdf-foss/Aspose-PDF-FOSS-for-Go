@@ -86,7 +86,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Page-label authoring** — `Document.SetPageLabels` writes the `/PageLabels` number tree (roman/decimal/alphabetic styles, prefix, start value) so viewers show logical labels; round-trips with the `Page.Label()` read path
 - **Document JavaScript & open action** — `Document.JavaScript()` is the document-level named-script collection (`/Catalog/Names/JavaScript`); `Document.SetOpenAction` sets the action run when the document opens (GoTo, JavaScript, …)
 - **Stream I/O** — open PDFs from any `io.Reader` via `OpenStream`/`OpenStreamWithPassword`; serialize to any `io.Writer` via `Document.WriteTo` (implements `io.WriterTo`)
-- **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press
+- **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`; `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press. Field values round-trip as **typed JSON** (`Form.ExportJSON` / `ImportJSON`) for template-fill and form-data interchange
 - **Font embedding & subsetting** — embed TrueType (`.ttf`) and OpenType-CFF (`.otf`) fonts with `Document.LoadFont` (full Unicode, Identity-H): TTF as `CIDFontType2`/`FontFile2`, OTF as `CIDFontType0`/`FontFile3`. Or resolve a font **by family name** with `Document.LoadFontByName("Calibri", bold, italic)` — searches registered folders/files (`AddFontFolder`/`AddFontFile`) then the OS fonts, and embeds the match (a `.ttc` collection face is re-wrapped as a standalone sfnt); mirrors Aspose.PDF for .NET's `FontRepository.FindFont`. `Document.SubsetFonts()` rebuilds each embedded TrueType font to keep only the glyphs actually drawn (composite-glyph aware, regenerates `glyf`/`loca`/`hmtx`/`CIDToGIDMap`), typically shrinking a font from hundreds of KB to a few KB (OTF keeps its full program)
 - **Linearization (fast web view)** — `Document.SaveLinearized(path)` / `WriteToLinearized(w)` write a linearized PDF (ISO 32000-1 Annex F) with the first page's objects and a hint table at the front of the file, so a viewer can render page 1 before the whole file downloads (Acrobat shows "Fast Web View: Yes"). The output is an ordinary PDF any reader opens normally; qpdf-validated for documents without cross-page shared resources. Mirrors the intent of Aspose.PDF for .NET's linearized save
 - **Tiling patterns** — `Document.CreateTilingPattern(w, h)` returns a pattern whose `Canvas()` you draw a cell into, then fill any shape with the repeating motif by setting `ShapeStyle.FillTiling` (with `SetStep` for gaps/overlap). Complements gradient fills for hatching, textures and repeated motifs; mirrors Aspose.PDF for .NET's colored tiling patterns
@@ -438,6 +438,20 @@ doc.Save("filled.pdf")
 ```
 
 Field values containing non-ASCII characters (e.g. Cyrillic) are encoded as UTF-16BE with a BOM so any spec-conforming viewer reads them back correctly.
+
+#### Form data as JSON
+
+Export every field value to a typed JSON document, and import it back into the same (or a template) PDF — separating the data from the document for storage, transmission, or bulk template-fill:
+
+```go
+// Export: {"name": {"type": "text", "value": "Jane"}, "subscribe": {"type": "checkbox", "value": true}, ...}
+data, _ := doc.Form().ExportJSON(pdf.JSONExportOptions{Indent: true})
+
+// Fill a template from a JSON payload; n = number of fields applied
+n, _ := template.Form().ImportJSON(data)
+```
+
+The value's JSON kind follows the field type (text/radio/combo → string, checkbox → bool, list box → array). Import dispatches on the target field's type and regenerates each widget's appearance, so imported values render in any viewer. Unknown field names are skipped.
 
 #### Building forms from scratch
 

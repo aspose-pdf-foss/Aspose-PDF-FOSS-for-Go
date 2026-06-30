@@ -39,6 +39,7 @@
   "TestFormFieldsCount":              [["PdfWithAcroForm.pdf"]],
   "TestFormFieldsTypes":              [["PdfWithAcroForm.pdf"]],
   "TestFormFieldAndFieldsSameInstance": [["PdfWithAcroForm.pdf"]],
+  "TestFormJSONExportRealFile":       [["PdfWithAcroForm.pdf"]],
   "TestTextBoxFieldRead":             [["PdfWithAcroForm.pdf"]],
   "TestTextBoxFieldRoundTrip":        [["PdfWithAcroForm.pdf"]],
   "TestCheckboxFieldRead":            [["PdfWithAcroForm.pdf"]],
