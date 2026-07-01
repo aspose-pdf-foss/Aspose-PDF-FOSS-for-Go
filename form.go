@@ -323,6 +323,20 @@ func (f *Form) noteFormMutatedInForm() {
 // *TextBoxField handle. Errors on duplicate name, invalid pageNum,
 // or empty name.
 func (f *Form) AddTextField(pageNum int, rect Rectangle, name string) (*TextBoxField, error) {
+	fld, err := f.addTextFieldConfigured(pageNum, rect, name, nil)
+	if err != nil {
+		return nil, err
+	}
+	return fld.(*TextBoxField), nil
+}
+
+// addTextFieldConfigured creates a text field (/FT /Tx) and returns the live
+// handle. configure (if non-nil) may set field-specific entries on the widget
+// dict — /Ff flags (Password/FileSelect/RichText) or an /AA format action
+// (Number/Date) — before it is finalized; those in turn drive which concrete
+// field type fieldFromNode returns. Shared by AddTextField and the typed
+// variants in form_fields_extra.go.
+func (f *Form) addTextFieldConfigured(pageNum int, rect Rectangle, name string, configure func(dict pdfDict)) (Field, error) {
 	if err := f.validateNewField(pageNum, name); err != nil {
 		return nil, err
 	}
@@ -346,6 +360,9 @@ func (f *Form) AddTextField(pageNum int, rect Rectangle, name string) (*TextBoxF
 		"/Rect":    rectToPDFArray(rect),
 		"/P":       pdfRef{Num: page.pageObj().Num},
 	}
+	if configure != nil {
+		configure(dict)
+	}
 
 	objID := f.doc.nextID
 	f.doc.nextID++
@@ -359,7 +376,7 @@ func (f *Form) AddTextField(pageNum int, rect Rectangle, name string) (*TextBoxF
 	f.noteFormMutatedInForm()
 	regenerateWidgetAppearance(f, dict)
 
-	return f.cache[name].(*TextBoxField), nil
+	return f.cache[name], nil
 }
 
 // validateNewField checks the common preconditions for any AddXxx call.
@@ -797,6 +814,19 @@ func (f *Form) RemoveField(name string) bool {
 func fieldFromNode(n *fieldNode) Field {
 	switch n.ft {
 	case "/Tx":
+		tb := TextBoxField{fieldBase{node: n}}
+		switch {
+		case n.ff&fieldFlagFileSelect != 0:
+			return &FileSelectBoxField{tb}
+		case n.ff&fieldFlagRichText != 0:
+			return &RichTextBoxField{tb}
+		case n.ff&fieldFlagPassword != 0:
+			return &PasswordBoxField{tb}
+		case nodeHasFormatJS(n, "AFNumber"):
+			return &NumberField{tb}
+		case nodeHasFormatJS(n, "AFDate"):
+			return &DateField{tb}
+		}
 		return &TextBoxField{fieldBase{node: n}}
 	case "/Btn":
 		switch {

@@ -107,13 +107,14 @@ func (f *Form) ReadJSON(r io.Reader) (int, error) {
 // exportFieldJSON builds the typed JSON entry for one field, or reports false to
 // skip it (push buttons, and — when OmitEmpty — valueless fields).
 func exportFieldJSON(fld Field, opt JSONExportOptions) (jsonFieldOut, bool) {
-	switch x := fld.(type) {
-	case *TextBoxField:
-		v := x.Value()
+	if tb, ok := asTextField(fld); ok {
+		v := tb.Value()
 		if v == "" && opt.OmitEmpty {
 			return jsonFieldOut{}, false
 		}
-		return jsonFieldOut{Type: "text", Value: v}, true
+		return jsonFieldOut{Type: textFieldJSONType(fld), Value: v}, true
+	}
+	switch x := fld.(type) {
 	case *CheckboxField:
 		b := x.Checked()
 		if !b && opt.OmitEmpty {
@@ -150,13 +151,14 @@ func exportFieldJSON(fld Field, opt JSONExportOptions) (jsonFieldOut, bool) {
 // applyFieldJSON sets one field from its parsed JSON entry, dispatching on the
 // target field's concrete type (authoritative over the JSON "type" tag).
 func applyFieldJSON(fld Field, jf jsonFieldIn) error {
-	switch x := fld.(type) {
-	case *TextBoxField:
+	if tb, ok := asTextField(fld); ok {
 		s, err := jsonAsString(jf.Value)
 		if err != nil {
 			return err
 		}
-		return x.SetValue(s)
+		return tb.SetValue(s)
+	}
+	switch x := fld.(type) {
 	case *ComboBoxField:
 		s, err := jsonAsString(jf.Value)
 		if err != nil {

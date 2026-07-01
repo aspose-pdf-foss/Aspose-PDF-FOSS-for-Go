@@ -326,7 +326,12 @@ func TestTextBoxFieldSetPasswordRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStream: %v", err)
 	}
-	tf2 := doc2.Form().Field("x").(*pdf.TextBoxField)
+	// A text field carrying the Password flag reclassifies as a PasswordBoxField
+	// on reload (it embeds TextBoxField, so IsPassword is still available).
+	tf2, ok := doc2.Form().Field("x").(*pdf.PasswordBoxField)
+	if !ok {
+		t.Fatalf("field is %T, want *PasswordBoxField", doc2.Form().Field("x"))
+	}
 	if !tf2.IsPassword() {
 		t.Error("IsPassword = false after SetPassword(true)")
 	}

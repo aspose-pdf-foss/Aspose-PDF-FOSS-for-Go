@@ -49,6 +49,11 @@ const (
 	FormFieldTypePushButton
 	FormFieldTypeComboBox
 	FormFieldTypeListBox
+	FormFieldTypePassword
+	FormFieldTypeFileSelect
+	FormFieldTypeRichText
+	FormFieldTypeNumber
+	FormFieldTypeDate
 )
 
 // FieldType returns the concrete kind of f. Convenience helper for
@@ -67,6 +72,16 @@ func FieldType(f Field) FormFieldType {
 		return FormFieldTypePushButton
 	case *ListBoxField:
 		return FormFieldTypeListBox
+	case *PasswordBoxField:
+		return FormFieldTypePassword
+	case *FileSelectBoxField:
+		return FormFieldTypeFileSelect
+	case *RichTextBoxField:
+		return FormFieldTypeRichText
+	case *NumberField:
+		return FormFieldTypeNumber
+	case *DateField:
+		return FormFieldTypeDate
 	}
 	return FormFieldTypeUnknown
 }

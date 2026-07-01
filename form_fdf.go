@@ -21,9 +21,10 @@ import (
 // whether the value is a PDF name (checkbox/radio on-state) rather than a string.
 // ok is false for fields with no value (push buttons).
 func formValues(fld Field) (kind string, values []string, asName, ok bool) {
+	if tb, ok := asTextField(fld); ok {
+		return "text", []string{tb.Value()}, false, true
+	}
 	switch x := fld.(type) {
-	case *TextBoxField:
-		return "text", []string{x.Value()}, false, true
 	case *ComboBoxField:
 		return "combobox", []string{x.Value()}, false, true
 	case *CheckboxField:
@@ -49,9 +50,10 @@ func formValues(fld Field) (kind string, values []string, asName, ok bool) {
 // formValues), dispatching on the field's concrete type. A checkbox is "on"
 // unless the value is empty or "Off"; a list box selects every matching option.
 func applyFormValues(fld Field, values []string) error {
+	if tb, ok := asTextField(fld); ok {
+		return tb.SetValue(first(values))
+	}
 	switch x := fld.(type) {
-	case *TextBoxField:
-		return x.SetValue(first(values))
 	case *ComboBoxField:
 		if len(values) == 0 {
 			return nil
