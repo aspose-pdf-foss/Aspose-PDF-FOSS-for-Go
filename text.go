@@ -7,9 +7,29 @@ import (
 	"strings"
 )
 
-// ExtractText returns the text content of the page.
-// Characters from fonts with unrecognized encodings are replaced with U+FFFD.
-func (p *Page) ExtractText() (string, error) {
+// TextExtractionMode selects how ExtractText orders the extracted text. Mirrors
+// the intent of Aspose.PDF for .NET's TextExtractionOptions.TextFormattingMode.
+type TextExtractionMode int
+
+const (
+	// TextExtractReading returns text in visual reading order (fragments sorted
+	// top-to-bottom, left-to-right, grouped into lines). This is the default.
+	TextExtractReading TextExtractionMode = iota
+	// TextExtractRaw returns text in the order the content stream emits it,
+	// without visual sorting — useful when the emission order is significant or
+	// when the reading-order heuristics reorder columned/overlapping content.
+	TextExtractRaw
+)
+
+// TextExtractOptions configures ExtractText. The zero value is reading order.
+type TextExtractOptions struct {
+	Mode TextExtractionMode
+}
+
+// ExtractText returns the text content of the page. Characters from fonts with
+// unrecognized encodings are replaced with U+FFFD. An optional TextExtractOptions
+// selects reading order (default) or raw content-stream order.
+func (p *Page) ExtractText(opts ...TextExtractOptions) (string, error) {
 	data, err := p.contentStreams()
 	if err != nil {
 		return "", err
@@ -28,16 +48,19 @@ func (p *Page) ExtractText() (string, error) {
 
 	ext := newTextExtractor(p.doc.objects, fonts)
 	ext.process(ops, resources)
+	if len(opts) > 0 && opts[0].Mode == TextExtractRaw {
+		return ext.textRaw(), nil
+	}
 	return ext.text(), nil
 }
 
-// ExtractText returns the text content of each page.
-// The returned slice has one entry per page (0-indexed).
-func (d *Document) ExtractText() ([]string, error) {
+// ExtractText returns the text content of each page (one entry per page,
+// 0-indexed). An optional TextExtractOptions selects the extraction mode.
+func (d *Document) ExtractText(opts ...TextExtractOptions) ([]string, error) {
 	pages := d.Pages()
 	result := make([]string, len(pages))
 	for i, p := range pages {
-		text, err := p.ExtractText()
+		text, err := p.ExtractText(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -172,6 +195,45 @@ func (e *textExtractor) insideActualText() bool {
 func (e *textExtractor) text() string {
 	e.flushFragment()
 	return cleanExtractedText(buildTextFromFragments(e.fragments))
+}
+
+// textRaw returns the fragments joined in content-stream emission order (no
+// visual sorting), inserting a newline on a vertical shift and a space on a
+// horizontal gap.
+func (e *textExtractor) textRaw() string {
+	e.flushFragment()
+	return cleanExtractedText(buildRawTextFromFragments(e.fragments))
+}
+
+// buildRawTextFromFragments joins fragments in their emission order. A newline
+// is inserted when a fragment's baseline shifts from the previous one by more
+// than half its font size; otherwise a space is inserted when there is a
+// positive horizontal gap.
+func buildRawTextFromFragments(frags []textFragment) string {
+	var buf strings.Builder
+	var prev *textFragment
+	for i := range frags {
+		f := &frags[i]
+		s := f.text.String()
+		if s == "" {
+			continue
+		}
+		if prev != nil {
+			fs := f.fontSize
+			if fs == 0 {
+				fs = 12
+			}
+			dy := prev.y - f.y
+			if dy > fs*0.5 || dy < -fs*0.5 {
+				buf.WriteByte('\n')
+			} else if f.x-prev.endX > fs*0.2 {
+				buf.WriteByte(' ')
+			}
+		}
+		buf.WriteString(s)
+		prev = f
+	}
+	return buf.String()
 }
 
 // cleanExtractedText trims trailing whitespace from each line and

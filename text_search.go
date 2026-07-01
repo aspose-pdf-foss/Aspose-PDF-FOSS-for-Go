@@ -23,6 +23,11 @@ type SearchOptions struct {
 	// searches the whole page. Mirrors Aspose.PDF for .NET's
 	// TextSearchOptions.Rectangle.
 	Rectangle *Rectangle
+	// SearchInAnnotations also searches the text content (/Contents) of the
+	// page's annotations — sticky notes, free text, markup, etc. Each match's
+	// Rect is the annotation's rectangle. Mirrors Aspose.PDF for .NET's
+	// TextSearchOptions.SearchInAnnotations.
+	SearchInAnnotations bool
 }
 
 // TextMatch is a single occurrence located by SearchText.
@@ -62,7 +67,11 @@ func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, err
 	if err != nil {
 		return nil, err
 	}
-	return filterMatchesByRect(searchLines(lines, re, p.Number()), opt.Rectangle), nil
+	matches := searchLines(lines, re, p.Number())
+	if opt.SearchInAnnotations {
+		matches = append(matches, searchAnnotations(p, re)...)
+	}
+	return filterMatchesByRect(matches, opt.Rectangle), nil
 }
 
 // SearchText finds every occurrence of query across all pages of the document,
@@ -80,9 +89,33 @@ func (d *Document) SearchText(query string, opts ...SearchOptions) ([]TextMatch,
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, filterMatchesByRect(searchLines(lines, re, p.Number()), opt.Rectangle)...)
+		matches := searchLines(lines, re, p.Number())
+		if opt.SearchInAnnotations {
+			matches = append(matches, searchAnnotations(p, re)...)
+		}
+		out = append(out, filterMatchesByRect(matches, opt.Rectangle)...)
 	}
 	return out, nil
+}
+
+// searchAnnotations returns matches of re within the /Contents text of the
+// page's annotations; each match's Rect is the annotation's rectangle.
+func searchAnnotations(p *Page, re *regexp.Regexp) []TextMatch {
+	var out []TextMatch
+	for _, a := range p.Annotations().All() {
+		content := a.Contents()
+		if content == "" {
+			continue
+		}
+		for _, loc := range re.FindAllStringIndex(content, -1) {
+			out = append(out, TextMatch{
+				Text:       content[loc[0]:loc[1]],
+				PageNumber: p.Number(),
+				Rect:       a.Rect(),
+			})
+		}
+	}
+	return out
 }
 
 // filterMatchesByRect keeps only matches whose bounding box intersects r. A nil
