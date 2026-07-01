@@ -489,7 +489,7 @@ func addPageText(doc *pdf.Document, page *pdf.Page) {
 
 	// ===== Section 2: Embedded TTF — Unicode =====
 	y -= 14
-	section("Embedded TTF (DejaVu Sans) — Unicode", y)
+	section("Embedded TTF (DejaVu Sans) — Unicode & RTL", y)
 	y -= 22
 
 	deja, err := doc.LoadFont("testdata/DejaVuSans.ttf")
@@ -509,6 +509,22 @@ func addPageText(doc *pdf.Document, page *pdf.Page) {
 			LLX: 60, LLY: y - 14, URX: size.Width - 50, URY: y + 1,
 		}))
 		y -= 15
+	}
+
+	// Right-to-left: Hebrew (reordered) and Arabic (contextually shaped) are laid
+	// out by the built-in BiDi engine and auto right-align. The scripts label
+	// themselves — "עברית" is "Hebrew", "العربية" is "Arabic".
+	mustText(page.AddText(
+		"Right-to-left — automatic BiDi + Arabic shaping, auto right-aligned:",
+		pdf.TextStyle{Font: pdf.FontHelveticaOblique, Size: 9, Color: &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1}},
+		pdf.Rectangle{LLX: 60, LLY: y - 12, URX: size.Width - 50, URY: y + 1}))
+	y -= 15
+	rtlStyle := pdf.TextStyle{Font: deja, Size: 12}
+	for _, line := range []string{"עברית — שלום עולם! (3 ספרים)", "العربية — مرحبا بالعالم ٢٠٢٤"} {
+		mustText(page.AddText(line, rtlStyle, pdf.Rectangle{
+			LLX: 60, LLY: y - 15, URX: size.Width - 50, URY: y + 1,
+		}))
+		y -= 16
 	}
 
 	// ===== Section 3: Decorations =====
