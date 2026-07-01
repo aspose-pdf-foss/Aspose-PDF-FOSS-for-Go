@@ -78,6 +78,12 @@ func renderTextInBuilder(
 		return err
 	}
 
+	// Arabic contextual shaping (phase 2): map letters to their Presentation
+	// Forms-B glyphs in logical order, before wrapping and BiDi reordering.
+	if bidiHasArabic(text) {
+		text = shapeArabic(text)
+	}
+
 	lines := wrapText(text, width, rectWidth)
 	if len(lines) == 0 {
 		return nil

@@ -60,6 +60,34 @@ func TestRTLExplicitFlagRightAlignsLatin(t *testing.T) {
 	}
 }
 
+// TestRTLArabicShapedRightAligned: Arabic renders (shaped to connected
+// Presentation Forms-B) and right-aligns; the shaped string differs from the
+// input (contextual forms were substituted).
+func TestRTLArabicShapedRightAligned(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	deja, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := doc.Page(1)
+	arabic := "مرحبا بالعالم" // marhaban bil-'alam
+	rect := pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750}
+	if err := p.AddText(arabic, pdf.TextStyle{Font: deja, Size: 30}, rect); err != nil {
+		t.Fatal(err)
+	}
+	img, err := doc.RenderImage(1, pdf.RenderOptions{DPI: 96})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nonWhitePixels(img) == 0 {
+		t.Fatal("Arabic rendered blank — is the font missing Presentation Forms-B?")
+	}
+	left, right := nonWhiteHalves(img)
+	if right == 0 || left > right {
+		t.Errorf("Arabic should be right-aligned: left=%d right=%d", left, right)
+	}
+}
+
 // TestRTLDoesNotDisturbLTR: plain LTR text is untouched (left-aligned, renders).
 func TestRTLDoesNotDisturbLTR(t *testing.T) {
 	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
