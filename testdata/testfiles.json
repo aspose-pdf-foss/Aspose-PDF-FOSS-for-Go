@@ -1,4 +1,5 @@
 {
+  "TestParagraphsRealFile":              [["marketing.pdf"]],
   "TestDocumentOpen":                    [["marketing.pdf"]],
   "TestDocumentSave":                    [["marketing.pdf"]],
   "TestDocumentRotate":                  [["marketing.pdf"]],
