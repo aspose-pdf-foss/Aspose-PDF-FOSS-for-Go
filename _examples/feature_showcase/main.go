@@ -55,7 +55,7 @@ const (
 	productName = "Aspose.PDF FOSS for Go"
 	docTitle    = productName + " — Feature Showcase"
 	docAuthor   = "Aspose"
-	docVersion  = "v0.2.0"
+	docVersion  = "v0.4.0"
 )
 
 // Named destination keys used by the TOC, outlines, and section anchors.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-02
+
+Building on the v0.3.0 renderer, this release adds an enterprise and compliance layer, plus a document-generation and international-text stack — all still pure Go, standard library only, MIT-licensed. Headlines: **digital signatures** (sign/verify, PAdES, DocMDP certification, RFC 3161 timestamps, multiple signatures, and signing encrypted documents); the **PDF/A** + **PDF/UA** compliance stack (validate + convert across PDF/A-1/2/3 a/b with automatic font embedding and a pure-Go sRGB OutputIntent; a PDF/UA validator; and a **Tagged-PDF authoring** toolkit for accessible output); a **flow / document-generator** layout model (paragraphs, headings, tables, lists, floating boxes, multi-column, text flow-around, auto-pagination, optional auto-tagging); **right-to-left text** (a pure-Go Unicode BiDi engine with Arabic contextual shaping); a complete **AcroForm data-interchange** story (typed JSON, FDF, XFDF) with the extra field types (Number/Date/Password/RichText/FileSelect); **structural text extraction** (`ParagraphAbsorber`); and a batch of production helpers — reusable Form XObjects, tiling patterns, inline images, optional-content layers, document-level embedded files, linearized fast-web-view output, whole-document grayscale, and a PDF-page stamp. No external dependencies were added.
+
 ### Added
 
 - Structural (paragraph) extraction — `(*Page).Paragraphs()` / `(*Document).Paragraphs()` group a page's text into columns (`MarkupSection`) and paragraphs (`MarkupParagraph{Text, Rectangle, Lines}`), rather than a flat string. Fragments are clustered into columns by a horizontal occupancy histogram (a wide vertical gutter splits columns), then each column's lines are grouped into paragraphs by baseline gaps and font-size changes. Built on the existing layout pipeline; heuristic but recovers prose paragraph/column structure well. Mirrors Aspose.PDF for .NET's `ParagraphAbsorber`. (`pdf-go-14la`)
@@ -49,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Search in a region — `SearchOptions.Rectangle` (a `*Rectangle`) limits `SearchText` results to matches whose bounding box intersects the region (PDF user space, per page). Mirrors Aspose.PDF for .NET's `TextSearchOptions.Rectangle`.
 - Text replace — `(*Document).ReplaceText(old, replacement, opts...)` / `(*Page).ReplaceText(...)` find-and-replace, returning the number of replacements. Matching mirrors `SearchText` (literal, `ReplaceOptions{CaseInsensitive, Regex}`). The matched glyphs are removed and the replacement is redrawn at the same baseline/size/colour in a metric-compatible Standard-14 face chosen from the original's family/style, so any replacement text renders even over an embedded subset font (no line re-flow). Mirrors the find-and-replace idiom of Aspose.PDF for .NET's `TextFragmentAbsorber` + `TextFragment.Text`. Text extraction now also starts a new fragment on a large backward X jump, keeping reading order correct for out-of-order content.
 - Stamps — `TextStamp`, `ImageStamp`, and `PageNumberStamp` overlay (or underlay) content on pages, applied with `(*Page).AddStamp` / `(*Document).AddStamp`. Mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` family: shared `Rect` (zero = whole page), `HAlign`/`VAlign`, `Opacity`, `RotateAngle` (rotates about the rect centre), and `Background` (draw behind page content). `PageNumberStamp` formats `{0}` (current) / `{1}` (total) with a `StartingNumber`, rendering the correct number per page — convenient for headers/footers and watermarks.
+
+### Changed
+
+- A text field carrying a Password / FileSelect / RichText flag, or a Number / Date format action, now reads back as its specific typed field (`PasswordBoxField` / `FileSelectBoxField` / `RichTextBoxField` / `NumberField` / `DateField`) instead of `TextBoxField`. Each embeds `TextBoxField`, so its methods still apply; code that type-asserts `.(*TextBoxField)` on such a field should use the specific type (or `FieldType`).
 
 ## [0.3.0] — 2026-06-16
 
@@ -285,7 +293,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/releases/tag/v0.1.0
