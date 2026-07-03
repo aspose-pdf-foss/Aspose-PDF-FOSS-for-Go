@@ -10,11 +10,11 @@ func TestAnnotHiddenFlags(t *testing.T) {
 		flag int
 		want bool
 	}{
-		{0, false},  // visible
-		{2, true},   // Hidden (bit 2)
-		{32, true},  // NoView (bit 6)
-		{4, false},  // Print only
-		{34, true},  // Hidden|NoView
+		{0, false}, // visible
+		{2, true},  // Hidden (bit 2)
+		{32, true}, // NoView (bit 6)
+		{4, false}, // Print only
+		{34, true}, // Hidden|NoView
 	}
 	for _, c := range cases {
 		if got := annotHidden(objects, pdfDict{"/F": c.flag}); got != c.want {

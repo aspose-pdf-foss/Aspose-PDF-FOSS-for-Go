@@ -27,7 +27,8 @@ func TestNamedDestinations_EmptyDoc(t *testing.T) {
 
 func TestNamedDestinations_RootStable(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
-	if doc.NamedDestinations() != doc.NamedDestinations() {
+	first, second := doc.NamedDestinations(), doc.NamedDestinations()
+	if first != second {
 		t.Error("repeated calls should return same instance")
 	}
 }

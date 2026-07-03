@@ -116,7 +116,7 @@ func parseDictAction(doc *Document, raw pdfValue) Action {
 
 // outlineDictFlags returns the /F int value from an outline item dict, or 0.
 func outlineDictFlags(d pdfDict) int {
-	v, _ := d["/F"]
+	v := d["/F"]
 	return toInt(v)
 }
 

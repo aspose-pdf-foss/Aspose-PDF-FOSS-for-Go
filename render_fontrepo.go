@@ -37,9 +37,9 @@ type fontRepository struct {
 	// index so Latin substitution stays opt-in (a document must not silently
 	// switch to a system Arial just because it was installed), while CJK — which
 	// has no bundled substitute — still resolves out of the box.
-	sysIndexed  bool
-	sysByFamily map[string]fontRef
-	sysByName   map[string]fontRef
+	sysIndexed   bool
+	sysByFamily  map[string]fontRef
+	sysByName    map[string]fontRef
 	sysByCompact map[string]fontRef // separator-stripped PS name / family → ref
 }
 

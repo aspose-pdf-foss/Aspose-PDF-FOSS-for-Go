@@ -505,12 +505,6 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 		return fmt.Errorf("add text: font size must be non-negative, got %g", style.Size)
 	}
 
-	// Default Font if unset.
-	font := style.Font
-	if font == nil {
-		font = FontHelvetica
-	}
-
 	fontSize := style.Size
 	if fontSize == 0 {
 		fontSize = 12

@@ -48,7 +48,7 @@ func TestInlineRawDataLen(t *testing.T) {
 		dict pdfDict
 		want int
 	}{
-		{pdfDict{"/Width": 84, "/Height": 8, "/ImageMask": true}, 11 * 8},     // 84 bits → 11 B/row
+		{pdfDict{"/Width": 84, "/Height": 8, "/ImageMask": true}, 11 * 8}, // 84 bits → 11 B/row
 		{pdfDict{"/Width": 4, "/Height": 4, "/BitsPerComponent": 8, "/ColorSpace": pdfName("/DeviceRGB")}, 4 * 3 * 4},
 		{pdfDict{"/Width": 2, "/Height": 2, "/BitsPerComponent": 8, "/ColorSpace": pdfName("/DeviceGray")}, 2 * 2},
 		{pdfDict{"/Width": 10, "/Height": 1, "/BitsPerComponent": 8, "/ColorSpace": pdfName("/DeviceCMYK")}, 10 * 4},

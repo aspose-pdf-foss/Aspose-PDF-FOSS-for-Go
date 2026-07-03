@@ -79,7 +79,7 @@ func strokeSubpath(out *devPath, pts []point, closed bool, st strokeStyle) {
 	for i := 1; i < len(pts)-1; i++ {
 		addJoin(out, pts[i-1], pts[i], pts[i+1], st)
 	}
-	addCap(out, pts[0], pts[1], st)                 // start cap (dir points outward)
+	addCap(out, pts[0], pts[1], st)                   // start cap (dir points outward)
 	addCap(out, pts[len(pts)-1], pts[len(pts)-2], st) // end cap
 }
 

@@ -23,7 +23,7 @@ type cidCMap struct {
 }
 
 type cmapCodespace struct {
-	nbytes   int
+	nbytes    int
 	low, high [4]byte
 }
 

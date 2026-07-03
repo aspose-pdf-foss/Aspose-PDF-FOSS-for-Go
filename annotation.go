@@ -351,10 +351,9 @@ func (c *AnnotationCollection) walkAnnotations() {
 			attachedPage: c.page.pageObj(),
 			objID:        ref.Num,
 		}
-		annot := parseAnnotation(base)
-		if annot != nil {
-			c.items = append(c.items, annot)
-		}
+		// parseAnnotation never returns nil (unknown subtypes come back as
+		// *GenericAnnotation), so no nil-check is needed.
+		c.items = append(c.items, parseAnnotation(base))
 	}
 }
 

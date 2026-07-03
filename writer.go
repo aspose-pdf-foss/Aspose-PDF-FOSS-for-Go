@@ -96,7 +96,9 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	if encryptObjID != 0 {
 		offsets[encryptObjID] = int64(buf.Len())
 		encDict := buildEncryptDict(encState)
-		writeObject(&buf, encryptObjID, pdfValue(encDict), func(n int) int { return n }, nil)
+		if err := writeObject(&buf, encryptObjID, pdfValue(encDict), func(n int) int { return n }, nil); err != nil {
+			return nil, err
+		}
 	}
 
 	// Write xref table.
@@ -264,8 +266,8 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		if val.Decoded {
 			var zbuf bytes.Buffer
 			w := zlib.NewWriter(&zbuf)
-			w.Write(data)
-			w.Close()
+			_, _ = w.Write(data) // in-memory buffer: cannot fail
+			_ = w.Close()
 			data = zbuf.Bytes()
 			d["/Filter"] = pdfName("/FlateDecode")
 		}

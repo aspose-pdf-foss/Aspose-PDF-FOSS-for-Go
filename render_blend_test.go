@@ -41,7 +41,7 @@ func TestRenderBlendMultiply(t *testing.T) {
 // TestBlendFuncs spot-checks a few separable blend functions at known values.
 func TestBlendFuncs(t *testing.T) {
 	cases := []struct {
-		mode       string
+		mode         string
 		cb, cs, want float64
 	}{
 		{"/Multiply", 0.5, 0.4, 0.2},

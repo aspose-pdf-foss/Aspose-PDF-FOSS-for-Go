@@ -204,7 +204,7 @@ func optimizeImage(info *ImageInfo, opts OptimizeImageOptions, quality int) bool
 		img = decoded
 	} else {
 		// PNG-stored: raw pixel bytes.
-		csName := "/DeviceRGB"
+		var csName string
 		switch info.ColorSpace {
 		case ColorSpaceDeviceGray:
 			csName = "/DeviceGray"

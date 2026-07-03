@@ -29,7 +29,7 @@ type gstate struct {
 	lineCap    LineCap
 	lineJoin   LineJoin
 	miterLimit float64
-	dash       []float64  // empty = solid
+	dash       []float64 // empty = solid
 	dashPhase  float64
 	blend      blendMode // zero value = Normal (src-over); set by gs /BM
 	clip       []float32 // nil = unclipped (geometric W/W* clip)
@@ -588,7 +588,7 @@ func dashArray(v pdfValue) []float64 {
 	return out
 }
 
-func f(v pdfValue) float64    { return operandFloat(v) }
+func f(v pdfValue) float64 { return operandFloat(v) }
 func o0(o []pdfValue) pdfValue {
 	if len(o) > 0 {
 		return o[0]

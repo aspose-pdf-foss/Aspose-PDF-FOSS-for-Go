@@ -703,7 +703,7 @@ func cffReal(b []byte) (float64, int) {
 		}
 	}
 	var v float64
-	fmt.Sscanf(string(s), "%g", &v)
+	_, _ = fmt.Sscanf(string(s), "%g", &v) // malformed real → 0
 	return v, n
 }
 

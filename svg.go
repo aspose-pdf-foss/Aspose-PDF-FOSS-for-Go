@@ -17,7 +17,7 @@ func (p *Page) AddSVG(path string, rect Rectangle) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return p.AddSVGFromStream(f, rect)
 }
 
@@ -60,7 +60,7 @@ func (d *Document) LoadSVG(path string) (*SVG, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return d.LoadSVGFromStream(f)
 }
 

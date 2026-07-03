@@ -2,7 +2,6 @@
 
 [![test](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go.svg)](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go)](https://goreportcard.com/report/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
 

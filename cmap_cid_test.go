@@ -48,7 +48,7 @@ func TestPredefinedCMapDecode(t *testing.T) {
 func TestCJKAsciiFallback(t *testing.T) {
 	cm := predefinedCMap("GBK-EUC-H")
 	uni := cidToUnicodeForOrdering("GB1")
-	fb := cjkAsciiFallback(cm, uni)
+	fb := cjkASCIIFallback(cm, uni)
 	_, cid, _ := cm.next([]byte{0x41}) // 'A'
 	if got := fb[cid]; got != 'A' {
 		t.Errorf("ASCII fallback for 0x41 → %U, want 'A' (CID %d)", got, cid)

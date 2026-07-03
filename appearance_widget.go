@@ -264,6 +264,7 @@ func drawWidgetChrome(b *appearanceBuilder, widget pdfDict, width, height float6
 //     advance Acrobat uses for list boxes and the line box for centring.
 //   - helvDescentFrac: Helvetica descent magnitude (207/1000) — the gap
 //     between a row's bottom and the text baseline.
+//
 // Verified against Acrobat-generated /AP streams in testdata/PdfWithAcroForm.pdf.
 const (
 	helvLineHeight  = 1.156
@@ -522,6 +523,7 @@ func generateComboBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 //   - selected rows (from /I, falling back to /V) get a light-blue
 //     0.6/0.757/0.855 highlight band; ALL text is drawn black on top,
 //     matching Acrobat (no white-on-blue).
+//
 // Rows past the bottom of the box are clipped.
 func generateListBoxAppearance(form *Form, widget pdfDict) *pdfStream {
 	width, height := widgetSize(widget)

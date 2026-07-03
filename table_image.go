@@ -27,7 +27,7 @@ func measureImage(path string, data []byte) (width, height float64, err error) {
 		if ferr != nil {
 			return 0, 0, fmt.Errorf("measureImage: %w", ferr)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		r = f
 	case data != nil:
 		r = bytes.NewReader(data)

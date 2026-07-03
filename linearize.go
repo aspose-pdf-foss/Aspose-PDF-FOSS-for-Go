@@ -246,15 +246,6 @@ func sortedFirstUse(m map[int]int) []int {
 	return out
 }
 
-func orderedInts(set map[int]bool) []int {
-	out := make([]int, 0, len(set))
-	for id := range set {
-		out = append(out, id)
-	}
-	sort.Ints(out)
-	return out
-}
-
 // rewriteToLin deep-copies v, translating every reference into the linearized
 // object-number space: an original pdfRef via oldToLin, a writer pdfDirectRef
 // (new-ID space) via newToLin. All become pdfDirectRef so they serialize as

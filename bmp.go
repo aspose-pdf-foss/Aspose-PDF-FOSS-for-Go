@@ -23,8 +23,9 @@ func encodeBMP(w io.Writer, m image.Image) error {
 
 	bw := bufio.NewWriter(w)
 
-	// BITMAPFILEHEADER (14 bytes).
-	bw.WriteString("BM")
+	// BITMAPFILEHEADER (14 bytes). Write errors on the buffered writer are
+	// sticky and surface at the checked Flush below.
+	_, _ = bw.WriteString("BM")
 	putU32(bw, uint32(fileSize))
 	putU32(bw, 0) // reserved
 	putU32(bw, headerSize)
@@ -71,13 +72,13 @@ func encodeBMP(w io.Writer, m image.Image) error {
 func putU32(w io.Writer, v uint32) {
 	var b [4]byte
 	binary.LittleEndian.PutUint32(b[:], v)
-	w.Write(b[:])
+	_, _ = w.Write(b[:]) // buffered; the caller checks Flush
 }
 
 func putU16(w io.Writer, v uint16) {
 	var b [2]byte
 	binary.LittleEndian.PutUint16(b[:], v)
-	w.Write(b[:])
+	_, _ = w.Write(b[:]) // buffered; the caller checks Flush
 }
 
 // RenderBMP renders the page and writes it as an uncompressed BMP.

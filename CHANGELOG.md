@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Document.Save` no longer ignores the output file's `Close` error — a failed `Close` on a freshly written file can mean silently lost data (OS write buffers not flushed); the `WriteTo` error still takes precedence when both fail. Found by adopting `golangci-lint` in CI (which also drove a dead-code sweep and explicit `_ =` markers wherever ignoring an error is deliberate).
+
 ## [0.4.0] — 2026-07-02
 
 Building on the v0.3.0 renderer, this release adds an enterprise and compliance layer, plus a document-generation and international-text stack — all still pure Go, standard library only, MIT-licensed. Headlines: **digital signatures** (sign/verify, PAdES, DocMDP certification, RFC 3161 timestamps, multiple signatures, and signing encrypted documents); the **PDF/A** + **PDF/UA** compliance stack (validate + convert across PDF/A-1/2/3 a/b with automatic font embedding and a pure-Go sRGB OutputIntent; a PDF/UA validator; and a **Tagged-PDF authoring** toolkit for accessible output); a **flow / document-generator** layout model (paragraphs, headings, tables, lists, floating boxes, multi-column, text flow-around, auto-pagination, optional auto-tagging); **right-to-left text** (a pure-Go Unicode BiDi engine with Arabic contextual shaping); a complete **AcroForm data-interchange** story (typed JSON, FDF, XFDF) with the extra field types (Number/Date/Password/RichText/FileSelect); **structural text extraction** (`ParagraphAbsorber`); and a batch of production helpers — reusable Form XObjects, tiling patterns, inline images, optional-content layers, document-level embedded files, linearized fast-web-view output, whole-document grayscale, and a PDF-page stamp. No external dependencies were added.

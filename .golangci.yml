@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  # The default set: errcheck, govet, ineffassign, staticcheck, unused.
+  settings:
+    staticcheck:
+      # Default checks minus the purely stylistic ones:
+      #  - QF* (quickfix refactoring suggestions: tagged switches, De Morgan,
+      #    embedded-field selectors, Fprintf-over-WriteString, …)
+      #  - ST1023 / ST1012 (type-inference and error-var naming style)
+      # SA* (correctness) and S1* (simplifications) stay on.
+      # ST1016 (receiver-name consistency) is also off: imposition methods
+      # deliberately name the receiver "result" (the document being built from
+      # a src), and the JBIG2 decoder uses "dec" where it reads more clearly.
+      checks: ["all", "-QF*", "-ST1023", "-ST1012", "-ST1016"]
+  exclusions:
+    rules:
+      # Unchecked errors in tests are acceptable (helpers, setup code).
+      - path: _test\.go
+        linters:
+          - errcheck

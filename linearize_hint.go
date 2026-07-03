@@ -98,7 +98,7 @@ func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
 		}
 	}
 	nSharedBits := bitsFor(maxShPerPage)
-	sharedIdBits := bitsFor(maxInt0(len(h.sharedLen) - 1))
+	sharedIDBits := bitsFor(maxInt0(len(h.sharedLen) - 1))
 
 	var pw bitWriter
 	pw.writeBits(uint64(minObjs), 32)
@@ -111,7 +111,7 @@ func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
 	pw.writeBits(uint64(minContLen), 32)
 	pw.writeBits(uint64(dContLenBits), 16)
 	pw.writeBits(uint64(nSharedBits), 16)
-	pw.writeBits(uint64(sharedIdBits), 16)
+	pw.writeBits(uint64(sharedIDBits), 16)
 	pw.writeBits(0, 16) // numerator bits
 	pw.writeBits(4, 16) // denominator
 
@@ -126,7 +126,7 @@ func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
 	}
 	for i := 0; i < n; i++ {
 		for _, id := range h.pageShared[i] {
-			pw.writeBits(uint64(id), sharedIdBits)
+			pw.writeBits(uint64(id), sharedIDBits)
 		}
 	}
 	// numerator bits = 0, nothing

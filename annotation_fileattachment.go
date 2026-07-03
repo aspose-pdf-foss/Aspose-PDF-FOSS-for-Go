@@ -96,10 +96,7 @@ func (a *FileAttachmentAnnotation) SetIcon(i FileAttachmentIcon) {
 // successfully and not subsequently cleared. Stub for now — full
 // implementation in Task 3.
 func (a *FileAttachmentAnnotation) HasFile() bool {
-	if a.dict["/FS"] == nil {
-		return false
-	}
-	return true
+	return a.dict["/FS"] != nil
 }
 
 // RegenerateAppearance is a no-op for FileAttachmentAnnotation (no /AP
@@ -320,7 +317,7 @@ func unescapePDFName(s string) string {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '#' && i+2 < len(s) {
 			var v int
-			fmt.Sscanf(s[i+1:i+3], "%X", &v)
+			_, _ = fmt.Sscanf(s[i+1:i+3], "%X", &v) // bad hex → 0
 			b.WriteByte(byte(v))
 			i += 2
 			continue

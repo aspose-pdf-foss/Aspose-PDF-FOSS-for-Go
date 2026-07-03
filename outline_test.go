@@ -309,6 +309,7 @@ func TestOutlines_AllSnapshot(t *testing.T) {
 	}
 	// Verify it's a copy.
 	snap = append(snap, pdf.NewOutlineItemCollection(doc))
+	_ = snap // appending to the snapshot must not affect root (checked below)
 	if root.Count() != 2 {
 		t.Error("All() should return a snapshot, not the live slice")
 	}

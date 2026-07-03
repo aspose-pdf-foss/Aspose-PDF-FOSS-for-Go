@@ -30,8 +30,8 @@ func TestRenderLinearShadingPattern(t *testing.T) {
 		t.Fatalf("RenderImage: %v", err)
 	}
 
-	lr, _, lb, _ := img.At(8, 50).RGBA()   // near left → reddish
-	rr, _, rb, _ := img.At(92, 50).RGBA()  // near right → bluish
+	lr, _, lb, _ := img.At(8, 50).RGBA()  // near left → reddish
+	rr, _, rb, _ := img.At(92, 50).RGBA() // near right → bluish
 	if !(lr>>8 > 180 && lb>>8 < 80) {
 		t.Errorf("left pixel = R%d B%d, want red-dominant", lr>>8, lb>>8)
 	}

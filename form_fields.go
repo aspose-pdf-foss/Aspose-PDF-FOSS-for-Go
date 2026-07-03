@@ -310,8 +310,8 @@ func (o *RadioButtonOptionField) Selected() bool {
 	return parentV == want
 }
 
-// SetSelected(true) selects this option and clears all siblings.
-// SetSelected(false) clears the selection if this option is currently
+// SetSelected selects this option and clears all siblings (true), or
+// clears the selection if this option is currently
 // selected; siblings are unaffected.
 func (o *RadioButtonOptionField) SetSelected(v bool) {
 	if v {
@@ -654,7 +654,8 @@ func choiceOptionToPDFValue(o ChoiceOption) pdfValue {
 	return o.Value
 }
 
-// SetReadOnly/SetRequired on choice types.
+// SetReadOnly sets the read-only flag; the choice types share the same
+// setFlag-based mutators as the text field.
 func (f *ComboBoxField) SetReadOnly(v bool) { setFlag(f.node, fieldFlagReadOnly, v) }
 func (f *ComboBoxField) SetRequired(v bool) { setFlag(f.node, fieldFlagRequired, v) }
 func (f *ListBoxField) SetReadOnly(v bool)  { setFlag(f.node, fieldFlagReadOnly, v) }

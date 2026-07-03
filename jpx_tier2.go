@@ -17,17 +17,17 @@ type jpxResolution struct {
 }
 
 type jpxPrecinctParams struct {
-	precinctWidth, precinctHeight                 int
+	precinctWidth, precinctHeight                    int
 	numprecinctswide, numprecinctshigh, numprecincts int
 	precinctWidthInSubband, precinctHeightInSubband  int
 }
 
 type jpxSubband struct {
-	typ                    string // "LL","HL","LH","HH"
-	tbx0, tby0, tbx1, tby1 int
-	resolution             *jpxResolution
-	codeblocks             []*jpxCodeblock
-	precincts              map[int]*jpxPrecinct
+	typ                       string // "LL","HL","LH","HH"
+	tbx0, tby0, tbx1, tby1    int
+	resolution                *jpxResolution
+	codeblocks                []*jpxCodeblock
+	precincts                 map[int]*jpxPrecinct
 	cbWidthLog2, cbHeightLog2 int
 }
 
@@ -38,16 +38,16 @@ type jpxChunk struct {
 }
 
 type jpxCodeblock struct {
-	cbx, cby               int
-	tbx0, tby0, tbx1, tby1 int
+	cbx, cby                   int
+	tbx0, tby0, tbx1, tby1     int
 	tbx0_, tby0_, tbx1_, tby1_ int
-	precinctNumber         int
-	subbandType            string
-	Lblock                 int
-	includedSet            bool
-	zeroBitPlanes          int
-	data                   []jpxChunk
-	precinct               *jpxPrecinct
+	precinctNumber             int
+	subbandType                string
+	Lblock                     int
+	includedSet                bool
+	zeroBitPlanes              int
+	data                       []jpxChunk
+	precinct                   *jpxPrecinct
 }
 
 type jpxPrecinct struct {
@@ -143,8 +143,8 @@ func jpxBuildPrecincts(res *jpxResolution, d jpxBlocksDim) {
 		sub = -1
 	}
 	res.precinct = jpxPrecinctParams{
-		precinctWidth:  precinctWidth,
-		precinctHeight: precinctHeight,
+		precinctWidth:           precinctWidth,
+		precinctHeight:          precinctHeight,
 		precinctWidthInSubband:  1 << uint(d.PPx+sub),
 		precinctHeightInSubband: 1 << uint(d.PPy+sub),
 	}
@@ -459,9 +459,7 @@ func jpxParseTilePackets(ctx *jpxContext, data []byte, offset, dataLength int) i
 					precinct.zeroBitPlanesTree = newJPXTagTree(width, height)
 					precinct.hasTrees = true
 					for l := 0; l < layerNumber; l++ {
-						if readBits(1) != 0 {
-							// invalid tag tree; bail this packet
-						}
+						readBits(1) // consume; an invalid tag-tree bit is tolerated
 					}
 				}
 				if precinct.inclusionTree.reset(codeblockColumn, codeblockRow, layerNumber) {

@@ -22,11 +22,11 @@ type fontInfo struct {
 	// a1..a191) and the glyph must be reached by name through the font's
 	// charset rather than through a rune. nil when no /Differences.
 	glyphNames map[byte]string
-	bold      bool
-	italic    bool
-	serif     bool    // /FontDescriptor /Flags Serif bit (used to pick a substitute)
-	ascent    float64 // from /FontDescriptor /Ascent (in 1/1000 text space)
-	descent   float64 // from /FontDescriptor /Descent (negative, in 1/1000 text space)
+	bold       bool
+	italic     bool
+	serif      bool    // /FontDescriptor /Flags Serif bit (used to pick a substitute)
+	ascent     float64 // from /FontDescriptor /Ascent (in 1/1000 text space)
+	descent    float64 // from /FontDescriptor /Descent (negative, in 1/1000 text space)
 }
 
 // defaultFontInfo returns the fontInfo viewers substitute when a content

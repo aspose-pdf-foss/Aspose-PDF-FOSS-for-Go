@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
 package asposepdf
 
@@ -419,8 +419,6 @@ func TestInvertSamples(t *testing.T) {
 		t.Errorf("invertSamples = % x, want % x", got, want)
 	}
 }
-
-
 
 // TestUnpackIndices covers bit-packed palette index expansion (44804.pdf:
 // 4-bpc Indexed field bars decoded black because indices were read as bytes).

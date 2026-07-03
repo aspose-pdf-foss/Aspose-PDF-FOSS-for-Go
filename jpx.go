@@ -26,9 +26,9 @@ type jpxSIZ struct {
 }
 
 type jpxComp struct {
-	precision    int
-	isSigned     bool
-	XRsiz, YRsiz int
+	precision                     int
+	isSigned                      bool
+	XRsiz, YRsiz                  int
 	x0, x1, y0, y1, width, height int
 }
 
@@ -90,7 +90,6 @@ type jpxTileComp struct {
 	tcx0, tcy0, tcx1, tcy1 int
 	width, height          int
 	resolutions            []*jpxResolution
-	subbands               []*jpxSubband
 	coding                 *jpxCOD
 	quant                  *jpxQuant
 }

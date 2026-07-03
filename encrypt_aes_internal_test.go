@@ -170,13 +170,13 @@ func TestBuildEncryptDictAES128(t *testing.T) {
 	}
 	dict := buildEncryptDict(state)
 	// Verify V=4 R=4 shape.
-	if v, _ := dict["/V"]; v != 4 {
+	if v := dict["/V"]; v != 4 {
 		t.Errorf("/V = %v, want 4", v)
 	}
-	if r, _ := dict["/R"]; r != 4 {
+	if r := dict["/R"]; r != 4 {
 		t.Errorf("/R = %v, want 4", r)
 	}
-	if l, _ := dict["/Length"]; l != 128 {
+	if l := dict["/Length"]; l != 128 {
 		t.Errorf("/Length = %v, want 128", l)
 	}
 	// /CF presence — must be a nested pdfDict.
@@ -236,10 +236,10 @@ func TestBuildEncryptDictRC4Unchanged(t *testing.T) {
 		permissions: -4,
 	}
 	dict := buildEncryptDict(state)
-	if v, _ := dict["/V"]; v != 2 {
+	if v := dict["/V"]; v != 2 {
 		t.Errorf("/V = %v, want 2 for RC4", v)
 	}
-	if r, _ := dict["/R"]; r != 3 {
+	if r := dict["/R"]; r != 3 {
 		t.Errorf("/R = %v, want 3 for RC4", r)
 	}
 	if _, exists := dict["/CF"]; exists {

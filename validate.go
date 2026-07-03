@@ -590,7 +590,7 @@ func (d *rawDocument) collectDeps(objNum int, deps map[int]bool) error {
 func (d *rawDocument) collectValueDeps(v pdfValue, deps map[int]bool) {
 	switch val := v.(type) {
 	case pdfRef:
-		d.collectDeps(val.Num, deps)
+		_ = d.collectDeps(val.Num, deps) // best-effort walk
 	case pdfDict:
 		for _, dv := range val {
 			d.collectValueDeps(dv, deps)
@@ -607,7 +607,7 @@ func (d *rawDocument) collectValueDeps(v pdfValue, deps map[int]bool) {
 		for _, m := range refs {
 			n := toIntBytes(m[1])
 			if n > 0 {
-				d.collectDeps(n, deps)
+				_ = d.collectDeps(n, deps) // best-effort walk
 			}
 		}
 	}

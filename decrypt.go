@@ -126,17 +126,6 @@ func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, 
 	return nil, fmt.Errorf("invalid password")
 }
 
-// recoverUserPasswordFromOwner runs PDF Algorithm 7 in reverse: given the
-// /O entry and a candidate owner password, derive the (padded) user
-// password. Returns the recovered user password and true on apparent
-// success. The returned password is the bytes that were padded into /O at
-// encryption time — typically that's the literal user password padded to
-// 32 bytes, but we treat the whole 32 bytes as our test password for
-// verifyUserPassword (padding the result a second time would diverge).
-func recoverUserPasswordFromOwner(ownerPwd string, oEntry []byte) (string, bool) {
-	return recoverUserPasswordFromOwnerR(ownerPwd, oEntry, 3, encKeyLen)
-}
-
 // recoverUserPasswordFromOwnerR is the revision-aware form of
 // recoverUserPasswordFromOwner. For r==2 the owner key is a single MD5 of
 // the padded owner password (keyLen bytes) and the padded user password is

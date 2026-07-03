@@ -55,17 +55,6 @@ func buildTestPDF() []byte {
 	})
 }
 
-// buildTestPDFWithContent creates a single-page PDF with custom content and a Helvetica/WinAnsi font at /F1.
-func buildTestPDFWithContent(content []byte) []byte {
-	return assemblePDF([]testObj{
-		{1, []byte("<< /Type /Catalog /Pages 2 0 R >>")},
-		{2, []byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")},
-		{3, []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>")},
-		{4, testMakeStream(content)},
-		{5, []byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")},
-	})
-}
-
 func TestPageContentStreams(t *testing.T) {
 	pdf := buildTestPDF()
 	doc, err := OpenStream(bytes.NewReader(pdf))

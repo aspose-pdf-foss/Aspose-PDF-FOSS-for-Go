@@ -9,15 +9,15 @@ import "testing"
 // particular the purple that the naive (1-C)(1-K) formula rendered too blue.
 func TestAdobeCMYKToRGB(t *testing.T) {
 	cases := []struct {
-		c, m, y, k       float64
+		c, m, y, k          float64
 		wantR, wantG, wantB uint8
-		tol              int
+		tol                 int
 	}{
-		{0, 0, 0, 0, 255, 255, 255, 0},   // white (exact grid point)
-		{0, 0, 0, 1, 34, 31, 31, 0},      // rich black
-		{1, 0, 0, 0, 0, 173, 239, 0},     // process cyan
-		{0, 1, 0, 0, 236, 0, 139, 0},     // process magenta
-		{0, 0, 1, 0, 255, 241, 0, 0},     // process yellow
+		{0, 0, 0, 0, 255, 255, 255, 0},              // white (exact grid point)
+		{0, 0, 0, 1, 34, 31, 31, 0},                 // rich black
+		{1, 0, 0, 0, 0, 173, 239, 0},                // process cyan
+		{0, 1, 0, 0, 236, 0, 139, 0},                // process magenta
+		{0, 0, 1, 0, 255, 241, 0, 0},                // process yellow
 		{0.63, 0.80, 0.11, 0.145, 108, 70, 133, 12}, // crowd purple (interpolated)
 	}
 	for _, c := range cases {

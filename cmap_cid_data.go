@@ -98,12 +98,12 @@ func readGzipEmbed(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, gz); err != nil {
 		return nil, err

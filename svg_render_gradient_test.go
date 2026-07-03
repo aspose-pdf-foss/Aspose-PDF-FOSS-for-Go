@@ -345,7 +345,7 @@ func TestRenderSVG_RadialGradient_CTMBakedIntoCoords(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if st, _ := dict["/ShadingType"]; st != 3 {
+		if st := dict["/ShadingType"]; st != 3 {
 			continue
 		}
 		coords, _ = dict["/Coords"].(pdfArray)

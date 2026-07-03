@@ -18,14 +18,14 @@ func TestDecodeLiteralStringOctal(t *testing.T) {
 		in   string
 		want []byte
 	}{
-		{`(\232\021A)`, []byte{0x9A, 0x11, 'A'}},        // 3- and 3-digit octal
-		{`(\0\7\10\377)`, []byte{0, 7, 8, 0xFF}},        // 1/1/2/3-digit octal
-		{`(a\)b\(c)`, []byte("a)b(c")},                  // escaped parens
-		{`(x\\y)`, []byte{'x', '\\', 'y'}},              // escaped backslash
-		{"(a\\\nb)", []byte("ab")},                      // backslash-LF continuation
-		{"(a\\\r\nb)", []byte("ab")},                    // backslash-CRLF continuation
-		{`(plain)`, []byte("plain")},                    // no escapes
-		{`(\101\102\103)`, []byte("ABC")},               // octal letters
+		{`(\232\021A)`, []byte{0x9A, 0x11, 'A'}}, // 3- and 3-digit octal
+		{`(\0\7\10\377)`, []byte{0, 7, 8, 0xFF}}, // 1/1/2/3-digit octal
+		{`(a\)b\(c)`, []byte("a)b(c")},           // escaped parens
+		{`(x\\y)`, []byte{'x', '\\', 'y'}},       // escaped backslash
+		{"(a\\\nb)", []byte("ab")},               // backslash-LF continuation
+		{"(a\\\r\nb)", []byte("ab")},             // backslash-CRLF continuation
+		{`(plain)`, []byte("plain")},             // no escapes
+		{`(\101\102\103)`, []byte("ABC")},        // octal letters
 	}
 	for _, c := range cases {
 		got := decodeLiteralString([]byte(c.in))

@@ -179,7 +179,7 @@ func parseInlineImage(l *lexer) (pdfDict, []byte) {
 		}
 		if p+1 < len(l.data) && l.data[p] == 'E' && l.data[p+1] == 'I' {
 			l.pos = p + 2
-			return norm, l.data[start:start+n]
+			return norm, l.data[start : start+n]
 		}
 		// Length didn't line up with an EI (bad dimensions / unexpected
 		// padding): fall through to the tolerant scan below.

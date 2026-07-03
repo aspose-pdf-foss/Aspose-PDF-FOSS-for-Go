@@ -516,7 +516,7 @@ func imageAspect(path string) (w, h int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	cfg, _, err := image.DecodeConfig(file)
 	if err != nil {
 		return 0, 0, err

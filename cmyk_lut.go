@@ -33,33 +33,68 @@ func adobeCMYKToRGB(c, m, y, k float64) (uint8, uint8, uint8) {
 		return cmykClamp8(r * 255), cmykClamp8(g * 255), cmykClamp8(b * 255)
 	}
 	clampUnit := func(v float64) float64 {
-		if v < 0 { return 0 }
-		if v > 1 { return 1 }
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
 		return v
 	}
 	axis := func(v float64) (int, float64) {
 		f := clampUnit(v) * 4
 		i := int(f)
-		if i > 3 { i = 3 }
+		if i > 3 {
+			i = 3
+		}
 		return i, f - float64(i)
 	}
-	ic, fc := axis(c); im, fm := axis(m); iy, fy := axis(y); ik, fk := axis(k)
+	ic, fc := axis(c)
+	im, fm := axis(m)
+	iy, fy := axis(y)
+	ik, fk := axis(k)
 	var rr, gg, bb float64
 	for dc := 0; dc < 2; dc++ {
-		wc := 1 - fc; if dc == 1 { wc = fc }
+		wc := 1 - fc
+		if dc == 1 {
+			wc = fc
+		}
 		for dm := 0; dm < 2; dm++ {
-			wm := 1 - fm; if dm == 1 { wm = fm }
+			wm := 1 - fm
+			if dm == 1 {
+				wm = fm
+			}
 			for dy := 0; dy < 2; dy++ {
-				wy := 1 - fy; if dy == 1 { wy = fy }
+				wy := 1 - fy
+				if dy == 1 {
+					wy = fy
+				}
 				for dk := 0; dk < 2; dk++ {
-					wk := 1 - fk; if dk == 1 { wk = fk }
+					wk := 1 - fk
+					if dk == 1 {
+						wk = fk
+					}
 					w := wc * wm * wy * wk
-					if w == 0 { continue }
-					ci := ic + dc; if ci > 4 { ci = 4 }
-					mi := im + dm; if mi > 4 { mi = 4 }
-					yi := iy + dy; if yi > 4 { yi = 4 }
-					ki := ik + dk; if ki > 4 { ki = 4 }
-					o := ((((ci*5+mi)*5+yi)*5+ki) * 3)
+					if w == 0 {
+						continue
+					}
+					ci := ic + dc
+					if ci > 4 {
+						ci = 4
+					}
+					mi := im + dm
+					if mi > 4 {
+						mi = 4
+					}
+					yi := iy + dy
+					if yi > 4 {
+						yi = 4
+					}
+					ki := ik + dk
+					if ki > 4 {
+						ki = 4
+					}
+					o := ((((ci*5+mi)*5+yi)*5 + ki) * 3)
 					rr += w * float64(cmykLUT[o])
 					gg += w * float64(cmykLUT[o+1])
 					bb += w * float64(cmykLUT[o+2])

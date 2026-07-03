@@ -42,7 +42,8 @@ func encodeTIFF(w io.Writer, count int, dpi float64, compress bool, get func(i i
 	bw := bufio.NewWriter(w)
 
 	// Image file header: byte order "II", magic 42, offset of the first IFD.
-	bw.WriteString("II")
+	// Buffered-writer errors are sticky and surface at the checked Flush.
+	_, _ = bw.WriteString("II")
 	putU16(bw, 42)
 	putU32(bw, 8)
 
@@ -110,7 +111,7 @@ func encodeTIFF(w io.Writer, count int, dpi float64, compress bool, get func(i i
 			return err
 		}
 		if padded != stripLen {
-			bw.Write([]byte{0})
+			_, _ = bw.Write([]byte{0}) // sticky; checked at Flush
 		}
 		off += blockLen
 	}
@@ -153,8 +154,8 @@ func tiffStrip(m image.Image, compress bool) ([]byte, int, int) {
 	}
 	var buf bytes.Buffer
 	zw := zlib.NewWriter(&buf)
-	zw.Write(raw)
-	zw.Close()
+	_, _ = zw.Write(raw) // in-memory buffer: cannot fail
+	_ = zw.Close()
 	return buf.Bytes(), wd, ht
 }
 

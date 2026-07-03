@@ -64,7 +64,7 @@ func requestTimestamp(tsaURL string, signature []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("timestamp: request to %s: %w", tsaURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("timestamp: read response: %w", err)

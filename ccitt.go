@@ -13,11 +13,11 @@ import "fmt"
 
 // ccittParams are the relevant /DecodeParms entries.
 type ccittParams struct {
-	k             int
-	columns       int
-	rows          int
-	blackIs1      bool
-	byteAlign     bool
+	k         int
+	columns   int
+	rows      int
+	blackIs1  bool
+	byteAlign bool
 }
 
 // ccittFilter reads the /DecodeParms (and the image /Height as a fallback for
@@ -348,7 +348,7 @@ func ccittReadCode(br *ccittBits, table map[uint32]int) (int, bool) {
 // ccittBits is an MSB-first bit reader over the encoded data.
 type ccittBits struct {
 	data []byte
-	pos  int // byte index
+	pos  int  // byte index
 	bitn uint // bits consumed in current byte (0..7)
 }
 

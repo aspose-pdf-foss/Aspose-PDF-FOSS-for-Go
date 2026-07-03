@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
 
+// Package asposepdf is a pure-Go, zero-dependency PDF library: read, create,
+// edit, render, sign, encrypt, and validate PDF documents. Its public API is
+// shaped to mirror Aspose.PDF for .NET (Document, Page, TextFragment, Table,
+// Form, OutlineItemCollection, ...), adapted to Go idioms.
 package asposepdf
 
 import (
@@ -532,9 +536,13 @@ func (d *Document) Save(outputPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = d.WriteTo(f)
-	return err
+	if _, err := d.WriteTo(f); err != nil {
+		_ = f.Close() // best-effort; the write error takes precedence
+		return err
+	}
+	// The file was written for output: a failed Close can mean lost data,
+	// so its error is returned rather than ignored.
+	return f.Close()
 }
 
 // validateRange validates from/to against [1, total].

@@ -227,13 +227,12 @@ func bidiResolve(runes []rune, baseLevel int) []int {
 		for j < n && (cls[j] == clsON || cls[j] == clsWS) {
 			j++
 		}
-		before := embedDir
+		var before, after bidiCls
 		if i > 0 {
 			before = neutralDir(cls[i-1])
 		} else {
 			before = neutralDir(sor)
 		}
-		after := embedDir
 		if j < n {
 			after = neutralDir(cls[j])
 		} else {

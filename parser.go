@@ -512,7 +512,7 @@ func flateDecode(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	out, rerr := io.ReadAll(r)
 	if rerr != nil && len(out) > 0 {
 		// Tolerate a truncated stream or a bad trailing Adler-32 checksum (common

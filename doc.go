@@ -18,14 +18,6 @@ func toIntBytes(raw []byte) int {
 	return n
 }
 
-// parseAllObjects iterates every non-free entry in xref and parses the
-// corresponding object, decoding streams eagerly. Returns a map of objNum → *pdfObject.
-// trailer is required to initialise the rawDocument used for object-stream parsing.
-func parseAllObjects(data []byte, xref *xrefTable, trailer pdfDict) (map[int]*pdfObject, error) {
-	raw := newRawDocument(data, xref, trailer)
-	return parseAllObjectsFrom(raw)
-}
-
 // newRawDocument constructs a rawDocument with empty caches.
 func newRawDocument(data []byte, xref *xrefTable, trailer pdfDict) *rawDocument {
 	return &rawDocument{

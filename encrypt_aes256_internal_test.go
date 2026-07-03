@@ -236,13 +236,13 @@ func TestBuildEncryptDict_V5R6(t *testing.T) {
 	state, _ := newEncryptStateV5R6(cfg)
 	dict := buildEncryptDict(state)
 
-	if v, _ := dict["/V"]; v != 5 {
+	if v := dict["/V"]; v != 5 {
 		t.Errorf("/V = %v, want 5", v)
 	}
-	if r, _ := dict["/R"]; r != 6 {
+	if r := dict["/R"]; r != 6 {
 		t.Errorf("/R = %v, want 6", r)
 	}
-	if l, _ := dict["/Length"]; l != 256 {
+	if l := dict["/Length"]; l != 256 {
 		t.Errorf("/Length = %v, want 256", l)
 	}
 	for _, k := range []string{"/O", "/U", "/OE", "/UE", "/Perms"} {
@@ -250,7 +250,7 @@ func TestBuildEncryptDict_V5R6(t *testing.T) {
 			t.Errorf("dict missing %s", k)
 		}
 	}
-	if em, _ := dict["/EncryptMetadata"]; em != true {
+	if em := dict["/EncryptMetadata"]; em != true {
 		t.Errorf("/EncryptMetadata = %v, want true", em)
 	}
 	cf, ok := dict["/CF"].(pdfDict)
@@ -278,7 +278,7 @@ func TestBuildEncryptDict_AES128Unchanged(t *testing.T) {
 		permissions: -4,
 	}
 	dict := buildEncryptDict(state)
-	if v, _ := dict["/V"]; v != 4 {
+	if v := dict["/V"]; v != 4 {
 		t.Errorf("AES-128 /V = %v, want 4 (no regression)", v)
 	}
 	if _, exists := dict["/UE"]; exists {
