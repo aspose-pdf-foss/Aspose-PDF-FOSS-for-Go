@@ -30,7 +30,11 @@ func (rd *renderer) doXObject(name string) {
 	case "/Image":
 		rd.drawImageXObject(name, stream)
 	case "/Form":
-		rd.drawFormXObject(stream)
+		if rd.groupNeedsComposite(stream) {
+			rd.drawFormGroup(stream)
+		} else {
+			rd.drawFormXObject(stream)
+		}
 	}
 }
 

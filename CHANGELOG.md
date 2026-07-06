@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Transparency-group compositing (render) — Form XObjects with `/Group /S /Transparency` drawn under a group-level alpha, blend mode or soft mask are now rendered off-screen and composited as a single flattened object (ISO 32000-1 §11.4.7), fixing the classic double-darkening of overlaps inside a semi-transparent group; knockout groups (`/K true`) make later vector elements replace earlier ones within their coverage. Opaque Normal-mode groups keep the fast inline path. Completes the renderer's transparency model (constant alpha + 16 blend modes + soft masks + groups). (`pdf-go-rom`)
+
 ### Fixed
 
 - `Document.Save` no longer ignores the output file's `Close` error — a failed `Close` on a freshly written file can mean silently lost data (OS write buffers not flushed); the `WriteTo` error still takes precedence when both fail. Found by adopting `golangci-lint` in CI (which also drove a dead-code sweep and explicit `_ =` markers wherever ignoring an error is deliberate).

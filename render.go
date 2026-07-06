@@ -68,6 +68,11 @@ type renderer struct {
 	res   pdfDict    // current /Resources (page, or a form XObject's)
 	depth int        // form XObject recursion depth
 
+	// knockout is set on the sub-renderer of a knockout transparency group
+	// (/Group /K true): vector paints replace the accumulated backdrop within
+	// their coverage instead of compositing over it (render_group.go).
+	knockout bool
+
 	ts        textState              // current text-object state
 	tsStack   []textState            // text state saved by q (parallels stack)
 	fontCache map[string]*renderFont // resolved fonts by resource name
@@ -518,6 +523,10 @@ func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, 
 	}
 	cov, x0, y0, x1, y1 := rd.ras.coverageBBox(dp, rule)
 	if cov == nil {
+		return
+	}
+	if rd.knockout {
+		compositeCoverageKnockout(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.effectiveClip())
 		return
 	}
 	compositeCoverageBBox(rd.img, rd.w, cov, x0, y0, x1, y1, sr, sg, sb, alpha, rd.effectiveClip(), rd.gs.blend)
