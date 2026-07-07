@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- PDF → HTML export (phase 1) — `(*Document).SaveHTML(path, opts)` / `WriteHTML(w, opts)` convert the document to **one self-contained HTML file**: each page is rendered by the built-in rasterizer (pixel-identical to `RenderPNG`) and embedded as a base64 PNG, with a transparent, precisely positioned text layer on top — so the HTML looks exactly like the PDF while its text is selectable, copyable and searchable (Ctrl+F). No external assets, no JavaScript. `HTMLSaveOptions{DPI, Title}`. A visible-text ("true HTML") mode, font embedding and an SVG background are planned as later phases; the renderer already gained the `suppressText` primitive for the text-less background render. Mirrors the intent of Aspose.PDF for .NET's `Document.Save(SaveFormat.Html)`. (`pdf-go-rfom`)
 - Transparency-group compositing (render) — Form XObjects with `/Group /S /Transparency` drawn under a group-level alpha, blend mode or soft mask are now rendered off-screen and composited as a single flattened object (ISO 32000-1 §11.4.7), fixing the classic double-darkening of overlaps inside a semi-transparent group; knockout groups (`/K true`) make later vector elements replace earlier ones within their coverage. Opaque Normal-mode groups keep the fast inline path. Completes the renderer's transparency model (constant alpha + 16 blend modes + soft masks + groups). (`pdf-go-rom`)
 
 ### Fixed

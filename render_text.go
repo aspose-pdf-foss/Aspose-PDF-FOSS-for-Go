@@ -517,6 +517,9 @@ func (rd *renderer) paintContoursX(f *renderFont, contours []glyphContour, xScal
 	if mode >= 4 { // clip modes 4-7: accumulate glyph outlines for the ET clip
 		rd.textClip = append(rd.textClip, path.subs...)
 	}
+	if rd.suppressText {
+		return
+	}
 	if textFills(mode) && !rd.gs.fillPattern {
 		rd.compositePath(path, fillNonZero, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 	}

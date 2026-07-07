@@ -149,5 +149,6 @@
   "TestPageAnnotationsWalkExistingPDF":        [["PdfWithAcroForm.pdf"]],
   "TestAnnotationsCoexistWithForm":            [["PdfWithAcroForm.pdf"]],
   "TestLinkAnnotationReadFromExistingPDF":     [["PdfWithLinks.pdf"]],
-  "TestPdfWithLinksReadAllActions":            [["PdfWithLinks.pdf"]]
+  "TestPdfWithLinksReadAllActions":            [["PdfWithLinks.pdf"]],
+  "TestSaveHTMLRealFile":              [["marketing.pdf"]]
 }

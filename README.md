@@ -76,6 +76,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
+- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file: pages are rendered by the built-in rasterizer (pixel-identical to the PDF) with a transparent text layer on top, so the result is selectable, copyable and searchable in any browser — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (visible-text and reflow modes are planned)
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position

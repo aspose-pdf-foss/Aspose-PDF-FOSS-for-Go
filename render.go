@@ -68,6 +68,11 @@ type renderer struct {
 	res   pdfDict    // current /Resources (page, or a form XObject's)
 	depth int        // form XObject recursion depth
 
+	// suppressText disables the glyph fill/stroke paint (text-clip
+	// accumulation for Tr 4-7 still works), used by the HTML exporter to
+	// render a page's graphics-only background (html_export.go).
+	suppressText bool
+
 	// knockout is set on the sub-renderer of a knockout transparency group
 	// (/Group /K true): vector paints replace the accumulated backdrop within
 	// their coverage instead of compositing over it (render_group.go).
