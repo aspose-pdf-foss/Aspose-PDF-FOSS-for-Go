@@ -39,6 +39,10 @@ type gstate struct {
 	// space (set by cs/CS); nil → device colour by operand count.
 	fillTint   tintFunc
 	strokeTint tintFunc
+
+	// vecClip is the id of the innermost SVG <clipPath> in effect (0 = none);
+	// only meaningful when the renderer drives an svgDevice (html_export_svg.go).
+	vecClip int
 }
 
 // effectiveClip combines the geometric clip with the soft mask (both per-pixel
@@ -72,6 +76,11 @@ type renderer struct {
 	// accumulation for Tr 4-7 still works), used by the HTML exporter to
 	// render a page's graphics-only background (html_export.go).
 	suppressText bool
+
+	// vec, when non-nil, redirects paints to an SVG emitter instead of the
+	// raster pipeline (html_export_svg.go). Content the emitter cannot
+	// express is rendered by a vec-less sub-renderer into a raster patch.
+	vec *svgDevice
 
 	// knockout is set on the sub-renderer of a knockout transparency group
 	// (/Group /K true): vector paints replace the accumulated backdrop within
@@ -202,12 +211,12 @@ func (rd *renderer) exec(ops []contentOp) {
 		case "m":
 			if len(o) >= 2 {
 				x, y := applyPt(rd.dmat(), f(o[0]), f(o[1]))
-				rd.fl.moveTo(x, y)
+				rd.pathMove(x, y)
 			}
 		case "l":
 			if len(o) >= 2 {
 				x, y := applyPt(rd.dmat(), f(o[0]), f(o[1]))
-				rd.fl.lineTo(x, y)
+				rd.pathLine(x, y)
 			}
 		case "c":
 			if len(o) >= 6 {
@@ -215,21 +224,21 @@ func (rd *renderer) exec(ops []contentOp) {
 				x1, y1 := applyPt(m, f(o[0]), f(o[1]))
 				x2, y2 := applyPt(m, f(o[2]), f(o[3]))
 				x3, y3 := applyPt(m, f(o[4]), f(o[5]))
-				rd.fl.cubicTo(x1, y1, x2, y2, x3, y3)
+				rd.pathCubic(x1, y1, x2, y2, x3, y3)
 			}
 		case "v":
 			if len(o) >= 4 {
 				m := rd.dmat()
 				x2, y2 := applyPt(m, f(o[0]), f(o[1]))
 				x3, y3 := applyPt(m, f(o[2]), f(o[3]))
-				rd.fl.cubicTo(rd.fl.curX, rd.fl.curY, x2, y2, x3, y3) // first control = current point
+				rd.pathCubic(rd.fl.curX, rd.fl.curY, x2, y2, x3, y3) // first control = current point
 			}
 		case "y":
 			if len(o) >= 4 {
 				m := rd.dmat()
 				x1, y1 := applyPt(m, f(o[0]), f(o[1]))
 				x3, y3 := applyPt(m, f(o[2]), f(o[3]))
-				rd.fl.cubicTo(x1, y1, x3, y3, x3, y3) // second control = endpoint
+				rd.pathCubic(x1, y1, x3, y3, x3, y3) // second control = endpoint
 			}
 		case "re":
 			if len(o) >= 4 {
@@ -239,14 +248,14 @@ func (rd *renderer) exec(ops []contentOp) {
 				bx, by := applyPt(m, x+w, y)
 				cx, cy := applyPt(m, x+w, y+h)
 				dx, dy := applyPt(m, x, y+h)
-				rd.fl.moveTo(ax, ay)
-				rd.fl.lineTo(bx, by)
-				rd.fl.lineTo(cx, cy)
-				rd.fl.lineTo(dx, dy)
-				rd.fl.close()
+				rd.pathMove(ax, ay)
+				rd.pathLine(bx, by)
+				rd.pathLine(cx, cy)
+				rd.pathLine(dx, dy)
+				rd.pathClose()
 			}
 		case "h":
-			rd.fl.close()
+			rd.pathClose()
 
 		// --- path painting ---
 		case "f", "F":
@@ -259,19 +268,19 @@ func (rd *renderer) exec(ops []contentOp) {
 			rd.applyPendingClip()
 			rd.stroke()
 		case "s":
-			rd.fl.close()
+			rd.pathClose()
 			rd.applyPendingClip()
 			rd.stroke()
 		case "B", "b":
 			if op.Operator == "b" {
-				rd.fl.close()
+				rd.pathClose()
 			}
 			rd.applyPendingClip()
 			rd.fillKeep(fillNonZero)
 			rd.stroke()
 		case "B*", "b*":
 			if op.Operator == "b*" {
-				rd.fl.close()
+				rd.pathClose()
 			}
 			rd.applyPendingClip()
 			rd.fillKeep(fillEvenOdd)
@@ -523,11 +532,53 @@ func (rd *renderer) resolveShadingPattern(name string) (*shading, [6]float64) {
 	return s, m
 }
 
+// pathMove / pathLine / pathCubic / pathClose feed the current path (device
+// space) to the flattener and, when an SVG emitter drives the renderer, to
+// its true-curve path recorder in parallel.
+func (rd *renderer) pathMove(x, y float64) {
+	rd.fl.moveTo(x, y)
+	if rd.vec != nil {
+		rd.vec.moveTo(x, y)
+	}
+}
+
+func (rd *renderer) pathLine(x, y float64) {
+	rd.fl.lineTo(x, y)
+	if rd.vec != nil {
+		rd.vec.lineTo(x, y)
+	}
+}
+
+func (rd *renderer) pathCubic(x1, y1, x2, y2, x3, y3 float64) {
+	rd.fl.cubicTo(x1, y1, x2, y2, x3, y3)
+	if rd.vec != nil {
+		rd.vec.cubicTo(x1, y1, x2, y2, x3, y3)
+	}
+}
+
+func (rd *renderer) pathClose() {
+	rd.fl.close()
+	if rd.vec != nil {
+		rd.vec.closePath()
+	}
+}
+
 // compositePath rasterizes dp's coverage over just its bounding box and paints
 // it with the given colour and alpha (honouring the clip). This is the hot path
 // for fills, strokes and glyphs — bbox-scoped work instead of whole-frame.
+// With an SVG emitter attached, the geometry is emitted as a vector path
+// instead (this is the catch-all for paints that do not come through
+// fillKeep/stroke — annotation-appearance glyphs in particular).
 func (rd *renderer) compositePath(dp *devPath, rule fillRule, sr, sg, sb uint8, alpha float64) {
 	if rd.ocHidden > 0 {
+		return
+	}
+	if rd.vec != nil {
+		if rd.gs.softMask != nil {
+			rd.vecPatch(func(sub *renderer) { sub.compositePath(dp, rule, sr, sg, sb, alpha) })
+			return
+		}
+		rd.vec.emitDevPath(rd, dp, rule, sr, sg, sb, alpha)
 		return
 	}
 	cov, x0, y0, x1, y1 := rd.ras.coverageBBox(dp, rule)
@@ -547,8 +598,22 @@ func (rd *renderer) fill(rule fillRule) {
 }
 
 // fillKeep fills the current path without clearing it (used by B/b which fill
-// then stroke the same path).
+// then stroke the same path). With an SVG emitter attached, a solid fill is
+// emitted as a true-curve vector path; pattern/shading fills and soft-masked
+// fills fall back to a raster patch.
 func (rd *renderer) fillKeep(rule fillRule) {
+	if rd.vec != nil && rd.ocHidden == 0 {
+		if rd.gs.fillPattern || rd.gs.softMask != nil {
+			cur := rd.fl
+			rd.vecPatch(func(sub *renderer) {
+				sub.fl = cur
+				sub.fillKeep(rule)
+			})
+			return
+		}
+		rd.vec.emitFill(rd, rule)
+		return
+	}
 	if rd.gs.fillPattern {
 		switch {
 		case rd.gs.fillShading != nil:
@@ -562,15 +627,34 @@ func (rd *renderer) fillKeep(rule fillRule) {
 	rd.compositePath(rd.fl.path(), rule, rd.gs.fillR, rd.gs.fillG, rd.gs.fillB, rd.gs.fillA)
 }
 
-func (rd *renderer) resetPath() { rd.fl = newFlattener(0.2) }
+func (rd *renderer) resetPath() {
+	rd.fl = newFlattener(0.2)
+	if rd.vec != nil {
+		rd.vec.resetPath()
+	}
+}
 
 // stroke paints the current path's outline with the stroke colour, then clears
 // the path. Line width is converted from user space to device pixels via the
 // CTM's linear scale, with a 1px floor (covers lineWidth 0 = thinnest line).
+// With an SVG emitter attached, the stroke is emitted as a true-curve vector
+// path with native stroke attributes (width/caps/joins/dash).
 func (rd *renderer) stroke() {
 	dp := rd.fl.path()
 	defer rd.resetPath()
 	if rd.gs.strokePattern {
+		return
+	}
+	if rd.vec != nil && rd.ocHidden == 0 {
+		if rd.gs.softMask != nil {
+			cur := rd.fl
+			rd.vecPatch(func(sub *renderer) {
+				sub.fl = cur
+				sub.stroke()
+			})
+			return
+		}
+		rd.vec.emitStroke(rd)
 		return
 	}
 	m := rd.dmat()

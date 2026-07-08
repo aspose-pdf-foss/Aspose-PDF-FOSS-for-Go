@@ -76,7 +76,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
-- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in two modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer) and **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size). In text mode the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (a fully HTML-native no-background mode is the next phase)
+- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in three modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer), **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size) and **native** (`HTMLModeNative` — no raster background at all: page graphics become one inline SVG layer per page with true-curve paths, native strokes, clips and blend modes, images pass through as SVG `<image>` with their original JPEG/PNG bytes, and only content SVG cannot express — shadings, patterns, soft masks, transparency groups — degrades locally to positioned raster patches). In text/native modes the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html`
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
@@ -1284,6 +1284,12 @@ doc.SaveHTML("out.html")
 // re-wrapped as WOFF @font-face data URLs so the text keeps its real faces;
 // pass NoFontEmbedding to stay on metric substitutes width-fitted to the layout.
 doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
+
+// Native mode: no raster background at all — page graphics are one inline
+// SVG layer (true-curve paths, native strokes, clips, blend modes; images
+// keep their original JPEG/PNG bytes); only shadings/patterns/soft masks
+// degrade to small positioned raster patches.
+doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeNative})
 
 // Page subset, custom raster DPI and title; or write to any io.Writer.
 doc.SaveHTML("part.html", pdf.HTMLSaveOptions{Pages: []int{1, 3}, DPI: 96, Title: "Report"})

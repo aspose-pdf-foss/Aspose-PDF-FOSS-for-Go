@@ -41,6 +41,22 @@ func (rd *renderer) doXObject(name string) {
 // drawImageXObject decodes the named image and blits it into the unit square
 // transformed by the current matrix. Stencil image masks are skipped for now.
 func (rd *renderer) drawImageXObject(name string, stream *pdfStream) {
+	if rd.vec != nil && rd.ocHidden == 0 {
+		if b, _ := stream.Dict["/ImageMask"].(bool); b || rd.gs.softMask != nil {
+			// Stencil masks (fill colour through a bitmap) and soft-masked
+			// draws have no direct SVG form — raster patch.
+			rd.vecPatch(func(sub *renderer) { sub.drawImageXObject(name, stream) })
+			return
+		}
+		if info, ok := xobjectImageInfo(rd.page.doc.objects, rd.res, name, identityMatrix()); ok {
+			if img, err := info.Extract(); err == nil {
+				rd.vec.emitImage(rd, img) // PNG/JPEG bytes pass through verbatim
+				return
+			}
+		}
+		rd.vecPatch(func(sub *renderer) { sub.drawImageXObject(name, stream) })
+		return
+	}
 	if b, _ := stream.Dict["/ImageMask"].(bool); b {
 		objects := rd.page.doc.objects
 		w := int(operandFloat(resolveRef(objects, stream.Dict["/Width"])))
@@ -83,6 +99,10 @@ func (rd *renderer) drawInlineImage(operands []pdfValue) {
 	}
 	if dict, ok := operands[0].(pdfDict); ok {
 		if b, _ := dict["/ImageMask"].(bool); b {
+			if rd.vec != nil && rd.ocHidden == 0 {
+				rd.vecPatch(func(sub *renderer) { sub.drawInlineMask(dict, operands[1]) })
+				return
+			}
 			rd.drawInlineMask(dict, operands[1])
 			return
 		}
@@ -93,6 +113,14 @@ func (rd *renderer) drawInlineImage(operands []pdfValue) {
 	}
 	img, err := info.Extract()
 	if err != nil {
+		return
+	}
+	if rd.vec != nil && rd.ocHidden == 0 {
+		if rd.gs.softMask != nil {
+			rd.vecPatch(func(sub *renderer) { sub.drawInlineImage(operands) })
+			return
+		}
+		rd.vec.emitImage(rd, img)
 		return
 	}
 	m, _, err := image.Decode(bytes.NewReader(img.Data))

@@ -20,6 +20,11 @@ func (rd *renderer) applyPendingClip() {
 	cov := rd.ras.coverage(rd.fl.path(), rule)
 	rd.gs.clip = intersectClip(rd.gs.clip, cov)
 	rd.pendingClip = 0
+	if rd.vec != nil {
+		// Mirror the clip as an SVG <clipPath> chained onto the current one.
+		// The raster clip above stays live too — patches paint through it.
+		rd.gs.vecClip = rd.vec.addClip(rd.vec.pathData(), rule, rd.gs.vecClip)
+	}
 }
 
 // applyTextClip is called at ET: if any glyphs were drawn under a clipping text
@@ -33,5 +38,8 @@ func (rd *renderer) applyTextClip() {
 	}
 	cov := rd.ras.coverage(&devPath{subs: rd.textClip}, fillNonZero)
 	rd.gs.clip = intersectClip(rd.gs.clip, cov)
+	if rd.vec != nil {
+		rd.gs.vecClip = rd.vec.addClip(devPathData(&devPath{subs: rd.textClip}), fillNonZero, rd.gs.vecClip)
+	}
 	rd.textClip = nil
 }

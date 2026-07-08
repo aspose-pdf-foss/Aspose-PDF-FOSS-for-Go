@@ -407,6 +407,13 @@ func (rd *renderer) paintShOperator(name string) {
 	if s == nil {
 		return
 	}
+	if rd.vec != nil {
+		// Shadings (function-driven colour ramps) go out as a raster patch.
+		if rd.ocHidden == 0 {
+			rd.vecPatch(func(sub *renderer) { sub.paintShading(s, sub.dmat(), sub.effectiveClip()) })
+		}
+		return
+	}
 	rd.paintShading(s, rd.dmat(), rd.effectiveClip())
 }
 

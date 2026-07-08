@@ -57,6 +57,14 @@ func (rd *renderer) groupNeedsComposite(stream *pdfStream) bool {
 // over a transparent backdrop and composites the flattened result onto the
 // page with the group-level alpha, blend mode, soft mask and clip.
 func (rd *renderer) drawFormGroup(stream *pdfStream) {
+	if rd.vec != nil {
+		// Transparency-group compositing has no SVG equivalent (per-group
+		// alpha/blend/soft-mask over the flattened group) — raster patch.
+		if rd.ocHidden == 0 {
+			rd.vecPatch(func(sub *renderer) { sub.drawFormGroup(stream) })
+		}
+		return
+	}
 	if rd.depth >= 8 || rd.w <= 0 || rd.h <= 0 {
 		// Too deep for an off-screen pass: fall back to inline execution.
 		rd.drawFormXObject(stream)

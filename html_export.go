@@ -48,6 +48,13 @@ const (
 	// text as visible HTML spans (real colour/size/style, width-fitted to
 	// the PDF layout) — crisp at any zoom, accessible, smaller output.
 	HTMLModeText
+	// HTMLModeNative drops the raster background entirely: page graphics
+	// become one inline SVG layer per page (true-curve paths, native
+	// strokes, clips, images with JPEG passthrough, blend modes), with
+	// per-element raster patches only for content SVG cannot express
+	// (shadings, patterns, soft masks, transparency groups). Text is the
+	// same visible span layer as HTMLModeText (WOFF fonts included).
+	HTMLModeNative
 )
 
 // HTMLSaveOptions configures SaveHTML / WriteHTML. The zero value exports all
@@ -130,8 +137,9 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 		lines []TextLine
 	}
 	hps := make([]htmlPage, 0, len(sel))
+	visibleText := opt.Mode == HTMLModeText || opt.Mode == HTMLModeNative
 	var fonts *htmlFontSet
-	if opt.Mode == HTMLModeText && !opt.NoFontEmbedding {
+	if visibleText && !opt.NoFontEmbedding {
 		fonts = newHTMLFontSet(d)
 	}
 	for _, n := range sel {
@@ -165,6 +173,7 @@ body { background: #888; margin: 0; padding: 16px 0; }
 .tv span { font-family: Arial, Helvetica, sans-serif; }
 .tv span.f-serif { font-family: 'Times New Roman', Times, serif; }
 .tv span.f-mono  { font-family: 'Courier New', Courier, monospace; }
+.vg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 a.lnk { position: absolute; }
 `)
 	b.WriteString(fontCSS)
@@ -191,35 +200,46 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 		return err
 	}
 
-	// Background raster, base64-inlined: the full page in faithful mode, the
-	// glyph-less graphics in text mode.
-	var bg strings.Builder
-	enc := base64.NewEncoder(base64.StdEncoding, &bg)
-	img, err := p.renderImage(RenderOptions{DPI: dpi}, mode == HTMLModeText)
-	if err != nil {
-		return err
-	}
-	if err := png.Encode(enc, img); err != nil {
-		return err
-	}
-	if err := enc.Close(); err != nil {
-		return err
-	}
-
 	var b strings.Builder
 	fmt.Fprintf(&b, "<div class=\"page\" id=\"page%d\" style=\"width:%spt;height:%spt\">\n",
 		num, htmlNum(sz.Width), htmlNum(sz.Height))
-	fmt.Fprintf(&b, "<img src=\"data:image/png;base64,%s\" alt=\"page %d\" loading=\"lazy\">\n",
-		bg.String(), num)
+
+	if mode == HTMLModeNative {
+		// No raster background: the page graphics are one inline SVG layer.
+		svg, err := renderPageSVG(p, dpi)
+		if err != nil {
+			return err
+		}
+		b.WriteString(svg)
+	} else {
+		// Background raster, base64-inlined: the full page in faithful mode,
+		// the glyph-less graphics in text mode.
+		var bg strings.Builder
+		enc := base64.NewEncoder(base64.StdEncoding, &bg)
+		img, err := p.renderImage(RenderOptions{DPI: dpi}, mode == HTMLModeText)
+		if err != nil {
+			return err
+		}
+		if err := png.Encode(enc, img); err != nil {
+			return err
+		}
+		if err := enc.Close(); err != nil {
+			return err
+		}
+		fmt.Fprintf(&b, "<img src=\"data:image/png;base64,%s\" alt=\"page %d\" loading=\"lazy\">\n",
+			bg.String(), num)
+	}
+
+	visibleText := mode == HTMLModeText || mode == HTMLModeNative
 	layer := "tl"
-	if mode == HTMLModeText {
+	if visibleText {
 		layer = "tv"
 	}
 	fmt.Fprintf(&b, "<div class=\"%s\">\n", layer)
 
 	for _, line := range lines {
 		for _, frag := range line.Fragments {
-			if mode == HTMLModeText {
+			if visibleText {
 				var ef *htmlFont
 				if fonts != nil {
 					ef = fonts.resolve(p, frag.FontName)

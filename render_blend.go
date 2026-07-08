@@ -15,28 +15,73 @@ type blendFunc func(cb, cs float64) float64
 type nonSepBlend func(cbr, cbg, cbb, csr, csg, csb float64) (float64, float64, float64)
 
 // blendMode is the active blend on the graphics state: at most one of sep / ns
-// is non-nil; the zero value is Normal (plain source-over).
+// is non-nil; the zero value is Normal (plain source-over). css carries the
+// CSS mix-blend-mode keyword for the SVG export ("" = normal).
 type blendMode struct {
 	sep blendFunc
 	ns  nonSepBlend
+	css string
 }
 
 // blendModeFor resolves a /BM name to a blendMode (zero value = Normal).
 func blendModeFor(name string) blendMode {
+	m := blendMode{}
 	if f := blendFor(name); f != nil {
-		return blendMode{sep: f}
+		m.sep = f
+	} else {
+		switch name {
+		case "/Hue":
+			m.ns = blendHue
+		case "/Saturation":
+			m.ns = blendSaturation
+		case "/Color":
+			m.ns = blendColorMode
+		case "/Luminosity":
+			m.ns = blendLuminosity
+		}
 	}
+	if m.sep != nil || m.ns != nil {
+		m.css = cssBlendName(name)
+	}
+	return m
+}
+
+// cssBlendName maps a PDF /BM name to the equivalent CSS mix-blend-mode
+// keyword — CSS supports all 15 non-Normal PDF blend modes.
+func cssBlendName(name string) string {
 	switch name {
+	case "/Multiply":
+		return "multiply"
+	case "/Screen":
+		return "screen"
+	case "/Overlay":
+		return "overlay"
+	case "/Darken":
+		return "darken"
+	case "/Lighten":
+		return "lighten"
+	case "/ColorDodge":
+		return "color-dodge"
+	case "/ColorBurn":
+		return "color-burn"
+	case "/HardLight":
+		return "hard-light"
+	case "/SoftLight":
+		return "soft-light"
+	case "/Difference":
+		return "difference"
+	case "/Exclusion":
+		return "exclusion"
 	case "/Hue":
-		return blendMode{ns: blendHue}
+		return "hue"
 	case "/Saturation":
-		return blendMode{ns: blendSaturation}
+		return "saturation"
 	case "/Color":
-		return blendMode{ns: blendColorMode}
+		return "color"
 	case "/Luminosity":
-		return blendMode{ns: blendLuminosity}
+		return "luminosity"
 	}
-	return blendMode{}
+	return ""
 }
 
 // blendApply composites source (sr,sg,sb) over the backdrop pixel at off with

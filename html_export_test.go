@@ -260,6 +260,88 @@ func TestWriteHTMLFontEmbedding(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLNativeMode: HTMLModeNative replaces the raster background
+// with an inline SVG layer — vector shapes become <path> elements with true
+// curves and native stroke attributes, images become <image> elements, and
+// content SVG cannot express (a gradient fill) becomes a positioned raster
+// patch. The visible text layer stays.
+func TestWriteHTMLNativeMode(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	red := pdf.Color{R: 1, G: 0, B: 0, A: 1}
+	blue := pdf.Color{R: 0, G: 0, B: 1, A: 1}
+	mustNoErr(t, p.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 600, URX: 200, URY: 700},
+		pdf.ShapeStyle{FillColor: &red}))
+	mustNoErr(t, p.DrawCircle(pdf.Point{X: 300, Y: 650}, 40,
+		pdf.ShapeStyle{LineStyle: pdf.LineStyle{Color: &blue, Width: 2, DashPattern: []float64{6, 3}}}))
+	grad := pdf.NewLinearGradient(50, 400, 200, 400,
+		pdf.GradientStop{Offset: 0, Color: red}, pdf.GradientStop{Offset: 1, Color: blue})
+	mustNoErr(t, p.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 400, URX: 200, URY: 500},
+		pdf.ShapeStyle{FillGradient: grad}))
+	mustNoErr(t, p.AddText("Native mode text", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 14},
+		pdf.Rectangle{LLX: 50, LLY: 730, URX: 545, URY: 760}))
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeNative}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, `<svg class="vg"`) {
+		t.Fatal("no SVG layer")
+	}
+	if strings.Contains(s, `alt="page`) {
+		t.Error("native mode still emits a raster page background")
+	}
+	if !strings.Contains(s, `fill="#ff0000"`) {
+		t.Error("no red vector fill")
+	}
+	if !strings.Contains(s, `stroke="#0000ff"`) || !strings.Contains(s, "stroke-dasharray=") {
+		t.Error("no dashed blue vector stroke")
+	}
+	// The circle must survive as Bézier curves, not a flattened polygon.
+	pathRe := regexp.MustCompile(`<path d="[^"]*C[^"]*"[^>]*stroke="#0000ff"`)
+	if !pathRe.MatchString(s) {
+		t.Error("stroked circle lost its curve segments")
+	}
+	// The gradient fill has no direct SVG form here — it must arrive as a
+	// positioned raster patch inside the SVG.
+	if !strings.Contains(s, `<image x="`) {
+		t.Error("gradient fill did not produce a raster patch")
+	}
+	if !strings.Contains(s, `<div class="tv">`) || !strings.Contains(s, "Native mode text") {
+		t.Error("visible text layer missing")
+	}
+}
+
+// TestWriteHTMLNativeImage: an added raster picture is exported as an SVG
+// <image> with the original bytes (PNG passthrough), not baked into a page
+// raster.
+func TestWriteHTMLNativeImage(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	mustNoErr(t, p.AddImage(filepath.Join("testdata", "aspose-logo.png"),
+		pdf.Rectangle{LLX: 100, LLY: 500, URX: 300, URY: 700}))
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeNative}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	re := regexp.MustCompile(`<image [^>]*transform="matrix\([^)]+\) translate\(0 1\) scale\(1 -1\)"[^>]*href="data:image/png;base64,([A-Za-z0-9+/=]+)"`)
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		t.Fatal("no CTM-placed SVG <image> with PNG data")
+	}
+	raw, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := png.Decode(bytes.NewReader(raw)); err != nil {
+		t.Fatalf("embedded image is not a valid PNG: %v", err)
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))
