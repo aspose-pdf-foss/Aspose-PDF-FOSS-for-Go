@@ -134,6 +134,10 @@ func (rd *renderer) run() {
 	}
 	// Annotation appearances (form-field widgets, stamps, highlights, …) live in
 	// /Annots, not the page content stream, so a viewer paints them on top.
+	// suppressText only applies to page content: text extraction (whose output
+	// replaces the suppressed glyphs in the HTML text layer) does not cover
+	// annotation appearance streams, so their text must stay in the raster.
+	rd.suppressText = false
 	rd.renderAnnotations()
 }
 

@@ -395,7 +395,11 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 		case f.synth != nil:
 			rd.paintContours(f, f.synth(code))
 		case f.type3 != nil:
-			rd.drawType3Glyph(f, code)
+			// A Type3 glyph is an arbitrary content stream executed in this
+			// renderer, so paintGlyph's suppressText check never sees it.
+			if !rd.suppressText {
+				rd.drawType3Glyph(f, code)
+			}
 		}
 	}
 

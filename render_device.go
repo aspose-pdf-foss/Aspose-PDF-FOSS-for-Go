@@ -47,6 +47,14 @@ func intersectRects(a, b Rectangle) Rectangle {
 // renderer does not yet support is skipped rather than erroring, so a page
 // always produces an image.
 func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
+	return p.renderImage(opts, false)
+}
+
+// renderImage is RenderImage with the internal suppressText switch: when set,
+// glyph painting is skipped (text-clip accumulation for Tr 4-7 still works),
+// producing the graphics-only background the HTML exporter's visible-text
+// mode layers real text over (html_export.go).
+func (p *Page) renderImage(opts RenderOptions, suppressText bool) (image.Image, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return nil, fmt.Errorf("render: %w", err)
@@ -68,6 +76,7 @@ func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
 	fillBackground(img, opts.Background)
 
 	rd := newRenderer(p, img, w, h, base)
+	rd.suppressText = suppressText
 	rd.run()
 	return img, nil
 }

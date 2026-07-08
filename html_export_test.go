@@ -89,6 +89,118 @@ func TestWriteHTMLEscaping(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLTextMode: HTMLModeText emits a visible text layer with real
+// colour and style, and the background raster carries no glyphs (a text-only
+// page renders as a blank white image).
+func TestWriteHTMLTextMode(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	blue := pdf.Color{R: 0, G: 0, B: 0.8, A: 1}
+	mustNoErr(t, p.AddText("Visible blue text", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 18, Color: &blue},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}))
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	for _, want := range []string{
+		`<div class="tv">`,
+		"Visible blue text",
+		"color:#0000cc",
+		"font-weight:bold",
+		`loading="lazy"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+	if strings.Contains(s, `<div class="tl">`) {
+		t.Error("text mode must not emit the transparent layer")
+	}
+
+	// The background of a text-only page is pure white — glyphs suppressed.
+	re := regexp.MustCompile(`data:image/png;base64,([A-Za-z0-9+/=]+)`)
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		t.Fatal("no embedded PNG background")
+	}
+	raw, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r != 0xffff || g != 0xffff || b != 0xffff {
+				t.Fatalf("background pixel (%d,%d) = %x/%x/%x, want white (glyphs not suppressed?)", x, y, r, g, b)
+			}
+		}
+	}
+}
+
+// TestWriteHTMLPagesOption: Pages selects a subset; anchors keep source
+// numbers; out-of-range pages error.
+func TestWriteHTMLPagesOption(t *testing.T) {
+	doc := makeHTMLDoc(t)
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Pages: []int{2}}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if got := strings.Count(s, `<div class="page"`); got != 1 {
+		t.Errorf("page divs = %d, want 1", got)
+	}
+	if !strings.Contains(s, `id="page2"`) {
+		t.Error("subset page lost its source-numbered anchor")
+	}
+	if strings.Contains(s, "Hello HTML export") || !strings.Contains(s, "Page two") {
+		t.Error("subset exported the wrong page's text")
+	}
+
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{Pages: []int{3}}); err == nil {
+		t.Error("out-of-range page did not error")
+	}
+}
+
+// TestWriteHTMLLinks: link annotations become positioned <a> overlays in both
+// modes — /URI to the outside, /GoTo to a #pageN anchor.
+func TestWriteHTMLLinks(t *testing.T) {
+	doc := makeHTMLDoc(t)
+	p, _ := doc.Page(1)
+
+	uri := pdf.NewLinkAnnotation(p, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 740})
+	uri.SetAction(pdf.NewGoToURIAction("https://example.com/a?b=1&c=2"))
+	mustNoErr(t, p.Annotations().Add(uri))
+	goto2 := pdf.NewLinkAnnotation(p, pdf.Rectangle{LLX: 50, LLY: 650, URX: 200, URY: 680})
+	goto2.SetAction(pdf.NewGoToAction(2, 700))
+	mustNoErr(t, p.Annotations().Add(goto2))
+
+	for _, mode := range []pdf.HTMLMode{pdf.HTMLModeFaithful, pdf.HTMLModeText} {
+		var buf bytes.Buffer
+		if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: mode}); err != nil {
+			t.Fatal(err)
+		}
+		s := buf.String()
+		if !strings.Contains(s, `href="https://example.com/a?b=1&amp;c=2"`) {
+			t.Errorf("mode %d: external link missing or unescaped", mode)
+		}
+		if !strings.Contains(s, `href="#page2"`) {
+			t.Errorf("mode %d: GoTo link missing", mode)
+		}
+		if !strings.Contains(s, `class="lnk"`) {
+			t.Errorf("mode %d: no positioned link overlays", mode)
+		}
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))

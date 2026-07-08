@@ -67,6 +67,7 @@ func (rd *renderer) drawFormGroup(stream *pdfStream) {
 	sub := newRenderer(rd.page, buf, rd.w, rd.h, rd.base)
 	sub.gs.ctm = rd.gs.ctm // the group is defined in the current user space
 	sub.depth = rd.depth + 1
+	sub.suppressText = rd.suppressText // group content is page content
 	if g, ok := transparencyGroup(rd.page.doc.objects, stream); ok {
 		sub.knockout = dictGetBool(g, "/K")
 	}

@@ -76,7 +76,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
-- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file: pages are rendered by the built-in rasterizer (pixel-identical to the PDF) with a transparent text layer on top, so the result is selectable, copyable and searchable in any browser — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (visible-text and reflow modes are planned)
+- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in two modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer) and **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top, width-fitted to the PDF layout: crisp at any zoom, accessible, roughly half the file size). Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (embedded WOFF fonts and a fully HTML-native mode are the next phases)
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
@@ -1268,6 +1268,27 @@ pdf.NewTiffDevice(pdf.NewResolution(200)).ProcessDocument(doc, out)
 ```
 
 > **Status:** the renderer draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK plus Separation/DeviceN colour, axial/radial **shadings**, tiling patterns, **clipping**, constant alpha, **soft masks**, **blend modes**, Optional-Content visibility), **images** (Image XObjects with soft-mask alpha, stencil **image masks**, **CCITTFaxDecode** Group 3/4 fax, **JBIG2** bilevel scans — symbol-dictionary/text-region + generic/refinement regions on the arithmetic path — **JPEG2000** (`/JPXDecode`) colour scans incl. MRC high-res stencil-masked foreground layers, and inline images), and **text** (embedded **TrueType** and **CFF** — Type1C simple and CID-keyed `/FontFile3` — plus **Type3** fonts; non-embedded fonts via bundled metric-compatible substitutes and a `FontRepository` for exact/installed fonts including `.ttc` collections and `.otf`/CFF; non-embedded Type0 substitution, **non-embedded CJK** via predefined Adobe CMaps (GB1/CNS1/Japan1/Korea1) rendered from installed system fonts, and synthesized ZapfDingbats checkbox/radio marks), and **annotation appearances** (AcroForm field widgets, stamps, highlights, free text, …). Unsupported elements (mesh shadings, isolated/knockout transparency groups, non-embedded Symbol, mixed Group 3 2-D fax) are skipped, so a page always renders. Output: **PNG / JPEG / GIF / BMP / TIFF** (single- and multi-page); DPI defaults to 150; the rendered region is the CropBox.
+
+### Exporting to HTML
+
+Export the document as one self-contained HTML file — no external assets, no JavaScript.
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// Faithful mode (default): full page raster + transparent selectable text layer.
+doc.SaveHTML("out.html")
+
+// Visible-text mode: glyph-less background raster, real styled HTML text on
+// top (crisp at any zoom, ~half the size), width-fitted to the PDF layout.
+doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
+
+// Page subset, custom raster DPI and title; or write to any io.Writer.
+doc.SaveHTML("part.html", pdf.HTMLSaveOptions{Pages: []int{1, 3}, DPI: 96, Title: "Report"})
+doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
+```
+
+In both modes the text is selectable, copyable and Ctrl+F-searchable, link annotations become clickable `<a>` overlays (external URLs and in-document `#pageN` jumps), and page backgrounds carry `loading="lazy"` so large documents open fast.
 
 ### Text Search
 
