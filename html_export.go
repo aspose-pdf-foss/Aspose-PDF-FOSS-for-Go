@@ -66,6 +66,10 @@ type HTMLSaveOptions struct {
 	// order (repeats allowed). Empty exports every page. Page anchors keep
 	// their source numbers, so cross-page links stay stable in a subset.
 	Pages []int
+	// NoFontEmbedding disables the WOFF @font-face embedding of the
+	// document's fonts in HTMLModeText (spans then always use the metric
+	// substitutes + width fitting). No effect in faithful mode.
+	NoFontEmbedding bool
 }
 
 // SaveHTML writes the document as a single self-contained HTML file.
@@ -117,6 +121,32 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 		}
 	}
 
+	// Pass 1: extract each exported page's text layout once — the spans need
+	// it, and in text mode the font collector needs the full picture (which
+	// fonts, which runes) before the <style> block is written.
+	type htmlPage struct {
+		page  *Page
+		num   int
+		lines []TextLine
+	}
+	hps := make([]htmlPage, 0, len(sel))
+	var fonts *htmlFontSet
+	if opt.Mode == HTMLModeText && !opt.NoFontEmbedding {
+		fonts = newHTMLFontSet(d)
+	}
+	for _, n := range sel {
+		p := pages[n-1]
+		lines, _ := p.ExtractTextWithLayout() // best-effort: no text layer on error
+		if fonts != nil {
+			fonts.markUsed(p, lines)
+		}
+		hps = append(hps, htmlPage{page: p, num: n, lines: lines})
+	}
+	fontCSS := ""
+	if fonts != nil {
+		fontCSS = fonts.finish()
+	}
+
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n")
 	fmt.Fprintf(&b, "<title>%s</title>\n", html.EscapeString(title))
@@ -136,16 +166,15 @@ body { background: #888; margin: 0; padding: 16px 0; }
 .tv span.f-serif { font-family: 'Times New Roman', Times, serif; }
 .tv span.f-mono  { font-family: 'Courier New', Courier, monospace; }
 a.lnk { position: absolute; }
-</style>
-</head>
-<body>
 `)
+	b.WriteString(fontCSS)
+	b.WriteString("</style>\n</head>\n<body>\n")
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return err
 	}
 
-	for _, n := range sel {
-		if err := writeHTMLPage(w, pages[n-1], n, dpi, opt.Mode); err != nil {
+	for _, hp := range hps {
+		if err := writeHTMLPage(w, hp.page, hp.num, hp.lines, dpi, opt.Mode, fonts); err != nil {
 			return err
 		}
 	}
@@ -154,8 +183,9 @@ a.lnk { position: absolute; }
 }
 
 // writeHTMLPage emits one .page div: the rendered background image, the text
-// layer (transparent or visible per mode) and the link overlays.
-func writeHTMLPage(w io.Writer, p *Page, num int, dpi float64, mode HTMLMode) error {
+// layer (transparent or visible per mode) and the link overlays. fonts is
+// the embedded-font set in text mode (nil otherwise).
+func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64, mode HTMLMode, fonts *htmlFontSet) error {
 	sz, err := p.Size()
 	if err != nil {
 		return err
@@ -187,15 +217,16 @@ func writeHTMLPage(w io.Writer, p *Page, num int, dpi float64, mode HTMLMode) er
 	}
 	fmt.Fprintf(&b, "<div class=\"%s\">\n", layer)
 
-	lines, err := p.ExtractTextWithLayout()
-	if err == nil {
-		for _, line := range lines {
-			for _, frag := range line.Fragments {
-				if mode == HTMLModeText {
-					writeHTMLVisibleFragment(&b, frag, sz.Height)
-				} else {
-					writeHTMLFragment(&b, frag, sz.Height)
+	for _, line := range lines {
+		for _, frag := range line.Fragments {
+			if mode == HTMLModeText {
+				var ef *htmlFont
+				if fonts != nil {
+					ef = fonts.resolve(p, frag.FontName)
 				}
+				writeHTMLVisibleFragment(&b, frag, sz.Height, ef)
+			} else {
+				writeHTMLFragment(&b, frag, sz.Height)
 			}
 		}
 	}
@@ -238,8 +269,11 @@ func writeHTMLFragment(b *strings.Builder, frag TextFragment, pageH float64) {
 }
 
 // writeHTMLVisibleFragment emits one visible text span for HTMLModeText:
-// real colour, size and style, width-fitted to the PDF layout.
-func writeHTMLVisibleFragment(b *strings.Builder, frag TextFragment, pageH float64) {
+// real colour, size and style. With an embedded font (ef non-nil) the span
+// references the WOFF face — advances then match the PDF by construction,
+// so only the PDF's own character spacing (Tc) is mapped to letter-spacing.
+// Without one, the substitute face is width-fitted to the PDF layout.
+func writeHTMLVisibleFragment(b *strings.Builder, frag TextFragment, pageH float64, ef *htmlFont) {
 	text := frag.Text
 	if strings.TrimSpace(text) == "" {
 		return // pure whitespace paints nothing
@@ -251,10 +285,12 @@ func writeHTMLVisibleFragment(b *strings.Builder, frag TextFragment, pageH float
 	top := pageH - frag.Y - size*0.8
 	family := fontFamilyClass(frag.FontName)
 	class := ""
-	switch family {
-	case "serif":
+	switch {
+	case ef != nil:
+		class = " class=\"" + ef.id + "\""
+	case family == "serif":
 		class = " class=\"f-serif\""
-	case "mono":
+	case family == "mono":
 		class = " class=\"f-mono\""
 	}
 	style := fmt.Sprintf("left:%spt;top:%spt;font-size:%spt", htmlNum(frag.X), htmlNum(top), htmlNum(size))
@@ -267,12 +303,18 @@ func writeHTMLVisibleFragment(b *strings.Builder, frag TextFragment, pageH float
 	if c := htmlColor(frag.Color); c != "#000000" {
 		style += ";color:" + c
 	}
-	scale, spacing := htmlWidthFit(text, family, frag, size)
-	if spacing != 0 {
-		style += ";letter-spacing:" + htmlNum(spacing) + "pt"
-	}
-	if scale != 1 {
-		style += fmt.Sprintf(";transform:scaleX(%.4f)", scale)
+	if ef != nil {
+		if frag.CharSpacing > 0.01 || frag.CharSpacing < -0.01 {
+			style += ";letter-spacing:" + htmlNum(frag.CharSpacing) + "pt"
+		}
+	} else {
+		scale, spacing := htmlWidthFit(text, family, frag, size)
+		if spacing != 0 {
+			style += ";letter-spacing:" + htmlNum(spacing) + "pt"
+		}
+		if scale != 1 {
+			style += fmt.Sprintf(";transform:scaleX(%.4f)", scale)
+		}
 	}
 	fmt.Fprintf(b, "<span%s style=\"%s\">%s</span>\n", class, style, html.EscapeString(text))
 }

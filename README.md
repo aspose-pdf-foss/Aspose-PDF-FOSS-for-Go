@@ -76,7 +76,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
-- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in two modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer) and **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top, width-fitted to the PDF layout: crisp at any zoom, accessible, roughly half the file size). Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (embedded WOFF fonts and a fully HTML-native mode are the next phases)
+- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in two modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer) and **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size). In text mode the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html` (a fully HTML-native no-background mode is the next phase)
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
@@ -1280,7 +1280,9 @@ doc, _ := pdf.Open("input.pdf")
 doc.SaveHTML("out.html")
 
 // Visible-text mode: glyph-less background raster, real styled HTML text on
-// top (crisp at any zoom, ~half the size), width-fitted to the PDF layout.
+// top (crisp at any zoom, ~half the size). The document's embedded fonts are
+// re-wrapped as WOFF @font-face data URLs so the text keeps its real faces;
+// pass NoFontEmbedding to stay on metric substitutes width-fitted to the layout.
 doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
 
 // Page subset, custom raster DPI and title; or write to any io.Writer.

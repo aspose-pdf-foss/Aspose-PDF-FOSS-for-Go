@@ -343,6 +343,13 @@ func buildPost30(f *ttfFont) []byte {
 // writing a sorted table directory with correct offsets and checksums
 // and patching head.checkSumAdjustment.
 func assembleSFNT(tbls map[string][]byte) []byte {
+	return assembleSFNTFlavor(0x00010000, tbls) // sfnt version 1.0 (TrueType outlines)
+}
+
+// assembleSFNTFlavor is assembleSFNT with an explicit sfnt version tag —
+// 0x4F54544F ('OTTO') for CFF-outline fonts (WOFF re-wrapping keeps the
+// original flavor).
+func assembleSFNTFlavor(flavor uint32, tbls map[string][]byte) []byte {
 	tags := make([]string, 0, len(tbls))
 	for tag := range tbls {
 		tags = append(tags, tag)
@@ -355,7 +362,7 @@ func assembleSFNT(tbls map[string][]byte) []byte {
 	var hdr []byte
 	put16 := func(v uint16) { hdr = append(hdr, byte(v>>8), byte(v)) }
 	put32 := func(v uint32) { hdr = append(hdr, byte(v>>24), byte(v>>16), byte(v>>8), byte(v)) }
-	put32(0x00010000) // sfnt version 1.0 (TrueType outlines)
+	put32(flavor)
 	put16(uint16(numTables))
 	put16(searchRange)
 	put16(entrySelector)

@@ -201,6 +201,65 @@ func TestWriteHTMLLinks(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLFontEmbedding: in text mode an embedded TTF becomes a WOFF
+// @font-face and its spans reference the ef-class; NoFontEmbedding turns it
+// all off. Runs on the subset font (CIDToGIDMap stream) — the common shape
+// of real-world PDFs.
+func TestWriteHTMLFontEmbedding(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont(filepath.Join("testdata", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := doc.Page(1)
+	mustNoErr(t, p.AddText("Проверка WOFF-шрифта", pdf.TextStyle{Font: font, Size: 16},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}))
+	if _, err := doc.SubsetFonts(); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "@font-face { font-family:'ef0'") {
+		t.Fatal("no @font-face for the embedded font")
+	}
+	if !strings.Contains(s, `class="ef0"`) {
+		t.Error("no span references the embedded face")
+	}
+	re := regexp.MustCompile(`data:font/woff;base64,([A-Za-z0-9+/=]+)`)
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		t.Fatal("no WOFF data URL")
+	}
+	raw, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) < 4 || string(raw[0:4]) != "wOFF" {
+		t.Fatalf("data URL is not a WOFF (starts %q)", raw[:4])
+	}
+	if len(raw) > 100*1024 {
+		t.Errorf("WOFF of a subset font is %d KB — subsetting lost?", len(raw)/1024)
+	}
+	// The embedded-face span must not carry the substitute width fitting.
+	spanRe := regexp.MustCompile(`<span class="ef0"[^>]*>`)
+	if sp := spanRe.FindString(s); sp == "" || strings.Contains(sp, "scaleX") {
+		t.Errorf("ef0 span missing or width-fitted: %q", sp)
+	}
+
+	buf.Reset()
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText, NoFontEmbedding: true}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "@font-face") {
+		t.Error("NoFontEmbedding still emitted @font-face")
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))
