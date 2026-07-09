@@ -808,6 +808,10 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 		FaceColor:    navy,
 		BorderColor:  &pdf.Color{R: 0.08, G: 0.12, B: 0.4, A: 1},
 	}))
+	// A real submit action: PDF viewers post the form to this URL, and the
+	// HTML exporter's InteractiveForms mode turns the button into a working
+	// <button type="submit"> because of it.
+	submit.SetAction(pdf.NewSubmitFormAction("https://httpbin.org/post", nil, 0))
 }
 
 // ---------------------------------------------------------------------

@@ -102,7 +102,24 @@ func (f *ButtonField) SetAppearance(a ButtonAppearance) error {
 		mk["/AC"] = encodeFormString(a.DownText)
 	}
 	mk["/TP"] = int(a.IconPosition)
+	// Persist the face and border colours as /MK/BG and /MK/BC (ISO 32000-1
+	// Table 189) — the spec home for them, so viewers that regenerate
+	// appearances and the HTML exporter's interactive-forms mode see the
+	// same look the /AP streams bake in.
+	if a.FaceColor != nil {
+		mk["/BG"] = pdfArray{a.FaceColor.R, a.FaceColor.G, a.FaceColor.B}
+	}
+	if a.BorderColor != nil {
+		mk["/BC"] = pdfArray{a.BorderColor.R, a.BorderColor.G, a.BorderColor.B}
+	}
 	widget["/MK"] = mk
+	// Likewise persist the caption colour as the widget /DA, so it survives
+	// outside the baked /AP streams.
+	if a.TextColor != nil {
+		if resName, err := f.node.form.ensureFontHelv(); err == nil {
+			widget["/DA"] = buildDA(a.TextColor, resName, 0)
+		}
+	}
 
 	// Resolve the three state captions.
 	normal := a.Caption
