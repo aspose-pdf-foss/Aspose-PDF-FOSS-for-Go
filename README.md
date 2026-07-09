@@ -441,6 +441,8 @@ doc.Save("filled.pdf")
 
 Field values containing non-ASCII characters (e.g. Cyrillic) are encoded as UTF-16BE with a BOM so any spec-conforming viewer reads them back correctly.
 
+Forms can also be exported as **fillable HTML** — `doc.SaveHTML(path, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText, InteractiveForms: true})` turns every field into a real browser control (see *Exporting to HTML*).
+
 #### Form data as JSON
 
 Export every field value to a typed JSON document, and import it back into the same (or a template) PDF — separating the data from the document for storage, transmission, or bulk template-fill:
