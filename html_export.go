@@ -113,6 +113,11 @@ type HTMLSaveOptions struct {
 	// page as <stem>_p<N>.html instead of one big file; in-document links
 	// point across the files. Mirrors Aspose's SplitIntoPages.
 	SplitPages bool
+	// OutlineNav adds a fixed sidebar built from the document outline
+	// (bookmark) tree, linking to the page anchors — collapsible with pure
+	// HTML, no JavaScript. No-op for documents without outlines and in
+	// HTMLModeFlow (which has no page anchors).
+	OutlineNav bool
 
 	// pageHref rewrites #pageN link targets (set internally by the
 	// SplitPages save so GoTo links cross file boundaries).
@@ -313,9 +318,28 @@ a.lnk { position: absolute; }
 .fw { position: absolute; box-sizing: border-box; margin: 0;
       font-family: Arial, Helvetica, sans-serif; font-size: 11pt; }
 textarea.fw { resize: none; }
+.nv { position: fixed; left: 0; top: 0; bottom: 0; width: 250px; overflow: auto;
+      background: #f4f4f4; border-right: 1px solid #ccc; padding: 12px;
+      box-sizing: border-box; font: 13px/1.6 Arial, Helvetica, sans-serif; }
+.nv ul { list-style: none; margin: 0; padding-left: 14px; }
+.nv > ul { padding-left: 0; }
+.nv a { color: #1a3f8f; text-decoration: none; }
+.nv a:hover { text-decoration: underline; }
+.nv summary { cursor: pointer; }
+body.withnav { padding-left: 250px; }
+@media (max-width: 700px) { .nv { display: none; } body.withnav { padding-left: 0; } }
 `)
 	b.WriteString(fontCSS)
-	b.WriteString("</style>\n</head>\n<body>\n")
+	nav := ""
+	if opt.OutlineNav {
+		nav = htmlOutlineNav(d, opt.pageHref)
+	}
+	if nav != "" {
+		b.WriteString("</style>\n</head>\n<body class=\"withnav\">\n")
+		b.WriteString(nav)
+	} else {
+		b.WriteString("</style>\n</head>\n<body>\n")
+	}
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return err
 	}

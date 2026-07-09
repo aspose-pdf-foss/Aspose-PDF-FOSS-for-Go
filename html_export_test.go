@@ -666,6 +666,47 @@ func TestSaveHTMLResourceDirAndSplit(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLOutlineNav: OutlineNav renders the bookmark tree as a
+// no-JS collapsible sidebar with links to page anchors; documents without
+// outlines get no sidebar; flow mode ignores the option.
+func TestWriteHTMLOutlineNav(t *testing.T) {
+	doc := makeHTMLDoc(t)
+	root := doc.Outlines()
+	p1, _ := doc.Page(1)
+	p2, _ := doc.Page(2)
+
+	ch1 := pdf.NewOutlineItemCollection(doc)
+	ch1.SetTitle("Chapter <One>")
+	ch1.SetDestination(pdf.NewDestinationFit(p1))
+	mustNoErr(t, root.Add(ch1))
+	sub := pdf.NewOutlineItemCollection(doc)
+	sub.SetTitle("Section 1.1")
+	sub.SetDestination(pdf.NewDestinationFit(p2))
+	mustNoErr(t, ch1.Add(sub))
+
+	var buf bytes.Buffer
+	mustNoErr(t, doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, OutlineNav: true}))
+	s := buf.String()
+
+	for _, want := range []string{
+		`<body class="withnav">`,
+		`<nav class="nv">`,
+		`<details open><summary><a href="#page1">Chapter &lt;One&gt;</a></summary>`,
+		`<a href="#page2">Section 1.1</a>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+
+	// No outlines → no sidebar even with the option on.
+	buf.Reset()
+	mustNoErr(t, makeHTMLDoc(t).WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, OutlineNav: true}))
+	if strings.Contains(buf.String(), `class="nv"`) {
+		t.Error("sidebar emitted for a document without outlines")
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))

@@ -1313,6 +1313,9 @@ doc.SaveHTML("site/doc.html", pdf.HTMLSaveOptions{
     Mode: pdf.HTMLModeNative, ResourceDir: "assets", SplitPages: true,
 })
 
+// Bookmark sidebar: the outline tree as a collapsible no-JS <nav> of links.
+doc.SaveHTML("out.html", pdf.HTMLSaveOptions{OutlineNav: true})
+
 // Page subset, custom raster DPI and title; or write to any io.Writer.
 doc.SaveHTML("part.html", pdf.HTMLSaveOptions{Pages: []int{1, 3}, DPI: 96, Title: "Report"})
 doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
