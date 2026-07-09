@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-09
+
+The HTML release. A complete **PDF → HTML converter** — pure Go, zero dependencies, no JavaScript in the output — in four modes: **faithful** (pixel-identical raster pages under a transparent selectable text layer), **visible-text** (glyph-less background with real styled HTML text in the document's own fonts, re-packed as **WOFF**), **native** (no raster at all — pages become inline SVG with true curves, JPEG passthrough and local raster patches only for the inexpressible), and **flow** (a responsive reflowable article that rewraps on mobile). On top: **interactive AcroForm conversion** — fields become real fillable HTML controls with working submit/reset, which neither Aspose.PDF for .NET nor pdf2htmlEX offers; an **outline sidebar** with a no-JS toggle; **multi-file output** (external resources via callback or directory, one-HTML-per-page splitting) with SHA-256 **asset deduplication**; link overlays, page subsets, lazy-loading. The renderer also gained transparency-group compositing (isolated + knockout). Public API additions along the way: `ButtonField.Action`/`SetAction`, and `ButtonAppearance` colours now persist in `/MK`/`/DA`.
+
 ### Added
 
 - PDF → HTML export: resource deduplication — in multi-file output, byte-identical assets (a logo repeated on every page, a table-header image on continuation pages, identical fonts) are written **once**: content is keyed by SHA-256 of the final encoded bytes, the `ResourceWriter` is called a single time per unique asset, and every later occurrence reuses the first URL; the cache spans all files of a `SplitPages` export. On the showcase this shrank the assets folder from 127 files (2 MB) to 28 (1.7 MB) — and browsers cache each shared asset once. (`pdf-go-motm`)
