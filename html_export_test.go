@@ -515,6 +515,61 @@ func TestWriteHTMLFormsPhase2(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLFlowMode: HTMLModeFlow re-assembles the document as
+// reflowable HTML — headings inferred from font size, paragraphs in reading
+// order, small print keeping its relative size, images flowing between
+// paragraphs — with none of the fixed-layout machinery (no page divs, no
+// absolute spans, no raster backgrounds).
+func TestWriteHTMLFlowMode(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	blue := pdf.Color{R: 0, G: 0, B: 0.8, A: 1}
+	mustNoErr(t, p.AddText("Document Title", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 24, Color: &blue},
+		pdf.Rectangle{LLX: 50, LLY: 750, URX: 545, URY: 790}))
+	body := "This is the running body text of the article. It has enough words to be " +
+		"recognised as an ordinary paragraph rather than a heading of any level."
+	mustNoErr(t, p.AddText(body, pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 12},
+		pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 720}))
+	mustNoErr(t, p.AddImage(filepath.Join("testdata", "aspose-logo.png"),
+		pdf.Rectangle{LLX: 150, LLY: 420, URX: 350, URY: 560}))
+	mustNoErr(t, p.AddText("Fine print at the very bottom of the page, set well below body size.",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 8},
+		pdf.Rectangle{LLX: 50, LLY: 60, URX: 545, URY: 90}))
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeFlow}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !regexp.MustCompile(`<h1[^>]*>Document Title</h1>`).MatchString(s) {
+		t.Error("title did not become an <h1>")
+	}
+	if !regexp.MustCompile(`<p[^>]*class="f-serif"[^>]*>This is the running body`).MatchString(s) {
+		t.Error("body paragraph missing or lost its serif family")
+	}
+	if !regexp.MustCompile(`<p[^>]*font-size:0\.6\dem[^>]*>Fine print`).MatchString(s) {
+		t.Error("fine print lost its relative size")
+	}
+	if !strings.Contains(s, `<img src="data:image/png;base64,`) {
+		t.Error("image missing from the flow")
+	}
+	// The image sits between the body paragraph and the fine print.
+	iBody, iImg, iFine := strings.Index(s, "running body"), strings.Index(s, "<img"), strings.Index(s, "Fine print")
+	if !(iBody < iImg && iImg < iFine) {
+		t.Errorf("flow order wrong: body@%d img@%d fine@%d", iBody, iImg, iFine)
+	}
+	// None of the fixed-layout machinery leaks into flow mode.
+	for _, forbid := range []string{`<div class="page"`, `position: absolute`, `class="tl"`, `class="tv"`, `alt="page`} {
+		if strings.Contains(s, forbid) {
+			t.Errorf("flow output contains fixed-layout artifact %q", forbid)
+		}
+	}
+	if !strings.Contains(s, "color:#0000cc") {
+		t.Error("title colour lost")
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))

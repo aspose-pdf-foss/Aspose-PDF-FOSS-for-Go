@@ -303,7 +303,7 @@ func (fs *htmlFontSet) finish() string {
 		}
 		fmt.Fprintf(&css, "@font-face { font-family:'%s'; src:url(data:font/woff;base64,%s) format('woff'); font-weight:%s; font-style:%s; }\n",
 			f.id, base64.StdEncoding.EncodeToString(woff), weight, style)
-		fmt.Fprintf(&css, ".tv span.%s { font-family:'%s', %s; }\n", f.id, f.id, familyStack(f.class))
+		fmt.Fprintf(&css, ".tv span.%s, .fl .%s { font-family:'%s', %s; }\n", f.id, f.id, f.id, familyStack(f.class))
 	}
 	return css.String()
 }

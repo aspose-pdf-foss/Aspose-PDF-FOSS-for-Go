@@ -55,6 +55,14 @@ const (
 	// (shadings, patterns, soft masks, transparency groups). Text is the
 	// same visible span layer as HTMLModeText (WOFF fonts included).
 	HTMLModeNative
+	// HTMLModeFlow produces reflowable HTML instead of positioned page
+	// replicas: paragraphs and columns (from the Paragraphs() extractor)
+	// become real <p>/<h1>-<h3> elements in reading order in a responsive
+	// centered column, images flow between them. Position-based features
+	// (link overlays, interactive forms) and DPI do not apply; tables and
+	// vector graphics are not reconstructed — their text flows as
+	// paragraphs. Mirrors Aspose.PDF for .NET's FixedLayout=false.
+	HTMLModeFlow
 )
 
 // HTMLSaveOptions configures SaveHTML / WriteHTML. The zero value exports all
@@ -134,6 +142,10 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 				return fmt.Errorf("WriteHTML: page %d out of range 1..%d", n, len(pages))
 			}
 		}
+	}
+
+	if opt.Mode == HTMLModeFlow {
+		return d.writeHTMLFlow(w, pages, sel, title, opt)
 	}
 
 	// Pass 1: extract each exported page's text layout once — the spans need
