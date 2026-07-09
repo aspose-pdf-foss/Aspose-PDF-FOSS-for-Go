@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"html"
@@ -122,6 +123,11 @@ type HTMLSaveOptions struct {
 	// pageHref rewrites #pageN link targets (set internally by the
 	// SplitPages save so GoTo links cross file boundaries).
 	pageHref func(page int) string
+	// dedupCache maps a resource content hash to its first-seen URL, so
+	// byte-identical assets (a logo repeated on every page, a table-header
+	// image on continuation pages) are written once and referenced
+	// everywhere. Set internally; spans all files of a SplitPages save.
+	dedupCache map[[32]byte]string
 }
 
 // htmlResourceSink is the resolved ResourceWriter (nil = inline base64).
@@ -134,6 +140,26 @@ func htmlResource(sink htmlResourceSink, name, mime string, data []byte) (string
 		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 	}
 	return sink(name, data)
+}
+
+// dedupResourceSink wraps a sink so byte-identical content is written once:
+// repeats return the first occurrence's URL without calling inner again
+// (the user's ResourceWriter therefore sees each unique asset exactly once).
+// Keyed by SHA-256 of the final encoded bytes — identical bytes are the
+// same file by definition, so the substitution is always safe.
+func dedupResourceSink(inner htmlResourceSink, cache map[[32]byte]string) htmlResourceSink {
+	return func(name string, data []byte) (string, error) {
+		key := sha256.Sum256(data)
+		if url, ok := cache[key]; ok {
+			return url, nil
+		}
+		url, err := inner(name, data)
+		if err != nil {
+			return "", err
+		}
+		cache[key] = url
+		return url, nil
+	}
 }
 
 // SaveHTML writes the document as an HTML file — self-contained by
@@ -200,6 +226,9 @@ func (d *Document) saveHTMLSplit(outputPath string, opt HTMLSaveOptions) error {
 	opt.pageHref = func(page int) string {
 		return fmt.Sprintf("%s_p%d%s#page%d", baseStem, page, ext, page)
 	}
+	// One dedup cache across all page files: an asset shared by several
+	// pages (fonts, repeated logos) is written once for the whole set.
+	opt.dedupCache = map[[32]byte]string{}
 	for _, n := range sel {
 		po := opt
 		po.Pages = []int{n}
@@ -286,9 +315,16 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 		}
 		hps = append(hps, htmlPage{page: p, num: n, lines: lines})
 	}
+	sink := htmlResourceSink(opt.ResourceWriter)
+	if sink != nil {
+		if opt.dedupCache == nil {
+			opt.dedupCache = map[[32]byte]string{}
+		}
+		sink = dedupResourceSink(sink, opt.dedupCache)
+	}
 	fontCSS := ""
 	if fonts != nil {
-		css, err := fonts.finish(htmlResourceSink(opt.ResourceWriter))
+		css, err := fonts.finish(sink)
 		if err != nil {
 			return err
 		}
@@ -374,7 +410,7 @@ textarea.fw { resize: none; }
 
 	ctx := &htmlWriteCtx{dpi: dpi, mode: opt.Mode, fonts: fonts,
 		interactive: opt.InteractiveForms && visibleText,
-		res:         htmlResourceSink(opt.ResourceWriter),
+		res:         sink,
 		pageHref:    opt.pageHref}
 	if ctx.interactive {
 		// Submit/reset push buttons only work inside a <form>; one wrapper

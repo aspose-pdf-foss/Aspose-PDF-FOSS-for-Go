@@ -633,6 +633,7 @@ func TestSaveHTMLResourceDirAndSplit(t *testing.T) {
 	mustNoErr(t, p.Annotations().Add(link))
 
 	dir := filepath.Join("result_files", "TestSaveHTMLSplit")
+	mustNoErr(t, os.RemoveAll(dir)) // stale outputs would defeat the dedup assertions
 	mustNoErr(t, os.MkdirAll(dir, 0o755))
 	out := filepath.Join(dir, "doc.html")
 	err := doc.SaveHTML(out, pdf.HTMLSaveOptions{
@@ -647,12 +648,17 @@ func TestSaveHTMLResourceDirAndSplit(t *testing.T) {
 		if !strings.Contains(s, fmt.Sprintf(`id="page%d"`, n)) {
 			t.Errorf("doc_p%d.html lost its page anchor", n)
 		}
-		if !strings.Contains(s, fmt.Sprintf(`src="assets/page%d.png"`, n)) {
-			t.Errorf("doc_p%d.html does not reference its external background", n)
+		if !regexp.MustCompile(`src="assets/page\d+\.png"`).MatchString(s) {
+			t.Errorf("doc_p%d.html does not reference an external background", n)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "assets", "page1.png")); err != nil {
 		t.Errorf("external background missing on disk: %v", err)
+	}
+	// Both text-mode backgrounds are blank white and byte-identical, so the
+	// dedup sink writes a single file for the whole split set.
+	if _, err := os.Stat(filepath.Join(dir, "assets", "page2.png")); err == nil {
+		t.Error("identical background written twice — dedup did not apply across split files")
 	}
 	p1, _ := os.ReadFile(filepath.Join(dir, "doc_p1.html"))
 	if !strings.Contains(string(p1), `href="doc_p2.html#page2"`) {
@@ -706,6 +712,45 @@ func TestWriteHTMLOutlineNav(t *testing.T) {
 	mustNoErr(t, makeHTMLDoc(t).WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, OutlineNav: true}))
 	if strings.Contains(buf.String(), `class="nv"`) {
 		t.Error("sidebar emitted for a document without outlines")
+	}
+}
+
+// TestWriteHTMLResourceDedup: byte-identical assets (the same picture placed
+// on two pages) reach the ResourceWriter exactly once; both pages reference
+// the first occurrence's URL.
+func TestWriteHTMLResourceDedup(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	mustNoErr(t, doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	for n := 1; n <= 2; n++ {
+		p, _ := doc.Page(n)
+		mustNoErr(t, p.AddImage(filepath.Join("testdata", "aspose-logo.png"),
+			pdf.Rectangle{LLX: 100, LLY: 500, URX: 300, URY: 700}))
+	}
+
+	calls := map[string]int{}
+	var buf bytes.Buffer
+	err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{
+		DPI:  72,
+		Mode: pdf.HTMLModeNative,
+		ResourceWriter: func(name string, data []byte) (string, error) {
+			calls[name]++
+			return "res/" + name, nil
+		},
+	})
+	mustNoErr(t, err)
+	s := buf.String()
+
+	imgWrites := 0
+	for name, n := range calls {
+		if strings.Contains(name, "img") {
+			imgWrites += n
+		}
+	}
+	if imgWrites != 1 {
+		t.Errorf("identical image written %d times, want 1 (calls: %v)", imgWrites, calls)
+	}
+	if got := strings.Count(s, `href="res/p1_img1.png"`); got != 2 {
+		t.Errorf("first occurrence's URL referenced %d times, want 2", got)
 	}
 }
 

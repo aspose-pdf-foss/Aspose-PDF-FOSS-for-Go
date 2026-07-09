@@ -93,6 +93,12 @@ func (d *Document) writeHTMLFlow(w io.Writer, pages []*Page, sel []int, title st
 	body := weightedMedianSize(sizes)
 
 	sink := htmlResourceSink(opt.ResourceWriter)
+	if sink != nil {
+		if opt.dedupCache == nil {
+			opt.dedupCache = map[[32]byte]string{}
+		}
+		sink = dedupResourceSink(sink, opt.dedupCache)
+	}
 	fontCSS := ""
 	if fonts != nil {
 		css, err := fonts.finish(sink)
