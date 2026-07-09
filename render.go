@@ -82,6 +82,11 @@ type renderer struct {
 	// express is rendered by a vec-less sub-renderer into a raster patch.
 	vec *svgDevice
 
+	// hideFormWidgets skips the widget annotations of convertible form
+	// fields in the annotation pass — the HTML exporter's interactive-forms
+	// mode replaces them with real HTML controls (html_export_forms.go).
+	hideFormWidgets bool
+
 	// knockout is set on the sub-renderer of a knockout transparency group
 	// (/Group /K true): vector paints replace the accumulated backdrop within
 	// their coverage instead of compositing over it (render_group.go).

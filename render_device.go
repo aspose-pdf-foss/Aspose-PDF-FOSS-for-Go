@@ -47,14 +47,16 @@ func intersectRects(a, b Rectangle) Rectangle {
 // renderer does not yet support is skipped rather than erroring, so a page
 // always produces an image.
 func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
-	return p.renderImage(opts, false)
+	return p.renderImage(opts, false, false)
 }
 
-// renderImage is RenderImage with the internal suppressText switch: when set,
-// glyph painting is skipped (text-clip accumulation for Tr 4-7 still works),
-// producing the graphics-only background the HTML exporter's visible-text
-// mode layers real text over (html_export.go).
-func (p *Page) renderImage(opts RenderOptions, suppressText bool) (image.Image, error) {
+// renderImage is RenderImage with the HTML exporter's internal switches:
+// suppressText skips glyph painting (text-clip accumulation for Tr 4-7 still
+// works), producing the graphics-only background the visible-text mode
+// layers real text over; hideFormWidgets skips convertible form-field
+// widget appearances (replaced by real HTML controls in interactive-forms
+// mode). Both live in html_export.go / html_export_forms.go.
+func (p *Page) renderImage(opts RenderOptions, suppressText, hideFormWidgets bool) (image.Image, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return nil, fmt.Errorf("render: %w", err)
@@ -77,6 +79,7 @@ func (p *Page) renderImage(opts RenderOptions, suppressText bool) (image.Image, 
 
 	rd := newRenderer(p, img, w, h, base)
 	rd.suppressText = suppressText
+	rd.hideFormWidgets = hideFormWidgets
 	rd.run()
 	return img, nil
 }

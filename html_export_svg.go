@@ -325,7 +325,7 @@ func (rd *renderer) vecPatch(paint func(*renderer)) {
 // scale, rotation) mirrors RenderImage, so the result is drop-in aligned
 // with the text layer. Page text is suppressed (the HTML text layer carries
 // it); annotation-appearance text is emitted as outline paths.
-func renderPageSVG(p *Page, dpi float64) (string, error) {
+func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool) (string, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return "", fmt.Errorf("render svg: %w", err)
@@ -345,6 +345,7 @@ func renderPageSVG(p *Page, dpi float64) (string, error) {
 	rd := newRenderer(p, image.NewRGBA(image.Rect(0, 0, w, h)), w, h, base)
 	rd.vec = &svgDevice{}
 	rd.suppressText = true
+	rd.hideFormWidgets = hideFormWidgets
 	rd.run()
 	return rd.vec.svg(w, h), nil
 }

@@ -342,6 +342,112 @@ func TestWriteHTMLNativeImage(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLInteractiveForms: with InteractiveForms, AcroForm fields
+// become positioned HTML controls carrying values, flags and styling, and
+// their widget appearances vanish from the background raster (a page with
+// only form fields renders pure white). Without the option, no controls.
+func TestWriteHTMLInteractiveForms(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+
+	name, err := form.AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 720}, "name")
+	mustNoErr(t, err)
+	mustNoErr(t, name.SetValue("Иван <Петров>"))
+	name.SetMaxLen(30)
+	name.SetRequired(true)
+	red := pdf.Color{R: 1, G: 0, B: 0, A: 1}
+	mustNoErr(t, name.SetStyle(pdf.FieldStyle{BorderColor: &red, BorderWidth: 2, TextSize: 14, TextAlign: pdf.HAlignRight}))
+
+	notes, err := form.AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 620, URX: 300, URY: 680}, "notes")
+	mustNoErr(t, err)
+	notes.SetMultiline(true)
+	mustNoErr(t, notes.SetValue("line one"))
+	notes.SetReadOnly(true)
+
+	_, err = form.AddPasswordField(1, pdf.Rectangle{LLX: 50, LLY: 580, URX: 300, URY: 600}, "pin")
+	mustNoErr(t, err)
+
+	agree, err := form.AddCheckbox(1, pdf.Rectangle{LLX: 50, LLY: 540, URX: 66, URY: 556}, "agree")
+	mustNoErr(t, err)
+	agree.SetChecked(true)
+
+	color, err := form.AddRadioGroup("color", []pdf.RadioItem{
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 500, URX: 66, URY: 516}, Export: "red"},
+		{PageNum: 1, Rect: pdf.Rectangle{LLX: 90, LLY: 500, URX: 106, URY: 516}, Export: "blue"},
+	})
+	mustNoErr(t, err)
+	mustNoErr(t, color.SetValue("blue"))
+
+	city, err := form.AddComboBox(1, pdf.Rectangle{LLX: 50, LLY: 460, URX: 200, URY: 480}, "city",
+		[]pdf.ChoiceOption{{Value: "Praha"}, {Value: "Brno"}})
+	mustNoErr(t, err)
+	mustNoErr(t, city.SetValue("Brno"))
+
+	pets, err := form.AddListBox(1, pdf.Rectangle{LLX: 50, LLY: 380, URX: 200, URY: 440}, "pets",
+		[]pdf.ChoiceOption{{Value: "cat"}, {Value: "dog"}, {Value: "fox"}})
+	mustNoErr(t, err)
+	pets.SetMultiSelect(true)
+	mustNoErr(t, pets.SetSelected(0, 2))
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText, InteractiveForms: true}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	for _, want := range []string{
+		`type="text" name="name" required maxlength="30" value="Иван &lt;Петров&gt;"`,
+		`border:2pt solid #ff0000`,
+		`font-size:14pt`,
+		`text-align:right`,
+		`<textarea class="fw" name="notes" readonly`,
+		`>line one</textarea>`,
+		`type="password"`,
+		`type="checkbox" name="agree" value="Yes" checked`,
+		`type="radio" name="color" value="red"`,
+		`type="radio" name="color" value="blue" checked`,
+		`<select class="fw" name="city"`,
+		`<option value="Brno" selected>`,
+		` multiple`,
+		`<option value="cat" selected>`,
+		`<option value="fox" selected>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+
+	// Widget appearances must be gone from the background: the page carries
+	// nothing but form fields, so the raster must be pure white.
+	re := regexp.MustCompile(`data:image/png;base64,([A-Za-z0-9+/=]+)`)
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		t.Fatal("no background PNG")
+	}
+	raw, err := base64.StdEncoding.DecodeString(m[1])
+	mustNoErr(t, err)
+	img, err := png.Decode(bytes.NewReader(raw))
+	mustNoErr(t, err)
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r != 0xffff || g != 0xffff || b != 0xffff {
+				t.Fatalf("background pixel (%d,%d) not white — widget /AP not suppressed", x, y)
+			}
+		}
+	}
+
+	// Without the option no controls are emitted and widgets stay rendered.
+	buf.Reset()
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), `class="fw"`) {
+		t.Error("controls emitted without InteractiveForms")
+	}
+}
+
 // TestSaveHTMLRealFile: a real PDF exports to a well-formed non-empty file.
 func TestSaveHTMLRealFile(t *testing.T) {
 	doc, err := pdf.Open(testFile(t))

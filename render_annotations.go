@@ -37,6 +37,11 @@ func (rd *renderer) renderAnnotations() {
 			if (pass == 0) == isWidget {
 				continue // pass 0 = non-widgets, pass 1 = widgets
 			}
+			// Interactive-forms HTML export: fields exported as real HTML
+			// controls must not also appear in the background raster/SVG.
+			if isWidget && rd.hideFormWidgets && convertibleWidget(objects, ad) {
+				continue
+			}
 			rd.drawAnnotation(objects, ad)
 		}
 	}

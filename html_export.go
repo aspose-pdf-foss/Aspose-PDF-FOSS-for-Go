@@ -77,6 +77,14 @@ type HTMLSaveOptions struct {
 	// document's fonts in HTMLModeText (spans then always use the metric
 	// substitutes + width fitting). No effect in faithful mode.
 	NoFontEmbedding bool
+	// InteractiveForms converts AcroForm fields into real, fillable HTML
+	// controls (inputs, textareas, selects) positioned over the page, and
+	// removes their widget appearances from the background render. Text,
+	// checkbox, radio, combo and list fields convert; push buttons and
+	// signatures keep their static look. The form can be filled in and
+	// printed in a browser without JavaScript; writing values back into
+	// the PDF is out of scope. HTMLModeText / HTMLModeNative only.
+	InteractiveForms bool
 }
 
 // SaveHTML writes the document as a single self-contained HTML file.
@@ -175,6 +183,9 @@ body { background: #888; margin: 0; padding: 16px 0; }
 .tv span.f-mono  { font-family: 'Courier New', Courier, monospace; }
 .vg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 a.lnk { position: absolute; }
+.fw { position: absolute; box-sizing: border-box; margin: 0;
+      font-family: Arial, Helvetica, sans-serif; font-size: 11pt; }
+textarea.fw { resize: none; }
 `)
 	b.WriteString(fontCSS)
 	b.WriteString("</style>\n</head>\n<body>\n")
@@ -182,8 +193,10 @@ a.lnk { position: absolute; }
 		return err
 	}
 
+	interactive := opt.InteractiveForms && visibleText
+	dlSeq := 0
 	for _, hp := range hps {
-		if err := writeHTMLPage(w, hp.page, hp.num, hp.lines, dpi, opt.Mode, fonts); err != nil {
+		if err := writeHTMLPage(w, hp.page, hp.num, hp.lines, dpi, opt.Mode, fonts, interactive, &dlSeq); err != nil {
 			return err
 		}
 	}
@@ -192,9 +205,10 @@ a.lnk { position: absolute; }
 }
 
 // writeHTMLPage emits one .page div: the rendered background image, the text
-// layer (transparent or visible per mode) and the link overlays. fonts is
-// the embedded-font set in text mode (nil otherwise).
-func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64, mode HTMLMode, fonts *htmlFontSet) error {
+// layer (transparent or visible per mode), the link overlays and (when
+// interactive) the form controls. fonts is the embedded-font set in text
+// mode (nil otherwise).
+func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64, mode HTMLMode, fonts *htmlFontSet, interactive bool, dlSeq *int) error {
 	sz, err := p.Size()
 	if err != nil {
 		return err
@@ -206,7 +220,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 
 	if mode == HTMLModeNative {
 		// No raster background: the page graphics are one inline SVG layer.
-		svg, err := renderPageSVG(p, dpi)
+		svg, err := renderPageSVG(p, dpi, interactive)
 		if err != nil {
 			return err
 		}
@@ -216,7 +230,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 		// the glyph-less graphics in text mode.
 		var bg strings.Builder
 		enc := base64.NewEncoder(base64.StdEncoding, &bg)
-		img, err := p.renderImage(RenderOptions{DPI: dpi}, mode == HTMLModeText)
+		img, err := p.renderImage(RenderOptions{DPI: dpi}, mode == HTMLModeText, interactive)
 		if err != nil {
 			return err
 		}
@@ -252,6 +266,9 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 	}
 	b.WriteString("</div>\n")
 	writeHTMLLinks(&b, p, sz.Height)
+	if interactive {
+		writeHTMLFormFields(&b, p, sz.Height, dlSeq)
+	}
 	b.WriteString("</div>\n")
 	_, err = io.WriteString(w, b.String())
 	return err
