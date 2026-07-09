@@ -3,7 +3,6 @@
 package asposepdf
 
 import (
-	"encoding/base64"
 	"fmt"
 	"html"
 	"io"
@@ -93,9 +92,14 @@ func (d *Document) writeHTMLFlow(w io.Writer, pages []*Page, sel []int, title st
 	}
 	body := weightedMedianSize(sizes)
 
+	sink := htmlResourceSink(opt.ResourceWriter)
 	fontCSS := ""
 	if fonts != nil {
-		fontCSS = fonts.finish()
+		css, err := fonts.finish(sink)
+		if err != nil {
+			return err
+		}
+		fontCSS = css
 	}
 
 	var b strings.Builder
@@ -121,9 +125,13 @@ body { margin: 0; background: #fff; }
 
 	for i, fp := range fps {
 		var pb strings.Builder
+		imgSeq := 0
 		for _, blk := range fp.blocks {
 			if blk.img != nil {
-				writeFlowImage(&pb, blk.img)
+				imgSeq++
+				if err := writeFlowImage(&pb, blk.img, sink, sel[i], imgSeq); err != nil {
+					return err
+				}
 				continue
 			}
 			writeFlowParagraph(&pb, pages[sel[i]-1], blk.para, body, fonts)
@@ -259,12 +267,17 @@ func writeFlowParagraph(b *strings.Builder, p *Page, para *MarkupParagraph, body
 }
 
 // writeFlowImage emits one image as a responsive <img> with the PDF's own
-// bytes (JPEG passes through verbatim).
-func writeFlowImage(b *strings.Builder, img *Image) {
-	mime := "image/png"
+// bytes (JPEG passes through verbatim), inlined or externalized per the
+// resource sink.
+func writeFlowImage(b *strings.Builder, img *Image, sink htmlResourceSink, page, seq int) error {
+	mime, ext := "image/png", "png"
 	if img.Format == ImageFormatJPEG {
-		mime = "image/jpeg"
+		mime, ext = "image/jpeg", "jpg"
 	}
-	fmt.Fprintf(b, "<img src=\"data:%s;base64,%s\" alt=\"\" loading=\"lazy\">\n",
-		mime, base64.StdEncoding.EncodeToString(img.Data))
+	url, err := htmlResource(sink, fmt.Sprintf("p%d_img%d.%s", page, seq, ext), mime, img.Data)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(b, "<img src=\"%s\" alt=\"\" loading=\"lazy\">\n", html.EscapeString(url))
+	return nil
 }

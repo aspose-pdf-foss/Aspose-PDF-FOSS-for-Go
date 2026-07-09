@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"html"
@@ -10,6 +11,8 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
@@ -93,19 +96,122 @@ type HTMLSaveOptions struct {
 	// printed in a browser without JavaScript; writing values back into
 	// the PDF is out of scope. HTMLModeText / HTMLModeNative only.
 	InteractiveForms bool
+	// ResourceWriter externalizes the heavy binary parts — page background
+	// rasters, WOFF fonts, images and raster patches: it is called with a
+	// unique file name and the content and returns the URL to write into
+	// the HTML. nil keeps everything inlined as base64 data: URLs (the
+	// default single self-contained file). Mirrors the intent of Aspose
+	// .PDF for .NET's CustomResourceSavingStrategy / PartsEmbeddingMode.
+	ResourceWriter func(name string, data []byte) (url string, err error)
+	// ResourceDir (SaveHTML only) is the convenience form of
+	// ResourceWriter: resources are written as files into this directory
+	// (created on demand, relative to the output HTML) and referenced by
+	// relative URL. Ignored when ResourceWriter is set. Mirrors Aspose's
+	// SpecialFolderForAllImages.
+	ResourceDir string
+	// SplitPages (SaveHTML only) writes one HTML document per exported
+	// page as <stem>_p<N>.html instead of one big file; in-document links
+	// point across the files. Mirrors Aspose's SplitIntoPages.
+	SplitPages bool
+
+	// pageHref rewrites #pageN link targets (set internally by the
+	// SplitPages save so GoTo links cross file boundaries).
+	pageHref func(page int) string
 }
 
-// SaveHTML writes the document as a single self-contained HTML file.
+// htmlResourceSink is the resolved ResourceWriter (nil = inline base64).
+type htmlResourceSink func(name string, data []byte) (string, error)
+
+// htmlResource returns the URL for one binary part: through the sink when
+// set, else as a base64 data: URL.
+func htmlResource(sink htmlResourceSink, name, mime string, data []byte) (string, error) {
+	if sink == nil {
+		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+	}
+	return sink(name, data)
+}
+
+// SaveHTML writes the document as an HTML file — self-contained by
+// default; with ResourceDir/ResourceWriter the heavy parts become external
+// files, and with SplitPages each page becomes its own <stem>_p<N>.html.
 func (d *Document) SaveHTML(outputPath string, opts ...HTMLSaveOptions) error {
+	opt := HTMLSaveOptions{}
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	if opt.ResourceWriter == nil && opt.ResourceDir != "" {
+		opt.ResourceWriter = dirResourceWriter(filepath.Dir(outputPath), opt.ResourceDir)
+	}
+	if opt.SplitPages {
+		return d.saveHTMLSplit(outputPath, opt)
+	}
 	f, err := os.Create(outputPath)
 	if err != nil {
 		return err
 	}
-	if err := d.WriteHTML(f, opts...); err != nil {
+	if err := d.WriteHTML(f, opt); err != nil {
 		_ = f.Close() // best-effort; the write error takes precedence
 		return err
 	}
 	return f.Close()
+}
+
+// dirResourceWriter returns a ResourceWriter that writes files into
+// htmlDir/resDir (created on first use) and references them by the
+// relative URL resDir/name.
+func dirResourceWriter(htmlDir, resDir string) func(string, []byte) (string, error) {
+	made := false
+	target := filepath.Join(htmlDir, resDir)
+	return func(name string, data []byte) (string, error) {
+		if !made {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return "", err
+			}
+			made = true
+		}
+		if err := os.WriteFile(filepath.Join(target, name), data, 0o644); err != nil {
+			return "", err
+		}
+		return path.Join(filepath.ToSlash(resDir), name), nil
+	}
+}
+
+// saveHTMLSplit writes one HTML file per exported page as <stem>_p<N>.html,
+// rewiring in-document GoTo links to point across the files.
+func (d *Document) saveHTMLSplit(outputPath string, opt HTMLSaveOptions) error {
+	sel := opt.Pages
+	if len(sel) == 0 {
+		sel = make([]int, d.PageCount())
+		for i := range sel {
+			sel[i] = i + 1
+		}
+	}
+	ext := filepath.Ext(outputPath)
+	if ext == "" {
+		ext = ".html"
+	}
+	stem := strings.TrimSuffix(outputPath, filepath.Ext(outputPath))
+	baseStem := filepath.Base(stem)
+	opt.pageHref = func(page int) string {
+		return fmt.Sprintf("%s_p%d%s#page%d", baseStem, page, ext, page)
+	}
+	for _, n := range sel {
+		po := opt
+		po.Pages = []int{n}
+		po.SplitPages = false
+		f, err := os.Create(fmt.Sprintf("%s_p%d%s", stem, n, ext))
+		if err != nil {
+			return err
+		}
+		if err := d.WriteHTML(f, po); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // WriteHTML writes the document as a single self-contained HTML file to w:
@@ -115,6 +221,11 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 	opt := HTMLSaveOptions{}
 	if len(opts) > 0 {
 		opt = opts[0]
+	}
+	if opt.SplitPages {
+		// A single stream cannot hold multiple files; mirrors Aspose's
+		// stream-save restriction for multi-file HTML output.
+		return fmt.Errorf("WriteHTML: SplitPages requires SaveHTML (multi-file output)")
 	}
 	dpi := opt.DPI
 	if dpi <= 0 {
@@ -172,7 +283,11 @@ func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
 	}
 	fontCSS := ""
 	if fonts != nil {
-		fontCSS = fonts.finish()
+		css, err := fonts.finish(htmlResourceSink(opt.ResourceWriter))
+		if err != nil {
+			return err
+		}
+		fontCSS = css
 	}
 
 	var b strings.Builder
@@ -206,7 +321,9 @@ textarea.fw { resize: none; }
 	}
 
 	ctx := &htmlWriteCtx{dpi: dpi, mode: opt.Mode, fonts: fonts,
-		interactive: opt.InteractiveForms && visibleText}
+		interactive: opt.InteractiveForms && visibleText,
+		res:         htmlResourceSink(opt.ResourceWriter),
+		pageHref:    opt.pageHref}
 	if ctx.interactive {
 		// Submit/reset push buttons only work inside a <form>; one wrapper
 		// spans every page (radio groups and reset then work across pages).
@@ -244,6 +361,8 @@ type htmlWriteCtx struct {
 	wrapForm    bool         // pages are wrapped in a document-level <form>
 	dlSeq       int          // <datalist> id counter
 	tabBase     int          // running tabindex offset across pages
+	res         htmlResourceSink
+	pageHref    func(int) string // #pageN rewriting for split output (nil = same file)
 }
 
 // writeHTMLPage emits one .page div: the rendered background image, the text
@@ -261,28 +380,28 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, ctx *htmlWri
 
 	if ctx.mode == HTMLModeNative {
 		// No raster background: the page graphics are one inline SVG layer.
-		svg, err := renderPageSVG(p, ctx.dpi, ctx.interactive)
+		svg, err := renderPageSVG(p, ctx.dpi, ctx.interactive, ctx.res, num)
 		if err != nil {
 			return err
 		}
 		b.WriteString(svg)
 	} else {
-		// Background raster, base64-inlined: the full page in faithful mode,
-		// the glyph-less graphics in text mode.
-		var bg strings.Builder
-		enc := base64.NewEncoder(base64.StdEncoding, &bg)
+		// Background raster: the full page in faithful mode, the glyph-less
+		// graphics in text mode — inlined or externalized per ResourceWriter.
 		img, err := p.renderImage(RenderOptions{DPI: ctx.dpi}, ctx.mode == HTMLModeText, ctx.interactive)
 		if err != nil {
 			return err
 		}
-		if err := png.Encode(enc, img); err != nil {
+		var pngBuf bytes.Buffer
+		if err := png.Encode(&pngBuf, img); err != nil {
 			return err
 		}
-		if err := enc.Close(); err != nil {
+		url, err := htmlResource(ctx.res, fmt.Sprintf("page%d.png", num), "image/png", pngBuf.Bytes())
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(&b, "<img src=\"data:image/png;base64,%s\" alt=\"page %d\" loading=\"lazy\">\n",
-			bg.String(), num)
+		fmt.Fprintf(&b, "<img src=\"%s\" alt=\"page %d\" loading=\"lazy\">\n",
+			html.EscapeString(url), num)
 	}
 
 	visibleText := ctx.mode == HTMLModeText || ctx.mode == HTMLModeNative
@@ -306,7 +425,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, ctx *htmlWri
 		}
 	}
 	b.WriteString("</div>\n")
-	writeHTMLLinks(&b, p, sz.Height)
+	writeHTMLLinks(&b, p, sz.Height, ctx.pageHref)
 	if ctx.interactive {
 		writeHTMLFormFields(&b, p, sz.Height, ctx)
 	}
@@ -494,8 +613,12 @@ func htmlColor(c Color) string {
 
 // writeHTMLLinks emits one positioned <a> per link annotation the export can
 // resolve: /URI actions become external links, /GoTo actions and page-ref
-// /Dest arrays become #pageN anchors. Unresolvable links are skipped.
-func writeHTMLLinks(b *strings.Builder, p *Page, pageH float64) {
+// /Dest arrays become #pageN anchors (rewritten across files by pageHref in
+// split output). Unresolvable links are skipped.
+func writeHTMLLinks(b *strings.Builder, p *Page, pageH float64, pageHref func(int) string) {
+	if pageHref == nil {
+		pageHref = func(n int) string { return fmt.Sprintf("#page%d", n) }
+	}
 	for _, a := range p.Annotations().All() {
 		link, ok := a.(*LinkAnnotation)
 		if !ok {
@@ -507,12 +630,12 @@ func writeHTMLLinks(b *strings.Builder, p *Page, pageH float64) {
 			href = act.URI()
 		case *GoToAction:
 			if act.PageNum() >= 1 {
-				href = fmt.Sprintf("#page%d", act.PageNum())
+				href = pageHref(act.PageNum())
 			}
 		}
 		if href == "" {
 			if n := linkDestPage(link); n >= 1 {
-				href = fmt.Sprintf("#page%d", n)
+				href = pageHref(n)
 			}
 		}
 		if href == "" {

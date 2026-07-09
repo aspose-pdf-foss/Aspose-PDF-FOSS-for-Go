@@ -5,6 +5,7 @@ package asposepdf_test
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -567,6 +568,101 @@ func TestWriteHTMLFlowMode(t *testing.T) {
 	}
 	if !strings.Contains(s, "color:#0000cc") {
 		t.Error("title colour lost")
+	}
+}
+
+// TestWriteHTMLResourceWriter: with a ResourceWriter the heavy parts (page
+// background, WOFF font) leave the HTML — the callback receives them and
+// its URLs are referenced instead of data: URLs.
+func TestWriteHTMLResourceWriter(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont(filepath.Join("testdata", "DejaVuSans.ttf"))
+	mustNoErr(t, err)
+	p, _ := doc.Page(1)
+	mustNoErr(t, p.AddText("Внешние ресурсы", pdf.TextStyle{Font: font, Size: 16},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 730}))
+	if _, err := doc.SubsetFonts(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string][]byte{}
+	var buf bytes.Buffer
+	err = doc.WriteHTML(&buf, pdf.HTMLSaveOptions{
+		DPI:  72,
+		Mode: pdf.HTMLModeText,
+		ResourceWriter: func(name string, data []byte) (string, error) {
+			got[name] = append([]byte(nil), data...)
+			return "res/" + name, nil
+		},
+	})
+	mustNoErr(t, err)
+	s := buf.String()
+
+	if strings.Contains(s, "data:image/png") || strings.Contains(s, "data:font/woff") {
+		t.Error("data: URLs remain despite ResourceWriter")
+	}
+	if !strings.Contains(s, `src="res/page1.png"`) {
+		t.Error("background not referenced through the returned URL")
+	}
+	if !strings.Contains(s, `src:url('res/font_`) {
+		t.Error("@font-face not referenced through the returned URL")
+	}
+	if len(got["page1.png"]) == 0 {
+		t.Error("background bytes not delivered to the writer")
+	}
+	woffOK := false
+	for name, data := range got {
+		if strings.HasPrefix(name, "font_") && strings.HasSuffix(name, ".woff") &&
+			len(data) > 4 && string(data[:4]) == "wOFF" {
+			woffOK = true
+		}
+	}
+	if !woffOK {
+		t.Error("no WOFF delivered to the writer")
+	}
+}
+
+// TestSaveHTMLResourceDirAndSplit: ResourceDir writes resources as files
+// next to the HTML with relative URLs; SplitPages writes one HTML per page
+// with cross-page GoTo links pointing at sibling files.
+func TestSaveHTMLResourceDirAndSplit(t *testing.T) {
+	doc := makeHTMLDoc(t)
+	p, _ := doc.Page(1)
+	link := pdf.NewLinkAnnotation(p, pdf.Rectangle{LLX: 50, LLY: 600, URX: 200, URY: 620})
+	link.SetAction(pdf.NewGoToAction(2, 700))
+	mustNoErr(t, p.Annotations().Add(link))
+
+	dir := filepath.Join("result_files", "TestSaveHTMLSplit")
+	mustNoErr(t, os.MkdirAll(dir, 0o755))
+	out := filepath.Join(dir, "doc.html")
+	err := doc.SaveHTML(out, pdf.HTMLSaveOptions{
+		DPI: 72, Mode: pdf.HTMLModeText, ResourceDir: "assets", SplitPages: true,
+	})
+	mustNoErr(t, err)
+
+	for _, n := range []int{1, 2} {
+		data, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("doc_p%d.html", n)))
+		mustNoErr(t, err)
+		s := string(data)
+		if !strings.Contains(s, fmt.Sprintf(`id="page%d"`, n)) {
+			t.Errorf("doc_p%d.html lost its page anchor", n)
+		}
+		if !strings.Contains(s, fmt.Sprintf(`src="assets/page%d.png"`, n)) {
+			t.Errorf("doc_p%d.html does not reference its external background", n)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "assets", "page1.png")); err != nil {
+		t.Errorf("external background missing on disk: %v", err)
+	}
+	p1, _ := os.ReadFile(filepath.Join(dir, "doc_p1.html"))
+	if !strings.Contains(string(p1), `href="doc_p2.html#page2"`) {
+		t.Error("cross-page GoTo link not rewritten to the sibling file")
+	}
+
+	// SplitPages on a stream writer must refuse.
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{SplitPages: true}); err == nil {
+		t.Error("WriteHTML accepted SplitPages")
 	}
 }
 

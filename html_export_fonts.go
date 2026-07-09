@@ -5,7 +5,6 @@ package asposepdf
 import (
 	"bytes"
 	"compress/zlib"
-	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -282,8 +281,9 @@ func cidToGIDFunc(objects map[int]*pdfObject, desc pdfDict) func(uint16) uint16 
 
 // finish builds the WOFF for every used font and returns the @font-face +
 // span-class CSS block ("" when nothing embeddable was found). Fonts whose
-// build fails are dropped (their spans keep the phase-2 fallback path).
-func (fs *htmlFontSet) finish() string {
+// build fails are dropped (their spans keep the substitute fallback path);
+// a resource-sink error aborts the export.
+func (fs *htmlFontSet) finish(sink htmlResourceSink) (string, error) {
 	var css strings.Builder
 	for _, f := range fs.fonts {
 		if len(f.used) == 0 {
@@ -294,6 +294,10 @@ func (fs *htmlFontSet) finish() string {
 			continue
 		}
 		f.woff = woff
+		url, err := htmlResource(sink, fs.resourceName(f), "font/woff", woff)
+		if err != nil {
+			return "", err
+		}
 		weight, style := "normal", "normal"
 		if f.bold {
 			weight = "bold"
@@ -301,11 +305,23 @@ func (fs *htmlFontSet) finish() string {
 		if f.italic {
 			style = "italic"
 		}
-		fmt.Fprintf(&css, "@font-face { font-family:'%s'; src:url(data:font/woff;base64,%s) format('woff'); font-weight:%s; font-style:%s; }\n",
-			f.id, base64.StdEncoding.EncodeToString(woff), weight, style)
+		fmt.Fprintf(&css, "@font-face { font-family:'%s'; src:url('%s') format('woff'); font-weight:%s; font-style:%s; }\n",
+			f.id, url, weight, style)
 		fmt.Fprintf(&css, ".tv span.%s, .fl .%s { font-family:'%s', %s; }\n", f.id, f.id, f.id, familyStack(f.class))
 	}
-	return css.String()
+	return css.String(), nil
+}
+
+// resourceName is the font's external file name — keyed by its PDF object
+// number so the name stays stable (and collision-free) across the per-page
+// files of a split export.
+func (fs *htmlFontSet) resourceName(f *htmlFont) string {
+	for num, ff := range fs.byObj {
+		if ff == f {
+			return fmt.Sprintf("font_%d.woff", num)
+		}
+	}
+	return "font_" + f.id + ".woff"
 }
 
 // familyStack returns the metric-substitute CSS stack for a generic class.

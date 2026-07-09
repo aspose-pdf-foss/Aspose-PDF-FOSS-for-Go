@@ -1307,6 +1307,12 @@ doc.SaveHTML("article.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeFlow})
 // Aspose.PDF for .NET renders fields as static pictures; this converts them.
 doc.SaveHTML("form.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText, InteractiveForms: true})
 
+// Multi-file output: resources as external files next to the HTML (or via a
+// custom ResourceWriter callback — S3, CDN, anywhere), and one HTML per page.
+doc.SaveHTML("site/doc.html", pdf.HTMLSaveOptions{
+    Mode: pdf.HTMLModeNative, ResourceDir: "assets", SplitPages: true,
+})
+
 // Page subset, custom raster DPI and title; or write to any io.Writer.
 doc.SaveHTML("part.html", pdf.HTMLSaveOptions{Pages: []int{1, 3}, DPI: 96, Title: "Report"})
 doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})

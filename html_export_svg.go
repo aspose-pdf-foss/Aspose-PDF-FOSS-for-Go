@@ -3,8 +3,9 @@
 package asposepdf
 
 import (
-	"encoding/base64"
+	"bytes"
 	"fmt"
+	"html"
 	"image"
 	"image/png"
 	"math"
@@ -44,6 +45,25 @@ type svgDevice struct {
 	defs    strings.Builder // <clipPath> definitions
 	path    strings.Builder // current path data (true curves, device space)
 	clipSeq int
+
+	sink      htmlResourceSink // nil = inline base64 data: URLs
+	resPrefix string           // resource name prefix ("p3")
+	resSeq    int              // image/patch counter within the page
+	err       error            // first resource-sink failure (aborts the export)
+}
+
+// resource routes one binary part through the sink (or inlines it),
+// recording the first failure.
+func (d *svgDevice) resource(kind, ext, mime string, data []byte) (string, bool) {
+	d.resSeq++
+	url, err := htmlResource(d.sink, fmt.Sprintf("%s_%s%d.%s", d.resPrefix, kind, d.resSeq, ext), mime, data)
+	if err != nil {
+		if d.err == nil {
+			d.err = err
+		}
+		return "", false
+	}
+	return url, true
 }
 
 // --- path recording (parallel to the flattener) ---------------------------
@@ -192,9 +212,13 @@ func (d *svgDevice) emitImage(rd *renderer, img *Image) {
 	if len(img.Data) == 0 {
 		return
 	}
-	mime := "image/png"
+	mime, ext := "image/png", "png"
 	if img.Format == ImageFormatJPEG {
-		mime = "image/jpeg"
+		mime, ext = "image/jpeg", "jpg"
+	}
+	url, ok := d.resource("img", ext, mime, img.Data)
+	if !ok {
+		return
 	}
 	m := rd.dmat()
 	attrs := ""
@@ -202,9 +226,9 @@ func (d *svgDevice) emitImage(rd *renderer, img *Image) {
 		attrs += fmt.Sprintf(` opacity="%.3f"`, rd.gs.fillA)
 	}
 	fmt.Fprintf(&d.els,
-		"<image x=\"0\" y=\"0\" width=\"1\" height=\"1\" preserveAspectRatio=\"none\" transform=\"matrix(%s %s %s %s %s %s) translate(0 1) scale(1 -1)\"%s%s href=\"data:%s;base64,%s\"/>\n",
+		"<image x=\"0\" y=\"0\" width=\"1\" height=\"1\" preserveAspectRatio=\"none\" transform=\"matrix(%s %s %s %s %s %s) translate(0 1) scale(1 -1)\"%s%s href=\"%s\"/>\n",
 		htmlNum(m[0]), htmlNum(m[1]), htmlNum(m[2]), htmlNum(m[3]), htmlNum(m[4]), htmlNum(m[5]),
-		attrs, commonAttrs(rd), mime, base64.StdEncoding.EncodeToString(img.Data))
+		attrs, commonAttrs(rd), html.EscapeString(url))
 }
 
 // addClip registers a new <clipPath> chained onto parent (0 = none) and
@@ -236,16 +260,16 @@ func (d *svgDevice) emitPatch(buf *image.RGBA) {
 		return // nothing painted
 	}
 	crop := buf.SubImage(image.Rect(x0, y0, x1, y1))
-	var b strings.Builder
-	enc := base64.NewEncoder(base64.StdEncoding, &b)
-	if err := png.Encode(enc, crop); err != nil {
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, crop); err != nil {
 		return
 	}
-	if err := enc.Close(); err != nil {
+	url, ok := d.resource("patch", "png", "image/png", pngBuf.Bytes())
+	if !ok {
 		return
 	}
-	fmt.Fprintf(&d.els, "<image x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" href=\"data:image/png;base64,%s\"/>\n",
-		x0, y0, x1-x0, y1-y0, b.String())
+	fmt.Fprintf(&d.els, "<image x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" href=\"%s\"/>\n",
+		x0, y0, x1-x0, y1-y0, html.EscapeString(url))
 }
 
 // rgbaAlphaBounds returns the tight bounding box of pixels with non-zero
@@ -325,7 +349,7 @@ func (rd *renderer) vecPatch(paint func(*renderer)) {
 // scale, rotation) mirrors RenderImage, so the result is drop-in aligned
 // with the text layer. Page text is suppressed (the HTML text layer carries
 // it); annotation-appearance text is emitted as outline paths.
-func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool) (string, error) {
+func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool, sink htmlResourceSink, num int) (string, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return "", fmt.Errorf("render svg: %w", err)
@@ -343,9 +367,12 @@ func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool) (string, error) {
 		return "", fmt.Errorf("render svg: degenerate page size %dx%d", w, h)
 	}
 	rd := newRenderer(p, image.NewRGBA(image.Rect(0, 0, w, h)), w, h, base)
-	rd.vec = &svgDevice{}
+	rd.vec = &svgDevice{sink: sink, resPrefix: fmt.Sprintf("p%d", num)}
 	rd.suppressText = true
 	rd.hideFormWidgets = hideFormWidgets
 	rd.run()
+	if rd.vec.err != nil {
+		return "", rd.vec.err
+	}
 	return rd.vec.svg(w, h), nil
 }
