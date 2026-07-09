@@ -318,27 +318,55 @@ a.lnk { position: absolute; }
 .fw { position: absolute; box-sizing: border-box; margin: 0;
       font-family: Arial, Helvetica, sans-serif; font-size: 11pt; }
 textarea.fw { resize: none; }
-.nv { position: fixed; left: 0; top: 0; bottom: 0; width: 250px; overflow: auto;
-      background: #f4f4f4; border-right: 1px solid #ccc; padding: 12px;
-      box-sizing: border-box; font: 13px/1.6 Arial, Helvetica, sans-serif; }
+#nvt { display: none; }
+.nvbtn { position: fixed; left: 12px; top: 12px; z-index: 40; width: 38px; height: 38px;
+         display: flex; align-items: center; justify-content: center; cursor: pointer;
+         background: #fff; border: 1px solid #e2e5ea; border-radius: 10px;
+         box-shadow: 0 2px 8px rgba(15,23,42,.10); color: #475569; font-size: 17px;
+         user-select: none; }
+.nvbtn:hover { background: #f4f6fa; color: #1d4ed8; }
+.nv { position: fixed; left: 0; top: 0; bottom: 0; width: 268px; overflow: auto;
+      z-index: 30; background: #fff; border-right: 1px solid #e8eaee;
+      box-shadow: 2px 0 14px rgba(15,23,42,.05); padding: 60px 12px 18px;
+      box-sizing: border-box;
+      font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
 .nv ul { list-style: none; margin: 0; padding-left: 14px; }
 .nv > ul { padding-left: 0; }
-.nv a { color: #1a3f8f; text-decoration: none; }
-.nv a:hover { text-decoration: underline; }
-.nv summary { cursor: pointer; }
-body.withnav { padding-left: 250px; }
-@media (max-width: 700px) { .nv { display: none; } body.withnav { padding-left: 0; } }
+.nv li { margin: 1px 0; }
+.nv a { display: block; padding: 5px 9px; border-radius: 7px; color: #334155;
+        text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nv a:hover { background: #eef2ff; color: #1d4ed8; }
+.nv summary { cursor: pointer; list-style: none; display: flex; align-items: center; }
+.nv summary::-webkit-details-marker { display: none; }
+.nv summary::before { content: "\25B8"; flex: 0 0 1em; color: #9aa4b2; font-size: 11px;
+                      transition: transform .15s; }
+.nv details[open] > summary::before { transform: rotate(90deg); }
+.nv summary > a { flex: 1 1 auto; min-width: 0; }
+.pgs { min-width: 0; }
+@media (min-width: 1141px) {
+  .pgs { padding-left: 268px; }
+  #nvt:checked ~ .nv { display: none; }
+  #nvt:checked ~ .pgs { padding-left: 0; }
+}
+@media (max-width: 1140.9px) {
+  .nv { display: none; box-shadow: 4px 0 24px rgba(15,23,42,.18); }
+  #nvt:checked ~ .nv { display: block; }
+}
 `)
 	b.WriteString(fontCSS)
 	nav := ""
 	if opt.OutlineNav {
 		nav = htmlOutlineNav(d, opt.pageHref)
 	}
+	b.WriteString("</style>\n</head>\n<body>\n")
 	if nav != "" {
-		b.WriteString("</style>\n</head>\n<body class=\"withnav\">\n")
+		// Pure-CSS toggle: the checkbox drives the sidebar visibility (open
+		// by default on wide screens, an overlay flyout on narrow ones) and
+		// the pages wrapper's offset — no JavaScript.
+		b.WriteString("<input type=\"checkbox\" id=\"nvt\">\n")
+		b.WriteString("<label class=\"nvbtn\" for=\"nvt\" title=\"Toggle bookmarks\">&#9776;</label>\n")
 		b.WriteString(nav)
-	} else {
-		b.WriteString("</style>\n</head>\n<body>\n")
+		b.WriteString("<div class=\"pgs\">\n")
 	}
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return err
@@ -368,6 +396,9 @@ body.withnav { padding-left: 250px; }
 		}
 	}
 	tail := "</body>\n</html>\n"
+	if nav != "" {
+		tail = "</div>\n" + tail
+	}
 	if ctx.wrapForm {
 		tail = "</form>\n" + tail
 	}

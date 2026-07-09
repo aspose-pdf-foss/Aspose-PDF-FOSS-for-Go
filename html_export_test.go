@@ -689,8 +689,10 @@ func TestWriteHTMLOutlineNav(t *testing.T) {
 	s := buf.String()
 
 	for _, want := range []string{
-		`<body class="withnav">`,
+		`<input type="checkbox" id="nvt">`, // pure-CSS open/close toggle
+		`<label class="nvbtn" for="nvt"`,
 		`<nav class="nv">`,
+		`<div class="pgs">`, // pages wrapper shifts when the panel is open
 		`<details open><summary><a href="#page1">Chapter &lt;One&gt;</a></summary>`,
 		`<a href="#page2">Section 1.1</a>`,
 	} {
