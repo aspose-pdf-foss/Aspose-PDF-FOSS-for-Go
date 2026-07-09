@@ -1293,10 +1293,12 @@ doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
 // degrade to small positioned raster patches.
 doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeNative})
 
-// Interactive forms: AcroForm fields become real fillable HTML controls
-// (inputs, textareas, selects) with values, flags and styling — fill in and
-// print right in the browser, no JavaScript. Aspose.PDF for .NET renders
-// fields as static pictures; this converts them.
+// Interactive forms: AcroForm fields become real fillable HTML controls —
+// text/number/date inputs, textareas, checkboxes, radios, selects — with
+// values, flags, styling and PDF tab order. Submit/reset push buttons become
+// working <button>s inside a <form>, so the result can be filled in,
+// printed, and even submitted right from the browser, no JavaScript.
+// Aspose.PDF for .NET renders fields as static pictures; this converts them.
 doc.SaveHTML("form.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText, InteractiveForms: true})
 
 // Page subset, custom raster DPI and title; or write to any io.Writer.

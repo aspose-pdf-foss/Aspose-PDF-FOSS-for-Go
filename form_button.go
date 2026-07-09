@@ -41,6 +41,40 @@ type ButtonAppearance struct {
 	BorderColor  *Color             // button border (default grey)
 }
 
+// Action returns the button's activation action (/A on its widget), or nil
+// if none is set or the action type is unsupported. Mirrors the
+// LinkAnnotation action surface.
+func (f *ButtonField) Action() Action {
+	if f.node == nil || len(f.node.widgets) == 0 {
+		return nil
+	}
+	d, ok := resolveRefToDict(f.node.form.doc.objects, f.node.widgets[0]["/A"])
+	if !ok {
+		return nil
+	}
+	act := parseAction(d)
+	resolveGoToPage(f.node.form.doc, act, d)
+	return act
+}
+
+// SetAction writes the button's activation action (/A) onto its widget(s) —
+// typically a SubmitFormAction, ResetFormAction, GoTo/URI or JavaScript
+// action. nil clears the action. Mirrors Aspose.PDF for .NET's
+// ButtonField.OnActivated.
+func (f *ButtonField) SetAction(act Action) {
+	if f.node == nil {
+		return
+	}
+	for _, w := range f.node.widgets {
+		if act == nil {
+			delete(w, "/A")
+		} else {
+			w["/A"] = act.encode()
+		}
+	}
+	noteFormMutated(f.node)
+}
+
 // SetAppearance applies a ButtonAppearance to the push button: it writes
 // the /MK characteristics (/CA, /RC, /AC, /TP) and regenerates the
 // widget's /AP with distinct /N (normal), /R (rollover), and /D (down)

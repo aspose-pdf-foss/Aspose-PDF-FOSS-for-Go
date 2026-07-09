@@ -193,22 +193,51 @@ textarea.fw { resize: none; }
 		return err
 	}
 
-	interactive := opt.InteractiveForms && visibleText
-	dlSeq := 0
+	ctx := &htmlWriteCtx{dpi: dpi, mode: opt.Mode, fonts: fonts,
+		interactive: opt.InteractiveForms && visibleText}
+	if ctx.interactive {
+		// Submit/reset push buttons only work inside a <form>; one wrapper
+		// spans every page (radio groups and reset then work across pages).
+		if action, method, wrap := htmlFormEnvelope(d); wrap {
+			ctx.wrapForm = true
+			attrs := ""
+			if action != "" {
+				attrs = fmt.Sprintf(" action=\"%s\" method=\"%s\"", html.EscapeString(action), method)
+			}
+			if _, err := io.WriteString(w, "<form"+attrs+">\n"); err != nil {
+				return err
+			}
+		}
+	}
 	for _, hp := range hps {
-		if err := writeHTMLPage(w, hp.page, hp.num, hp.lines, dpi, opt.Mode, fonts, interactive, &dlSeq); err != nil {
+		if err := writeHTMLPage(w, hp.page, hp.num, hp.lines, ctx); err != nil {
 			return err
 		}
 	}
-	_, err := io.WriteString(w, "</body>\n</html>\n")
+	tail := "</body>\n</html>\n"
+	if ctx.wrapForm {
+		tail = "</form>\n" + tail
+	}
+	_, err := io.WriteString(w, tail)
 	return err
+}
+
+// htmlWriteCtx carries the per-run state of one WriteHTML invocation into
+// the page writer.
+type htmlWriteCtx struct {
+	dpi         float64
+	mode        HTMLMode
+	fonts       *htmlFontSet // embedded-font set (visible-text modes; nil otherwise)
+	interactive bool         // InteractiveForms in a visible-text mode
+	wrapForm    bool         // pages are wrapped in a document-level <form>
+	dlSeq       int          // <datalist> id counter
+	tabBase     int          // running tabindex offset across pages
 }
 
 // writeHTMLPage emits one .page div: the rendered background image, the text
 // layer (transparent or visible per mode), the link overlays and (when
-// interactive) the form controls. fonts is the embedded-font set in text
-// mode (nil otherwise).
-func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64, mode HTMLMode, fonts *htmlFontSet, interactive bool, dlSeq *int) error {
+// interactive) the form controls.
+func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, ctx *htmlWriteCtx) error {
 	sz, err := p.Size()
 	if err != nil {
 		return err
@@ -218,9 +247,9 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 	fmt.Fprintf(&b, "<div class=\"page\" id=\"page%d\" style=\"width:%spt;height:%spt\">\n",
 		num, htmlNum(sz.Width), htmlNum(sz.Height))
 
-	if mode == HTMLModeNative {
+	if ctx.mode == HTMLModeNative {
 		// No raster background: the page graphics are one inline SVG layer.
-		svg, err := renderPageSVG(p, dpi, interactive)
+		svg, err := renderPageSVG(p, ctx.dpi, ctx.interactive)
 		if err != nil {
 			return err
 		}
@@ -230,7 +259,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 		// the glyph-less graphics in text mode.
 		var bg strings.Builder
 		enc := base64.NewEncoder(base64.StdEncoding, &bg)
-		img, err := p.renderImage(RenderOptions{DPI: dpi}, mode == HTMLModeText, interactive)
+		img, err := p.renderImage(RenderOptions{DPI: ctx.dpi}, ctx.mode == HTMLModeText, ctx.interactive)
 		if err != nil {
 			return err
 		}
@@ -244,7 +273,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 			bg.String(), num)
 	}
 
-	visibleText := mode == HTMLModeText || mode == HTMLModeNative
+	visibleText := ctx.mode == HTMLModeText || ctx.mode == HTMLModeNative
 	layer := "tl"
 	if visibleText {
 		layer = "tv"
@@ -255,8 +284,8 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 		for _, frag := range line.Fragments {
 			if visibleText {
 				var ef *htmlFont
-				if fonts != nil {
-					ef = fonts.resolve(p, frag.FontName)
+				if ctx.fonts != nil {
+					ef = ctx.fonts.resolve(p, frag.FontName)
 				}
 				writeHTMLVisibleFragment(&b, frag, sz.Height, ef)
 			} else {
@@ -266,8 +295,8 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, dpi float64,
 	}
 	b.WriteString("</div>\n")
 	writeHTMLLinks(&b, p, sz.Height)
-	if interactive {
-		writeHTMLFormFields(&b, p, sz.Height, dlSeq)
+	if ctx.interactive {
+		writeHTMLFormFields(&b, p, sz.Height, ctx)
 	}
 	b.WriteString("</div>\n")
 	_, err = io.WriteString(w, b.String())

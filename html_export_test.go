@@ -396,16 +396,16 @@ func TestWriteHTMLInteractiveForms(t *testing.T) {
 	s := buf.String()
 
 	for _, want := range []string{
-		`type="text" name="name" required maxlength="30" value="Иван &lt;Петров&gt;"`,
+		`type="text" name="name" tabindex="1" required maxlength="30" value="Иван &lt;Петров&gt;"`,
 		`border:2pt solid #ff0000`,
 		`font-size:14pt`,
 		`text-align:right`,
-		`<textarea class="fw" name="notes" readonly`,
+		`<textarea class="fw" name="notes" tabindex="2" readonly`,
 		`>line one</textarea>`,
 		`type="password"`,
-		`type="checkbox" name="agree" value="Yes" checked`,
-		`type="radio" name="color" value="red"`,
-		`type="radio" name="color" value="blue" checked`,
+		`type="checkbox" name="agree" tabindex="4" value="Yes" checked`,
+		`type="radio" name="color" value="red" tabindex="5"`,
+		`type="radio" name="color" value="blue" tabindex="6" checked`,
 		`<select class="fw" name="city"`,
 		`<option value="Brno" selected>`,
 		` multiple`,
@@ -445,6 +445,73 @@ func TestWriteHTMLInteractiveForms(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `class="fw"`) {
 		t.Error("controls emitted without InteractiveForms")
+	}
+}
+
+// TestWriteHTMLFormsPhase2: number/date fields become typed inputs (date
+// values converted through the format mask to ISO), submit/reset push
+// buttons become real form buttons inside a document-level <form>, and an
+// unconvertible date mask falls back to a text input.
+func TestWriteHTMLFormsPhase2(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+
+	price, err := form.AddNumberField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720}, "price",
+		pdf.NumberFormatOptions{Decimals: 2, CurrencySymbol: "$", CurrencyPrepend: true})
+	mustNoErr(t, err)
+	mustNoErr(t, price.SetValue("1234.50"))
+
+	when, err := form.AddDateField(1, pdf.Rectangle{LLX: 50, LLY: 660, URX: 200, URY: 680}, "when", "dd.mm.yyyy")
+	mustNoErr(t, err)
+	mustNoErr(t, when.SetValue("24.12.2026"))
+
+	badmask, err := form.AddDateField(1, pdf.Rectangle{LLX: 50, LLY: 620, URX: 200, URY: 640}, "badmask", "mmm d, yyyy")
+	mustNoErr(t, err)
+	mustNoErr(t, badmask.SetValue("Dec 24, 2026"))
+
+	send, err := form.AddPushButton(1, pdf.Rectangle{LLX: 50, LLY: 560, URX: 150, URY: 590}, "send", "Send it")
+	mustNoErr(t, err)
+	send.SetAction(pdf.NewSubmitFormAction("https://example.com/submit?x=1", nil, 0))
+
+	clear, err := form.AddPushButton(1, pdf.Rectangle{LLX: 170, LLY: 560, URX: 270, URY: 590}, "clear", "Clear")
+	mustNoErr(t, err)
+	clear.SetAction(pdf.NewResetFormAction(nil))
+
+	static, err := form.AddPushButton(1, pdf.Rectangle{LLX: 290, LLY: 560, URX: 390, URY: 590}, "static", "No action")
+	mustNoErr(t, err)
+	_ = static
+
+	var buf bytes.Buffer
+	if err := doc.WriteHTML(&buf, pdf.HTMLSaveOptions{DPI: 72, Mode: pdf.HTMLModeText, InteractiveForms: true}); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	for _, want := range []string{
+		`type="number" step="0.01"`,
+		`name="price"`,
+		`value="1234.50"`,
+		`type="date"`,
+		`value="2026-12-24"`,
+		`<form action="https://example.com/submit?x=1" method="post">`,
+		`type="submit"`,
+		`formaction="https://example.com/submit?x=1" formmethod="post"`,
+		`>Send it</button>`,
+		`type="reset"`,
+		`>Clear</button>`,
+		"</form>\n</body>",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+	// The unconvertible mask falls back to a text input keeping the value.
+	if !regexp.MustCompile(`type="text" name="badmask"[^>]*value="Dec 24, 2026"`).MatchString(s) {
+		t.Error("bad-mask date did not fall back to a text input")
+	}
+	// The actionless push button stays static — no <button> for it.
+	if strings.Contains(s, ">No action</button>") {
+		t.Error("actionless push button was converted")
 	}
 }
 
