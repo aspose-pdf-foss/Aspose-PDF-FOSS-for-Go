@@ -46,9 +46,9 @@ type htmlFont struct {
 // by font-dict object number, with a per-page fragment-name → font map.
 type htmlFontSet struct {
 	doc     *Document
-	byObj   map[int]*htmlFont            // font dict object number → font (nil = unsupported)
+	byObj   map[int]*htmlFont              // font dict object number → font (nil = unsupported)
 	perPage map[*Page]map[string]*htmlFont // cleanFontName → font, per page
-	fonts   []*htmlFont                  // discovery order
+	fonts   []*htmlFont                    // discovery order
 }
 
 func newHTMLFontSet(d *Document) *htmlFontSet {
@@ -515,10 +515,10 @@ func buildMinimalName(family string) []byte {
 			utf16 = append(utf16, byte(c>>8), byte(c))
 		}
 		e := make([]byte, 12)
-		put16(e, 0, 3)      // platform: Windows
-		put16(e, 2, 1)      // encoding: Unicode BMP
-		put16(e, 4, 0x409)  // language: en-US
-		put16(e, 6, r.id)   // name ID
+		put16(e, 0, 3)     // platform: Windows
+		put16(e, 2, 1)     // encoding: Unicode BMP
+		put16(e, 4, 0x409) // language: en-US
+		put16(e, 6, r.id)  // name ID
 		put16(e, 8, uint16(len(utf16)))
 		put16(e, 10, uint16(len(storage)))
 		dir = append(dir, e...)
@@ -562,10 +562,10 @@ func buildMinimalOS2(bold, italic bool, hhea []byte, firstChar, lastChar uint16)
 	if winDesc < 0 {
 		winDesc = 0
 	}
-	put16(74, uint16(asc))     // usWinAscent
-	put16(76, uint16(winDesc)) // usWinDescent
+	put16(74, uint16(asc))                // usWinAscent
+	put16(76, uint16(winDesc))            // usWinDescent
 	binary.BigEndian.PutUint32(b[78:], 1) // ulCodePageRange1: Latin 1
-	put16(92, 0x20) // usBreakChar: space
+	put16(92, 0x20)                       // usBreakChar: space
 	return b
 }
 
