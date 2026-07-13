@@ -42,4 +42,5 @@ type TextStyle struct {
 	Rotation      float64 // degrees counter-clockwise; pivot = lower-left corner of rect; default 0
 	Behind        bool    // if true, text is drawn under existing page content; default false
 	RTL           bool    // if true, the paragraph base direction is right-to-left (Hebrew/Arabic); default false (auto-detected from the text when it contains RTL characters)
+	Invisible     bool    // if true, glyphs use text rendering mode 3 (ISO 32000-1 §9.3.6): nothing is painted, but the text remains selectable, searchable, and extractable. Underline/Strikethrough decorations are suppressed too. Used for hidden OCR text layers over scanned pages.
 }

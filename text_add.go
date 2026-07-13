@@ -145,6 +145,9 @@ func renderTextInBuilder(
 
 	// Text block.
 	b.buf.WriteString("BT\n")
+	if style.Invisible {
+		b.buf.WriteString("3 Tr\n")
+	}
 	b.buf.WriteString(fmt.Sprintf("%s %s Tf\n", resName, formatFloat(fontSize)))
 	b.buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 		formatFloat(textColor.R), formatFloat(textColor.G), formatFloat(textColor.B)))
@@ -193,8 +196,9 @@ func renderTextInBuilder(
 
 	b.buf.WriteString("ET\n")
 
-	// Underline.
-	if style.Underline && len(linePositions) > 0 {
+	// Underline. Suppressed for invisible text: the decorations are plain
+	// fills, not glyphs, so mode 3 would not hide them.
+	if style.Underline && !style.Invisible && len(linePositions) > 0 {
 		b.buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(textColor.R), formatFloat(textColor.G), formatFloat(textColor.B)))
 		thickness := fontSize * 0.05
@@ -206,8 +210,8 @@ func renderTextInBuilder(
 		}
 	}
 
-	// Strikethrough.
-	if style.Strikethrough && len(linePositions) > 0 {
+	// Strikethrough. Suppressed for invisible text (see Underline above).
+	if style.Strikethrough && !style.Invisible && len(linePositions) > 0 {
 		b.buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(textColor.R), formatFloat(textColor.G), formatFloat(textColor.B)))
 		thickness := fontSize * 0.05

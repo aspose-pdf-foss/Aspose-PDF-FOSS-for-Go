@@ -78,6 +78,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
 - **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in four modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer), **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size) **native** (`HTMLModeNative` — no raster background at all: page graphics become one inline SVG layer per page with true-curve paths, native strokes, clips and blend modes, images pass through as SVG `<image>` with their original JPEG/PNG bytes, and only content SVG cannot express — shadings, patterns, soft masks, transparency groups — degrades locally to positioned raster patches) and **flow** (`HTMLModeFlow` — reflowable: paragraphs, columns and inferred headings re-assembled in reading order into a responsive article that rewraps on mobile; the counterpart of Aspose's `FixedLayout=false`). In text/native modes the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load, and `InteractiveForms` turns AcroForm fields into **real fillable HTML controls** (Aspose renders them as static pictures) — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html`
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
+- **AI copilots (`ai` subpackage)** — document **summarization** (`ai.NewSummaryCopilot` — plain text or rendered as a new PDF) and **OCR of scanned pages** (`ai.NewOcrCopilot` with a vision-LLM engine or any custom `OCREngine`) over any OpenAI-compatible endpoint (OpenAI, LiteLLM, Ollama, …), stdlib-only; mirrors Aspose.PDF for .NET's `Aspose.Pdf.AI`. Beyond Aspose: `MakeSearchable` writes the recognized text back as an **invisible text layer**, turning a scan into a selectable, Ctrl+F-searchable PDF in place
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
 - **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, strikethrough, rotation, and behind-content mode. **Right-to-left / bidirectional** text (Hebrew and Arabic) is laid out via a pure-Go Unicode Bidi Algorithm (UAX #9): set `TextStyle.RTL` or just include RTL characters, and each line is reordered into visual order with embedded numbers/Latin kept left-to-right; RTL paragraphs right-align by default. **Arabic contextual shaping** (connected letterforms + lam-alef ligatures via Presentation Forms-B) renders proper Arabic with any font that covers the block (e.g. the bundled DejaVu Sans)
@@ -1322,6 +1323,47 @@ doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
 ```
 
 In both modes the text is selectable, copyable and Ctrl+F-searchable, link annotations become clickable `<a>` overlays (external URLs and in-document `#pageN` jumps), and page backgrounds carry `loading="lazy"` so large documents open fast.
+
+### AI-powered operations (`ai` subpackage)
+
+The `ai` subpackage adds AI copilots mirroring Aspose.PDF for .NET's `Aspose.Pdf.AI` — summarization, OCR of scanned pages, and a searchable-PDF pipeline — over any **OpenAI-compatible** endpoint (OpenAI, LiteLLM, Ollama, OpenRouter, …). Pure Go, standard library only; the root package stays free of AI and network code.
+
+> These features send document content (extracted text and/or rendered page images) to the configured AI endpoint. For sensitive documents point the client at a local endpoint (e.g. Ollama) — the same client works unchanged.
+
+```go
+import (
+    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
+    "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/ai"
+)
+
+client := ai.NewOpenAIClient(ai.OpenAIClientOptions{
+    BaseURL: "http://localhost:11434/v1", // Ollama; empty = api.openai.com
+    APIKey:  os.Getenv("OPENAI_API_KEY"),
+    Model:   "gpt-4o-mini",
+})
+
+// Summarize a document (mirrors OpenAISummaryCopilot).
+doc, _ := pdf.Open("report.pdf")
+sum := ai.NewSummaryCopilot(client, ai.SummaryOptions{Document: doc, MaxWords: 200})
+text, _ := sum.GetSummary(ctx)          // the summary as a string
+_ = sum.SaveSummary(ctx, "summary.pdf") // or rendered as a new PDF
+
+// OCR scanned pages (mirrors OpenAIOcrCopilot) …
+scan, _ := pdf.Open("scanned.pdf")
+engine := ai.NewLLMOCREngine(client, ai.LLMOCROptions{}) // vision model
+ocr := ai.NewOcrCopilot(engine, ai.OcrOptions{Document: scan})
+results, _ := ocr.GetTextRecognition(ctx) // recognized text per page
+
+// … or go further than Aspose: make the scanned PDF searchable in place.
+// An invisible text layer (text rendering mode 3) is written over each
+// scanned page — the file looks pixel-identical but becomes selectable,
+// copyable and Ctrl+F-searchable in any viewer.
+n, _ := ocr.MakeSearchable(ctx)
+_ = scan.Save("scanned_searchable.pdf")
+fmt.Println("OCRed pages:", n)
+```
+
+Scanned pages are auto-detected (no extractable text + a dominant full-page image); pass `OcrOptions.Pages`/`All` to override. The bundled `LLMOCREngine` returns line-level text without coordinates, so `MakeSearchable` lays the hidden lines on an even grid over the scan (search and copy work; selection alignment is approximate). Implement the one-method `ai.OCREngine` interface over Tesseract or a cloud OCR service that reports word boxes and the hidden text will sit exactly under the printed words. For non-Latin text pass a Unicode font via `OcrOptions.Font` (see `Document.LoadFont`).
 
 ### Text Search
 
