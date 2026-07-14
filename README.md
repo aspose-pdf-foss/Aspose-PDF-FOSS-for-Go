@@ -1348,7 +1348,7 @@ _, _ = flow.Render()
 _ = page.AddMarkdown("- boxed\n- list", pdf.Rectangle{LLX: 60, LLY: 600, URX: 300, URY: 760})
 ```
 
-Headings scale from `BaseSize`; bold/italic/strikethrough/code spans render as real styled runs, links become clickable annotations, task items draw vector checkboxes, block quotes get a left rule, code blocks keep their indentation on a gray card, GFM tables map onto the table engine (repeating bold header, `:---:` alignment). Images: local paths and `data:` URLs (remote URLs render their alt text — the library does no network I/O). For non-Latin text pass Unicode faces via `MarkdownOptions.BaseFont`/`CodeFont` (see `Document.LoadFont`). Raw HTML is skipped (`<br>` honored); no syntax highlighting yet.
+Headings scale from `BaseSize`; bold/italic/strikethrough/code spans render as real styled runs, links become clickable annotations, task items draw vector checkboxes, block quotes get a left rule, code blocks keep their indentation on a gray card, GFM tables map onto the table engine (repeating bold header, `:---:` alignment). Images: local paths and `data:` URLs (remote URLs render their alt text — the library does no network I/O). For non-Latin text set `MarkdownOptions.FontFamily`/`CodeFontFamily` (e.g. `"Arial"`/`"Consolas"` — resolved from registered or OS fonts and embedded), or pass `LoadFont` faces explicitly. Raw HTML is skipped (`<br>` honored); no syntax highlighting yet.
 
 Bonus: `ai.SummaryOptions.Markdown` makes `SummaryCopilot` ask the model for Markdown and renders the summary PDF through this pipeline — formatted AI summaries out of the box.
 
