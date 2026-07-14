@@ -48,6 +48,7 @@ const (
 	fkBox
 	fkFloat
 	fkColBreak
+	fkRuns // styled-runs paragraph (flow_runs.go)
 )
 
 type flowElem struct {
@@ -65,6 +66,8 @@ type flowElem struct {
 	box        *FloatingBox
 	floatSide  FloatSide
 	floatW     float64
+	runs       []textRun  // fkRuns
+	st         StructType // fkRuns tagging type (StructP, StructH1…)
 }
 
 // NewFlow creates a flow that renders into the document d.
@@ -290,6 +293,8 @@ func (s *flowState) place(el flowElem) error {
 			return nil
 		}
 		return s.advance()
+	case fkRuns:
+		return s.flowRuns(el.runs, el.st)
 	}
 	return nil
 }
