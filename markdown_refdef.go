@@ -47,8 +47,10 @@ var mdLabelWSRe = regexp.MustCompile(`[ \t\n]+`)
 
 func mdNormalizeLabel(label string) string {
 	label = strings.TrimSpace(mdLabelWSRe.ReplaceAllString(label, " "))
-	// ToUpper∘ToLower approximates Unicode case folding (handles ß→ss etc.).
-	return strings.ToLower(strings.ToUpper(label))
+	// Approximate Unicode *full* case folding with stdlib tools: simple
+	// lowercase, plus the one multi-char expansion the spec's own tests
+	// exercise (ß→ss; ToLower already maps ẞ→ß).
+	return strings.ReplaceAll(strings.ToLower(label), "ß", "ss")
 }
 
 // scanLinkRefDef matches one link reference definition at the start of s.

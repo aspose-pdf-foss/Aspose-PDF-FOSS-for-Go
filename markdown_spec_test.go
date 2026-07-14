@@ -34,10 +34,96 @@ func mdTestEsc(s string) string {
 	return s
 }
 
-// mdTestInline renders a leaf block's inline content. Phase 1: escaped raw
-// text with soft line breaks preserved.
+// mdTestHref escapes a link destination for an href/src attribute the way
+// cmark's houdini_href_e does (the encoding the spec's expected HTML uses).
+func mdTestHref(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9':
+			b.WriteByte(c)
+		case c == '&':
+			b.WriteString("&amp;")
+		case c == '\'':
+			b.WriteString("&#x27;")
+		case strings.IndexByte("-_.+!*(),%#@?=;:/$~", c) >= 0:
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+// mdTestInline renders a leaf block's inline tree (raw escaped text when the
+// inline phase hasn't run for this block).
 func mdTestInline(b *strings.Builder, node *mdBlock) {
+	if node.inlines != nil {
+		mdTestInlines(b, node.inlines, false)
+		return
+	}
 	b.WriteString(mdTestEsc(strings.Join(node.content, "\n")))
+}
+
+func mdTestInlines(b *strings.Builder, nodes []*mdInline, plain bool) {
+	for _, n := range nodes {
+		switch n.kind {
+		case mdText:
+			b.WriteString(mdTestEsc(n.text))
+		case mdSoftBreak:
+			b.WriteString("\n")
+		case mdHardBreak:
+			if plain {
+				b.WriteString("\n")
+			} else {
+				b.WriteString("<br />\n")
+			}
+		case mdCodeSpan:
+			if plain {
+				b.WriteString(mdTestEsc(n.text))
+			} else {
+				b.WriteString("<code>" + mdTestEsc(n.text) + "</code>")
+			}
+		case mdEmph, mdStrong, mdStrike:
+			tag := map[mdInlineKind]string{mdEmph: "em", mdStrong: "strong", mdStrike: "del"}[n.kind]
+			if !plain {
+				b.WriteString("<" + tag + ">")
+			}
+			mdTestInlines(b, n.children, plain)
+			if !plain {
+				b.WriteString("</" + tag + ">")
+			}
+		case mdLink:
+			if plain {
+				mdTestInlines(b, n.children, true)
+				break
+			}
+			b.WriteString(`<a href="` + mdTestHref(n.dest) + `"`)
+			if n.title != "" {
+				b.WriteString(` title="` + mdTestEsc(n.title) + `"`)
+			}
+			b.WriteString(">")
+			mdTestInlines(b, n.children, false)
+			b.WriteString("</a>")
+		case mdImage:
+			if plain {
+				mdTestInlines(b, n.children, true)
+				break
+			}
+			b.WriteString(`<img src="` + mdTestHref(n.dest) + `" alt="`)
+			mdTestInlines(b, n.children, true)
+			b.WriteString(`"`)
+			if n.title != "" {
+				b.WriteString(` title="` + mdTestEsc(n.title) + `"`)
+			}
+			b.WriteString(" />")
+		case mdHTMLInline:
+			if !plain {
+				b.WriteString(n.text)
+			}
+		}
+	}
 }
 
 func mdTestChildren(b *strings.Builder, node *mdBlock, tight bool) {
@@ -112,6 +198,14 @@ func mdTestBlock(b *strings.Builder, node *mdBlock, tight bool) {
 	}
 }
 
+// parseMarkdownCore parses in strict-CommonMark mode: the spec's expected
+// HTML predates the GFM autolink extension (bare http://… must stay text).
+func parseMarkdownCore(src string) *mdBlock {
+	doc, refmap := parseMarkdownBlocks(src)
+	resolveInlines(doc, refmap, false)
+	return doc
+}
+
 type specExample struct {
 	Markdown string `json:"markdown"`
 	HTML     string `json:"html"`
@@ -155,8 +249,7 @@ func TestCommonMarkSpec(t *testing.T) {
 			order = append(order, ex.Section)
 		}
 		st.total++
-		doc, _ := parseMarkdownBlocks(ex.Markdown)
-		got := mdTestHTML(doc)
+		got := mdTestHTML(parseMarkdownCore(ex.Markdown))
 		if got == ex.HTML {
 			pass++
 			st.pass++
@@ -170,12 +263,10 @@ func TestCommonMarkSpec(t *testing.T) {
 	}
 	t.Logf("TOTAL %d/%d", pass, len(examples))
 
-	// Block phase (pdf-go-fh4l.1): 341/652 — every remaining failure needs
-	// the phase-2 inline parser (verified by eye over the per-section
-	// diffs: emphasis, code spans, escapes, entities, inline HTML, hard
-	// breaks in the expected output). Raised to the final target when
-	// pdf-go-fh4l.2 lands.
-	const floor = 341
+	// Full conformance (pdf-go-fh4l.1 blocks + .2 inlines): every example
+	// of the official CommonMark 0.31.2 suite passes. Any regression below
+	// 652 is a bug.
+	const floor = 652
 	if pass < floor {
 		t.Errorf("spec pass count %d below floor %d; failing examples: %v", pass, floor, failures)
 	}

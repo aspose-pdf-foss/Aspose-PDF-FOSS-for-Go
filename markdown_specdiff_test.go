@@ -25,8 +25,7 @@ func TestCommonMarkSpecDiff(t *testing.T) {
 		if !want[ex.Section] {
 			continue
 		}
-		doc, _ := parseMarkdownBlocks(ex.Markdown)
-		got := mdTestHTML(doc)
+		got := mdTestHTML(parseMarkdownCore(ex.Markdown))
 		if got == ex.HTML {
 			continue
 		}
