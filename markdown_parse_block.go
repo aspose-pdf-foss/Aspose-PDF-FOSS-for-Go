@@ -42,7 +42,8 @@ func parseMarkdownBlocks(src string) (*mdBlock, map[string]mdLinkRef) {
 	doc := &mdBlock{kind: mdDocument, open: true, startLine: 1}
 	p := &mdParser{doc: doc, tip: doc, oldtip: doc, lastMatchedContainer: doc, refmap: map[string]mdLinkRef{}}
 
-	// Normalize line endings; replace insecure NUL per spec §2.3.
+	// Normalize line endings; replace insecure NUL per spec §2.3; drop a BOM.
+	src = strings.TrimPrefix(src, "\uFEFF")
 	src = strings.ReplaceAll(src, "\x00", "�")
 	src = strings.ReplaceAll(src, "\r\n", "\n")
 	src = strings.ReplaceAll(src, "\r", "\n")

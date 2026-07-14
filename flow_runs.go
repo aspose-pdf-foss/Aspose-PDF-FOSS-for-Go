@@ -135,14 +135,35 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 		}
 		return ln
 	}
+	lastGap := false // a positional gap breaks same-run segment merging
 	appendSeg := func(run int, text string, w float64) {
-		if n := len(cur); n > 0 && cur[n-1].run == run {
+		if n := len(cur); n > 0 && cur[n-1].run == run && !lastGap {
 			cur[n-1].text += text
 			cur[n-1].w += w
 		} else {
 			cur = append(cur, runSeg{run: run, text: text, x: curW, w: w})
 		}
 		curW += w
+		lastGap = false
+	}
+	// flushPend places pending inter-word spaces: merged into the previous
+	// segment when the space, that segment and the following word share one
+	// run (so AddText draws the space glyph); otherwise as a positional gap
+	// (AddText strips leading spaces, so a cross-run space must move x, not
+	// carry text).
+	flushPend := func(nextRun int) {
+		for _, sp := range pend {
+			if n := len(cur); n > 0 && cur[n-1].run == sp.run && sp.run == nextRun && !lastGap {
+				cur[n-1].text += sp.text
+				cur[n-1].w += sp.w
+				curW += sp.w
+			} else {
+				curW += sp.w
+				lastGap = true
+			}
+		}
+		pend = nil
+		pendW = 0
 	}
 	flush := func() {
 		lines = append(lines, lineOf(cur))
@@ -150,6 +171,7 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 		curW = 0
 		pend = nil
 		pendW = 0
+		lastGap = false
 	}
 
 	i := 0
@@ -178,11 +200,7 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 		if curW > 0 && curW+pendW+clusterW > maxW {
 			flush()
 		}
-		for _, sp := range pend {
-			appendSeg(sp.run, sp.text, sp.w)
-		}
-		pend = nil
-		pendW = 0
+		flushPend(tokens[i].run)
 		for ; i < j; i++ {
 			appendSeg(tokens[i].run, tokens[i].text, tokens[i].w)
 		}
@@ -201,6 +219,12 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 
 // flowRuns paginates and draws a styled-runs paragraph.
 func (s *flowState) flowRuns(runs []textRun, st StructType) error {
+	return s.flowRunsIndent(runs, st, 0)
+}
+
+// flowRunsIndent is flowRuns with the left edge moved right by indent points
+// (list items, block quotes).
+func (s *flowState) flowRunsIndent(runs []textRun, st StructType, indent float64) error {
 	if len(runs) == 0 {
 		return nil
 	}
@@ -213,7 +237,7 @@ func (s *flowState) flowRuns(runs []textRun, st StructType) error {
 		}
 		ms[i] = m
 	}
-	lines := layoutRuns(runs, ms, s.contentW)
+	lines := layoutRuns(runs, ms, s.contentW-indent)
 
 	start := 0
 	for start < len(lines) {
@@ -238,7 +262,7 @@ func (s *flowState) flowRuns(runs []textRun, st StructType) error {
 			}
 		}
 		chunk := lines[start : start+n]
-		if err := s.draw(st, func() error { return s.drawRunLines(chunk, runs, ms) }); err != nil {
+		if err := s.draw(st, func() error { return s.drawRunLines(chunk, runs, ms, indent) }); err != nil {
 			return err
 		}
 		s.y -= chunkH
@@ -250,9 +274,9 @@ func (s *flowState) flowRuns(runs []textRun, st StructType) error {
 
 // drawRunLines draws the given lines starting at the current cursor, all
 // segments of a line sharing one baseline, and attaches link annotations.
-func (s *flowState) drawRunLines(lines []runLine, runs []textRun, ms []runMetrics) error {
+func (s *flowState) drawRunLines(lines []runLine, runs []textRun, ms []runMetrics, indent float64) error {
 	y := s.y
-	left := s.colLeft()
+	left := s.colLeft() + indent
 	for _, ln := range lines {
 		baseline := y - ln.ascent
 		for _, sg := range ln.segs {

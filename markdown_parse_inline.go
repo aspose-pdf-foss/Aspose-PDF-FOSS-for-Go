@@ -130,8 +130,32 @@ func resolveInlines(b *mdBlock, refmap map[string]mdLinkRef, gfmLinkify bool) {
 // library's dialect (CommonMark + the GFM extensions).
 func parseMarkdown(src string) *mdBlock {
 	doc, refmap := parseMarkdownBlocks(src)
+	markTaskItems(doc)
 	resolveInlines(doc, refmap, true)
 	return doc
+}
+
+// markTaskItems detects GFM task-list markers ("[ ] "/"[x] " opening a list
+// item's first paragraph) before inline parsing (afterwards the brackets are
+// scattered across inline nodes) and strips them from the source text.
+func markTaskItems(b *mdBlock) {
+	if b.kind == mdListItem && len(b.children) > 0 {
+		para := b.children[0]
+		if para.kind == mdParagraph && len(para.content) > 0 {
+			t := para.content[0]
+			switch {
+			case strings.HasPrefix(t, "[ ] "), t == "[ ]":
+				b.task = true
+				para.content[0] = strings.TrimPrefix(strings.TrimPrefix(t, "[ ] "), "[ ]")
+			case strings.HasPrefix(t, "[x] "), strings.HasPrefix(t, "[X] "), t == "[x]", t == "[X]":
+				b.task, b.taskChecked = true, true
+				para.content[0] = strings.TrimLeft(t[3:], " ")
+			}
+		}
+	}
+	for _, c := range b.children {
+		markTaskItems(c)
+	}
 }
 
 func convertInlines(first *inlNode) []*mdInline {

@@ -24,6 +24,7 @@ type Flow struct {
 	colGap         float64
 	tc             *TaggedContent
 	elems          []flowElem
+	mdOpts         *MarkdownOptions // theme/options for AddMarkdown
 }
 
 // FlowOptions configures a Flow. Zero values pick sensible defaults.
@@ -48,7 +49,8 @@ const (
 	fkBox
 	fkFloat
 	fkColBreak
-	fkRuns // styled-runs paragraph (flow_runs.go)
+	fkRuns   // styled-runs paragraph (flow_runs.go)
+	fkCustom // caller-supplied placement callback (markdown renderer)
 )
 
 type flowElem struct {
@@ -66,8 +68,9 @@ type flowElem struct {
 	box        *FloatingBox
 	floatSide  FloatSide
 	floatW     float64
-	runs       []textRun  // fkRuns
-	st         StructType // fkRuns tagging type (StructP, StructH1…)
+	runs       []textRun              // fkRuns
+	st         StructType             // fkRuns tagging type (StructP, StructH1…)
+	custom     func(*flowState) error // fkCustom
 }
 
 // NewFlow creates a flow that renders into the document d.
@@ -295,6 +298,8 @@ func (s *flowState) place(el flowElem) error {
 		return s.advance()
 	case fkRuns:
 		return s.flowRuns(el.runs, el.st)
+	case fkCustom:
+		return el.custom(s)
 	}
 	return nil
 }

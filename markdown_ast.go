@@ -71,17 +71,18 @@ type mdBlock struct {
 	inlines []*mdInline
 
 	// Block-parser state.
-	open            bool
-	lastLineBlank   bool
-	fenced          bool
-	fenceChar       byte
-	fenceLength     int
-	fenceOffset     int
-	htmlType        int // 1..7 per spec §4.6
-	startLine       int
-	spanningHeader  bool // internal: table currently collecting rows
-	refsOnly        bool // paragraph consumed entirely by link reference definitions
-	blankAfterEmpty bool // list item began with a blank-after-marker line
+	open          bool
+	lastLineBlank bool
+	fenced        bool
+	fenceChar     byte
+	fenceLength   int
+	fenceOffset   int
+	htmlType      int // 1..7 per spec §4.6
+	startLine     int
+
+	// GFM task-list item marker ([ ] / [x]), detected before inline parsing.
+	task        bool
+	taskChecked bool
 }
 
 // mdInlineKind — inline node kinds (parsed in phase 2, epic pdf-go-fh4l.2).
