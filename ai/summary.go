@@ -26,6 +26,11 @@ type SummaryOptions struct {
 	Language  string          // summary language; "" = same language as the document
 	MaxWords  int             // approximate length cap; 0 = model's choice
 	Prompt    string          // extra instruction appended to the system prompt
+	// Markdown asks the model to format the summary as Markdown (headings,
+	// lists, bold) and renders GetSummaryDocument/SaveSummary through the
+	// Markdown→PDF pipeline, producing a formatted document instead of
+	// plain paragraphs. GetSummary returns the raw Markdown text.
+	Markdown bool
 }
 
 // SummaryCopilot produces document summaries with an AI model. Mirrors
@@ -84,6 +89,10 @@ func (c *SummaryCopilot) GetSummaryDocument(ctx context.Context, format ...pdf.P
 	pf := pdf.PageFormatA4
 	if len(format) > 0 {
 		pf = format[0]
+	}
+	if c.opts.Markdown {
+		md := "# " + c.summaryTitle() + "\n\n" + summary
+		return pdf.MarkdownToDocumentFromStream(strings.NewReader(md), pdf.MarkdownOptions{Format: pf})
 	}
 	doc := pdf.NewDocumentFromFormat(pf)
 	flow := doc.NewFlow(pdf.FlowOptions{Format: pf})
@@ -197,6 +206,9 @@ func (c *SummaryCopilot) summarizeOnce(ctx context.Context, text string, partial
 	}
 	if !partial && c.opts.MaxWords > 0 {
 		fmt.Fprintf(&sys, " Keep the summary under %d words.", c.opts.MaxWords)
+	}
+	if !partial && c.opts.Markdown {
+		sys.WriteString(" Format the summary as Markdown: use headings, bullet lists, and bold for key facts and figures. Do not wrap the output in a code fence.")
 	}
 	if c.opts.Prompt != "" {
 		sys.WriteString(" ")

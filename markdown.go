@@ -42,8 +42,13 @@ type MarkdownOptions struct {
 	BasePath string
 
 	// Tagged builds a logical structure tree while rendering (headings,
-	// paragraphs, lists, tables, figures) for accessible output.
+	// paragraphs, lists, tables, figures) for accessible (PDF/UA) output.
 	Tagged bool
+	// Title and Language feed the tagged document's metadata (PDF/UA
+	// requires both). Title empty → derived from the first heading;
+	// Language empty → "en". Ignored when Tagged is false.
+	Title    string
+	Language string
 }
 
 // mdTheme is the resolved look derived from MarkdownOptions.
@@ -134,7 +139,21 @@ func markdownDocument(md string, o MarkdownOptions) (*Document, error) {
 	doc := NewDocumentFromFormat(format)
 	fo := FlowOptions{Format: format, MarginLeft: o.Margin, MarginRight: o.Margin, MarginTop: o.Margin, MarginBottom: o.Margin}
 	if o.Tagged {
-		fo.Tagged = doc.TaggedContent()
+		tc := doc.TaggedContent()
+		title := o.Title
+		if title == "" {
+			title = firstHeadingText(md)
+		}
+		if title == "" {
+			title = "Document"
+		}
+		tc.SetTitle(title)
+		lang := o.Language
+		if lang == "" {
+			lang = "en"
+		}
+		tc.SetLanguage(lang)
+		fo.Tagged = tc
 	}
 	flow := doc.NewFlow(fo)
 	flow.SetMarkdownOptions(o)
@@ -143,6 +162,25 @@ func markdownDocument(md string, o MarkdownOptions) (*Document, error) {
 		return nil, err
 	}
 	return doc, nil
+}
+
+// firstHeadingText returns the plain text of the document's first heading
+// (the default tagged-PDF title).
+func firstHeadingText(md string) string {
+	doc := parseMarkdown(md)
+	var find func(*mdBlock) string
+	find = func(b *mdBlock) string {
+		if b.kind == mdHeading {
+			return strings.TrimSpace(mdInlinesPlain(b.inlines))
+		}
+		for _, c := range b.children {
+			if t := find(c); t != "" {
+				return t
+			}
+		}
+		return ""
+	}
+	return find(doc)
 }
 
 // SetMarkdownOptions sets the theme/options used by subsequent AddMarkdown

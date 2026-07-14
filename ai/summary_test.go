@@ -121,6 +121,39 @@ func TestSummaryCopilotNoContent(t *testing.T) {
 	}
 }
 
+func TestSummaryCopilotMarkdownOutput(t *testing.T) {
+	doc := textDoc(t, "Numbers: revenue 12, growth 7.")
+	client := &fakeClient{replies: []string{"## Key facts\n\n- Revenue grew **12%**\n- Growth at 7%"}}
+	cop := NewSummaryCopilot(client, SummaryOptions{Document: doc, Markdown: true})
+
+	out, err := cop.GetSummaryDocument(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sys := client.requests[0].Messages[0].Text; !strings.Contains(sys, "Format the summary as Markdown") {
+		t.Errorf("system prompt missing markdown instruction: %s", sys)
+	}
+	pages, err := out.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(pages, "\n")
+	// Note: "Revenue grew" and "12%" are separate style runs; the extractor
+	// does not yet synthesize a space across the inter-run gap (tracked as a
+	// text-layout polish ticket), so they are asserted separately.
+	for _, want := range []string{"Summary", "Key facts", "Revenue grew", "12%", "Growth at 7%"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("markdown summary document missing %q; got %q", want, all)
+		}
+	}
+	// The Markdown formatting must be consumed, not printed literally.
+	for _, bad := range []string{"##", "**", "- Revenue"} {
+		if strings.Contains(all, bad) {
+			t.Errorf("unrendered markdown %q leaked into output: %q", bad, all)
+		}
+	}
+}
+
 func TestSummaryCopilotDocumentOutput(t *testing.T) {
 	doc := textDoc(t, "Input text about apples and oranges.")
 	client := &fakeClient{replies: []string{"Apples beat oranges.\n\nSecond paragraph."}}
