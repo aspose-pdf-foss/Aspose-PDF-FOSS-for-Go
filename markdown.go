@@ -37,6 +37,15 @@ type MarkdownOptions struct {
 	CodeFont                                       Font    // nil → Courier
 	BaseSize                                       float64 // body size; zero → 11pt (headings scale from it)
 
+	// FontFamily resolves and embeds a font family by name (registered
+	// folders/files first, then the OS fonts — see LoadFontByName) for the
+	// regular/bold/italic/bold-italic styles, giving full Unicode text
+	// (e.g. "Arial", "DejaVu Sans"). Styles that fail to resolve fall back
+	// to the regular face. Explicit BaseFont/BoldFont/… win over it.
+	// CodeFontFamily does the same for the code face (e.g. "Consolas").
+	FontFamily     string
+	CodeFontFamily string
+
 	// BasePath resolves relative image paths. Empty → the .md file's
 	// directory (MarkdownToDocument) or the current directory.
 	BasePath string
@@ -190,6 +199,36 @@ func (f *Flow) SetMarkdownOptions(o MarkdownOptions) *Flow {
 	return f
 }
 
+// resolveFamilyFonts fills the theme font fields from FontFamily /
+// CodeFontFamily by embedding matching faces into doc (best-effort: a style
+// that does not resolve falls back to the regular face; an unresolvable
+// family leaves the Standard-14 defaults).
+func (o *MarkdownOptions) resolveFamilyFonts(doc *Document) {
+	if o.FontFamily != "" && o.BaseFont == nil {
+		if base, err := doc.LoadFontByName(o.FontFamily, false, false); err == nil {
+			o.BaseFont = base
+			load := func(dst *Font, bold, italic bool) {
+				if *dst != nil {
+					return
+				}
+				if f, err := doc.LoadFontByName(o.FontFamily, bold, italic); err == nil {
+					*dst = f
+				} else {
+					*dst = base
+				}
+			}
+			load(&o.BoldFont, true, false)
+			load(&o.ItalicFont, false, true)
+			load(&o.BoldItalicFont, true, true)
+		}
+	}
+	if o.CodeFontFamily != "" && o.CodeFont == nil {
+		if f, err := doc.LoadFontByName(o.CodeFontFamily, false, false); err == nil {
+			o.CodeFont = f
+		}
+	}
+}
+
 // AddMarkdown appends a Markdown fragment to the flow: its blocks become
 // flow elements (headings, paragraphs, lists, tables, images, …) rendered
 // with the flow's Markdown options.
@@ -198,6 +237,7 @@ func (f *Flow) AddMarkdown(md string) *Flow {
 	if f.mdOpts != nil {
 		o = *f.mdOpts
 	}
+	o.resolveFamilyFonts(f.doc)
 	r := &mdRender{th: o.theme(), basePath: o.BasePath}
 	blocks := parseMarkdown(md)
 	f.elems = append(f.elems, flowElem{kind: fkCustom, custom: func(s *flowState) error {
@@ -213,6 +253,7 @@ func (p *Page) AddMarkdown(md string, rect Rectangle, opts ...MarkdownOptions) e
 		return fmt.Errorf("add markdown: %w", err)
 	}
 	o := firstMarkdownOptions(opts)
+	o.resolveFamilyFonts(p.doc)
 	f := &Flow{doc: p.doc, w: rect.URX, h: rect.URY, mL: rect.LLX, paraGap: 6}
 	r := &mdRender{th: o.theme(), basePath: o.BasePath}
 	blocks := parseMarkdown(md)

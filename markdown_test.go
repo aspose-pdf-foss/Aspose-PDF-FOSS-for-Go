@@ -161,6 +161,38 @@ func TestFlowAddMarkdownMixed(t *testing.T) {
 	}
 }
 
+// TestMarkdownFontFamily: FontFamily resolves and embeds an installed family,
+// enabling full-Unicode (Cyrillic) Markdown through the one-line API.
+func TestMarkdownFontFamily(t *testing.T) {
+	probe := NewDocumentFromFormat(PageFormatA4)
+	if _, err := probe.LoadFontByName("Arial", false, false); err != nil {
+		t.Skipf("Arial not installed: %v", err)
+	}
+	doc, err := MarkdownToDocumentFromStream(
+		strings.NewReader("# Отчёт\n\nКириллица с **жирным** и стрелкой →.\n"),
+		MarkdownOptions{FontFamily: "Arial"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := p.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Отчёт", "Кириллица", "жирным", "→"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output missing %q; got %q", want, text)
+		}
+	}
+	if strings.Contains(text, "?") {
+		t.Errorf("replacement '?' leaked into output: %q", text)
+	}
+}
+
 func TestMarkdownPagination(t *testing.T) {
 	md := "# Long\n\n" + strings.Repeat("A reasonably long paragraph of body text that wraps across several lines when rendered. ", 4)
 	md = strings.Repeat(md+"\n\n", 30)
