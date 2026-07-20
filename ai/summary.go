@@ -133,12 +133,23 @@ func (c *SummaryCopilot) summaryTitle() string {
 // collectTexts gathers per-page text from every configured source. Pages with
 // no extractable text are skipped (scanned pages — MakeSearchable first).
 func (c *SummaryCopilot) collectTexts() ([]string, error) {
-	docs := c.opts.Documents
-	if c.opts.Document != nil {
-		docs = append([]*pdf.Document{c.opts.Document}, docs...)
+	texts, err := gatherSourceTexts(c.opts.Document, c.opts.Documents, c.opts.Texts)
+	if err != nil {
+		return nil, err
 	}
-	if len(docs) == 0 && len(c.opts.Texts) == 0 {
+	if len(texts) == 0 && c.opts.Document == nil && len(c.opts.Documents) == 0 && len(c.opts.Texts) == 0 {
 		return nil, errors.New("ai: SummaryOptions needs Document, Documents or Texts")
+	}
+	return texts, nil
+}
+
+// gatherSourceTexts extracts per-page text from document/documents plus any
+// raw text inputs, skipping empty (scanned) pages. Shared by the summary and
+// chat copilots.
+func gatherSourceTexts(document *pdf.Document, documents []*pdf.Document, raw []string) ([]string, error) {
+	docs := documents
+	if document != nil {
+		docs = append([]*pdf.Document{document}, docs...)
 	}
 	var texts []string
 	for i, d := range docs {
@@ -156,7 +167,7 @@ func (c *SummaryCopilot) collectTexts() ([]string, error) {
 			texts = append(texts, pageText)
 		}
 	}
-	for _, t := range c.opts.Texts {
+	for _, t := range raw {
 		if strings.TrimSpace(t) == "" {
 			continue
 		}
