@@ -76,6 +76,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Remove images** — delete images from pages, cleaning up resources and content stream operators
 - **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
 - **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
+- **Optimize (unified)** — `Document.Optimize(OptimizationOptions)` runs a size-reduction pass in one call: remove unused objects, subset fonts, **Flate-compress uncompressed streams**, **dedupe byte-identical streams**, and optionally recompress images; returns an `OptimizationResult` of per-op counts. `DefaultOptimizationOptions()` is the safe lossless preset. Mirrors Aspose.PDF for .NET's `Document.OptimizeResources`
 - **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in four modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer), **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size) **native** (`HTMLModeNative` — no raster background at all: page graphics become one inline SVG layer per page with true-curve paths, native strokes, clips and blend modes, images pass through as SVG `<image>` with their original JPEG/PNG bytes, and only content SVG cannot express — shadings, patterns, soft masks, transparency groups — degrades locally to positioned raster patches) and **flow** (`HTMLModeFlow` — reflowable: paragraphs, columns and inferred headings re-assembled in reading order into a responsive article that rewraps on mobile; the counterpart of Aspose's `FixedLayout=false`). In text/native modes the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load, and `InteractiveForms` turns AcroForm fields into **real fillable HTML controls** (Aspose renders them as static pictures) — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html`
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Markdown to PDF** — `MarkdownToDocument`/`FromStream` render CommonMark + GFM (tables, strikethrough, task lists, autolinks) as clean paginated PDFs with one typographic theme: styled headings, real bold/italic/code/link runs (links become clickable annotations), nested lists with drawn task checkboxes, quoted blocks, indented code cards, aligned tables with repeating headers. The parser passes the **official CommonMark 0.31.2 test suite 652/652**. Also `Flow.AddMarkdown` (mix Markdown into a flow) and `Page.AddMarkdown(md, rect)`; `Tagged` produces PDF/UA-conformant output. Mirrors Aspose.PDF for .NET's `MdLoadOptions`
@@ -1583,6 +1584,28 @@ optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
     ConvertPNGToJPEG: true,
 })
 fmt.Printf("optimized %d images\n", optimized)
+doc.Save("smaller.pdf")
+```
+
+Or run everything in one pass with the unified optimizer:
+
+```go
+doc, _ := pdf.Open("large.pdf")
+
+// Safe lossless preset: remove unused objects, subset fonts, compress
+// uncompressed streams, dedupe byte-identical streams.
+res, _ := doc.Optimize(pdf.DefaultOptimizationOptions())
+fmt.Printf("removed %d objects, subset %d fonts, compressed %d, deduped %d\n",
+    res.RemovedObjects, res.SubsettedFonts, res.CompressedStreams, res.DeduplicatedStreams)
+
+// Add (potentially lossy) image recompression by setting Images:
+res, _ = doc.Optimize(pdf.OptimizationOptions{
+    RemoveUnusedObjects:    true,
+    SubsetFonts:            true,
+    CompressStreams:        true,
+    RemoveDuplicateStreams: true,
+    Images:                 &pdf.OptimizeImageOptions{MaxDPI: 150, ConvertPNGToJPEG: true},
+})
 doc.Save("smaller.pdf")
 ```
 
