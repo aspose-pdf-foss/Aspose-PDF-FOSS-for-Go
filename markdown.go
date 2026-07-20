@@ -274,7 +274,6 @@ type mdRender struct {
 	th       mdTheme
 	basePath string
 	refmap   map[string]mdLinkRef
-	tmpSeq   int
 }
 
 // runCtx carries the inline style context while flattening the inline tree.
@@ -476,8 +475,11 @@ func (r *mdRender) resolveImagePath(dest string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer f.Close()
 		if _, err := f.Write(raw); err != nil {
+			_ = f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
 			return "", err
 		}
 		return f.Name(), nil
@@ -621,13 +623,10 @@ func (r *mdRender) renderList(s *flowState, list *mdBlock, indent float64) error
 		if s.parent != nil {
 			s.parent = listEl.AddChild(StructListItem)
 		}
+		// Standard-14 WinAnsi covers only "•" (not ◦/▪), so every bullet
+		// depth uses it; ordered items are numbered.
 		label := "•"
-		depth := int(indent / 18)
-		if !list.list.ordered {
-			label = [3]string{"•", "◦", "▪"}[depth%3]
-			// Standard-14 WinAnsi has no ◦/▪: fall back to bullet.
-			label = "•"
-		} else {
+		if list.list.ordered {
 			label = strconv.Itoa(num) + "."
 			num++
 		}

@@ -186,7 +186,7 @@ func (c *OpenAIClient) doOnce(ctx context.Context, url string, body []byte) (_ *
 		}
 		return nil, true, fmt.Errorf("ai: request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, 16<<20))
 	if err != nil {
 		return nil, true, fmt.Errorf("ai: read response: %w", err)
