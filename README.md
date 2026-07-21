@@ -80,6 +80,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in four modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer), **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size) **native** (`HTMLModeNative` — no raster background at all: page graphics become one inline SVG layer per page with true-curve paths, native strokes, clips and blend modes, images pass through as SVG `<image>` with their original JPEG/PNG bytes, and only content SVG cannot express — shadings, patterns, soft masks, transparency groups — degrades locally to positioned raster patches) and **flow** (`HTMLModeFlow` — reflowable: paragraphs, columns and inferred headings re-assembled in reading order into a responsive article that rewraps on mobile; the counterpart of Aspose's `FixedLayout=false`). In text/native modes the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load, and `InteractiveForms` turns AcroForm fields into **real fillable HTML controls** (Aspose renders them as static pictures) — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html`
 - **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
 - **Markdown to PDF** — `MarkdownToDocument`/`FromStream` render CommonMark + GFM (tables, strikethrough, task lists, autolinks) as clean paginated PDFs with one typographic theme: styled headings, real bold/italic/code/link runs (links become clickable annotations), nested lists with drawn task checkboxes, quoted blocks, indented code cards, aligned tables with repeating headers. The parser passes the **official CommonMark 0.31.2 test suite 652/652**. Also `Flow.AddMarkdown` (mix Markdown into a flow) and `Page.AddMarkdown(md, rect)`; `Tagged` produces PDF/UA-conformant output. Mirrors Aspose.PDF for .NET's `MdLoadOptions`
+- **PDF to Markdown** — `Document.SaveMarkdown`/`WriteMarkdown` re-assemble the document as GFM Markdown: inferred `#`–`###` headings, real `**bold**`/`*italic*`/`` `code` `` runs, `[links](…)` recovered from link annotations, bullet/numbered lists with nesting, fenced code blocks with preserved indentation, images as deduped files / `ImageWriter` callback / `data:` URLs. The Markdown twin of the reflowable HTML mode — and the natural PDF front-end for RAG pipelines (tables flow as text; no table reader yet)
 - **AI copilots (`ai` subpackage)** — document **summarization** (`ai.NewSummaryCopilot` — plain text or rendered as a new PDF), **OCR of scanned pages** (`ai.NewOcrCopilot` with a vision-LLM engine or any custom `OCREngine`), **document Q&A** (`ai.NewChatCopilot` — grounded answers with conversation memory), and **image description / auto alt-text** (`ai.NewImageDescriptionCopilot` — `FillAltTexts` fills missing `/Alt` on a tagged PDF's figures for accessibility) over any OpenAI-compatible endpoint (OpenAI, LiteLLM, Ollama, …), stdlib-only; mirrors Aspose.PDF for .NET's `Aspose.Pdf.AI`. Beyond Aspose: `MakeSearchable` writes the recognized text back as an **invisible text layer**, turning a scan into a selectable, Ctrl+F-searchable PDF in place
 - **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
 - **Add blank pages** — append or insert blank pages into existing documents at any position
@@ -1352,6 +1353,24 @@ _ = page.AddMarkdown("- boxed\n- list", pdf.Rectangle{LLX: 60, LLY: 600, URX: 30
 Headings scale from `BaseSize`; bold/italic/strikethrough/code spans render as real styled runs, links become clickable annotations, task items draw vector checkboxes, block quotes get a left rule, code blocks keep their indentation on a gray card, GFM tables map onto the table engine (repeating bold header, `:---:` alignment). Images: local paths and `data:` URLs (remote URLs render their alt text — the library does no network I/O). For non-Latin text set `MarkdownOptions.FontFamily`/`CodeFontFamily` (e.g. `"Arial"`/`"Consolas"` — resolved from registered or OS fonts and embedded), or pass `LoadFont` faces explicitly. Raw HTML is skipped (`<br>` honored); no syntax highlighting yet.
 
 Bonus: `ai.SummaryOptions.Markdown` makes `SummaryCopilot` ask the model for Markdown and renders the summary PDF through this pipeline — formatted AI summaries out of the box.
+
+### PDF to Markdown
+
+The reverse of the Markdown renderer: re-assemble a PDF as GFM Markdown — ideal as the PDF front-end of a RAG pipeline.
+
+```go
+doc, _ := pdf.Open("report.pdf")
+
+// Images land in "report_files/" next to the output (SHA-256 deduped).
+_ = doc.SaveMarkdown("report.md")
+
+// Or stream it — images embedded as data: URLs, externalized via a
+// callback (S3/CDN), or skipped.
+_ = doc.WriteMarkdown(w, pdf.MarkdownSaveOptions{EmbedImages: true})
+_ = doc.WriteMarkdown(w2) // no writer → text only
+```
+
+Headings are inferred from font sizes, bold/italic/monospace fragments become `**`/`*`/`` ` `` runs, link annotations come back as `[text](url)`, bullet and numbered lists keep their nesting, and monospace paragraphs become fenced code blocks with their indentation. Tables are not reconstructed yet (cell text flows as paragraphs).
 
 ### AI-powered operations (`ai` subpackage)
 
