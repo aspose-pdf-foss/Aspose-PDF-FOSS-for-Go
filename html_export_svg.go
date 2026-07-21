@@ -350,6 +350,13 @@ func (rd *renderer) vecPatch(paint func(*renderer)) {
 // with the text layer. Page text is suppressed (the HTML text layer carries
 // it); annotation-appearance text is emitted as outline paths.
 func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool, sink htmlResourceSink, num int) (string, error) {
+	return renderPageSVGCore(p, dpi, true, hideFormWidgets, sink, num)
+}
+
+// renderPageSVGCore is the shared SVG page renderer. suppressText=true is the
+// HTML-native mode (the HTML text layer carries the glyphs); false renders
+// page text into the SVG as outline paths (standalone SVG export).
+func renderPageSVGCore(p *Page, dpi float64, suppressText, hideFormWidgets bool, sink htmlResourceSink, num int) (string, error) {
 	box, err := p.CropBox()
 	if err != nil {
 		return "", fmt.Errorf("render svg: %w", err)
@@ -368,7 +375,7 @@ func renderPageSVG(p *Page, dpi float64, hideFormWidgets bool, sink htmlResource
 	}
 	rd := newRenderer(p, image.NewRGBA(image.Rect(0, 0, w, h)), w, h, base)
 	rd.vec = &svgDevice{sink: sink, resPrefix: fmt.Sprintf("p%d", num)}
-	rd.suppressText = true
+	rd.suppressText = suppressText
 	rd.hideFormWidgets = hideFormWidgets
 	rd.run()
 	if rd.vec.err != nil {
