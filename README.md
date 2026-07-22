@@ -61,7 +61,7 @@ Regenerate locally with `go run ./_examples/feature_showcase`.
 - **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
 - **Digital signatures** — sign (`Document.Sign`) with a PKCS#7-detached signature (SHA-256, RSA or ECDSA) covering the whole file — invisible or a visible "Digitally signed by …" appearance block, optionally **PAdES** (ETSI.CAdES.detached), a **certification** (DocMDP) signature, and an **RFC 3161 trusted timestamp** — and verify (`Document.VerifySignatures`) integrity, coverage, and the signer certificate. **Multiple signatures** are supported: re-signing an already-signed document appends an incremental update so earlier signatures stay valid. **Encrypted documents** (RC4-128 / AES-128 / AES-256) can be signed as well. The PKCS#7/CMS is built on the standard library alone (no external dependency); output validates in OpenSSL and pyHanko (incl. the timestamp token as trusted, earlier signatures as intact, and encrypted files as `ENTIRE_FILE`). Keys are passed as `crypto.Signer` + `*x509.Certificate` — no `.p12` file required
 - **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
-- **Flow layout (document generator)** — `Document.NewFlow(...)` lays content out top-to-bottom and **paginates automatically**: chainable `AddParagraph`/`AddHeading`/`AddImage`/`AddTable`/`AddList`/`AddSpacer`, then `Render()`. An additive layer over the Rectangle API; set `FlowOptions.Tagged` and every element is auto-tagged for a one-call PDF/UA-conformant report. Mirrors Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model (floating boxes/columns TBD)
+- **Flow layout (document generator)** — `Document.NewFlow(...)` lays content out top-to-bottom and **paginates automatically**: chainable `AddParagraph`/`AddHeading`/`AddImage`/`AddTable`/`AddList`/`AddSpacer`/`AddMarkdown`, plus **floating boxes** (absolute, in-flow, or floated with **text flow-around**), **multi-column layout** with `AddColumnBreak`, then `Render()`. An additive layer over the Rectangle API; set `FlowOptions.Tagged` and every element is auto-tagged for a one-call PDF/UA-conformant report. Mirrors Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model
 - **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
 - **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
 - **Validate** — check structural integrity of a PDF file
@@ -1327,6 +1327,33 @@ doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
 ```
 
 In both modes the text is selectable, copyable and Ctrl+F-searchable, link annotations become clickable `<a>` overlays (external URLs and in-document `#pageN` jumps), and page backgrounds carry `loading="lazy"` so large documents open fast.
+
+### Exporting to SVG
+
+Export pages as standalone true-vector SVG files: real Bézier paths with native strokes, clips, opacity and blend modes; images keep their original JPEG/PNG bytes; text is rendered as exact glyph outline paths, so the file has no font dependencies. Only shadings/patterns/soft masks degrade to small embedded raster patches.
+
+```go
+doc, _ := pdf.Open("input.pdf")
+
+// One page → one self-contained SVG (images embedded as data: URLs).
+page, _ := doc.Page(1)
+_ = page.SaveSVG("page1.svg")
+_ = page.WriteSVG(w) // or to any io.Writer
+
+// Whole document → doc_p1.svg, doc_p2.svg, … next to the given path.
+_ = doc.SaveSVG("out/doc.svg")
+
+// Externalize images/patches instead of embedding them.
+_ = doc.SaveSVG("out/doc.svg", pdf.SVGSaveOptions{
+    Pages: []int{1, 3},
+    ResourceWriter: func(name string, data []byte) (string, error) {
+        // upload to S3/CDN/anywhere; return the URL to reference
+        return "assets/" + name, os.WriteFile("out/assets/"+name, data, 0o644)
+    },
+})
+```
+
+`SVGSaveOptions.DPI` (default 150) sets the coordinate scale and the resolution of raster patches — the vector content itself is resolution-independent. Mirrors Aspose.PDF for .NET's `Document.Save(SaveFormat.Svg)`.
 
 ### Markdown to PDF
 
