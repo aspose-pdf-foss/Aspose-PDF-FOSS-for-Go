@@ -553,6 +553,12 @@ func writeHTMLFragment(b *strings.Builder, frag TextFragment, pageH float64) {
 	if frag.Italic {
 		style += ";font-style:italic"
 	}
+	if frag.Rotation != 0 {
+		// CSS rotates clockwise for positive angles; pivot at the baseline
+		// start, which sits 0.8·size below the span's top.
+		style += fmt.Sprintf(";transform:rotate(%sdeg);transform-origin:0 %spt",
+			htmlNum(-frag.Rotation), htmlNum(size*0.8))
+	}
 	fmt.Fprintf(b, "<span%s style=\"%s\">%s</span>\n", class, style, html.EscapeString(text))
 }
 
@@ -591,11 +597,19 @@ func writeHTMLVisibleFragment(b *strings.Builder, frag TextFragment, pageH float
 	if c := htmlColor(frag.Color); c != "#000000" {
 		style += ";color:" + c
 	}
-	if ef != nil {
+	switch {
+	case frag.Rotation != 0:
+		// Rotated text: frag.Width is the horizontal extent, not the run
+		// length, so width fitting does not apply; rotate about the
+		// baseline start (0.8·size below the span top). CSS angles are
+		// clockwise-positive.
+		style += fmt.Sprintf(";transform:rotate(%sdeg);transform-origin:0 %spt",
+			htmlNum(-frag.Rotation), htmlNum(size*0.8))
+	case ef != nil:
 		if frag.CharSpacing > 0.01 || frag.CharSpacing < -0.01 {
 			style += ";letter-spacing:" + htmlNum(frag.CharSpacing) + "pt"
 		}
-	} else {
+	default:
 		scale, spacing := htmlWidthFit(text, family, frag, size)
 		if spacing != 0 {
 			style += ";letter-spacing:" + htmlNum(spacing) + "pt"

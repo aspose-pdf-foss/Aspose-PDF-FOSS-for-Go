@@ -182,7 +182,15 @@ func renderTextInBuilder(
 		ascent := ascentFactor * fontSize
 		y := startY - float64(i)*lineHeight - ascent
 
-		if len(linePositions) == 0 {
+		if style.Skew != 0 {
+			// Synthetic oblique: an absolute text matrix with a shear
+			// component per line, so glyphs slant about their own baseline
+			// (browser-style faux italic) instead of the whole block
+			// leaning.
+			tan := math.Tan(style.Skew * math.Pi / 180)
+			b.buf.WriteString(fmt.Sprintf("1 0 %s 1 %s %s Tm\n",
+				formatFloat(tan), formatFloat(x), formatFloat(y)))
+		} else if len(linePositions) == 0 {
 			b.buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(x), formatFloat(y)))
 		} else {
 			prevX := linePositions[len(linePositions)-1].x

@@ -108,6 +108,7 @@ type textFragment struct {
 	colorR      float64 // fill color RGB (0-1)
 	colorG      float64
 	colorB      float64
+	rotation    float64 // baseline angle in degrees CCW (0 = horizontal)
 }
 
 type textExtractor struct {
@@ -580,10 +581,12 @@ func (e *textExtractor) emitRune(r rune) {
 	x, y := e.currentPos()
 	effectiveFontSize := e.fontSize * e.textScaleX()
 	fontName := e.font.name
+	rotation := e.currentRotation()
 
 	needNew := e.curFrag == nil ||
 		fontName != e.curFrag.fontName ||
-		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01
+		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01 ||
+		math.Abs(rotation-e.curFrag.rotation) > 0.5
 
 	if !needNew && e.hasPos {
 		dy := e.lastY - y
@@ -620,6 +623,7 @@ func (e *textExtractor) emitRune(r rune) {
 			colorR:      e.fillR,
 			colorG:      e.fillG,
 			colorB:      e.fillB,
+			rotation:    rotation,
 		}
 		e.fragments = append(e.fragments, frag)
 		e.curFrag = &e.fragments[len(e.fragments)-1]
@@ -663,6 +667,17 @@ func (e *textExtractor) computeSpaceWidth() float64 {
 func (e *textExtractor) currentPos() (float64, float64) {
 	m := matMul(e.tm, e.ctm)
 	return m[4], m[5]
+}
+
+// currentRotation returns the baseline angle of the combined text matrix in
+// degrees CCW, snapped to 0 for effectively-horizontal text.
+func (e *textExtractor) currentRotation() float64 {
+	m := matMul(e.tm, e.ctm)
+	deg := math.Atan2(m[1], m[0]) * 180 / math.Pi
+	if math.Abs(deg) < 0.5 {
+		return 0
+	}
+	return deg
 }
 
 // textScaleX returns the horizontal scale factor from text space to device space.

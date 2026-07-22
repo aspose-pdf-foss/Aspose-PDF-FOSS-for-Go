@@ -105,13 +105,43 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 	type mdPage struct {
 		blocks []flowBlock
 		links  []mdLinkArea
+		pageH  float64
 	}
 	mps := make([]mdPage, 0, len(sel))
 	var sizes []struct {
 		size   float64
 		weight int
 	}
-	for _, n := range sel {
+	// Header/footer suppression: paragraphs near the page's top/bottom edge
+	// whose digit-masked text repeats across pages are page furniture.
+	furniture := map[string]int{} // masked text → number of pages it appears on
+	pageHs := make([]float64, len(sel))
+	for i, n := range sel {
+		p := pages[n-1]
+		if size, err := p.Size(); err == nil {
+			pageHs[i] = size.Height
+		}
+		pm, err := p.Paragraphs()
+		if err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for si := range pm.Sections {
+			for pi := range pm.Sections[si].Paragraphs {
+				para := &pm.Sections[si].Paragraphs[pi]
+				if key := mdFurnitureKey(para, pageHs[i]); key != "" && !seen[key] {
+					seen[key] = true
+					furniture[key]++
+				}
+			}
+		}
+	}
+	minRepeats := len(sel)/2 + 1
+	if minRepeats < 3 {
+		minRepeats = 3
+	}
+
+	for selIdx, n := range sel {
 		p := pages[n-1]
 		pm, err := p.Paragraphs()
 		if err != nil {
@@ -123,6 +153,12 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 				para := &pm.Sections[si].Paragraphs[pi]
 				if strings.TrimSpace(para.Text) == "" {
 					continue
+				}
+				if mdIsRotatedDecoration(para) {
+					continue // diagonal watermarks and other rotated overlays
+				}
+				if key := mdFurnitureKey(para, pageHs[selIdx]); key != "" && furniture[key] >= minRepeats {
+					continue // repeating header/footer line
 				}
 				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY})
 				for _, line := range para.Lines {
@@ -148,7 +184,7 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 				}
 			}
 		}
-		mps = append(mps, mdPage{blocks: blocks, links: pageLinkAreas(p)})
+		mps = append(mps, mdPage{blocks: blocks, links: pageLinkAreas(p), pageH: pageHs[selIdx]})
 	}
 	body := weightedMedianSize(sizes)
 
@@ -169,7 +205,7 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 				st.reset()
 				continue
 			}
-			mdWriteParagraph(&b, blk.para, body, mp.links, st)
+			mdWriteParagraph(&b, blk.para, body, mp.links, st, &mdFurniture{keys: furniture, min: minRepeats, pageH: mp.pageH})
 		}
 	}
 	_, err := io.WriteString(w, b.String())
@@ -188,6 +224,41 @@ type mdEmitState struct {
 func (s *mdEmitState) reset() {
 	s.listKind = ""
 	s.headingLevel = 0
+}
+
+var mdDigitsRe = regexp.MustCompile(`\d+`)
+
+// mdFurnitureKey returns a page-invariant key for a paragraph that sits in
+// the header/footer band (top or bottom ~12% of the page), with digits masked
+// so "Page 1 / 15" matches "Page 2 / 15"; "" when the paragraph is content.
+func mdFurnitureKey(para *MarkupParagraph, pageH float64) string {
+	if pageH <= 0 {
+		return ""
+	}
+	if para.Rectangle.LLY < 0.88*pageH && para.Rectangle.URY > 0.12*pageH {
+		return "" // not in the edge bands
+	}
+	text := collapseWS(para.Text)
+	if text == "" || len([]rune(text)) > 120 {
+		return ""
+	}
+	return mdDigitsRe.ReplaceAllString(text, "#")
+}
+
+// mdIsRotatedDecoration reports whether every fragment of the paragraph is
+// rotated — diagonal watermarks, stamps and axis labels are decoration, not
+// document flow.
+func mdIsRotatedDecoration(para *MarkupParagraph) bool {
+	any := false
+	for _, line := range para.Lines {
+		for _, fr := range line.Fragments {
+			any = true
+			if fr.Rotation == 0 {
+				return false
+			}
+		}
+	}
+	return any
 }
 
 // mdBlankLine ensures exactly one blank line before the next block.
@@ -282,10 +353,37 @@ var (
 // code block into one paragraph when the line spacing is uniform), classifies
 // each, and emits it. Returns the list kind ("-", "1") when the LAST emitted
 // segment was a list item, else "".
-func mdWriteParagraph(b *strings.Builder, para *MarkupParagraph, bodySize float64, links []mdLinkArea, st *mdEmitState) {
+func mdWriteParagraph(b *strings.Builder, para *MarkupParagraph, bodySize float64, links []mdLinkArea, st *mdEmitState, fk *mdFurniture) {
 	for _, seg := range mdSegments(para) {
+		if fk.dropSegment(seg) {
+			continue // a header/footer line merged into a content paragraph
+		}
 		mdWriteSegment(b, seg, bodySize, links, st)
 	}
+}
+
+// mdFurniture filters repeating header/footer lines at segment level (the
+// paragraph-level filter misses furniture the extractor merged into content).
+type mdFurniture struct {
+	keys  map[string]int
+	min   int
+	pageH float64
+}
+
+func (fk *mdFurniture) dropSegment(seg mdSeg) bool {
+	if fk == nil || fk.pageH <= 0 || len(seg.lines) == 0 {
+		return false
+	}
+	y := seg.lines[0].Y
+	if y < 0.88*fk.pageH && y > 0.12*fk.pageH {
+		return false
+	}
+	var texts []string
+	for _, l := range seg.lines {
+		texts = append(texts, mdLineText(l))
+	}
+	key := mdDigitsRe.ReplaceAllString(collapseWS(strings.Join(texts, " ")), "#")
+	return fk.keys[key] >= fk.min
 }
 
 // mdSeg is a run of visually-homogeneous lines within one extracted
