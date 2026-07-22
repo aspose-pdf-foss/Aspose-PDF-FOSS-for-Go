@@ -335,8 +335,19 @@ func assertPagesEqual(t *testing.T, got, want []string) {
 	}
 	for i := range got {
 		if got[i] != want[i] {
-			t.Errorf("page %d text mismatch:\n  got:  %q\n  want: %q",
-				i+1, truncate(got[i], 200), truncate(want[i], 200))
+			// Locate the first differing byte and show the surrounding
+			// window — a 200-char prefix hides tail-only differences.
+			j := 0
+			for j < len(got[i]) && j < len(want[i]) && got[i][j] == want[i][j] {
+				j++
+			}
+			lo := j - 60
+			if lo < 0 {
+				lo = 0
+			}
+			t.Errorf("page %d text mismatch at byte %d (got len %d, want len %d):\n  got:  %q\n  want: %q",
+				i+1, j, len(got[i]), len(want[i]),
+				truncate(got[i][lo:], 200), truncate(want[i][lo:], 200))
 		}
 	}
 }
