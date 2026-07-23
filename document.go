@@ -1,9 +1,37 @@
 // SPDX-License-Identifier: MIT
 
-// Package asposepdf is a pure-Go, zero-dependency PDF library: read, create,
-// edit, render, sign, encrypt, and validate PDF documents. Its public API is
-// shaped to mirror Aspose.PDF for .NET (Document, Page, TextFragment, Table,
-// Form, OutlineItemCollection, ...), adapted to Go idioms.
+// Package asposepdf is a pure Go PDF library — no CGo, no native
+// dependencies, standard library only, MIT-licensed. It reads, creates,
+// edits, renders, signs, encrypts, converts, and validates PDF documents.
+//
+// Capabilities include: page manipulation (split, merge, extract, rotate,
+// N-up/booklet imposition); text extraction in reading order with layout,
+// search (literal/regex) and replace; drawing text (with word wrap, Unicode,
+// RTL/Arabic shaping), vector graphics (paths, gradients, tiling patterns)
+// and tables with automatic pagination; a flow document generator; TrueType
+// and OpenType font embedding with subsetting; AcroForm reading, filling,
+// creation, styling and flattening with JSON/FDF/XFDF interchange; the full
+// annotation family with generated appearance streams; encryption (RC4-128,
+// AES-128, AES-256) and digital signatures (PKCS#7, PAdES, DocMDP
+// certification, RFC 3161 timestamps, multiple signatures) with
+// verification; bookmarks, named destinations, page labels, Info and XMP
+// metadata, embedded files, optional-content layers; PDF/A validation and
+// conversion, Tagged PDF authoring and PDF/UA validation; redaction;
+// linearization (fast web view); and a unified size optimizer.
+//
+// Converters: render pages to PNG, JPEG, GIF, BMP and multi-page TIFF with
+// the built-in dependency-free rasterizer; export documents to HTML (four
+// modes, including fillable forms), SVG (true vector) and Markdown; convert
+// Markdown (CommonMark + GFM, 652/652 official test suite), SVG and raster
+// images to PDF. The ai subpackage adds AI copilots — summarization, OCR
+// with a searchable-PDF pipeline, document Q&A and image description — over
+// any OpenAI-compatible endpoint.
+//
+// The public API is shaped to mirror Aspose.PDF for .NET (Document, Page,
+// TextFragment, Table, Form, OutlineItemCollection, …), adapted to Go
+// idioms: error returns, io.Reader/io.Writer streams, and exported
+// functions over constructors. Spec references follow ISO 32000-1 (PDF 1.7)
+// and ISO 32000-2 (PDF 2.0).
 package asposepdf
 
 import (

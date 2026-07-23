@@ -6,9 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
 
-A pure Go library for PDF manipulation — split, merge, rotate, extract text and images, read and write Info + XMP metadata, encrypt with RC4-128 / AES-128 / AES-256, fill, build, and style AcroForms, attach and render annotations, create bookmark trees, draw text and vector graphics, embed TrueType and OpenType fonts (with subsetting), apply watermarks, place images, validate document structure, and render pages to raster images (PNG/JPEG/GIF/BMP and multi-page TIFF). No external dependencies — standard library only.
+A **pure Go PDF library** — **no CGo, no native libraries, no external dependencies** (standard library only), MIT-licensed. Create, edit, render, sign, encrypt, convert, and validate PDF documents: split/merge/extract pages, extract and search text, fill and build AcroForms, draw text/vector graphics/tables, embed and subset fonts, apply digital signatures (PKCS#7, PAdES, timestamps), validate and convert PDF/A, author accessible Tagged PDF, and render pages to images (PNG/JPEG/GIF/BMP, multi-page TIFF) with a built-in dependency-free rasterizer. Convert **Markdown ⇄ PDF** (652/652 official CommonMark suite), export **PDF → HTML** (with fillable forms), **PDF → SVG**, **PDF → Markdown**, and place **SVG** or images onto pages. The `ai` subpackage adds AI copilots — summarization, OCR with a searchable-PDF pipeline, document Q&A — over any OpenAI-compatible endpoint.
 
-Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). API shape mirrors Aspose.PDF for .NET where natural for migrants.
+Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). The API shape mirrors Aspose.PDF for .NET where natural, so concepts transfer directly for migrants. Not to be confused with `aspose-pdf-go-cpp` (a CGo wrapper around a native library) — this project is 100% Go source, `go get` and cross-compile anywhere.
 
 ## Install
 
