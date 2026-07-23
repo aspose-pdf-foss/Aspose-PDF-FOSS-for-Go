@@ -4,9 +4,16 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	cryptorand "crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
+	"time"
 
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
@@ -330,4 +337,223 @@ func ExampleDocument_GenerateTOC() {
 	}
 	fmt.Println("TOC pages added:", added, "| total pages:", doc.PageCount())
 	// Output: TOC pages added: 1 | total pages: 3
+}
+
+// Search for text on a page and get the bounding box of each match.
+func ExamplePage_SearchText() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("The quick brown fox jumps over the lazy dog.",
+		pdf.TextStyle{Size: 14}, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
+
+	matches, err := page.SearchText("brown fox")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%d match: %q\n", len(matches), matches[0].Text)
+	// Output: 1 match: "brown fox"
+}
+
+// Find and replace every occurrence of a string across the document.
+func ExampleDocument_ReplaceText() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("Draft version. Draft only.",
+		pdf.TextStyle{Size: 14}, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
+
+	n, err := doc.ReplaceText("Draft", "Final")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("replaced:", n)
+	// Output: replaced: 2
+}
+
+// Create a text form field, fill it, and read the value back.
+func ExampleForm_AddTextField() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+	field, err := form.AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 725}, "customer")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = field.SetValue("ACME Corp")
+
+	fmt.Println(form.Field("customer").Value())
+	// Output: ACME Corp
+}
+
+// Generate a paginated document with the flow layout: headings, paragraphs
+// and tables are laid out top-to-bottom with automatic page breaks.
+func ExampleDocument_NewFlow() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	flow := doc.NewFlow(pdf.FlowOptions{})
+	flow.AddHeading(1, "Quarterly Report", pdf.TextStyle{})
+	flow.AddParagraph("Revenue grew in every region this quarter.", pdf.TextStyle{Size: 11})
+	flow.AddList([]string{"North: +12%", "South: +8%"}, false, pdf.TextStyle{Size: 11})
+
+	pages, err := flow.Render()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("pages:", pages)
+	// Output: pages: 1
+}
+
+// Sign a document with an ECDSA key and verify the signature. Certificates
+// are ordinarily loaded from a key store; here one is generated in memory.
+func ExampleDocument_Sign() {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "Jane Signer"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, _ := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	cert, _ := x509.ParseCertificate(der)
+
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, Reason: "Approval"}); err != nil {
+		log.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		log.Fatal(err)
+	}
+
+	signed, _ := pdf.OpenStream(&buf)
+	sigs, err := signed.VerifySignatures()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("signatures: %d, valid: %v, reason: %s\n", len(sigs), sigs[0].Valid, sigs[0].Reason)
+	// Output: signatures: 1, valid: true, reason: Approval
+}
+
+// Convert Markdown (CommonMark + GFM) into a paginated PDF.
+func ExampleMarkdownToDocumentFromStream() {
+	md := "# Hello\n\nA paragraph with **bold** text.\n"
+	doc, err := pdf.MarkdownToDocumentFromStream(strings.NewReader(md))
+	if err != nil {
+		log.Fatal(err)
+	}
+	pages, _ := doc.ExtractText()
+	fmt.Println(strings.Split(pages[0], "\n")[0])
+	// Output: Hello
+}
+
+// Export a document as GFM Markdown (the reverse of the Markdown renderer).
+func ExampleDocument_WriteMarkdown() {
+	doc, err := pdf.MarkdownToDocumentFromStream(strings.NewReader("# Title\n\nBody text.\n"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	var out strings.Builder
+	if err := doc.WriteMarkdown(&out); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(strings.Split(out.String(), "\n")[0])
+	// Output: # Title
+}
+
+// Export a page as a standalone true-vector SVG file.
+func ExamplePage_WriteSVG() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.DrawCircle(pdf.Point{X: 200, Y: 600}, 50,
+		pdf.ShapeStyle{FillColor: &pdf.Color{R: 1, G: 0.8, A: 1}})
+
+	var svg strings.Builder
+	if err := page.WriteSVG(&svg); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("vector output:", strings.Contains(svg.String(), "<svg"))
+	// Output: vector output: true
+}
+
+// Export the document as self-contained HTML with a selectable text layer.
+func ExampleDocument_WriteHTML() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("Hello HTML", pdf.TextStyle{Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
+
+	var html bytes.Buffer
+	if err := doc.WriteHTML(&html, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText}); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("has text spans:", bytes.Contains(html.Bytes(), []byte("<span")))
+	// Output: has text spans: true
+}
+
+// Render a page to a raster image with the built-in dependency-free renderer.
+func ExampleDocument_RenderImage() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("Preview me", pdf.TextStyle{Size: 24},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
+
+	img, err := doc.RenderImage(1, pdf.RenderOptions{DPI: 96})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("rendered:", img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0)
+	// Output: rendered: true
+}
+
+// Shrink a document with the unified lossless optimizer (unused objects,
+// font subsetting, stream compression, duplicate-stream dedup).
+func ExampleDocument_Optimize() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		log.Fatal(err)
+	}
+	page, _ := doc.Page(1)
+	_ = page.AddText("Привет, мир!", pdf.TextStyle{Font: font, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
+
+	res, err := doc.Optimize(pdf.DefaultOptimizationOptions())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("fonts subset:", res.SubsettedFonts)
+	// Output: fonts subset: 1
+}
+
+// Build a bookmark (outline) tree with clickable destinations.
+func ExampleDocument_Outlines() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+
+	item := pdf.NewOutlineItemCollection(doc)
+	item.SetTitle("Chapter 1")
+	item.SetDestination(pdf.NewDestinationFit(page))
+	if err := doc.Outlines().Add(item); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(doc.Outlines().Count(), doc.Outlines().At(0).Title())
+	// Output: 1 Chapter 1
+}
+
+// Author logical page labels (front matter i, ii, then body 1, 2, …).
+func ExampleDocument_SetPageLabels() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	_ = doc.AddBlankPageFromFormat(pdf.PageFormatA4)
+	_ = doc.AddBlankPageFromFormat(pdf.PageFormatA4)
+
+	err := doc.SetPageLabels([]pdf.PageLabelRange{
+		{StartPage: 1, Style: pdf.PageLabelRomanLower},
+		{StartPage: 3, Style: pdf.PageLabelDecimal},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	p2, _ := doc.Page(2)
+	p3, _ := doc.Page(3)
+	fmt.Println(p2.Label(), p3.Label())
+	// Output: ii 1
 }
