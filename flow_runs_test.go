@@ -83,11 +83,11 @@ func TestFlowRunsBaselineAndLinks(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("extracted %d visual lines; want 1 (shared baseline)", len(lines))
 	}
+	// Cross-run spaces survive extraction (positional gaps between styled
+	// runs are synthesized back as spaces — pdf-go-bfnc).
 	text := lines[0].Text
-	for _, want := range []string{"Small before", "BIG", "website link"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("line text %q missing %q", text, want)
-		}
+	if !strings.Contains(text, "Small before BIG and a website link") {
+		t.Errorf("line text %q lost inter-run spacing", text)
 	}
 
 	// The link run must carry a real link annotation over its text.

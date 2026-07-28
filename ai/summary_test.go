@@ -138,10 +138,7 @@ func TestSummaryCopilotMarkdownOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := strings.Join(pages, "\n")
-	// Note: "Revenue grew" and "12%" are separate style runs; the extractor
-	// does not yet synthesize a space across the inter-run gap (tracked as a
-	// text-layout polish ticket), so they are asserted separately.
-	for _, want := range []string{"Summary", "Key facts", "Revenue grew", "12%", "Growth at 7%"} {
+	for _, want := range []string{"Summary", "Key facts", "Revenue grew 12%", "Growth at 7%"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("markdown summary document missing %q; got %q", want, all)
 		}

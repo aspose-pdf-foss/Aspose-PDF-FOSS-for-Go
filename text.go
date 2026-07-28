@@ -115,6 +115,10 @@ type textExtractor struct {
 	objects map[int]*pdfObject
 	fonts   map[string]fontInfo
 
+	// Form-XObject recursion guard (see doFormXObject).
+	formDepth   int
+	activeForms map[int]bool
+
 	// Text state.
 	font         fontInfo
 	fontSize     float64
@@ -691,6 +695,11 @@ func (e *textExtractor) textScaleX() float64 {
 	return sx
 }
 
+// maxFormDepth bounds Form-XObject nesting during text extraction — malformed
+// files with self- or mutually-referencing forms would otherwise recurse until
+// the goroutine stack is exhausted (unrecoverable in Go).
+const maxFormDepth = 32
+
 func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict) {
 	name := operandName(operand)
 	if name == "" || parentResources == nil {
@@ -717,6 +726,24 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 	if dictGetName(stream.Dict, "/Subtype") != "/Form" {
 		return
 	}
+
+	// Cycle/depth guard: skip a form already on the call stack, and cap
+	// pathological nesting.
+	if e.formDepth >= maxFormDepth {
+		return
+	}
+	if ref, isRef := formVal.(pdfRef); isRef {
+		if e.activeForms == nil {
+			e.activeForms = map[int]bool{}
+		}
+		if e.activeForms[ref.Num] {
+			return
+		}
+		e.activeForms[ref.Num] = true
+		defer delete(e.activeForms, ref.Num)
+	}
+	e.formDepth++
+	defer func() { e.formDepth-- }()
 
 	ops, err := parseContentStream(stream.Data)
 	if err != nil {

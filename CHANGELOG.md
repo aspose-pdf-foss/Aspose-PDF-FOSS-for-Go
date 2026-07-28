@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Text extraction: inter-run spaces recovered** — `TextLine.Text` joined adjacent fragments without a space when the gap between them was a genuine single space: the 0.3 em threshold sat *above* a real space's advance (0.25–0.28 em in proportional faces). The threshold is now 0.2 em of the **smaller** adjacent fragment's size, so "Revenue grew" + bold "12%" extracts as "Revenue grew 12%" and a small-font space next to a large word still counts. Verified against a 1,057-document corpus: 89 documents changed, every change a pure space insertion (byte-identical after space removal), spot-checked by eye. (`pdf-go-bfnc`)
+- **Text extraction: Form-XObject recursion guard** — a malformed PDF with self- or mutually-referencing Form XObjects recursed until the goroutine stack was exhausted (an unrecoverable crash), discovered by the corpus sweep. Extraction now tracks active forms and caps nesting depth, so such files extract the rest of their content instead of killing the process.
+
 ### Added
 
 - **Rotated-text fidelity across converters** — the extractor now reports the baseline angle on `TextFragment.Rotation` (from the combined text matrix) and keeps rotated fragments (diagonal watermarks, stamps, axis labels) out of horizontal line grouping. The HTML exporter renders them with `transform: rotate(…)` about the baseline start (faithful + text modes); the Markdown exporter drops fully-rotated paragraphs as decoration — the showcase's diagonal WATERMARK no longer leaks into body text.

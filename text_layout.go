@@ -140,7 +140,19 @@ func assembleLine(frags []textFragment) TextLine {
 
 		if lastEmitted >= 0 {
 			gap := f.x - frags[lastEmitted].endX
-			spaceThreshold := f.fontSize * 0.3
+			// A real inter-word space advances 0.25–0.28 em in proportional
+			// faces, while kerning/tracking gaps stay well under 0.15 em —
+			// so 0.2 em separates them. The old 0.3 em threshold sat ABOVE
+			// a genuine space's width and swallowed single spaces between
+			// styled runs ("Revenue grew" + bold "12%" → "Revenue grew12%").
+			// The em is taken from the SMALLER of the adjacent fragments: a
+			// space typed in either font justifies the separation (a 10pt
+			// space next to a 24pt word must still count).
+			minSize := f.fontSize
+			if s := frags[lastEmitted].fontSize; s < minSize {
+				minSize = s
+			}
+			spaceThreshold := minSize * 0.2
 			if spaceThreshold < 1 {
 				spaceThreshold = 1
 			}
