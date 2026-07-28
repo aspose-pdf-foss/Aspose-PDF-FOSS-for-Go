@@ -66,22 +66,36 @@ func minInt(xs []int) int {
 	return m
 }
 
-// hintBuilder computes the primary hint stream (page-offset + shared-object
-// hint tables) per ISO 32000-1 §F.4, in the field layout used by qpdf.
-type hintBuilder struct {
-	pageObjCount []int   // objects per page
-	pageLen      []int   // byte length per page
-	contentLen   []int   // content-stream byte length per page
-	sharedLen    []int   // byte length per shared object
-	nShFirstPage int     // shared objects used by the first page
-	pageShared   [][]int // per page (>=1): shared indices referenced
-	firstShObj   int     // lin number of the first shared object
+// hintOutline carries the outline (bookmark) hint table values — the HGeneric
+// layout of ISO 32000-1 §F.4: four 32-bit fields.
+type hintOutline struct {
+	firstObj    int // lin number of the first outline object
+	firstObjOff int // its file offset, in hint-excluded coordinates
+	nObjects    int // number of (consecutively numbered) outline objects
+	groupLen    int // total byte length of the outline objects
 }
 
-// build returns (hintStreamContent, sOffset) where sOffset is the byte offset
-// of the shared-object table within the content. firstPageOff and firstShOff
-// are file offsets filled into the two header location fields.
-func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
+// hintBuilder computes the primary hint stream (page-offset + shared-object +
+// optional outline hint tables) per ISO 32000-1 §F.4, in the field layout used
+// by qpdf. Every table row is byte-aligned — qpdf's reader calls
+// skipToNextByte after each column vector, so a writer that packs rows
+// back-to-back is misread as soon as a row ends off a byte boundary.
+type hintBuilder struct {
+	pageObjCount []int        // objects per page (page 0: the whole part 6)
+	pageLen      []int        // byte length per page group
+	contentLen   []int        // content length per page (== pageLen, note 127)
+	sharedLen    []int        // byte length per shared-table object (part6+part8)
+	nShFirstPage int          // shared-table entries in the first page (len(part6))
+	pageShared   [][]int      // per page (>=1): shared-table indices referenced
+	firstShObj   int          // lin number of the first part-8 object (0 if none)
+	outline      *hintOutline // nil when the document has no outlines
+}
+
+// build returns (hintStreamContent, sOffset, oOffset): the byte offsets of the
+// shared-object table and of the outline table (-1 when absent) within the
+// content. firstPageOff and firstShOff are file offsets (hint-excluded
+// coordinates) filled into the header location fields.
+func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int, int) {
 	n := len(h.pageObjCount)
 
 	minObjs := minInt(h.pageObjCount)
@@ -115,22 +129,27 @@ func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
 	pw.writeBits(0, 16) // numerator bits
 	pw.writeBits(4, 16) // denominator
 
+	// Column-major rows, each byte-aligned.
 	for i := 0; i < n; i++ {
 		pw.writeBits(uint64(h.pageObjCount[i]-minObjs), dObjBits)
 	}
+	pw.align()
 	for i := 0; i < n; i++ {
 		pw.writeBits(uint64(h.pageLen[i]-minPageLen), dPageLenBits)
 	}
+	pw.align()
 	for i := 0; i < n; i++ {
 		pw.writeBits(uint64(len(h.pageShared[i])), nSharedBits)
 	}
+	pw.align()
 	for i := 0; i < n; i++ {
 		for _, id := range h.pageShared[i] {
 			pw.writeBits(uint64(id), sharedIDBits)
 		}
 	}
-	// numerator bits = 0, nothing
-	// delta content-stream offset bits = 0, nothing
+	pw.align()
+	// shared numerators row: numerator bits = 0, nothing to write
+	// content-stream offsets row: delta bits = 0, nothing to write
 	for i := 0; i < n; i++ {
 		pw.writeBits(uint64(h.contentLen[i]-minContLen), dContLenBits)
 	}
@@ -149,23 +168,37 @@ func (h *hintBuilder) build(firstPageOff, firstShOff int) ([]byte, int) {
 	sw.writeBits(0, 16) // bits for greatest object count in a group
 	sw.writeBits(uint64(minShLen), 32)
 	sw.writeBits(uint64(dShLenBits), 16)
-	// Column-major: all delta lengths, then all signature flags (1 bit each;
-	// no MD5 signature data is emitted, so each flag is 0).
+	// Column-major, byte-aligned rows: all delta lengths, then all signature
+	// flags (1 bit each; no MD5 signature data is emitted, so each flag is 0).
+	// The group object-count row is zero bits wide (single-object groups).
 	for _, ln := range h.sharedLen {
 		sw.writeBits(uint64(ln-minShLen), dShLenBits)
 	}
+	sw.align()
 	for range h.sharedLen {
 		sw.writeBits(0, 1)
 	}
 	sw.align()
+	out := append(pageTable, sw.bytes()...)
+
+	// Outline hint table (HGeneric: four 32-bit fields).
+	oOffset := -1
+	if h.outline != nil {
+		oOffset = len(out)
+		var ow bitWriter
+		ow.writeBits(uint64(h.outline.firstObj), 32)
+		ow.writeBits(uint64(h.outline.firstObjOff), 32)
+		ow.writeBits(uint64(h.outline.nObjects), 32)
+		ow.writeBits(uint64(h.outline.groupLen), 32)
+		out = append(out, ow.bytes()...)
+	}
 
 	// qpdf's hint-table reader consumes a few bits past the last encoded entry
 	// (final-entry alignment); a small run of trailing zero bytes keeps it from
 	// overrunning the stream. Extra bytes in the hint stream are ignored by the
 	// reader and harmless.
-	out := append(pageTable, sw.bytes()...)
 	out = append(out, 0, 0, 0, 0)
-	return out, sOffset
+	return out, sOffset, oOffset
 }
 
 func maxInt0(n int) int {
@@ -176,9 +209,14 @@ func maxInt0(n int) int {
 }
 
 // makeHintObject serializes the primary hint stream object (uncompressed).
-func makeHintObject(linNum int, content []byte, sOffset int) []byte {
+// oOffset >= 0 adds the outline hint table location (/O).
+func makeHintObject(linNum int, content []byte, sOffset, oOffset int) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "%d 0 obj\n<< /Length %d /S %d >>\nstream\n", linNum, len(content), sOffset)
+	if oOffset >= 0 {
+		fmt.Fprintf(&b, "%d 0 obj\n<< /Length %d /S %d /O %d >>\nstream\n", linNum, len(content), sOffset, oOffset)
+	} else {
+		fmt.Fprintf(&b, "%d 0 obj\n<< /Length %d /S %d >>\nstream\n", linNum, len(content), sOffset)
+	}
 	b.Write(content)
 	b.WriteString("\nendstream\nendobj\n")
 	return b.Bytes()

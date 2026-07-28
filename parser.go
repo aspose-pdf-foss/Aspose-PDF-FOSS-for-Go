@@ -714,6 +714,13 @@ func parseIndirectObject(data []byte, offset int64) (*pdfObject, error) {
 	if err != nil {
 		return nil, fmt.Errorf("object %d value: %w", num, err)
 	}
+	// An empty body ("N 0 obj endobj", seen in damaged files) reaches
+	// parseValue as the "endobj" keyword, which the tolerant keyword fallback
+	// turns into a bare name. Readers treat an empty object as null — store it
+	// that way so the writer round-trips it as "null" instead of "endobj".
+	if n, ok := val.(pdfName); ok && string(n) == "endobj" {
+		val = pdfNull{}
+	}
 
 	return &pdfObject{Num: num, Gen: gen, Value: val}, nil
 }

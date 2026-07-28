@@ -5,22 +5,25 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
-	"sort"
 )
 
-// linParams carries the partitioned object set into emit.
+// linParams carries the partitioned object set into emit. Part numbering
+// follows ISO 32000-1 Annex F / qpdf: part 4 = open-document objects, part 6 =
+// the first-page section, part 7 = later pages' private groups, part 8 =
+// cross-page shared objects, part 9 = everything else.
 type linParams struct {
-	d                *Document
-	asm              *assembled
-	values           map[int]pdfValue
-	remapFn          func(int) int
-	part2            []int   // new IDs, part-2 file order
-	firstPagePrivate []int   // new IDs: page-0 object then its private objects
-	pageGroups       [][]int // physical private objects per page
-	pageObjCount     []int   // attributed object count per page (incl. shared)
-	sharedOrder      []int   // new IDs: shared objects (end of part 1)
-	nSharedFirstPage int     // shared objects used by the first page
-	pageNewIDs       []int
+	d             *Document
+	asm           *assembled
+	values        map[int]pdfValue
+	part2         []int   // new IDs, body file order (part 7 + part 8 + part 9)
+	part4         []int   // open-document objects (placed after the catalog)
+	part6         []int   // first-page section: page 0, privates, shared, outlines
+	part8         []int   // shared objects referenced by >1 later page
+	pageGroups    [][]int // per-page consecutive groups; [0] == part6
+	sharedTable   []int   // shared-object hint table: part6 then part8, in order
+	pageSharedIdx [][]int // per page >=1: indices into sharedTable it references
+	outlineObjs   []int   // outline objects (root first), contiguous in the file
+	pageNewIDs    []int
 }
 
 // emit lays out and serializes the linearized PDF.
@@ -28,8 +31,11 @@ func (lp *linParams) emit() ([]byte, error) {
 	asm := lp.asm
 
 	// --- Linearized object numbering: part 2 = 1..K2, part 1 = K2+1.. ---
-	// part-1 file order: lin dict, catalog, hint stream, first-page private
-	// objects, then the shared objects (which end the first-page section).
+	// part-1 file order: lin dict, catalog, open-document objects (part 4),
+	// hint stream, then the first-page section (part 6). Each page's group is
+	// numbered consecutively starting at its page object — qpdf's strict check
+	// recomputes every page length as the byte span of nObjects consecutively
+	// numbered objects from the page object.
 	newToLin := make(map[int]int)
 	lin := 1
 	for _, id := range lp.part2 {
@@ -42,13 +48,13 @@ func (lp *linParams) emit() ([]byte, error) {
 	newToLin[asm.catalogObjID] = lin
 	linCatalog := lin
 	lin++
-	linHint := lin
-	lin++
-	for _, id := range lp.firstPagePrivate {
+	for _, id := range lp.part4 {
 		newToLin[id] = lin
 		lin++
 	}
-	for _, id := range lp.sharedOrder {
+	linHint := lin
+	lin++
+	for _, id := range lp.part6 {
 		newToLin[id] = lin
 		lin++
 	}
@@ -56,7 +62,16 @@ func (lp *linParams) emit() ([]byte, error) {
 	linFirstPart := k2 + 1
 	part1Count := size - linFirstPart
 
-	oldToLin := func(old int) int { return newToLin[lp.remapFn(old)] }
+	// A reference whose target has no assembled output object is dangling;
+	// return 0 so rewriteToLin emits null instead of aliasing whatever object
+	// owns that number in the linearized space.
+	oldToLin := func(old int) int {
+		newID, ok := lp.asm.remap[old]
+		if !ok {
+			return 0
+		}
+		return newToLin[newID]
+	}
 
 	// --- Serialize each real object to lin-space bytes. ---
 	objBytes := make(map[int][]byte) // lin number -> "N 0 obj…endobj\n"
@@ -72,12 +87,12 @@ func (lp *linParams) emit() ([]byte, error) {
 	if err := serialize(linCatalog, lp.values[asm.catalogObjID]); err != nil {
 		return nil, err
 	}
-	for _, id := range lp.firstPagePrivate {
+	for _, id := range lp.part4 {
 		if err := serialize(newToLin[id], lp.values[id]); err != nil {
 			return nil, err
 		}
 	}
-	for _, id := range lp.sharedOrder {
+	for _, id := range lp.part6 {
 		if err := serialize(newToLin[id], lp.values[id]); err != nil {
 			return nil, err
 		}
@@ -88,41 +103,55 @@ func (lp *linParams) emit() ([]byte, error) {
 		}
 	}
 
-	// --- Per-page and shared measurements (offset-independent). pageObjCount is
-	// the attributed count (includes shared objects); pageLen measures only the
-	// page's physical private objects (shared objects live in part 2). ---
+	// --- Per-page and shared measurements (offset-independent). nObjects and
+	// pageLen cover each page's consecutive group: for page 0 the whole part 6
+	// (privates + shared + outlines), for later pages the page object plus its
+	// private objects. Content length mirrors page length — the qpdf/Acrobat
+	// convention (implementation note 127), since page objects are not
+	// interleaved with their content streams. ---
+	pageObjCount := make([]int, len(lp.pageGroups))
 	pageLen := make([]int, len(lp.pageGroups))
-	contentLen := make([]int, len(lp.pageGroups))
 	for i, grp := range lp.pageGroups {
+		pageObjCount[i] = len(grp)
 		for _, id := range grp {
 			pageLen[i] += len(objBytes[newToLin[id]])
 		}
-		contentLen[i] = lp.pageContentLen(i, objBytes, newToLin)
 	}
-	// The shared-object hint table lists the shared objects (referenced by more
-	// than one page); those used by the first page come first (nSharedFirstPage).
-	sharedLen := make([]int, len(lp.sharedOrder))
-	for j, id := range lp.sharedOrder {
+	// The shared-object hint table covers all of part 6 (shared or not), then
+	// part 8; each entry is a single-object group with its own byte length.
+	sharedLen := make([]int, len(lp.sharedTable))
+	for j, id := range lp.sharedTable {
 		sharedLen[j] = len(objBytes[newToLin[id]])
 	}
 	firstShObj := 0
-	if len(lp.sharedOrder) > 0 {
-		firstShObj = newToLin[lp.sharedOrder[0]]
+	if len(lp.part8) > 0 {
+		firstShObj = newToLin[lp.part8[0]]
 	}
 
 	// --- Build the hint stream once with placeholder offsets to get its
 	// length (offset-independent), then again with real offsets later. ---
-	hb := &hintBuilder{
-		pageObjCount: lp.pageObjCount,
-		pageLen:      pageLen,
-		contentLen:   contentLen,
-		sharedLen:    sharedLen,
-		nShFirstPage: lp.nSharedFirstPage,
-		pageShared:   lp.pageSharedIndices(),
-		firstShObj:   firstShObj,
+	var outl *hintOutline
+	if len(lp.outlineObjs) > 0 {
+		outl = &hintOutline{
+			firstObj: newToLin[lp.outlineObjs[0]],
+			nObjects: len(lp.outlineObjs),
+		}
+		for _, id := range lp.outlineObjs {
+			outl.groupLen += len(objBytes[newToLin[id]])
+		}
 	}
-	hintContent, hintSOff := hb.build(0, 0) // placeholder offsets
-	hintObj := makeHintObject(linHint, hintContent, hintSOff)
+	hb := &hintBuilder{
+		pageObjCount: pageObjCount,
+		pageLen:      pageLen,
+		contentLen:   pageLen,
+		sharedLen:    sharedLen,
+		nShFirstPage: len(lp.part6),
+		pageShared:   lp.pageSharedIdx,
+		firstShObj:   firstShObj,
+		outline:      outl,
+	}
+	hintContent, hintSOff, hintOOff := hb.build(0, 0) // placeholder offsets
+	hintObj := makeHintObject(linHint, hintContent, hintSOff, hintOOff)
 	hintLen := len(hintObj)
 
 	// --- Fixed-size structural sections (widths padded so the layout is
@@ -149,16 +178,16 @@ func (lp *linParams) emit() ([]byte, error) {
 	pos += firstXrefLen
 	offCatalog := pos
 	pos += len(objBytes[linCatalog])
-	offHint := pos
-	pos += hintLen
-	// first-page private objects, then the shared objects (end of part 1)
 	offByLin := make(map[int]int)
 	offByLin[linCatalog] = offCatalog
-	for _, id := range lp.firstPagePrivate {
+	for _, id := range lp.part4 {
 		offByLin[newToLin[id]] = pos
 		pos += len(objBytes[newToLin[id]])
 	}
-	for _, id := range lp.sharedOrder {
+	offHint := pos
+	pos += hintLen
+	// the first-page section (part 6) immediately follows the hint stream
+	for _, id := range lp.part6 {
 		offByLin[newToLin[id]] = pos
 		pos += len(objBytes[newToLin[id]])
 	}
@@ -181,13 +210,16 @@ func (lp *linParams) emit() ([]byte, error) {
 	// immediately follows the hint stream. The shared section is likewise
 	// shifted back by hintLen.
 	firstShOff := 0
-	if len(lp.sharedOrder) > 0 {
-		firstShOff = offByLin[newToLin[lp.sharedOrder[0]]] - hintLen
+	if len(lp.part8) > 0 {
+		firstShOff = offByLin[newToLin[lp.part8[0]]] - hintLen
 	}
 
 	// --- Rebuild the hint stream with real offsets (same length). ---
-	hintContent, hintSOff = hb.build(offHint, firstShOff)
-	hintObj = makeHintObject(linHint, hintContent, hintSOff)
+	if outl != nil {
+		outl.firstObjOff = offByLin[newToLin[lp.outlineObjs[0]]] - hintLen
+	}
+	hintContent, hintSOff, hintOOff = hb.build(offHint, firstShOff)
+	hintObj = makeHintObject(linHint, hintContent, hintSOff, hintOOff)
 	if len(hintObj) != hintLen {
 		return nil, fmt.Errorf("linearize: hint length unstable (%d != %d)", len(hintObj), hintLen)
 	}
@@ -229,11 +261,11 @@ func (lp *linParams) emit() ([]byte, error) {
 	out.WriteString(linDict)
 	out.WriteString(firstXref)
 	out.Write(objBytes[linCatalog])
-	out.Write(hintObj)
-	for _, id := range lp.firstPagePrivate {
+	for _, id := range lp.part4 {
 		out.Write(objBytes[newToLin[id]])
 	}
-	for _, id := range lp.sharedOrder {
+	out.Write(hintObj)
+	for _, id := range lp.part6 {
 		out.Write(objBytes[newToLin[id]])
 	}
 	for _, id := range lp.part2 {
@@ -255,48 +287,4 @@ func (lp *linParams) infoLin(newToLin map[int]int) int {
 		return 0
 	}
 	return newToLin[lp.asm.infoObjID]
-}
-
-// pageSharedIndices returns, per page (>=1), the indices into the shared-object
-// hint table (= sharedOrder) of the shared objects that page references. Page 0
-// returns nil — its shared objects are implicit (the first nSharedFirstPage).
-func (lp *linParams) pageSharedIndices() [][]int {
-	idx := make(map[int]int, len(lp.sharedOrder))
-	for j, id := range lp.sharedOrder {
-		idx[id] = j
-	}
-	out := make([][]int, len(lp.pageGroups))
-	for i := 1; i < len(lp.pageGroups); i++ {
-		deps := collectPageDeps(lp.d.objects, lp.d.pages[i])
-		var refs []int
-		for oldID := range deps {
-			if j, ok := idx[lp.remapFn(oldID)]; ok {
-				refs = append(refs, j)
-			}
-		}
-		sort.Ints(refs)
-		out[i] = refs
-	}
-	return out
-}
-
-// pageContentLen returns the byte length of page i's content stream object(s).
-func (lp *linParams) pageContentLen(i int, objBytes map[int][]byte, newToLin map[int]int) int {
-	page := lp.d.pages[i]
-	dict, ok := page.Value.(pdfDict)
-	if !ok {
-		return 0
-	}
-	total := 0
-	switch c := dict["/Contents"].(type) {
-	case pdfRef:
-		total += len(objBytes[newToLin[lp.remapFn(c.Num)]])
-	case pdfArray:
-		for _, e := range c {
-			if r, ok := e.(pdfRef); ok {
-				total += len(objBytes[newToLin[lp.remapFn(r.Num)]])
-			}
-		}
-	}
-	return total
 }
