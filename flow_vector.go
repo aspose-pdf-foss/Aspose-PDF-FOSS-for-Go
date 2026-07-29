@@ -16,7 +16,9 @@ import (
 // The same idea as the HTML native mode's raster patches, block-grained.
 
 const (
-	vecMinSizePt   = 16.0 // clusters smaller than this per side are rules/decorations
+	vecMinSizePt   = 16.0 // block clusters smaller than this per side are rules/decorations
+	vecIconMinPt   = 5.0  // icon clusters: minimum side (filters rules/ticks)
+	vecIconMaxPt   = 40.0 // icon clusters: maximum side (larger ones are blocks)
 	vecMergeGapPt  = 8.0  // boxes closer than this merge into one cluster
 	vecMaxAreaFrac = 0.70 // clusters covering more of the page are backgrounds
 	vecMaxTextFrac = 0.15 // clusters denser in text than this are tables/underlays
@@ -33,21 +35,21 @@ const (
 // dominated by text — table grids, shaded text panels — are skipped, their
 // content flows as text). Rotated pages are skipped (cropping math assumes
 // an upright page).
-func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, []Rectangle) {
+func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, []Rectangle, []*Image) {
 	if p.Rotation() != 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	data, err := p.contentStreams()
 	if err != nil || len(data) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	ops, err := parseContentStream(data)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	boxes := paintedPathBoxes(ops)
 	if len(boxes) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Drop boxes an extracted raster image already covers (>= 85% of the
@@ -73,7 +75,7 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 
 	crop, err := p.CropBox()
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	pageArea := (crop.URX - crop.LLX) * (crop.URY - crop.LLY)
 	var wanted []Rectangle
@@ -90,8 +92,42 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 		}
 		wanted = append(wanted, c)
 	}
-	if len(wanted) == 0 {
-		return nil, nil
+
+	// Icon detection runs on a second clustering WITHOUT hairline rules: a
+	// link's underline stroke otherwise fuses with the 12pt mark beside it
+	// into one over-wide cluster. Candidates inside a block cluster (chart
+	// tick marks) are the block's business, not standalone icons.
+	var ruleFree []Rectangle
+	for _, b := range kept {
+		w, h := b.URX-b.LLX, b.URY-b.LLY
+		if (h < 2.5 && w > 8) || (w < 2.5 && h > 8) {
+			continue // underline / rule
+		}
+		ruleFree = append(ruleFree, b)
+	}
+	var iconRects []Rectangle
+	for _, c := range clusterRects(ruleFree, 4) {
+		w, h := c.URX-c.LLX, c.URY-c.LLY
+		if w < vecIconMinPt || h < vecIconMinPt || w > vecIconMaxPt || h > vecIconMaxPt {
+			continue
+		}
+		if textAreaWithin(c, textRects) >= 0.3*w*h {
+			continue
+		}
+		inBlock := false
+		for _, big := range clusters {
+			if big.URX-big.LLX >= vecMinSizePt && big.URY-big.LLY >= vecMinSizePt &&
+				rectMostlyInside(c, []Rectangle{big}) {
+				inBlock = true
+				break
+			}
+		}
+		if !inBlock {
+			iconRects = append(iconRects, c)
+		}
+	}
+	if len(wanted) == 0 && len(iconRects) == 0 {
+		return nil, nil, nil
 	}
 
 	// One full render serves every cluster on the page: text INSIDE a
@@ -99,30 +135,27 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 	// the corresponding paragraphs from the flow.
 	frame, err := p.renderImage(RenderOptions{DPI: vecRenderDPI}, false, false)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	rgba, ok := frame.(*image.RGBA)
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
-	scale := vecRenderDPI / 72.0
-	var blocks []flowBlock
-	for _, c := range wanted {
-		pad := vecPadPt
+	cropPatch := func(c Rectangle, pad float64) *Image {
+		scale := vecRenderDPI / 72.0
 		x0 := int((c.LLX - pad - crop.LLX) * scale)
 		x1 := int((c.URX + pad - crop.LLX) * scale)
 		y0 := int((crop.URY - (c.URY + pad)) * scale)
 		y1 := int((crop.URY - (c.LLY - pad)) * scale)
 		r := image.Rect(x0, y0, x1, y1).Intersect(rgba.Bounds())
 		if r.Dx() < 4 || r.Dy() < 4 {
-			continue
+			return nil
 		}
-		sub := rgba.SubImage(r)
 		var buf bytes.Buffer
-		if err := png.Encode(&buf, sub); err != nil {
-			continue
+		if err := png.Encode(&buf, rgba.SubImage(r)); err != nil {
+			return nil
 		}
-		img := &Image{
+		return &Image{
 			Data:       buf.Bytes(),
 			Format:     ImageFormatPNG,
 			Width:      r.Dx(),
@@ -134,9 +167,20 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 			PageWidth:  c.URX - c.LLX + 2*pad,
 			PageHeight: c.URY - c.LLY + 2*pad,
 		}
-		blocks = append(blocks, flowBlock{img: img, top: img.Y + img.PageHeight})
 	}
-	return blocks, wanted
+	var blocks []flowBlock
+	for _, c := range wanted {
+		if img := cropPatch(c, vecPadPt); img != nil {
+			blocks = append(blocks, flowBlock{img: img, top: img.Y + img.PageHeight})
+		}
+	}
+	var icons []*Image
+	for _, c := range iconRects {
+		if img := cropPatch(c, 1); img != nil {
+			icons = append(icons, img)
+		}
+	}
+	return blocks, wanted, icons
 }
 
 // paintedPathBoxes walks the content ops with CTM tracking and returns the

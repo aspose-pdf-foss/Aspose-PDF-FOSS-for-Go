@@ -256,8 +256,13 @@ func segGeometry(seg docSeg, col Rectangle) (align int8, lastFilled bool, yTop, 
 // double every prose line), so a break additionally requires the previous
 // line to end like a sentence and the next to start like one (font-sample
 // sheets, definition lists); mid-sentence wraps keep their space-joins.
-func segRunsWithBreaks(seg docSeg, links []linkArea, col Rectangle, align int8) []docRun {
+func segRunsWithBreaks(seg docSeg, links []linkArea, col Rectangle, align int8, icons *docxIconPool) []docRun {
 	lineRuns := segmentLineRuns(seg, links)
+	if icons != nil {
+		for li := range seg.lines {
+			lineRuns[li] = icons.injectInline(seg.lines[li], lineRuns[li])
+		}
+	}
 	var runs []docRun
 	for li, lr := range lineRuns {
 		if len(lr) == 0 {
@@ -359,6 +364,7 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool, margins [4]int) *docxBlockLi
 			bl.add(b)
 			firstOnPage = false
 		}
+		iconPool := newDocxIconPool(fp.icons)
 		for _, blk := range fp.blocks {
 			if blk.img != nil {
 				// Images that sat side by side on the source page (their
@@ -400,7 +406,7 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool, margins [4]int) *docxBlockLi
 					endList()
 					continue
 				}
-				runs := segRunsWithBreaks(seg, fp.links, blk.col, align)
+				runs := segRunsWithBreaks(seg, fp.links, blk.col, align, iconPool)
 				if seg.marker != "" {
 					depth := 0
 					if st.listKind != "" {
@@ -759,11 +765,90 @@ func (dw *docxWriter) writeCodePara(b *strings.Builder, blk *docxBlock) {
 	b.WriteString(`</w:p>`)
 }
 
+// docxIconPool hands out the page's inline vector marks (flow_vector.go icon
+// clusters) to the text lines they sit on; each icon is used once.
+type docxIconPool struct {
+	icons []*Image
+	used  []bool
+}
+
+func newDocxIconPool(icons []*Image) *docxIconPool {
+	if len(icons) == 0 {
+		return nil
+	}
+	return &docxIconPool{icons: icons, used: make([]bool, len(icons))}
+}
+
+// injectInline inserts the icons whose vertical band overlaps the line into
+// the line's runs, positioned by X against the line's fragments.
+func (ip *docxIconPool) injectInline(line TextLine, runs []docRun) []docRun {
+	if ip == nil || len(line.Fragments) == 0 {
+		return runs
+	}
+	size := line.Fragments[0].FontSize
+	if size <= 0 {
+		size = 12
+	}
+	lineTop, lineBot := line.Y+0.8*size, line.Y-0.25*size
+	for idx, ic := range ip.icons {
+		if ip.used[idx] {
+			continue
+		}
+		icMid := ic.Y + ic.PageHeight/2
+		if icMid < lineBot-2 || icMid > lineTop+2 {
+			continue
+		}
+		ip.used[idx] = true
+		// Position by X. Runs merge fragments and synthesize spaces, but
+		// non-space characters map 1:1 — so count the non-space bytes of the
+		// fragments lying fully left of the icon and advance through the
+		// runs by the same currency.
+		leftBytes := 0
+		for _, fr := range line.Fragments {
+			if fr.X+fr.Width <= ic.X+2 {
+				leftBytes += nonSpaceLen(fr.Text)
+			}
+		}
+		insertAt := len(runs)
+		acc := 0
+		for ri, r := range runs {
+			if acc >= leftBytes {
+				insertAt = ri
+				break
+			}
+			acc += nonSpaceLen(r.text)
+		}
+		if acc < leftBytes {
+			insertAt = len(runs)
+		}
+		iconRun := docRun{icon: ic}
+		if insertAt >= len(runs) {
+			runs = append(runs, docRun{text: " "}, iconRun)
+		} else {
+			tail := append([]docRun{iconRun, {text: " "}}, runs[insertAt:]...)
+			runs = append(runs[:insertAt:insertAt], tail...)
+		}
+	}
+	return runs
+}
+
+// nonSpaceLen counts a string's non-space bytes (the stable currency between
+// source fragments and merged runs, which synthesize joining spaces).
+func nonSpaceLen(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != ' ' {
+			n++
+		}
+	}
+	return n
+}
+
 // docxSameStyle is the Word view of run equivalence (everything docRun
 // carries is expressible, so only the hyperlink grouping stays outside).
-// Break markers never merge — two breaks are a blank line.
+// Break markers and inline icons never merge.
 func docxSameStyle(a, b docRun) bool {
-	return !a.br && !b.br && a.sameLook(b)
+	return !a.br && !b.br && a.icon == nil && b.icon == nil && a.sameLook(b)
 }
 
 // writeRuns emits the runs, wrapping stretches that share a hyperlink in
@@ -795,6 +880,10 @@ func (dw *docxWriter) writeRuns(b *strings.Builder, runs []docRun, forceMono boo
 func (dw *docxWriter) writeRun(b *strings.Builder, r docRun, forceMono, inLink bool) {
 	if r.br {
 		b.WriteString(`<w:r><w:br/></w:r>`)
+		return
+	}
+	if r.icon != nil {
+		b.WriteString(dw.drawingRun(r.icon, r.icon.PageWidth, r.icon.PageHeight))
 		return
 	}
 	if r.text == "" {
@@ -882,7 +971,7 @@ func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
 	}
 
 	type placed struct {
-		relID  string
+		img    *Image
 		cx, cy int64
 	}
 	var row []placed
@@ -896,21 +985,7 @@ func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
 		if wPt <= 0 || hPt <= 0 {
 			continue // zero extents trigger Word repair; skip
 		}
-		key := sha256.Sum256(img.Data)
-		relID, ok := dw.relByImage[key]
-		if !ok {
-			dw.imageSeq++
-			ext := "png"
-			if img.Format == ImageFormatJPEG {
-				ext = "jpg"
-			}
-			name := fmt.Sprintf("media/image%d.%s", dw.imageSeq, ext)
-			dw.media = append(dw.media, docxPart{name: "word/" + name, data: img.Data})
-			relID = fmt.Sprintf("rId%d", len(dw.rels)+1)
-			dw.rels = append(dw.rels, docxRel{id: relID, relType: relTypeImage, target: name})
-			dw.relByImage[key] = relID
-		}
-		row = append(row, placed{relID: relID, cx: int64(wPt * 12700), cy: int64(hPt * 12700)})
+		row = append(row, placed{img: img, cx: int64(wPt * 12700), cy: int64(hPt * 12700)})
 		totalW += wPt
 	}
 	if len(row) == 0 {
@@ -941,18 +1016,53 @@ func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
 		if i > 0 {
 			b.WriteString(`<w:r><w:t xml:space="preserve"> </w:t></w:r>`)
 		}
-		dw.drawingID++
-		id := dw.drawingID
-		b.WriteString(`<w:r><w:drawing>`)
-		fmt.Fprintf(b, `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">`)
-		fmt.Fprintf(b, `<wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Picture %d"/>`, pl.cx, pl.cy, id, id)
-		b.WriteString(`<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`)
-		b.WriteString(`<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr>`)
-		fmt.Fprintf(b, `<pic:cNvPr id="%d" name="Picture %d"/><pic:cNvPicPr/></pic:nvPicPr>`, id, id)
-		fmt.Fprintf(b, `<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`, pl.relID)
-		fmt.Fprintf(b, `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`, pl.cx, pl.cy)
-		b.WriteString(`</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`)
+		b.WriteString(dw.drawingRun(pl.img, float64(pl.cx)/12700, float64(pl.cy)/12700))
 	}
 	b.WriteString(`</w:p>`)
 	return nil
+}
+
+// imageRel registers the image bytes as a media part (SHA-256 deduped) and
+// returns the relationship id.
+func (dw *docxWriter) imageRel(img *Image) string {
+	key := sha256.Sum256(img.Data)
+	if relID, ok := dw.relByImage[key]; ok {
+		return relID
+	}
+	dw.imageSeq++
+	ext := "png"
+	if img.Format == ImageFormatJPEG {
+		ext = "jpg"
+	}
+	name := fmt.Sprintf("media/image%d.%s", dw.imageSeq, ext)
+	dw.media = append(dw.media, docxPart{name: "word/" + name, data: img.Data})
+	relID := fmt.Sprintf("rId%d", len(dw.rels)+1)
+	dw.rels = append(dw.rels, docxRel{id: relID, relType: relTypeImage, target: name})
+	dw.relByImage[key] = relID
+	return relID
+}
+
+// drawingRun emits one wp:inline drawing run at the given display size.
+func (dw *docxWriter) drawingRun(img *Image, wPt, hPt float64) string {
+	if wPt <= 0 || hPt <= 0 {
+		wPt, hPt = float64(img.Width)*72/96, float64(img.Height)*72/96
+	}
+	cx, cy := int64(wPt*12700+0.5), int64(hPt*12700+0.5)
+	if cx <= 0 || cy <= 0 {
+		return ""
+	}
+	relID := dw.imageRel(img)
+	dw.drawingID++
+	id := dw.drawingID
+	var b strings.Builder
+	b.WriteString(`<w:r><w:drawing>`)
+	fmt.Fprintf(&b, `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">`)
+	fmt.Fprintf(&b, `<wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Picture %d"/>`, cx, cy, id, id)
+	b.WriteString(`<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`)
+	b.WriteString(`<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr>`)
+	fmt.Fprintf(&b, `<pic:cNvPr id="%d" name="Picture %d"/><pic:cNvPicPr/></pic:nvPicPr>`, id, id)
+	fmt.Fprintf(&b, `<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`, relID)
+	fmt.Fprintf(&b, `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`, cx, cy)
+	b.WriteString(`</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`)
+	return b.String()
 }

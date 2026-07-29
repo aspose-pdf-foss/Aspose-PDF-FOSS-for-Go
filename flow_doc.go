@@ -54,6 +54,7 @@ type flowDocPage struct {
 	links  []linkArea
 	pageH  float64
 	pageW  float64
+	icons  []*Image // small vector marks to re-attach inline to text lines
 }
 
 // flowDoc is the reconstructed document: pages of ordered blocks plus the
@@ -145,6 +146,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 		// labels) can leave the flow — their text is in the patch.
 		var vecBlocks []flowBlock
 		var vecClusters []Rectangle
+		var vecIcons []*Image
 		if opt.vectorGraphics {
 			var textRects []Rectangle
 			for si := range pms[i].Sections {
@@ -160,7 +162,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 					}
 				}
 			}
-			vecBlocks, vecClusters = vectorGraphicBlocks(p, imageRects, textRects)
+			vecBlocks, vecClusters, vecIcons = vectorGraphicBlocks(p, imageRects, textRects)
 		}
 
 		var blocks []flowBlock
@@ -210,7 +212,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 		for _, vb := range vecBlocks {
 			insertFlowImage(&blocks, vb)
 		}
-		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i], pageW: pageWs[i]}
+		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i], pageW: pageWs[i], icons: vecIcons}
 		if opt.collectLinks {
 			fp.links = pageLinkAreas(p)
 		}
@@ -612,7 +614,8 @@ type docRun struct {
 	fontSize     float64
 	color        Color
 	sub, super   bool
-	br           bool // explicit line break (no other fields set)
+	br           bool   // explicit line break (no other fields set)
+	icon         *Image // inline image mark (no other fields set)
 }
 
 // segmentRuns flattens a segment's fragments into styled runs: visual lines
