@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PDF → DOCX export** — `Document.SaveDocx(path)` / `WriteDocx(w)` reconstruct the document as an editable Word file (`DocSaveOptions{Pages, Mode, NoImages}`, mirroring Aspose.PDF for .NET's `DocSaveOptions`/`RecognitionMode` — `DocFlow` implemented; `EnhancedFlow` arrives with the table-detection epic). Built on the shared flow core: paragraphs with full styled runs (bold/italic, font family, size, colour, sub/superscript), named `Heading1-6` styles (so Word's navigation pane and TOC fields see the structure), real hyperlinks, bullet/numbered lists with per-list numbering instances (ordered lists restart correctly), shaded monospace code paragraphs, inline images carrying the PDF's own bytes (SHA-256-deduped media parts, display size from the page placement), and the source page geometry in `sectPr`. Stdlib-only OPC/OOXML writer (`archive/zip` + templated transitional WordprocessingML). Validated: the whole 1014-document corpus converts with **zero ECMA-376 XSD violations and zero python-docx failures**; the validation harness lives in `tools/validate_docx.py` (XSD + python-docx + optional LibreOffice render). v1 limitations: headers/footers suppressed rather than converted, underline/strikethrough not recovered (vector rules), fonts referenced by family only, tables flow as paragraphs until `DocEnhancedFlow`. (`pdf-go-7qiu.2`)
+
+### Fixed
+
+- **Image extraction: Form-XObject recursion guard** — `ExtractImages`/`ImageInfos` recursed without a cycle check on malformed self-referencing Form XObjects (stack overflow; the text extractor gained the same guard in pdf-go-bfnc, the image walker had not), discovered by the DOCX corpus sweep.
+- **null `/Contents` tolerated** — a page whose `/Contents` reference resolves to a null (or empty) object now reads as an empty page per ISO 32000-1 §7.3.10 instead of failing extraction.
+
 ### Changed
 
 - **Shared flow-reconstruction core** (`flow_doc.go`) — the format-neutral analysis under the flow-mode exporters (block/image ordering, body-size median, paragraph re-segmentation, styled runs with gap-synthesized spaces, repeating header/footer detection) now lives in one place instead of being duplicated between the Markdown and HTML-flow exporters; both are pure serializers over it, and the upcoming DOCX/EPUB writers build on the same layer. Two user-visible effects: the **HTML flow mode now suppresses repeating headers/footers and rotated watermarks** (previously Markdown-only), and both exporters are **fully deterministic** — dominant-style/size selection used to break ties by map iteration order, so a handful of documents flipped a heading or segment boundary from run to run. (`pdf-go-7qiu.1`)

@@ -174,6 +174,10 @@ func (p *Page) contentStreams() ([]byte, error) {
 	switch cv := contentsVal.(type) {
 	case *pdfStream:
 		return decodedStreamData(cv), nil
+	case pdfNull, nil:
+		// A /Contents reference resolving to null (or a missing object) means
+		// no content — same as an absent key (ISO 32000-1 §7.3.10).
+		return nil, nil
 	case pdfArray:
 		var buf []byte
 		for _, item := range cv {

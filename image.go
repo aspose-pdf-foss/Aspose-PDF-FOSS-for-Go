@@ -907,9 +907,24 @@ func resolveColorSpaceInline(dict pdfDict) ImageColorSpace {
 	return ColorSpaceDeviceRGB
 }
 
+// imgFormGuard protects the image walkers against malformed self- or
+// mutually-referencing Form XObjects (the text extractor carries the same
+// guard) — unbounded recursion overflows the goroutine stack, which is
+// unrecoverable in Go.
+type imgFormGuard struct {
+	depth  int
+	active map[int]bool
+}
+
+const maxImgFormDepth = 32
+
 // collectImageInfos walks content stream ops, tracking CTM, and collects image metadata
 // without decoding pixel data.
 func collectImageInfos(objects map[int]*pdfObject, ops []contentOp, resources pdfDict) []ImageInfo {
+	return collectImageInfosGuarded(objects, ops, resources, &imgFormGuard{})
+}
+
+func collectImageInfosGuarded(objects map[int]*pdfObject, ops []contentOp, resources pdfDict, g *imgFormGuard) []ImageInfo {
 	var infos []ImageInfo
 	ctm := identityMatrix()
 	var ctmStack [][6]float64
@@ -937,7 +952,7 @@ func collectImageInfos(objects map[int]*pdfObject, ops []contentOp, resources pd
 				if info, ok := xobjectImageInfo(objects, resources, name, ctm); ok {
 					infos = append(infos, info)
 				} else {
-					formInfos := formXObjectImageInfos(objects, resources, name, ctm)
+					formInfos := formXObjectImageInfos(objects, resources, name, ctm, g)
 					infos = append(infos, formInfos...)
 				}
 			}
@@ -1063,8 +1078,11 @@ func inlineImageInfo(dictVal, dataVal pdfValue, ctm [6]float64) (ImageInfo, bool
 }
 
 // formXObjectImageInfos collects image metadata from a Form XObject's content stream.
-func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name string, ctm [6]float64) []ImageInfo {
+func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name string, ctm [6]float64, g *imgFormGuard) []ImageInfo {
 	if name == "" || resources == nil {
+		return nil
+	}
+	if g.depth >= maxImgFormDepth {
 		return nil
 	}
 	xobjVal, ok := resources["/XObject"]
@@ -1078,6 +1096,16 @@ func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name s
 	formVal, ok := xobjDict[name]
 	if !ok {
 		return nil
+	}
+	if ref, isRef := formVal.(pdfRef); isRef {
+		if g.active == nil {
+			g.active = map[int]bool{}
+		}
+		if g.active[ref.Num] {
+			return nil // self- or mutually-referencing form
+		}
+		g.active[ref.Num] = true
+		defer delete(g.active, ref.Num)
 	}
 	resolved := resolveRef(objects, formVal)
 	stream, ok := resolved.(*pdfStream)
@@ -1122,7 +1150,9 @@ func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name s
 		}
 	}
 
-	infos := collectImageInfos(objects, ops, formResources)
+	g.depth++
+	infos := collectImageInfosGuarded(objects, ops, formResources, g)
+	g.depth--
 	for i := range infos {
 		infos[i].X += formCTM[4]
 		infos[i].Y += formCTM[5]
