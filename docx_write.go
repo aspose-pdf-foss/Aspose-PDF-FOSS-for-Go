@@ -94,10 +94,11 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 	}
 
 	doc, err := buildFlowDoc(pages, sel, flowDocOptions{
-		dropFurniture: true,
-		dropRotated:   true,
-		collectLinks:  true,
-		images:        !opt.NoImages,
+		dropFurniture:  true,
+		dropRotated:    true,
+		collectLinks:   true,
+		images:         !opt.NoImages,
+		vectorGraphics: !opt.NoImages,
 	})
 	if err != nil {
 		return err

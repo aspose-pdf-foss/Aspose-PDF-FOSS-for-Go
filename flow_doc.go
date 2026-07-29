@@ -38,6 +38,9 @@ type flowDocOptions struct {
 	dropRotated   bool // suppress fully-rotated paragraphs (watermarks)
 	collectLinks  bool // gather URI link areas per page
 	images        bool // interleave extracted images by vertical position
+	// vectorGraphics rasterizes vector-drawing clusters (logos, charts) into
+	// image blocks via the built-in renderer (see flow_vector.go).
+	vectorGraphics bool
 	// onParagraph is called for every kept paragraph (HTML flow registers
 	// embedded-font usage here). May be nil.
 	onParagraph func(p *Page, para *MarkupParagraph)
@@ -107,6 +110,51 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	var sizes []sizeSample
 	for i, n := range sel {
 		p := pages[n-1]
+
+		// Raster images: their blocks and their footprint (vector geometry
+		// drawn over an image — frames — belongs to the image, not to a
+		// standalone graphics cluster).
+		var imageBlocks []flowBlock
+		var imageRects []Rectangle
+		if opt.images {
+			if imgs, err := p.ExtractImages(); err == nil {
+				for j := range imgs {
+					img := &imgs[j]
+					if len(img.Data) == 0 {
+						continue
+					}
+					imageRects = append(imageRects, Rectangle{
+						LLX: img.X, LLY: img.Y,
+						URX: img.X + img.PageWidth, URY: img.Y + img.PageHeight,
+					})
+					imageBlocks = append(imageBlocks, flowBlock{img: img, top: img.Y + img.PageHeight})
+				}
+			}
+		}
+
+		// Vector-graphics clusters (logos, charts): computed before the
+		// paragraph pass so paragraphs living inside a cluster (chart
+		// labels) can leave the flow — their text is in the patch.
+		var vecBlocks []flowBlock
+		var vecClusters []Rectangle
+		if opt.vectorGraphics {
+			var textRects []Rectangle
+			for si := range pms[i].Sections {
+				for pi := range pms[i].Sections[si].Paragraphs {
+					para := &pms[i].Sections[si].Paragraphs[pi]
+					for _, line := range para.Lines {
+						for _, fr := range line.Fragments {
+							textRects = append(textRects, Rectangle{
+								LLX: fr.X, LLY: fr.Y,
+								URX: fr.X + fr.Width, URY: fr.Y + fr.Height,
+							})
+						}
+					}
+				}
+			}
+			vecBlocks, vecClusters = vectorGraphicBlocks(p, imageRects, textRects)
+		}
+
 		var blocks []flowBlock
 		for si := range pms[i].Sections {
 			for pi := range pms[i].Sections[si].Paragraphs {
@@ -119,6 +167,9 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				}
 				if fk != nil && fk.dropParagraph(para, pageHs[i]) {
 					continue // repeating header/footer line
+				}
+				if rectMostlyInside(para.Rectangle, vecClusters) {
+					continue // lives inside a rasterized graphics cluster
 				}
 				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY})
 				if opt.onParagraph != nil {
@@ -133,16 +184,16 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				}
 			}
 		}
-		if opt.images {
-			if imgs, err := p.ExtractImages(); err == nil {
-				for j := range imgs {
-					img := &imgs[j]
-					if len(img.Data) == 0 {
-						continue
-					}
-					insertFlowImage(&blocks, flowBlock{img: img, top: img.Y + img.PageHeight})
-				}
+		for _, ib := range imageBlocks {
+			r := Rectangle{LLX: ib.img.X, LLY: ib.img.Y,
+				URX: ib.img.X + ib.img.PageWidth, URY: ib.img.Y + ib.img.PageHeight}
+			if rectMostlyInside(r, vecClusters) {
+				continue // already rendered inside a graphics patch
 			}
+			insertFlowImage(&blocks, ib)
+		}
+		for _, vb := range vecBlocks {
+			insertFlowImage(&blocks, vb)
 		}
 		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i]}
 		if opt.collectLinks {
@@ -152,6 +203,23 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	}
 	doc.bodySize = weightedMedianSize(sizes)
 	return doc, nil
+}
+
+// rectMostlyInside reports whether >= 90% of r's area lies within one of the
+// given rectangles.
+func rectMostlyInside(r Rectangle, rects []Rectangle) bool {
+	area := (r.URX - r.LLX) * (r.URY - r.LLY)
+	if area <= 0 {
+		return false
+	}
+	for _, c := range rects {
+		w := minf(r.URX, c.URX) - maxf(r.LLX, c.LLX)
+		h := minf(r.URY, c.URY) - maxf(r.LLY, c.LLY)
+		if w > 0 && h > 0 && w*h >= 0.9*area {
+			return true
+		}
+	}
+	return false
 }
 
 // insertFlowImage places an image block before the first paragraph whose
