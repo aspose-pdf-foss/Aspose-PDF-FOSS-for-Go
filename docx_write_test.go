@@ -294,3 +294,36 @@ func TestWriteDocxPageSubset(t *testing.T) {
 		t.Error("out-of-range page must error")
 	}
 }
+
+func TestWriteDocxPageBreaks(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Three pages: text, blank, text — pagination must survive, including
+	// the blank page in the middle.
+	must(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	must(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	for _, n := range []int{1, 3} {
+		p, err := doc.Page(n)
+		must(err)
+		must(p.AddText("Content", pdf.TextStyle{Size: 12},
+			pdf.Rectangle{LLX: 60, LLY: 700, URX: 535, URY: 760}))
+	}
+
+	var buf bytes.Buffer
+	must(doc.WriteDocx(&buf))
+	docXML := string(docxParts(t, buf.Bytes())["word/document.xml"])
+	if got := strings.Count(docXML, "<w:pageBreakBefore/>"); got != 2 {
+		t.Errorf("page breaks = %d; want 2 (pages 2 and 3)", got)
+	}
+
+	buf.Reset()
+	must(doc.WriteDocx(&buf, pdf.DocSaveOptions{NoPageBreaks: true}))
+	docXML = string(docxParts(t, buf.Bytes())["word/document.xml"])
+	if strings.Contains(docXML, "<w:pageBreakBefore/>") {
+		t.Error("NoPageBreaks output still contains page breaks")
+	}
+}

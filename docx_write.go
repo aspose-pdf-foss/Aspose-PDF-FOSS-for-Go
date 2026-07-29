@@ -36,7 +36,7 @@ const (
 )
 
 // DocSaveOptions configures SaveDocx / WriteDocx. The zero value exports all
-// pages in Flow mode with images.
+// pages in Flow mode with images, preserving the source pagination.
 type DocSaveOptions struct {
 	// Pages is a 1-based subset (in the given order); nil = all pages.
 	Pages []int
@@ -45,6 +45,11 @@ type DocSaveOptions struct {
 	Mode DocRecognitionMode
 	// NoImages skips images.
 	NoImages bool
+	// NoPageBreaks lets content flow continuously instead of starting a new
+	// Word page where each source PDF page started (the default inserts a
+	// page break, so the output pagination mirrors the original; exact
+	// fit still depends on Word's own line layout).
+	NoPageBreaks bool
 }
 
 // SaveDocx writes the document as a Word (.docx) file.
@@ -98,8 +103,13 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 		return err
 	}
 
-	blocks := buildDocxBlocks(doc)
-	dw := &docxWriter{bodySize: doc.bodySize}
+	blocks := buildDocxBlocks(doc, !opt.NoPageBreaks)
+	dw := &docxWriter{bodySize: doc.bodySize, margins: docxContentMargins(doc, pages, sel)}
+	if len(sel) > 0 {
+		if size, err := pages[sel[0]-1].Size(); err == nil {
+			dw.pageWPt = size.Width
+		}
+	}
 	body, err := dw.serialize(blocks, d, pages, sel)
 	if err != nil {
 		return err
@@ -109,12 +119,19 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 	if bodyHalf < 2 {
 		bodyHalf = 22
 	}
+	// When the source pagination is preserved, tighter paragraph spacing
+	// keeps a PDF page's content within one Word page (PDF encodes no
+	// inter-paragraph spacing of its own).
+	spacingAfter := 120
+	if !opt.NoPageBreaks {
+		spacingAfter = 60
+	}
 	parts := []docxPart{
 		{"[Content_Types].xml", []byte(docxContentTypes)},
 		{"_rels/.rels", []byte(docxRootRels)},
 		{"word/document.xml", body},
 		{"word/_rels/document.xml.rels", []byte(docxDocumentRels(dw.rels))},
-		{"word/styles.xml", []byte(docxStyles(bodyHalf))},
+		{"word/styles.xml", []byte(docxStyles(bodyHalf, spacingAfter))},
 		{"word/numbering.xml", []byte(docxNumbering(dw.numInstances))},
 	}
 	parts = append(parts, dw.media...)
@@ -137,20 +154,24 @@ const (
 // flow segments (so multi-line headings merge before serialization instead
 // of by rewinding emitted text).
 type docxBlock struct {
-	kind    docxBlockKind
-	level   int  // heading level (1..6) or list nesting (0-based ilvl)
-	ordered bool // list kind
-	listID  int  // 1-based numbering instance (w:numId)
-	runs    []docRun
-	lines   [][]docRun // code blocks: one run list per visual line
-	img     *Image
-	pageNo  int // source page (for media naming)
+	kind      docxBlockKind
+	level     int  // heading level (1..6) or list nesting (0-based ilvl)
+	ordered   bool // list kind
+	listID    int  // 1-based numbering instance (w:numId)
+	runs      []docRun
+	lines     [][]docRun // code blocks: one run list per visual line
+	imgs      []*Image   // image row: side-by-side images share one paragraph
+	pageNo    int        // source page (for media naming)
+	brkBefore bool       // start a new Word page before this block
 }
 
 // buildDocxBlocks classifies every page's segments into Word blocks,
 // tracking list instances (a fresh w:num per list so ordered lists restart)
-// and merging split multi-line headings.
-func buildDocxBlocks(doc *flowDoc) *docxBlockList {
+// and merging split multi-line headings. With pageBreaks, the first block of
+// every source page after the first carries a page-break-before mark, so the
+// output pagination mirrors the original (an empty source page becomes an
+// empty paragraph to keep the page count aligned).
+func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
 	bl := &docxBlockList{}
 	st := struct {
 		listKind    string
@@ -158,10 +179,26 @@ func buildDocxBlocks(doc *flowDoc) *docxBlockList {
 		listID      int
 	}{}
 	endList := func() { st.listKind = "" }
-	for _, fp := range doc.pages {
+	for pageIdx, fp := range doc.pages {
+		if pageBreaks && pageIdx > 0 {
+			bl.breakNext = true
+			if len(fp.blocks) == 0 {
+				// Blank source page: an empty paragraph keeps the slot.
+				bl.add(docxBlock{kind: docxParaBlock})
+			}
+		}
 		for _, blk := range fp.blocks {
 			if blk.img != nil {
-				bl.add(docxBlock{kind: docxImageBlock, img: blk.img, pageNo: fp.number})
+				// Images that sat side by side on the source page (their
+				// vertical ranges overlap) share one paragraph, so a row of
+				// thumbnails stays a row instead of a page-bursting stack.
+				if last := bl.last(); last != nil && !bl.breakNext &&
+					last.kind == docxImageBlock && last.pageNo == fp.number &&
+					imagesOverlapVert(last.imgs[len(last.imgs)-1], blk.img) {
+					last.imgs = append(last.imgs, blk.img)
+					continue
+				}
+				bl.add(docxBlock{kind: docxImageBlock, imgs: []*Image{blk.img}, pageNo: fp.number})
 				endList()
 				continue
 			}
@@ -205,8 +242,9 @@ func buildDocxBlocks(doc *flowDoc) *docxBlockList {
 				}
 				text := runsPlainText(runs)
 				if level := headingLevel(seg.size, doc.bodySize, len(text)); level > 0 {
-					// Merge a heading the extractor split across segments.
-					if last := bl.last(); last != nil && last.kind == docxHeadingBlock && last.level == level {
+					// Merge a heading the extractor split across segments —
+					// but never across a pending page break.
+					if last := bl.last(); last != nil && !bl.breakNext && last.kind == docxHeadingBlock && last.level == level {
 						last.runs = append(append(last.runs, docRun{text: " "}), runs...)
 						continue
 					}
@@ -222,12 +260,25 @@ func buildDocxBlocks(doc *flowDoc) *docxBlockList {
 	return bl
 }
 
+// imagesOverlapVert reports whether two images' vertical ranges intersect —
+// the side-by-side test for grouping them into one image row.
+func imagesOverlapVert(a, b *Image) bool {
+	return b.Y < a.Y+a.PageHeight && b.Y+b.PageHeight > a.Y
+}
+
 type docxBlockList struct {
 	blocks       []docxBlock
 	numInstances []bool // per list instance: ordered?
+	breakNext    bool   // pending page break for the next added block
 }
 
-func (bl *docxBlockList) add(b docxBlock) { bl.blocks = append(bl.blocks, b) }
+func (bl *docxBlockList) add(b docxBlock) {
+	if bl.breakNext {
+		b.brkBefore = true
+		bl.breakNext = false
+	}
+	bl.blocks = append(bl.blocks, b)
+}
 func (bl *docxBlockList) last() *docxBlock {
 	if len(bl.blocks) == 0 {
 		return nil
@@ -239,6 +290,8 @@ func (bl *docxBlockList) last() *docxBlock {
 
 type docxWriter struct {
 	bodySize     float64
+	margins      [4]int  // twips: top, right, bottom, left
+	pageWPt      float64 // first exported page width in points
 	rels         []docxRel
 	numInstances []bool
 	media        []docxPart
@@ -246,6 +299,63 @@ type docxWriter struct {
 	relByImage   map[[32]byte]string
 	imageSeq     int
 	drawingID    int
+}
+
+// docxContentMargins derives the section margins from the content bounding
+// box across the exported pages (clamped to [0.5", 1"]), so a source page's
+// content has a chance to fit one Word page when pagination is preserved.
+// Falls back to 1" margins when there is nothing to measure.
+func docxContentMargins(doc *flowDoc, pages []*Page, sel []int) [4]int {
+	const defTw = 1440
+	m := [4]int{defTw, defTw, defTw, defTw}
+	if len(sel) == 0 {
+		return m
+	}
+	size, err := pages[sel[0]-1].Size()
+	if err != nil || size.Width <= 0 || size.Height <= 0 {
+		return m
+	}
+	minX, minY := size.Width, size.Height
+	maxX, maxY := 0.0, 0.0
+	seen := false
+	for _, fp := range doc.pages {
+		for _, blk := range fp.blocks {
+			var r Rectangle
+			switch {
+			case blk.para != nil:
+				r = blk.para.Rectangle
+			case blk.img != nil:
+				r = Rectangle{LLX: blk.img.X, LLY: blk.img.Y,
+					URX: blk.img.X + blk.img.PageWidth, URY: blk.img.Y + blk.img.PageHeight}
+			default:
+				continue
+			}
+			if r.URX <= r.LLX || r.URY <= r.LLY {
+				continue
+			}
+			seen = true
+			minX, minY = minf(minX, r.LLX), minf(minY, r.LLY)
+			maxX, maxY = maxf(maxX, r.URX), maxf(maxY, r.URY)
+		}
+	}
+	if !seen {
+		return m
+	}
+	clamp := func(pt float64) int {
+		tw := int(pt*20 + 0.5)
+		if tw < 720 {
+			return 720
+		}
+		if tw > 1440 {
+			return 1440
+		}
+		return tw
+	}
+	m[0] = clamp(size.Height - maxY) // top
+	m[1] = clamp(size.Width - maxX)  // right
+	m[2] = clamp(minY)               // bottom
+	m[3] = clamp(minX)               // left
+	return m
 }
 
 const (
@@ -292,8 +402,18 @@ func (dw *docxWriter) writeSectPr(b *strings.Builder, pages []*Page, sel []int) 
 	if wTw > hTw {
 		orient = ` w:orient="landscape"`
 	}
-	fmt.Fprintf(b, `<w:sectPr><w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`,
-		wTw, hTw, orient)
+	fmt.Fprintf(b, `<w:sectPr><w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`,
+		wTw, hTw, orient, dw.margins[0], dw.margins[1], dw.margins[2], dw.margins[3])
+}
+
+// brk returns the page-break-before element when the block starts a new
+// page. Its slot in the CT_PPr sequence is after pStyle/keepNext and before
+// numPr/shd.
+func brk(blk *docxBlock) string {
+	if blk.brkBefore {
+		return `<w:pageBreakBefore/>`
+	}
+	return ""
 }
 
 func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
@@ -303,16 +423,20 @@ func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
 	case docxCodeBlock:
 		dw.writeCodePara(b, blk)
 	case docxHeadingBlock:
-		fmt.Fprintf(b, `<w:p><w:pPr><w:pStyle w:val="Heading%d"/></w:pPr>`, blk.level)
+		fmt.Fprintf(b, `<w:p><w:pPr><w:pStyle w:val="Heading%d"/>%s</w:pPr>`, blk.level, brk(blk))
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	case docxListItemBlock:
-		fmt.Fprintf(b, `<w:p><w:pPr><w:numPr><w:ilvl w:val="%d"/><w:numId w:val="%d"/></w:numPr></w:pPr>`,
-			blk.level, blk.listID)
+		fmt.Fprintf(b, `<w:p><w:pPr>%s<w:numPr><w:ilvl w:val="%d"/><w:numId w:val="%d"/></w:numPr></w:pPr>`,
+			brk(blk), blk.level, blk.listID)
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	default:
-		b.WriteString(`<w:p>`)
+		if blk.brkBefore {
+			b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr>`)
+		} else {
+			b.WriteString(`<w:p>`)
+		}
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	}
@@ -322,7 +446,7 @@ func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
 // writeCodePara emits a monospace segment as one shaded paragraph, one
 // visual line per w:br-separated stretch.
 func (dw *docxWriter) writeCodePara(b *strings.Builder, blk *docxBlock) {
-	b.WriteString(`<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:pPr>`)
+	fmt.Fprintf(b, `<w:p><w:pPr>%s<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:pPr>`, brk(blk))
 	for i, line := range blk.lines {
 		if i > 0 {
 			b.WriteString(`<w:r><w:br/></w:r>`)
@@ -437,52 +561,93 @@ func (dw *docxWriter) hyperlinkRel(uri string) string {
 	return id
 }
 
-// writeImagePara emits one inline image paragraph: the media part (SHA-256
-// deduped), its relationship, and the minimal wp:inline drawing tree. The
-// display size comes from the image's placement on the PDF page (points →
-// EMU).
+// writeImagePara emits one paragraph holding the block's image row: media
+// parts (SHA-256 deduped), their relationships, and one minimal wp:inline
+// drawing tree per image, separated by spaces. Display sizes come from each
+// image's placement on the PDF page (points → EMU); a row wider than the
+// printable width is scaled down proportionally as a whole.
 func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
-	img := blk.img
-	key := sha256.Sum256(img.Data)
-	relID, ok := dw.relByImage[key]
-	if !ok {
-		dw.imageSeq++
-		ext := "png"
-		if img.Format == ImageFormatJPEG {
-			ext = "jpg"
-		}
-		name := fmt.Sprintf("media/image%d.%s", dw.imageSeq, ext)
-		dw.media = append(dw.media, docxPart{name: "word/" + name, data: img.Data})
-		relID = fmt.Sprintf("rId%d", len(dw.rels)+1)
-		dw.rels = append(dw.rels, docxRel{id: relID, relType: relTypeImage, target: name})
-		dw.relByImage[key] = relID
+	// Printable width cap (points).
+	maxWPt := dw.pageWPt - float64(dw.margins[1]+dw.margins[3])/20
+	if maxWPt < 72 {
+		maxWPt = 522 // degenerate geometry: fall back to 7.25"
 	}
 
-	wPt, hPt := img.PageWidth, img.PageHeight
-	if wPt <= 0 || hPt <= 0 {
-		// Fall back to pixel dimensions at 96 dpi.
-		wPt, hPt = float64(img.Width)*72/96, float64(img.Height)*72/96
+	type placed struct {
+		relID  string
+		cx, cy int64
 	}
-	// Cap to a printable width, preserving aspect.
-	const maxWPt = 522 // 7.25" — Letter/A4 width minus 1" margins
-	if wPt > maxWPt {
-		hPt *= maxWPt / wPt
-		wPt = maxWPt
+	var row []placed
+	totalW := 0.0
+	for _, img := range blk.imgs {
+		wPt, hPt := img.PageWidth, img.PageHeight
+		if wPt <= 0 || hPt <= 0 {
+			// Fall back to pixel dimensions at 96 dpi.
+			wPt, hPt = float64(img.Width)*72/96, float64(img.Height)*72/96
+		}
+		if wPt <= 0 || hPt <= 0 {
+			continue // zero extents trigger Word repair; skip
+		}
+		key := sha256.Sum256(img.Data)
+		relID, ok := dw.relByImage[key]
+		if !ok {
+			dw.imageSeq++
+			ext := "png"
+			if img.Format == ImageFormatJPEG {
+				ext = "jpg"
+			}
+			name := fmt.Sprintf("media/image%d.%s", dw.imageSeq, ext)
+			dw.media = append(dw.media, docxPart{name: "word/" + name, data: img.Data})
+			relID = fmt.Sprintf("rId%d", len(dw.rels)+1)
+			dw.rels = append(dw.rels, docxRel{id: relID, relType: relTypeImage, target: name})
+			dw.relByImage[key] = relID
+		}
+		row = append(row, placed{relID: relID, cx: int64(wPt * 12700), cy: int64(hPt * 12700)})
+		totalW += wPt
 	}
-	cx, cy := int64(wPt*12700+0.5), int64(hPt*12700+0.5)
-	if cx <= 0 || cy <= 0 {
-		return nil // zero extents trigger Word repair; skip the image
+	if len(row) == 0 {
+		if blk.brkBefore {
+			b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`)
+		}
+		return nil
 	}
-	dw.drawingID++
-	id := dw.drawingID
-	b.WriteString(`<w:p><w:r><w:drawing>`)
-	fmt.Fprintf(b, `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">`)
-	fmt.Fprintf(b, `<wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Picture %d"/>`, cx, cy, id, id)
-	b.WriteString(`<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`)
-	b.WriteString(`<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr>`)
-	fmt.Fprintf(b, `<pic:cNvPr id="%d" name="Picture %d"/><pic:cNvPicPr/></pic:nvPicPr>`, id, id)
-	fmt.Fprintf(b, `<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`, relID)
-	fmt.Fprintf(b, `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`, cx, cy)
-	b.WriteString(`</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`)
+	// Inter-image gaps (~6pt each) count against the printable width too.
+	gapPt := 6.0 * float64(len(row)-1)
+	if totalW+gapPt > maxWPt {
+		scale := (maxWPt - gapPt) / totalW
+		if scale <= 0 {
+			scale = maxWPt / totalW
+		}
+		for i := range row {
+			row[i].cx = int64(float64(row[i].cx) * scale)
+			row[i].cy = int64(float64(row[i].cy) * scale)
+		}
+	}
+
+	if blk.brkBefore {
+		b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr>`)
+	} else {
+		b.WriteString(`<w:p>`)
+	}
+	for i, pl := range row {
+		if pl.cx <= 0 || pl.cy <= 0 {
+			continue
+		}
+		if i > 0 {
+			b.WriteString(`<w:r><w:t xml:space="preserve"> </w:t></w:r>`)
+		}
+		dw.drawingID++
+		id := dw.drawingID
+		b.WriteString(`<w:r><w:drawing>`)
+		fmt.Fprintf(b, `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">`)
+		fmt.Fprintf(b, `<wp:extent cx="%d" cy="%d"/><wp:docPr id="%d" name="Picture %d"/>`, pl.cx, pl.cy, id, id)
+		b.WriteString(`<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`)
+		b.WriteString(`<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr>`)
+		fmt.Fprintf(b, `<pic:cNvPr id="%d" name="Picture %d"/><pic:cNvPicPr/></pic:nvPicPr>`, id, id)
+		fmt.Fprintf(b, `<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`, pl.relID)
+		fmt.Fprintf(b, `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`, pl.cx, pl.cy)
+		b.WriteString(`</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`)
+	}
+	b.WriteString(`</w:p>`)
 	return nil
 }

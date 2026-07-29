@@ -43,12 +43,12 @@ const docxRootRels = docxXMLHeader +
 // built-in heading styles (named styles carrying w:outlineLvl — required for
 // Word's navigation pane and TOC fields; direct formatting is invisible
 // there), and the Hyperlink character style.
-func docxStyles(bodyHalfPoints int) string {
+func docxStyles(bodyHalfPoints, spacingAfter int) string {
 	var b strings.Builder
 	b.WriteString(docxXMLHeader)
 	fmt.Fprintf(&b, `<w:styles xmlns:w="%s">`, docxNSw)
-	fmt.Fprintf(&b, `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120"/></w:pPr></w:pPrDefault></w:docDefaults>`,
-		bodyHalfPoints, bodyHalfPoints)
+	fmt.Fprintf(&b, `<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="%d"/></w:pPr></w:pPrDefault></w:docDefaults>`,
+		bodyHalfPoints, bodyHalfPoints, spacingAfter)
 	b.WriteString(`<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>`)
 	// Heading sizes scale off the body size like the exporters' thresholds.
 	ratios := []float64{1.7, 1.35, 1.14, 1.05, 1.0, 1.0}
