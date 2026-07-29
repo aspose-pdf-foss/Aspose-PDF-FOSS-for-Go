@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared flow-reconstruction core** (`flow_doc.go`) — the format-neutral analysis under the flow-mode exporters (block/image ordering, body-size median, paragraph re-segmentation, styled runs with gap-synthesized spaces, repeating header/footer detection) now lives in one place instead of being duplicated between the Markdown and HTML-flow exporters; both are pure serializers over it, and the upcoming DOCX/EPUB writers build on the same layer. Two user-visible effects: the **HTML flow mode now suppresses repeating headers/footers and rotated watermarks** (previously Markdown-only), and both exporters are **fully deterministic** — dominant-style/size selection used to break ties by map iteration order, so a handful of documents flipped a heading or segment boundary from run to run. (`pdf-go-7qiu.1`)
+
 ### Fixed
 
 - **Linearization: strict qpdf conformance for shared resources** — the hint tables now follow qpdf's exact model (a verbatim port of its object categorization): page 0's object count/length cover the whole first-page section including cross-page shared objects, later pages count only their private objects and reference the shared-object table (which now spans all of part 6 plus the cross-page shared part 8), every hint-table row is byte-aligned (qpdf's reader realigns after each column vector), open-document objects (AcroForm, OpenAction, …) sit in part 4, and documents with bookmarks carry the previously-missing outline hint table. Also fixed along the way: dangling references in linearized output are written as `null` instead of aliasing another object, a direct `/Outlines` dict is materialized as an indirect object, and an empty object body (`N 0 obj endobj`, seen in damaged files) now parses and round-trips as `null` instead of a bare `endobj` keyword. qpdf's strict `check_linearization` now passes on 1008 of 1009 linearizable corpus documents (the one failure is a file qpdf itself cannot linearize). (`pdf-go-h7r`)

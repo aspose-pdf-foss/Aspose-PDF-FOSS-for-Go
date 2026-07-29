@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -27,14 +26,6 @@ import (
 // reconstructed — their text flows as paragraphs, their look is dropped
 // (this is the trade-off of a reflowable representation).
 
-// flowBlock is one emitted unit — a paragraph or an image — ordered by its
-// visual top within the page.
-type flowBlock struct {
-	para *MarkupParagraph
-	img  *Image
-	top  float64
-}
-
 // writeHTMLFlow renders the selected pages as one reflowable document.
 func (d *Document) writeHTMLFlow(w io.Writer, pages []*Page, sel []int, title string, opt HTMLSaveOptions) error {
 	var fonts *htmlFontSet
@@ -42,55 +33,23 @@ func (d *Document) writeHTMLFlow(w io.Writer, pages []*Page, sel []int, title st
 		fonts = newHTMLFontSet(d)
 	}
 
-	// Pass 1: extract structure (and images) per page, register font usage,
-	// and gather the length-weighted font sizes for the body median.
-	type flowPage struct{ blocks []flowBlock }
-	fps := make([]flowPage, 0, len(sel))
-	var sizes []struct {
-		size   float64
-		weight int
-	}
-	for _, n := range sel {
-		p := pages[n-1]
-		pm, err := p.Paragraphs()
-		if err != nil {
-			return err
-		}
-		var blocks []flowBlock
-		for si := range pm.Sections {
-			for pi := range pm.Sections[si].Paragraphs {
-				para := &pm.Sections[si].Paragraphs[pi]
-				if strings.TrimSpace(para.Text) == "" {
-					continue
-				}
-				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY})
-				if fonts != nil {
-					fonts.markUsed(p, para.Lines)
-				}
-				for _, line := range para.Lines {
-					for _, fr := range line.Fragments {
-						if fr.FontSize > 0 {
-							sizes = append(sizes, struct {
-								size   float64
-								weight int
-							}{fr.FontSize, len([]rune(fr.Text))})
-						}
-					}
-				}
+	// Pass 1: the shared reconstruction core (with repeating header/footer
+	// and rotated-watermark suppression); embedded-font usage registers via
+	// the paragraph hook.
+	doc, err := buildFlowDoc(pages, sel, flowDocOptions{
+		dropFurniture: true,
+		dropRotated:   true,
+		images:        true,
+		onParagraph: func(p *Page, para *MarkupParagraph) {
+			if fonts != nil {
+				fonts.markUsed(p, para.Lines)
 			}
-		}
-		if imgs, err := p.ExtractImages(); err == nil {
-			for i := range imgs {
-				img := &imgs[i]
-				if len(img.Data) == 0 {
-					continue
-				}
-				insertFlowImage(&blocks, flowBlock{img: img, top: img.Y + img.PageHeight})
-			}
-		}
-		fps = append(fps, flowPage{blocks: blocks})
+		},
+	})
+	if err != nil {
+		return err
 	}
-	body := weightedMedianSize(sizes)
+	body := doc.bodySize
 
 	sink := htmlResourceSink(opt.ResourceWriter)
 	if sink != nil {
@@ -129,64 +88,25 @@ body { margin: 0; background: #fff; }
 		return err
 	}
 
-	for i, fp := range fps {
+	for _, fp := range doc.pages {
 		var pb strings.Builder
 		imgSeq := 0
 		for _, blk := range fp.blocks {
 			if blk.img != nil {
 				imgSeq++
-				if err := writeFlowImage(&pb, blk.img, sink, sel[i], imgSeq); err != nil {
+				if err := writeFlowImage(&pb, blk.img, sink, fp.number, imgSeq); err != nil {
 					return err
 				}
 				continue
 			}
-			writeFlowParagraph(&pb, pages[sel[i]-1], blk.para, body, fonts)
+			writeFlowParagraph(&pb, pages[fp.number-1], blk.para, body, fonts)
 		}
 		if _, err := io.WriteString(w, pb.String()); err != nil {
 			return err
 		}
 	}
-	_, err := io.WriteString(w, "</div>\n</body>\n</html>\n")
+	_, err = io.WriteString(w, "</div>\n</body>\n</html>\n")
 	return err
-}
-
-// insertFlowImage places an image block before the first paragraph whose
-// top edge lies below the image's top (keeping paragraph reading order).
-func insertFlowImage(blocks *[]flowBlock, img flowBlock) {
-	at := len(*blocks)
-	for i, blk := range *blocks {
-		if blk.para != nil && blk.top < img.top {
-			at = i
-			break
-		}
-	}
-	*blocks = append(*blocks, flowBlock{})
-	copy((*blocks)[at+1:], (*blocks)[at:])
-	(*blocks)[at] = img
-}
-
-// weightedMedianSize returns the text-length-weighted median font size —
-// the document's body size (12 when there is no text).
-func weightedMedianSize(sizes []struct {
-	size   float64
-	weight int
-}) float64 {
-	if len(sizes) == 0 {
-		return 12
-	}
-	sort.Slice(sizes, func(i, j int) bool { return sizes[i].size < sizes[j].size })
-	total := 0
-	for _, s := range sizes {
-		total += s.weight
-	}
-	acc := 0
-	for _, s := range sizes {
-		acc += s.weight
-		if acc*2 >= total {
-			return s.size
-		}
-	}
-	return sizes[len(sizes)-1].size
 }
 
 // dominantFlowStyle picks the paragraph's dominant look, weighted by text
@@ -200,14 +120,41 @@ func dominantFlowStyle(para *MarkupParagraph) (size float64, bold, italic bool, 
 		name   string
 	}
 	weights := map[key]int{}
-	best, bestW := key{size10: 120}, -1
 	for _, line := range para.Lines {
 		for _, fr := range line.Fragments {
 			k := key{int(fr.FontSize*10 + 0.5), fr.Bold, fr.Italic, fr.Color, fr.FontName}
 			weights[k] += len([]rune(fr.Text))
-			if weights[k] > bestW {
-				best, bestW = k, weights[k]
+		}
+	}
+	// Accumulate first, then pick with a deterministic tie-break (a total
+	// order on the key) — updating the winner mid-accumulation, or breaking
+	// ties by map iteration order, flips the result between runs.
+	keyLess := func(a, b key) bool {
+		if a.size10 != b.size10 {
+			return a.size10 < b.size10
+		}
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		if a.bold != b.bold {
+			return b.bold
+		}
+		if a.italic != b.italic {
+			return b.italic
+		}
+		ac := [4]float64{a.col.R, a.col.G, a.col.B, a.col.A}
+		bc := [4]float64{b.col.R, b.col.G, b.col.B, b.col.A}
+		for i := range ac {
+			if ac[i] != bc[i] {
+				return ac[i] < bc[i]
 			}
+		}
+		return false
+	}
+	best, bestW := key{size10: 120}, -1
+	for k, w := range weights {
+		if w > bestW || (w == bestW && keyLess(k, best)) {
+			best, bestW = k, w
 		}
 	}
 	return float64(best.size10) / 10, best.bold, best.italic, best.col, best.name
@@ -220,13 +167,8 @@ func writeFlowParagraph(b *strings.Builder, p *Page, para *MarkupParagraph, body
 
 	tag := "p"
 	text := para.Text
-	switch {
-	case ratio >= 1.7 && len(text) < 200:
-		tag = "h1"
-	case ratio >= 1.35 && len(text) < 200:
-		tag = "h2"
-	case ratio >= 1.14 && len(text) < 200:
-		tag = "h3"
+	if level := headingLevel(size, bodySize, len(text)); level > 0 {
+		tag = fmt.Sprintf("h%d", level)
 	}
 
 	class := ""
