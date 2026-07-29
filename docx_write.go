@@ -112,6 +112,8 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 			dw.pageWPt = size.Width
 		}
 	}
+	dw.footer = doc.furniture.footerExemplar()
+	dw.totalPages = len(sel)
 	body, err := dw.serialize(blocks, d, pages, sel)
 	if err != nil {
 		return err
@@ -128,14 +130,22 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 	if !opt.NoPageBreaks {
 		spacingAfter = 60
 	}
+	contentTypes := docxContentTypes
 	parts := []docxPart{
-		{"[Content_Types].xml", []byte(docxContentTypes)},
+		{"[Content_Types].xml", nil}, // filled below (footer needs an Override)
 		{"_rels/.rels", []byte(docxRootRels)},
 		{"word/document.xml", body},
 		{"word/_rels/document.xml.rels", []byte(docxDocumentRels(dw.rels))},
 		{"word/styles.xml", []byte(docxStyles(bodyHalf, spacingAfter))},
 		{"word/numbering.xml", []byte(docxNumbering(dw.numInstances))},
 	}
+	if dw.footerXML != "" {
+		parts = append(parts, docxPart{"word/footer1.xml", []byte(dw.footerXML)})
+		contentTypes = strings.Replace(contentTypes,
+			"</Types>",
+			`<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`, 1)
+	}
+	parts[0].data = []byte(contentTypes)
 	parts = append(parts, dw.media...)
 	return writeDocxZip(w, parts)
 }
@@ -239,14 +249,14 @@ func segGeometry(seg docSeg, col Rectangle) (align int8, lastFilled bool, yTop, 
 }
 
 // segRunsWithBreaks joins a segment's per-line runs, preserving deliberate
-// line breaks — but only in centered/right-aligned segments (title blocks,
-// cover pages), where a short line is unambiguously intentional. Left-aligned
-// text keeps space-joins: its ragged lines re-wrap in Word, and hard breaks
-// combined with the substitute fonts' wider metrics would double every line.
+// line breaks. In centered/right-aligned segments (title blocks, covers) a
+// short line is unambiguously intentional. In left-aligned text the rule is
+// stricter — geometry alone cannot tell a deliberate line list from ragged
+// wrapped prose (hard breaks + the substitute fonts' wider metrics would
+// double every prose line), so a break additionally requires the previous
+// line to end like a sentence and the next to start like one (font-sample
+// sheets, definition lists); mid-sentence wraps keep their space-joins.
 func segRunsWithBreaks(seg docSeg, links []linkArea, col Rectangle, align int8) []docRun {
-	if align == 0 {
-		return segmentRuns(seg, links)
-	}
 	lineRuns := segmentLineRuns(seg, links)
 	var runs []docRun
 	for li, lr := range lineRuns {
@@ -255,15 +265,49 @@ func segRunsWithBreaks(seg docSeg, links []linkArea, col Rectangle, align int8) 
 		}
 		if len(runs) > 0 {
 			_, prevURX := lineExtent(seg.lines[li-1])
-			if lineFills(prevURX, col) {
-				runs[len(runs)-1].text += " "
-			} else {
+			brk := false
+			if !lineFills(prevURX, col) {
+				if align != 0 {
+					brk = true
+				} else {
+					brk = endsSentence(lineJoinedText(seg.lines[li-1])) &&
+						startsSentence(lineJoinedText(seg.lines[li]))
+				}
+			}
+			if brk {
 				runs = append(runs, docRun{br: true})
+			} else {
+				runs[len(runs)-1].text += " "
 			}
 		}
 		runs = append(runs, lr...)
 	}
 	return runs
+}
+
+// endsSentence reports whether a visual line ends with terminal punctuation.
+func endsSentence(s string) bool {
+	s = strings.TrimRight(s, "  ")
+	if s == "" {
+		return false
+	}
+	switch s[len(s)-1] {
+	case '.', '!', '?', ':', ';':
+		return true
+	}
+	return false
+}
+
+// startsSentence reports whether a visual line opens like a new statement
+// (uppercase letter, digit, or a bullet-ish glyph).
+func startsSentence(s string) bool {
+	for _, r := range s {
+		if r == ' ' || r == ' ' {
+			continue
+		}
+		return (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r >= 0x80
+	}
+	return false
 }
 
 // buildDocxBlocks classifies every page's segments into Word blocks,
@@ -453,6 +497,9 @@ type docxWriter struct {
 	bodySize     float64
 	margins      [4]int  // twips: top, right, bottom, left
 	pageWPt      float64 // first exported page width in points
+	footer       *furnitureExemplar
+	footerXML    string
+	totalPages   int
 	rels         []docxRel
 	numInstances []bool
 	media        []docxPart
@@ -551,7 +598,8 @@ func (dw *docxWriter) serialize(bl *docxBlockList, d *Document, pages []*Page, s
 }
 
 // writeSectPr emits the section properties — last child of w:body — with the
-// first exported page's geometry (points → twips).
+// first exported page's geometry (points → twips). A recognized running
+// footer becomes a real w:ftr part referenced from the section.
 func (dw *docxWriter) writeSectPr(b *strings.Builder, pages []*Page, sel []int) {
 	wTw, hTw := 11906, 16838 // A4 default
 	if len(sel) > 0 {
@@ -563,8 +611,86 @@ func (dw *docxWriter) writeSectPr(b *strings.Builder, pages []*Page, sel []int) 
 	if wTw > hTw {
 		orient = ` w:orient="landscape"`
 	}
-	fmt.Fprintf(b, `<w:sectPr><w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`,
-		wTw, hTw, orient, dw.margins[0], dw.margins[1], dw.margins[2], dw.margins[3])
+	footerRef := ""
+	if dw.footer != nil {
+		relID := fmt.Sprintf("rId%d", len(dw.rels)+1)
+		dw.rels = append(dw.rels, docxRel{id: relID,
+			relType: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer",
+			target:  "footer1.xml"})
+		dw.footerXML = dw.buildFooterXML(dw.footer)
+		footerRef = fmt.Sprintf(`<w:footerReference w:type="default" r:id="%s"/>`, relID)
+	}
+	fmt.Fprintf(b, `<w:sectPr>%s<w:pgSz w:w="%d" w:h="%d"%s/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`,
+		footerRef, wTw, hTw, orient, dw.margins[0], dw.margins[1], dw.margins[2], dw.margins[3])
+}
+
+// buildFooterXML rebuilds the recognized running footer as a w:ftr part.
+// Digit runs in the exemplar text that equal its source page number become
+// the PAGE field and runs equal to the page count become NUMPAGES, so
+// "Report · 3 / 15" turns into "Report · {PAGE} / {NUMPAGES}".
+func (dw *docxWriter) buildFooterXML(ex *furnitureExemplar) string {
+	family := docxFontFamily(ex.fontName, false)
+	half := int(ex.size*2 + 0.5)
+	if half < 2 {
+		half = 18
+	}
+	var rPr strings.Builder
+	fmt.Fprintf(&rPr, `<w:rFonts w:ascii="%s" w:hAnsi="%s" w:cs="%s"/>`, family, family, family)
+	if ex.bold {
+		rPr.WriteString(`<w:b/>`)
+	}
+	if ex.italic {
+		rPr.WriteString(`<w:i/>`)
+	}
+	if c := docxColor(ex.color); c != "000000" {
+		fmt.Fprintf(&rPr, `<w:color w:val="%s"/>`, c)
+	}
+	fmt.Fprintf(&rPr, `<w:sz w:val="%d"/><w:szCs w:val="%d"/>`, half, half)
+
+	run := func(text string) string {
+		return `<w:r><w:rPr>` + rPr.String() + `</w:rPr><w:t xml:space="preserve">` + xmlEscape(text) + `</w:t></w:r>`
+	}
+	field := func(instr, current string) string {
+		return `<w:fldSimple w:instr="` + instr + `"><w:r><w:rPr>` + rPr.String() +
+			`</w:rPr><w:t>` + xmlEscape(current) + `</w:t></w:r></w:fldSimple>`
+	}
+
+	var body strings.Builder
+	text := ex.text
+	for len(text) > 0 {
+		i := 0
+		for i < len(text) && !(text[i] >= '0' && text[i] <= '9') {
+			i++
+		}
+		if i > 0 {
+			body.WriteString(run(text[:i]))
+			text = text[i:]
+			continue
+		}
+		j := 0
+		for j < len(text) && text[j] >= '0' && text[j] <= '9' {
+			j++
+		}
+		num := text[:j]
+		switch num {
+		case fmt.Sprint(ex.pageNo):
+			body.WriteString(field(" PAGE ", num))
+		case fmt.Sprint(dw.totalPages):
+			body.WriteString(field(" NUMPAGES ", num))
+		default:
+			body.WriteString(run(num))
+		}
+		text = text[j:]
+	}
+
+	jc := ""
+	if ex.centered {
+		jc = `<w:jc w:val="center"/>`
+	}
+	return docxXMLHeader +
+		`<w:ftr xmlns:w="` + docxNSw + `" xmlns:r="` + docxNSr + `">` +
+		`<w:p><w:pPr><w:spacing w:after="0"/>` + jc + `</w:pPr>` + body.String() + `</w:p>` +
+		`</w:ftr>`
 }
 
 // docxPPr assembles a paragraph-properties element in the CT_PPr schema

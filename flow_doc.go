@@ -91,6 +91,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	var fk *furnitureFilter
 	if opt.dropFurniture {
 		keys := map[string]int{}
+		exemplars := map[string]*furnitureExemplar{}
 		for i := range sel {
 			seen := map[string]bool{}
 			for si := range pms[i].Sections {
@@ -99,6 +100,9 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 					if key := furnitureKey(para, pageHs[i]); key != "" && !seen[key] {
 						seen[key] = true
 						keys[key]++
+						if exemplars[key] == nil {
+							exemplars[key] = newFurnitureExemplar(para, sel[i], pageHs[i], pageWs[i])
+						}
 					}
 				}
 			}
@@ -107,7 +111,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 		if minRepeats < 3 {
 			minRepeats = 3
 		}
-		fk = &furnitureFilter{keys: keys, min: minRepeats}
+		fk = &furnitureFilter{keys: keys, min: minRepeats, exemplars: exemplars}
 	}
 
 	doc := &flowDoc{furniture: fk}
@@ -319,11 +323,48 @@ func furnitureKey(para *MarkupParagraph, pageH float64) string {
 	return flowDigitsRe.ReplaceAllString(text, "#")
 }
 
+// furnitureExemplar is one concrete sighting of a repeating header/footer
+// line — enough to rebuild it as a real running header/footer (DOCX w:ftr).
+type furnitureExemplar struct {
+	text     string  // the sighting's literal text (digits intact)
+	pageNo   int     // 1-based source page of the sighting
+	bottom   bool    // bottom band (footer) vs top band (header)
+	size     float64 // dominant look of the sighting
+	color    Color
+	fontName string
+	bold     bool
+	italic   bool
+	centered bool
+}
+
 // furnitureFilter suppresses repeating header/footer text, both as whole
 // paragraphs and as segments the extractor merged into content.
 type furnitureFilter struct {
-	keys map[string]int // masked text → number of pages it appears on
-	min  int            // repeats needed to count as furniture
+	keys      map[string]int // masked text → number of pages it appears on
+	min       int            // repeats needed to count as furniture
+	exemplars map[string]*furnitureExemplar
+}
+
+// footerExemplar returns the most frequent bottom-band furniture line (the
+// document's running footer), or nil.
+func (fk *furnitureFilter) footerExemplar() *furnitureExemplar {
+	if fk == nil {
+		return nil
+	}
+	bestKey, bestN := "", 0
+	for key, n := range fk.keys {
+		ex := fk.exemplars[key]
+		if ex == nil || !ex.bottom || n < fk.min {
+			continue
+		}
+		if n > bestN || (n == bestN && key < bestKey) {
+			bestKey, bestN = key, n
+		}
+	}
+	if bestKey == "" {
+		return nil
+	}
+	return fk.exemplars[bestKey]
 }
 
 // dropParagraph reports whether the paragraph is a repeating header/footer.
@@ -351,6 +392,32 @@ func (fk *furnitureFilter) dropSegment(seg docSeg, pageH float64) bool {
 	}
 	key := flowDigitsRe.ReplaceAllString(collapseWS(strings.Join(texts, " ")), "#")
 	return fk.keys[key] >= fk.min
+}
+
+// newFurnitureExemplar captures a furniture sighting's text and look.
+func newFurnitureExemplar(para *MarkupParagraph, pageNo int, pageH, pageW float64) *furnitureExemplar {
+	ex := &furnitureExemplar{pageNo: pageNo, bottom: para.Rectangle.URY <= 0.12*pageH, size: 9}
+	var texts []string
+	for _, line := range para.Lines {
+		texts = append(texts, lineJoinedText(line))
+	}
+	ex.text = collapseWS(strings.Join(texts, " "))
+	bestW := -1
+	for _, line := range para.Lines {
+		for _, fr := range line.Fragments {
+			if w := len([]rune(fr.Text)); w > bestW {
+				bestW = w
+				ex.size, ex.color, ex.fontName = fr.FontSize, fr.Color, fr.FontName
+				ex.bold, ex.italic = fr.Bold, fr.Italic
+			}
+		}
+	}
+	if pageW > 0 {
+		left := para.Rectangle.LLX
+		right := pageW - para.Rectangle.URX
+		ex.centered = left > 0.15*pageW && right > 0.15*pageW && absf(left-right) <= maxf(8, 0.08*pageW)
+	}
+	return ex
 }
 
 // isRotatedDecoration reports whether every fragment of the paragraph is
