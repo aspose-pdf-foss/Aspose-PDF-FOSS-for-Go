@@ -104,8 +104,9 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 		return err
 	}
 
-	blocks := buildDocxBlocks(doc, !opt.NoPageBreaks)
-	dw := &docxWriter{bodySize: doc.bodySize, margins: docxContentMargins(doc, pages, sel)}
+	margins := docxContentMargins(doc, pages, sel)
+	blocks := buildDocxBlocks(doc, !opt.NoPageBreaks, margins)
+	dw := &docxWriter{bodySize: doc.bodySize, margins: margins}
 	if len(sel) > 0 {
 		if size, err := pages[sel[0]-1].Size(); err == nil {
 			dw.pageWPt = size.Width
@@ -155,15 +156,114 @@ const (
 // flow segments (so multi-line headings merge before serialization instead
 // of by rewinding emitted text).
 type docxBlock struct {
-	kind      docxBlockKind
-	level     int  // heading level (1..6) or list nesting (0-based ilvl)
-	ordered   bool // list kind
-	listID    int  // 1-based numbering instance (w:numId)
-	runs      []docRun
-	lines     [][]docRun // code blocks: one run list per visual line
-	imgs      []*Image   // image row: side-by-side images share one paragraph
-	pageNo    int        // source page (for media naming)
-	brkBefore bool       // start a new Word page before this block
+	kind        docxBlockKind
+	level       int  // heading level (1..6) or list nesting (0-based ilvl)
+	ordered     bool // list kind
+	listID      int  // 1-based numbering instance (w:numId)
+	runs        []docRun
+	lines       [][]docRun // code blocks: one run list per visual line
+	imgs        []*Image   // image row: side-by-side images share one paragraph
+	pageNo      int        // source page (for media naming)
+	brkBefore   bool       // start a new Word page before this block
+	align       int8       // 0 left, 1 center, 2 right (w:jc)
+	spaceBefore int        // extra vertical gap above, twips (w:spacing w:before)
+	lastFilled  bool       // last visual line filled its column (wrap continues)
+	yTop, yBot  float64    // source vertical extent (spacing reconstruction)
+	xMin, xMax  float64    // image rows: horizontal extent (centering)
+}
+
+// Alignment inference: a line is centered when its side gaps within the
+// column are near-equal (and real); right-aligned when it hugs the right
+// edge while leaving a substantial left gap.
+func lineAlign(llx, urx float64, col Rectangle) int8 {
+	colW := col.URX - col.LLX
+	if colW <= 0 {
+		return 0
+	}
+	left, right := llx-col.LLX, col.URX-urx
+	tol := maxf(8, 0.08*colW)
+	// The side gaps must be clearly larger than an ordinary text margin —
+	// relative to the reference width, so both tight section rects and
+	// full-page frames work.
+	minSide := maxf(12, 0.15*colW)
+	if left > minSide && right > minSide && absf(left-right) <= tol {
+		return 1
+	}
+	if right <= maxf(6, 0.02*colW) && left > 0.25*colW {
+		return 2
+	}
+	return 0
+}
+
+// lineFills reports whether a visual line reaches (close to) the column's
+// right edge — i.e. it wrapped naturally rather than ending deliberately.
+func lineFills(urx float64, col Rectangle) bool {
+	colW := col.URX - col.LLX
+	return colW > 0 && urx >= col.URX-0.15*colW
+}
+
+// segGeometry summarizes a segment's alignment/fill/vertical extent.
+func segGeometry(seg docSeg, col Rectangle) (align int8, lastFilled bool, yTop, yBot float64) {
+	centered, right := 0, 0
+	for li, line := range seg.lines {
+		llx, urx := lineExtent(line)
+		switch lineAlign(llx, urx, col) {
+		case 1:
+			centered++
+		case 2:
+			right++
+		}
+		size := 12.0
+		if len(line.Fragments) > 0 && line.Fragments[0].FontSize > 0 {
+			size = line.Fragments[0].FontSize
+		}
+		top, bot := line.Y+0.8*size, line.Y-0.25*size
+		if li == 0 || top > yTop {
+			yTop = top
+		}
+		if li == 0 || bot < yBot {
+			yBot = bot
+		}
+		if li == len(seg.lines)-1 {
+			lastFilled = lineFills(urx, col)
+		}
+	}
+	n := len(seg.lines)
+	switch {
+	case n > 0 && centered*2 > n:
+		align = 1
+	case n > 0 && right*2 > n:
+		align = 2
+	}
+	return
+}
+
+// segRunsWithBreaks joins a segment's per-line runs, preserving deliberate
+// line breaks — but only in centered/right-aligned segments (title blocks,
+// cover pages), where a short line is unambiguously intentional. Left-aligned
+// text keeps space-joins: its ragged lines re-wrap in Word, and hard breaks
+// combined with the substitute fonts' wider metrics would double every line.
+func segRunsWithBreaks(seg docSeg, links []linkArea, col Rectangle, align int8) []docRun {
+	if align == 0 {
+		return segmentRuns(seg, links)
+	}
+	lineRuns := segmentLineRuns(seg, links)
+	var runs []docRun
+	for li, lr := range lineRuns {
+		if len(lr) == 0 {
+			continue
+		}
+		if len(runs) > 0 {
+			_, prevURX := lineExtent(seg.lines[li-1])
+			if lineFills(prevURX, col) {
+				runs[len(runs)-1].text += " "
+			} else {
+				runs = append(runs, docRun{br: true})
+			}
+		}
+		runs = append(runs, lr...)
+	}
+	return runs
 }
 
 // buildDocxBlocks classifies every page's segments into Word blocks,
@@ -172,7 +272,7 @@ type docxBlock struct {
 // every source page after the first carries a page-break-before mark, so the
 // output pagination mirrors the original (an empty source page becomes an
 // empty paragraph to keep the page count aligned).
-func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
+func buildDocxBlocks(doc *flowDoc, pageBreaks bool, margins [4]int) *docxBlockList {
 	bl := &docxBlockList{}
 	st := struct {
 		listKind    string
@@ -188,6 +288,33 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
 				bl.add(docxBlock{kind: docxParaBlock})
 			}
 		}
+		// Vertical-placement reconstruction, first block of the page only:
+		// the gap between the content-area top and the page's first content
+		// (a cover's mid-page title, a chapter opener) becomes w:spacing
+		// w:before. Inter-block gaps are NOT reconstructed — Word's line
+		// metrics run taller than the PDF's, and on dense pages any added
+		// spacing spills onto an extra page. Scaled by 0.8 for the same
+		// reason.
+		contentTop := fp.pageH - float64(margins[0])/20
+		firstOnPage := pageBreaks
+		spacingFor := func(yTop float64) int {
+			if !firstOnPage || yTop <= 0 {
+				return 0
+			}
+			gapPt := (contentTop - yTop) * 0.8
+			if gapPt < 24 {
+				return 0
+			}
+			if gapPt > 300 {
+				gapPt = 300
+			}
+			return int(gapPt * 20)
+		}
+		addBlock := func(b docxBlock) {
+			b.spaceBefore = spacingFor(b.yTop)
+			bl.add(b)
+			firstOnPage = false
+		}
 		for _, blk := range fp.blocks {
 			if blk.img != nil {
 				// Images that sat side by side on the source page (their
@@ -197,9 +324,20 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
 					last.kind == docxImageBlock && last.pageNo == fp.number &&
 					imagesOverlapVert(last.imgs[len(last.imgs)-1], blk.img) {
 					last.imgs = append(last.imgs, blk.img)
+					last.yTop = maxf(last.yTop, blk.img.Y+blk.img.PageHeight)
+					if blk.img.Y < last.yBot {
+						last.yBot = blk.img.Y
+					}
+					last.xMin = minf(last.xMin, blk.img.X)
+					last.xMax = maxf(last.xMax, blk.img.X+blk.img.PageWidth)
+					last.align = imageRowAlign(last.xMin, last.xMax, fp.pageW)
 					continue
 				}
-				bl.add(docxBlock{kind: docxImageBlock, imgs: []*Image{blk.img}, pageNo: fp.number})
+				b := docxBlock{kind: docxImageBlock, imgs: []*Image{blk.img}, pageNo: fp.number,
+					yTop: blk.img.Y + blk.img.PageHeight, yBot: blk.img.Y,
+					xMin: blk.img.X, xMax: blk.img.X + blk.img.PageWidth}
+				b.align = imageRowAlign(b.xMin, b.xMax, fp.pageW)
+				addBlock(b)
 				endList()
 				continue
 			}
@@ -207,17 +345,18 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
 				if doc.furniture.dropSegment(seg, fp.pageH) || len(seg.lines) == 0 {
 					continue
 				}
+				align, lastFilled, yTop, yBot := segGeometry(seg, blk.col)
 				if seg.mono {
 					var lines [][]docRun
 					for _, line := range seg.lines {
 						lineSeg := docSeg{lines: []TextLine{line}, size: seg.size, mono: true}
 						lines = append(lines, segmentRuns(lineSeg, fp.links))
 					}
-					bl.add(docxBlock{kind: docxCodeBlock, lines: lines})
+					addBlock(docxBlock{kind: docxCodeBlock, lines: lines, yTop: yTop, yBot: yBot})
 					endList()
 					continue
 				}
-				runs := segmentRuns(seg, fp.links)
+				runs := segRunsWithBreaks(seg, fp.links, blk.col, align)
 				if seg.marker != "" {
 					depth := 0
 					if st.listKind != "" {
@@ -237,28 +376,49 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool) *docxBlockList {
 						re = orderedRunRe
 					}
 					stripRunsPrefix(&runs, re)
-					bl.add(docxBlock{kind: docxListItemBlock, level: depth,
-						ordered: seg.marker == "1", listID: st.listID, runs: runs})
+					addBlock(docxBlock{kind: docxListItemBlock, level: depth,
+						ordered: seg.marker == "1", listID: st.listID, runs: runs,
+						yTop: yTop, yBot: yBot})
 					continue
 				}
 				text := runsPlainText(runs)
 				if level := headingLevel(seg.size, doc.bodySize, len(text)); level > 0 {
 					// Merge a heading the extractor split across segments —
-					// but never across a pending page break.
-					if last := bl.last(); last != nil && !bl.breakNext && last.kind == docxHeadingBlock && last.level == level {
+					// only when the previous heading's last line wrapped
+					// (filled its column), and never across a page break.
+					if last := bl.last(); last != nil && !bl.breakNext &&
+						last.kind == docxHeadingBlock && last.level == level && last.lastFilled {
 						last.runs = append(append(last.runs, docRun{text: " "}), runs...)
+						last.lastFilled = lastFilled
+						if yBot > 0 && yBot < last.yBot {
+							last.yBot = yBot
+						}
 						continue
 					}
-					bl.add(docxBlock{kind: docxHeadingBlock, level: level, runs: runs})
+					addBlock(docxBlock{kind: docxHeadingBlock, level: level, runs: runs,
+						align: align, lastFilled: lastFilled, yTop: yTop, yBot: yBot})
 					endList()
 					continue
 				}
-				bl.add(docxBlock{kind: docxParaBlock, runs: runs})
+				addBlock(docxBlock{kind: docxParaBlock, runs: runs, align: align,
+					lastFilled: lastFilled, yTop: yTop, yBot: yBot})
 				endList()
 			}
 		}
 	}
 	return bl
+}
+
+// imageRowAlign centers an image row that sits around the page's middle.
+func imageRowAlign(xMin, xMax, pageW float64) int8 {
+	if pageW <= 0 {
+		return 0
+	}
+	center := (xMin + xMax) / 2
+	if absf(center-pageW/2) <= 0.08*pageW && xMin > 0.05*pageW {
+		return 1
+	}
+	return 0
 }
 
 // imagesOverlapVert reports whether two images' vertical ranges intersect —
@@ -407,14 +567,30 @@ func (dw *docxWriter) writeSectPr(b *strings.Builder, pages []*Page, sel []int) 
 		wTw, hTw, orient, dw.margins[0], dw.margins[1], dw.margins[2], dw.margins[3])
 }
 
-// brk returns the page-break-before element when the block starts a new
-// page. Its slot in the CT_PPr sequence is after pStyle/keepNext and before
-// numPr/shd.
-func brk(blk *docxBlock) string {
+// docxPPr assembles a paragraph-properties element in the CT_PPr schema
+// sequence: pStyle, pageBreakBefore, numPr, shd, spacing, jc. Returns ""
+// when every part is empty.
+func docxPPr(blk *docxBlock, pStyle, numPr, shd string) string {
+	var b strings.Builder
+	b.WriteString(pStyle)
 	if blk.brkBefore {
-		return `<w:pageBreakBefore/>`
+		b.WriteString(`<w:pageBreakBefore/>`)
 	}
-	return ""
+	b.WriteString(numPr)
+	b.WriteString(shd)
+	if blk.spaceBefore > 0 {
+		fmt.Fprintf(&b, `<w:spacing w:before="%d"/>`, blk.spaceBefore)
+	}
+	switch blk.align {
+	case 1:
+		b.WriteString(`<w:jc w:val="center"/>`)
+	case 2:
+		b.WriteString(`<w:jc w:val="right"/>`)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return `<w:pPr>` + b.String() + `</w:pPr>`
 }
 
 func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
@@ -424,20 +600,19 @@ func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
 	case docxCodeBlock:
 		dw.writeCodePara(b, blk)
 	case docxHeadingBlock:
-		fmt.Fprintf(b, `<w:p><w:pPr><w:pStyle w:val="Heading%d"/>%s</w:pPr>`, blk.level, brk(blk))
+		b.WriteString(`<w:p>`)
+		b.WriteString(docxPPr(blk, fmt.Sprintf(`<w:pStyle w:val="Heading%d"/>`, blk.level), "", ""))
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	case docxListItemBlock:
-		fmt.Fprintf(b, `<w:p><w:pPr>%s<w:numPr><w:ilvl w:val="%d"/><w:numId w:val="%d"/></w:numPr></w:pPr>`,
-			brk(blk), blk.level, blk.listID)
+		b.WriteString(`<w:p>`)
+		b.WriteString(docxPPr(blk,
+			"", fmt.Sprintf(`<w:numPr><w:ilvl w:val="%d"/><w:numId w:val="%d"/></w:numPr>`, blk.level, blk.listID), ""))
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	default:
-		if blk.brkBefore {
-			b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr>`)
-		} else {
-			b.WriteString(`<w:p>`)
-		}
+		b.WriteString(`<w:p>`)
+		b.WriteString(docxPPr(blk, "", "", ""))
 		dw.writeRuns(b, blk.runs, false)
 		b.WriteString(`</w:p>`)
 	}
@@ -447,7 +622,8 @@ func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
 // writeCodePara emits a monospace segment as one shaded paragraph, one
 // visual line per w:br-separated stretch.
 func (dw *docxWriter) writeCodePara(b *strings.Builder, blk *docxBlock) {
-	fmt.Fprintf(b, `<w:p><w:pPr>%s<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:pPr>`, brk(blk))
+	b.WriteString(`<w:p>`)
+	b.WriteString(docxPPr(blk, "", "", `<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/>`))
 	for i, line := range blk.lines {
 		if i > 0 {
 			b.WriteString(`<w:r><w:br/></w:r>`)
@@ -459,8 +635,9 @@ func (dw *docxWriter) writeCodePara(b *strings.Builder, blk *docxBlock) {
 
 // docxSameStyle is the Word view of run equivalence (everything docRun
 // carries is expressible, so only the hyperlink grouping stays outside).
+// Break markers never merge — two breaks are a blank line.
 func docxSameStyle(a, b docRun) bool {
-	return a.sameLook(b)
+	return !a.br && !b.br && a.sameLook(b)
 }
 
 // writeRuns emits the runs, wrapping stretches that share a hyperlink in
@@ -490,6 +667,10 @@ func (dw *docxWriter) writeRuns(b *strings.Builder, runs []docRun, forceMono boo
 // writeRun emits one w:r. rPr children follow the schema sequence: rStyle,
 // rFonts, b, i, strike, color, sz, szCs, u, vertAlign.
 func (dw *docxWriter) writeRun(b *strings.Builder, r docRun, forceMono, inLink bool) {
+	if r.br {
+		b.WriteString(`<w:r><w:br/></w:r>`)
+		return
+	}
 	if r.text == "" {
 		return
 	}
@@ -607,8 +788,8 @@ func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
 		totalW += wPt
 	}
 	if len(row) == 0 {
-		if blk.brkBefore {
-			b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`)
+		if pPr := docxPPr(blk, "", "", ""); pPr != "" {
+			b.WriteString(`<w:p>` + pPr + `</w:p>`)
 		}
 		return nil
 	}
@@ -625,11 +806,8 @@ func (dw *docxWriter) writeImagePara(b *strings.Builder, blk *docxBlock) error {
 		}
 	}
 
-	if blk.brkBefore {
-		b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr>`)
-	} else {
-		b.WriteString(`<w:p>`)
-	}
+	b.WriteString(`<w:p>`)
+	b.WriteString(docxPPr(blk, "", "", ""))
 	for i, pl := range row {
 		if pl.cx <= 0 || pl.cy <= 0 {
 			continue

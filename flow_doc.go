@@ -24,6 +24,7 @@ type flowBlock struct {
 	para *MarkupParagraph
 	img  *Image
 	top  float64
+	col  Rectangle // the column (MarkupSection) the paragraph belongs to
 }
 
 // sizeSample is one text run's vote for the document body font size.
@@ -52,6 +53,7 @@ type flowDocPage struct {
 	blocks []flowBlock
 	links  []linkArea
 	pageH  float64
+	pageW  float64
 }
 
 // flowDoc is the reconstructed document: pages of ordered blocks plus the
@@ -70,10 +72,12 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	// block pass can filter.
 	pms := make([]PageMarkup, len(sel))
 	pageHs := make([]float64, len(sel))
+	pageWs := make([]float64, len(sel))
 	for i, n := range sel {
 		p := pages[n-1]
 		if size, err := p.Size(); err == nil {
 			pageHs[i] = size.Height
+			pageWs[i] = size.Width
 		}
 		pm, err := p.Paragraphs()
 		if err != nil {
@@ -171,7 +175,14 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				if rectMostlyInside(para.Rectangle, vecClusters) {
 					continue // lives inside a rasterized graphics cluster
 				}
-				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY})
+				col := pms[i].Sections[si].Rectangle
+				if len(pms[i].Sections) == 1 && pageWs[i] > 0 {
+					// A single-section page's section rect is just the text
+					// bbox (degenerate on sparse cover-like pages) — the
+					// page frame is the honest alignment/wrap reference.
+					col = Rectangle{LLX: 0, LLY: 0, URX: pageWs[i], URY: pageHs[i]}
+				}
+				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY, col: col})
 				if opt.onParagraph != nil {
 					opt.onParagraph(p, para)
 				}
@@ -195,7 +206,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 		for _, vb := range vecBlocks {
 			insertFlowImage(&blocks, vb)
 		}
-		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i]}
+		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i], pageW: pageWs[i]}
 		if opt.collectLinks {
 			fp.links = pageLinkAreas(p)
 		}
@@ -534,6 +545,7 @@ type docRun struct {
 	fontSize     float64
 	color        Color
 	sub, super   bool
+	br           bool // explicit line break (no other fields set)
 }
 
 // segmentRuns flattens a segment's fragments into styled runs: visual lines
@@ -541,16 +553,33 @@ type docRun struct {
 // gaps that read as spaces are synthesized back.
 func segmentRuns(seg docSeg, links []linkArea) []docRun {
 	var runs []docRun
-	appendRun := func(r docRun) {
-		if n := len(runs); n > 0 && runs[n-1].sameLook(r) {
-			runs[n-1].text += r.text
-			return
-		}
-		runs = append(runs, r)
-	}
-	for li, line := range seg.lines {
+	for li, lineRuns := range segmentLineRuns(seg, links) {
 		if li > 0 && len(runs) > 0 {
 			runs[len(runs)-1].text += " "
+		}
+		for _, r := range lineRuns {
+			if n := len(runs); n > 0 && runs[n-1].sameLook(r) {
+				runs[n-1].text += r.text
+				continue
+			}
+			runs = append(runs, r)
+		}
+	}
+	return runs
+}
+
+// segmentLineRuns builds the styled runs per visual line (serializers that
+// preserve line breaks — DOCX — decide themselves how lines join).
+func segmentLineRuns(seg docSeg, links []linkArea) [][]docRun {
+	out := make([][]docRun, 0, len(seg.lines))
+	for _, line := range seg.lines {
+		var runs []docRun
+		appendRun := func(r docRun) {
+			if n := len(runs); n > 0 && runs[n-1].sameLook(r) {
+				runs[n-1].text += r.text
+				return
+			}
+			runs = append(runs, r)
 		}
 		prevEnd := 0.0
 		for i, fr := range line.Fragments {
@@ -578,8 +607,23 @@ func segmentRuns(seg docSeg, links []linkArea) []docRun {
 			})
 			prevEnd = fr.X + fr.Width
 		}
+		out = append(out, runs)
 	}
-	return runs
+	return out
+}
+
+// lineExtent returns a visual line's horizontal span.
+func lineExtent(line TextLine) (llx, urx float64) {
+	if len(line.Fragments) == 0 {
+		return 0, 0
+	}
+	llx = line.Fragments[0].X
+	urx = llx
+	for _, fr := range line.Fragments {
+		llx = minf(llx, fr.X)
+		urx = maxf(urx, fr.X+fr.Width)
+	}
+	return llx, urx
 }
 
 // sameLook compares the full style surface (used while building runs, so no
