@@ -47,7 +47,15 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 	if err != nil {
 		return nil, nil, nil
 	}
-	boxes := paintedPathBoxes(ops)
+	// Painted-path bboxes via the shared geometry visitor (table_detect_rules
+	// .go); top-level content only — a Form XObject holding a whole imported
+	// page would register as one giant cluster.
+	var boxes []Rectangle
+	visitPaths(p.doc.objects, ops, nil, false, func(pv pathVisit) {
+		if pv.paint != paintNone && pv.bbox.URX >= pv.bbox.LLX {
+			boxes = append(boxes, pv.bbox)
+		}
+	})
 	if len(boxes) == 0 {
 		return nil, nil, nil
 	}
@@ -181,82 +189,6 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 		}
 	}
 	return blocks, wanted, icons
-}
-
-// paintedPathBoxes walks the content ops with CTM tracking and returns the
-// page-space bounding box of every painted (stroked/filled) path. Top-level
-// content only — Form XObjects are not entered (a whole imported page would
-// register as one giant cluster).
-func paintedPathBoxes(ops []contentOp) []Rectangle {
-	ctm := identityMatrix()
-	var stack [][6]float64
-	var boxes []Rectangle
-
-	cur := Rectangle{LLX: 1e18, LLY: 1e18, URX: -1e18, URY: -1e18}
-	havePt := false
-	addPt := func(x, y float64) {
-		dx, dy := matApplyPoint(ctm, x, y)
-		cur.LLX, cur.LLY = minf(cur.LLX, dx), minf(cur.LLY, dy)
-		cur.URX, cur.URY = maxf(cur.URX, dx), maxf(cur.URY, dy)
-		havePt = true
-	}
-	reset := func() {
-		cur = Rectangle{LLX: 1e18, LLY: 1e18, URX: -1e18, URY: -1e18}
-		havePt = false
-	}
-	nums := func(op contentOp) []float64 {
-		out := make([]float64, len(op.Operands))
-		for i, o := range op.Operands {
-			out[i] = operandFloat(o)
-		}
-		return out
-	}
-
-	for _, op := range ops {
-		switch op.Operator {
-		case "cm":
-			if v := nums(op); len(v) >= 6 {
-				ctm = matMul([6]float64{v[0], v[1], v[2], v[3], v[4], v[5]}, ctm)
-			}
-		case "q":
-			stack = append(stack, ctm)
-		case "Q":
-			if len(stack) > 0 {
-				ctm = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-			}
-		case "m", "l":
-			if v := nums(op); len(v) >= 2 {
-				addPt(v[0], v[1])
-			}
-		case "c":
-			if v := nums(op); len(v) >= 6 {
-				addPt(v[0], v[1])
-				addPt(v[2], v[3])
-				addPt(v[4], v[5])
-			}
-		case "v", "y":
-			if v := nums(op); len(v) >= 4 {
-				addPt(v[0], v[1])
-				addPt(v[2], v[3])
-			}
-		case "re":
-			if v := nums(op); len(v) >= 4 {
-				addPt(v[0], v[1])
-				addPt(v[0]+v[2], v[1])
-				addPt(v[0], v[1]+v[3])
-				addPt(v[0]+v[2], v[1]+v[3])
-			}
-		case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*":
-			if havePt {
-				boxes = append(boxes, cur)
-			}
-			reset()
-		case "n":
-			reset() // clip-only path
-		}
-	}
-	return boxes
 }
 
 // clusterRects merges rectangles whose gap-expanded bounds intersect,

@@ -1,154 +1,508 @@
 {
-  "TestParagraphsRealFile":              [["marketing.pdf"]],
-  "TestDocumentOpen":                    [["marketing.pdf"]],
-  "TestDocumentSave":                    [["marketing.pdf"]],
-  "TestDocumentRotate":                  [["marketing.pdf"]],
-  "TestDocumentRotateSpecificPage":      [["marketing.pdf"]],
-  "TestDocumentRotateAccumulates":       [["marketing.pdf"]],
-  "TestDocumentRotateDuplicatePageNums": [["marketing.pdf"]],
-  "TestDocumentExtractPages":            [["marketing.pdf"]],
-  "TestDocumentReorder":                 [["marketing.pdf"]],
-  "TestDocumentWriteTo":                 [["4pages.pdf"]],
-  "TestDocumentSetRotation":             [["marketing.pdf"]],
-  "TestDocumentInvalidRotateAngle":      [["marketing.pdf"]],
-  "TestDocumentRotateZeroIsNoop":        [["marketing.pdf"]],
-  "TestDocumentInvalidReorderPageNum":   [["marketing.pdf"]],
-  "TestDocumentInvalidExtract":          [["marketing.pdf"]],
-
+  "TestParagraphsRealFile": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentOpen": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentSave": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentRotate": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentRotateSpecificPage": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentRotateAccumulates": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentRotateDuplicatePageNums": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentExtractPages": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentReorder": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentWriteTo": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentSetRotation": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentInvalidRotateAngle": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentRotateZeroIsNoop": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentInvalidReorderPageNum": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestDocumentInvalidExtract": [
+    [
+      "marketing.pdf"
+    ]
+  ],
   "TestDocumentAppend": [
-    ["Hello world.pdf", "PdfWithAcroForm.pdf"],
-    ["4pages.pdf", "marketing.pdf"]
+    [
+      "Hello world.pdf",
+      "PdfWithAcroForm.pdf"
+    ],
+    [
+      "4pages.pdf",
+      "marketing.pdf"
+    ]
   ],
-
-  "TestEncryptSetPassword":         [["4pages.pdf"]],
-  "TestEncryptContentIsObfuscated": [["4pages.pdf"]],
-  "TestEncryptFunc":                [["4pages.pdf"]],
-  "TestEncryptEmptyPassword":       [["4pages.pdf"]],
-  "TestOpenEncryptedReturnsError":  [["4pages.pdf"]],
-  "TestEncryptPreservesPageCount":  [["4pages.pdf"]],
-
+  "TestEncryptSetPassword": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestEncryptContentIsObfuscated": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestEncryptFunc": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestEncryptEmptyPassword": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestOpenEncryptedReturnsError": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestEncryptPreservesPageCount": [
+    [
+      "4pages.pdf"
+    ]
+  ],
   "TestEncryptDecryptRoundTripFiles": [
-    ["4pages.pdf"],
-    ["Binder1.pdf"],
-    ["PdfWithLinks.pdf"],
-    ["PdfWithTable.pdf"],
-    ["alfa.pdf"],
-    ["marketing.pdf"]
+    [
+      "4pages.pdf"
+    ],
+    [
+      "Binder1.pdf"
+    ],
+    [
+      "PdfWithLinks.pdf"
+    ],
+    [
+      "PdfWithTable.pdf"
+    ],
+    [
+      "alfa.pdf"
+    ],
+    [
+      "marketing.pdf"
+    ]
   ],
-  "TestEditInPlaceEncrypted": [["alfa.pdf"]],
-
-  "TestFormFieldsCount":              [["PdfWithAcroForm.pdf"]],
-  "TestFormFieldsTypes":              [["PdfWithAcroForm.pdf"]],
-  "TestFormFieldAndFieldsSameInstance": [["PdfWithAcroForm.pdf"]],
-  "TestFormJSONExportRealFile":       [["PdfWithAcroForm.pdf"]],
-  "TestTextBoxFieldRead":             [["PdfWithAcroForm.pdf"]],
-  "TestTextBoxFieldRoundTrip":        [["PdfWithAcroForm.pdf"]],
-  "TestCheckboxFieldRead":            [["PdfWithAcroForm.pdf"]],
-  "TestCheckboxFieldRoundTrip":       [["PdfWithAcroForm.pdf"]],
-  "TestRadioButtonFieldRead":         [["PdfWithAcroForm.pdf"]],
-  "TestRadioButtonFieldRoundTrip":    [["PdfWithAcroForm.pdf"]],
-  "TestComboBoxFieldRead":            [["PdfWithAcroForm.pdf"]],
-  "TestComboBoxFieldRoundTrip":       [["PdfWithAcroForm.pdf"]],
-  "TestListBoxFieldRead":             [["PdfWithAcroForm.pdf"]],
-  "TestListBoxFieldRoundTrip":        [["PdfWithAcroForm.pdf"]],
-  "TestFormSetValueRegeneratesAP": [["PdfWithAcroForm.pdf"]],
-  "TestFormManualNeedAppearancesToggle": [["PdfWithAcroForm.pdf"]],
-  "TestFormFillIntegration":            [["PdfWithAcroForm.pdf"]],
-  "TestFormCyrillicRoundTrip":          [["PdfWithAcroForm.pdf"]],
-
-  "TestRadioButtonFieldSetValueInvalidReturnsError":         [["PdfWithAcroForm.pdf"]],
-  "TestRadioButtonFieldSetValueEmptyClearsSelection":        [["PdfWithAcroForm.pdf"]],
-  "TestComboBoxFieldSetValueInvalidNonEditableReturnsError": [["PdfWithAcroForm.pdf"]],
-  "TestCheckboxFieldSetValueAcceptsBooleanStrings":          [["PdfWithAcroForm.pdf"]],
-  "TestCheckboxFieldSetValueInvalidReturnsError":            [["PdfWithAcroForm.pdf"]],
-  "TestButtonFieldSetValueReturnsError":                     [["PdfWithAcroForm.pdf"]],
-  "TestListBoxFieldSetSelectedMultiOnSingleSelectReturnsError": [["PdfWithAcroForm.pdf"]],
-
-  "TestMetadataCustomFieldsRoundTrip": [["4pages.pdf"]],
-  "TestDocumentMetadataFields":        [["4pages.pdf"]],
-  "TestDocumentMetadata":              [["4pages.pdf"]],
-  "TestDocumentMetadataAfterAppend":   [["4pages.pdf", "marketing.pdf"]],
-  "TestSetMetadataRoundTrip":          [["4pages.pdf"]],
-  "TestSetMetadataCustomFields":       [["4pages.pdf"]],
-  "TestSetMetadataReplaces":           [["4pages.pdf"]],
-  "TestClearMetadata":                 [["4pages.pdf"]],
-
-  "TestPageLabelDefaultDecimal":     [["4pages.pdf"]],
-  "TestPageSizes":                   [["4pages.pdf"]],
-  "TestDocumentPages":               [["4pages.pdf"]],
-  "TestDocumentPage":                [["4pages.pdf"]],
-  "TestPageRotation":                [["marketing.pdf"]],
-  "TestPageBoxesFallbackToMediaBox": [["4pages.pdf"]],
-  "TestDocumentPageInvalidNumber":   [["4pages.pdf"]],
-
+  "TestEditInPlaceEncrypted": [
+    [
+      "alfa.pdf"
+    ]
+  ],
+  "TestFormFieldsCount": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormFieldsTypes": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormFieldAndFieldsSameInstance": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormJSONExportRealFile": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestTextBoxFieldRead": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestTextBoxFieldRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestCheckboxFieldRead": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestCheckboxFieldRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestRadioButtonFieldRead": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestRadioButtonFieldRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestComboBoxFieldRead": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestComboBoxFieldRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestListBoxFieldRead": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestListBoxFieldRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormSetValueRegeneratesAP": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormManualNeedAppearancesToggle": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormFillIntegration": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestFormCyrillicRoundTrip": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestRadioButtonFieldSetValueInvalidReturnsError": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestRadioButtonFieldSetValueEmptyClearsSelection": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestComboBoxFieldSetValueInvalidNonEditableReturnsError": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestCheckboxFieldSetValueAcceptsBooleanStrings": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestCheckboxFieldSetValueInvalidReturnsError": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestButtonFieldSetValueReturnsError": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestListBoxFieldSetSelectedMultiOnSingleSelectReturnsError": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestMetadataCustomFieldsRoundTrip": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentMetadataFields": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentMetadata": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentMetadataAfterAppend": [
+    [
+      "4pages.pdf",
+      "marketing.pdf"
+    ]
+  ],
+  "TestSetMetadataRoundTrip": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestSetMetadataCustomFields": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestSetMetadataReplaces": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestClearMetadata": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestPageLabelDefaultDecimal": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestPageSizes": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentPages": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentPage": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestPageRotation": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestPageBoxesFallbackToMediaBox": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestDocumentPageInvalidNumber": [
+    [
+      "4pages.pdf"
+    ]
+  ],
   "TestSplitFiles": [
-    ["4pages.pdf"],
-    ["Binder1.pdf"],
-    ["PdfWithLinks.pdf"],
-    ["PdfWithTable.pdf"],
-    ["alfa.pdf"],
-    ["marketing.pdf"]
+    [
+      "4pages.pdf"
+    ],
+    [
+      "Binder1.pdf"
+    ],
+    [
+      "PdfWithLinks.pdf"
+    ],
+    [
+      "PdfWithTable.pdf"
+    ],
+    [
+      "alfa.pdf"
+    ],
+    [
+      "marketing.pdf"
+    ]
   ],
-
   "TestExtractFiles": [
-    ["4pages.pdf"],
-    ["Binder1.pdf"],
-    ["PdfWithLinks.pdf"],
-    ["PdfWithTable.pdf"],
-    ["alfa.pdf"],
-    ["marketing.pdf"]
+    [
+      "4pages.pdf"
+    ],
+    [
+      "Binder1.pdf"
+    ],
+    [
+      "PdfWithLinks.pdf"
+    ],
+    [
+      "PdfWithTable.pdf"
+    ],
+    [
+      "alfa.pdf"
+    ],
+    [
+      "marketing.pdf"
+    ]
   ],
-
-  "TestValidate_OrphanedPagesNode":    [["4pages.pdf"]],
-  "TestValidate_PageParentRef":        [["Binder1.pdf"]],
-  "TestValidate_StrippedStreamFilter": [["Binder1.pdf"]],
-
+  "TestValidate_OrphanedPagesNode": [
+    [
+      "4pages.pdf"
+    ]
+  ],
+  "TestValidate_PageParentRef": [
+    [
+      "Binder1.pdf"
+    ]
+  ],
+  "TestValidate_StrippedStreamFilter": [
+    [
+      "Binder1.pdf"
+    ]
+  ],
   "TestExtractTextFiles": [
-    ["4pages.pdf"],
-    ["Binder1.pdf"],
-    ["PdfWithLinks.pdf"],
-    ["PdfWithTable.pdf"],
-    ["alfa.pdf"],
-    ["marketing.pdf"]
+    [
+      "4pages.pdf"
+    ],
+    [
+      "Binder1.pdf"
+    ],
+    [
+      "PdfWithLinks.pdf"
+    ],
+    [
+      "PdfWithTable.pdf"
+    ],
+    [
+      "alfa.pdf"
+    ],
+    [
+      "marketing.pdf"
+    ]
   ],
-
   "TestExtractTextWithLayoutFiles": [
-    ["4pages.pdf"],
-    ["Binder1.pdf"],
-    ["PdfWithLinks.pdf"],
-    ["PdfWithTable.pdf"],
-    ["alfa.pdf"],
-    ["marketing.pdf"]
+    [
+      "4pages.pdf"
+    ],
+    [
+      "Binder1.pdf"
+    ],
+    [
+      "PdfWithLinks.pdf"
+    ],
+    [
+      "PdfWithTable.pdf"
+    ],
+    [
+      "alfa.pdf"
+    ],
+    [
+      "marketing.pdf"
+    ]
   ],
-
   "TestExtractImages": [
-    ["PdfWithImages.pdf"],
-    ["PdfWithImages2.pdf"]
+    [
+      "PdfWithImages.pdf"
+    ],
+    [
+      "PdfWithImages2.pdf"
+    ]
   ],
-
   "TestImageInfos": [
-    ["PdfWithImages.pdf"],
-    ["PdfWithImages2.pdf"]
+    [
+      "PdfWithImages.pdf"
+    ],
+    [
+      "PdfWithImages2.pdf"
+    ]
   ],
-
   "TestImageToDocumentFiles": [
-    ["Koala.jpg"],
-    ["Penguins.jpg"],
-    ["Penguins.png"],
-    ["aspose-logo.png"]
+    [
+      "Koala.jpg"
+    ],
+    [
+      "Penguins.jpg"
+    ],
+    [
+      "Penguins.png"
+    ],
+    [
+      "aspose-logo.png"
+    ]
   ],
-
   "TestOptimizeImagesRoundTrip": [
-    ["PdfWithImages.pdf"]
+    [
+      "PdfWithImages.pdf"
+    ]
   ],
-
   "TestAddBlankPageRoundTrip": [
-    ["PdfWithImages.pdf"]
+    [
+      "PdfWithImages.pdf"
+    ]
   ],
-
-  "TestPageAnnotationsWalkExistingPDF":        [["PdfWithAcroForm.pdf"]],
-  "TestAnnotationsCoexistWithForm":            [["PdfWithAcroForm.pdf"]],
-  "TestLinkAnnotationReadFromExistingPDF":     [["PdfWithLinks.pdf"]],
-  "TestPdfWithLinksReadAllActions":            [["PdfWithLinks.pdf"]],
-  "TestSaveHTMLRealFile":              [["marketing.pdf"]]
+  "TestPageAnnotationsWalkExistingPDF": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestAnnotationsCoexistWithForm": [
+    [
+      "PdfWithAcroForm.pdf"
+    ]
+  ],
+  "TestLinkAnnotationReadFromExistingPDF": [
+    [
+      "PdfWithLinks.pdf"
+    ]
+  ],
+  "TestPdfWithLinksReadAllActions": [
+    [
+      "PdfWithLinks.pdf"
+    ]
+  ],
+  "TestSaveHTMLRealFile": [
+    [
+      "marketing.pdf"
+    ]
+  ],
+  "TestTableAbsorberRealFile": [
+    [
+      "PdfWithTable.pdf"
+    ]
+  ]
 }
