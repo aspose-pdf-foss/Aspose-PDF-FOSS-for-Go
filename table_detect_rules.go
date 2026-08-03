@@ -40,6 +40,7 @@ type pathVisit struct {
 	bbox     Rectangle
 	paint    pathPaint
 	strokeW  float64 // line width scaled through the CTM
+	fill     Color   // non-stroking colour active at paint time (device spaces)
 	depth    int     // 0 = page content, >0 = inside a Form XObject
 }
 
@@ -63,9 +64,11 @@ type pathVisitState struct {
 func (st *pathVisitState) walk(ops []contentOp, resources pdfDict, baseCTM [6]float64, baseW float64, depth int) {
 	ctm := baseCTM
 	lineW := baseW
+	fill := Color{A: 1} // default black
 	type gsave struct {
 		ctm   [6]float64
 		lineW float64
+		fill  Color
 	}
 	var stack []gsave
 
@@ -99,6 +102,7 @@ func (st *pathVisitState) walk(ops []contentOp, resources pdfDict, baseCTM [6]fl
 	flush := func(paint pathPaint) {
 		if len(cur.segs) > 0 || len(cur.rects) > 0 || cur.hasCurve {
 			cur.paint = paint
+			cur.fill = fill
 			// The stroke width scales with the CTM (average axis scale).
 			sx := math.Hypot(ctm[0], ctm[1])
 			sy := math.Hypot(ctm[2], ctm[3])
@@ -124,12 +128,35 @@ func (st *pathVisitState) walk(ops []contentOp, resources pdfDict, baseCTM [6]fl
 				ctm = matMul([6]float64{v[0], v[1], v[2], v[3], v[4], v[5]}, ctm)
 			}
 		case "q":
-			stack = append(stack, gsave{ctm, lineW})
+			stack = append(stack, gsave{ctm, lineW, fill})
 		case "Q":
 			if len(stack) > 0 {
 				g := stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
-				ctm, lineW = g.ctm, g.lineW
+				ctm, lineW, fill = g.ctm, g.lineW, g.fill
+			}
+		case "rg":
+			if v := nums(op); len(v) >= 3 {
+				fill = Color{R: v[0], G: v[1], B: v[2], A: 1}
+			}
+		case "g":
+			if v := nums(op); len(v) >= 1 {
+				fill = Color{R: v[0], G: v[0], B: v[0], A: 1}
+			}
+		case "k":
+			if v := nums(op); len(v) >= 4 {
+				r, gg, bb := adobeCMYKToRGB(v[0], v[1], v[2], v[3])
+				fill = Color{R: float64(r) / 255, G: float64(gg) / 255, B: float64(bb) / 255, A: 1}
+			}
+		case "sc", "scn":
+			// Numeric-only forms in the common device spaces.
+			if v := nums(op); len(v) == 3 {
+				fill = Color{R: v[0], G: v[1], B: v[2], A: 1}
+			} else if len(v) == 1 {
+				fill = Color{R: v[0], G: v[0], B: v[0], A: 1}
+			} else if len(v) == 4 {
+				r, gg, bb := adobeCMYKToRGB(v[0], v[1], v[2], v[3])
+				fill = Color{R: float64(r) / 255, G: float64(gg) / 255, B: float64(bb) / 255, A: 1}
 			}
 		case "w":
 			if v := nums(op); len(v) >= 1 {
@@ -293,11 +320,17 @@ type rule struct {
 	lo, hi float64
 }
 
+// shadedRect is a larger filled rectangle (cell shading) with its colour.
+type shadedRect struct {
+	Rectangle
+	col Color
+}
+
 // pageRules extracts the page's ruling lines and fill boxes. Rules come from
 // stroked axis-aligned segments, thin filled rectangles, and the edges of
 // stroked rectangles; fillBoxes are the larger filled rectangles (cell
 // shading), usable as secondary edge evidence.
-func pageRules(p *Page) (hRules, vRules []rule, fillBoxes []Rectangle) {
+func pageRules(p *Page) (hRules, vRules []rule, fillBoxes []shadedRect) {
 	data, err := p.contentStreams()
 	if err != nil || len(data) == 0 {
 		return nil, nil, nil
@@ -335,7 +368,7 @@ func pageRules(p *Page) (hRules, vRules []rule, fillBoxes []Rectangle) {
 				case w <= ruleThinFillPt && h > w:
 					vRaw = append(vRaw, rule{pos: (r.LLX + r.URX) / 2, lo: r.LLY, hi: r.URY})
 				default:
-					fillBoxes = append(fillBoxes, r)
+					fillBoxes = append(fillBoxes, shadedRect{Rectangle: r, col: pv.fill})
 				}
 			}
 		}

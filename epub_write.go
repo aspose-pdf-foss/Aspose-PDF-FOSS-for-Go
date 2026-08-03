@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -76,6 +77,7 @@ func (d *Document) WriteEpub(w io.Writer, opts ...EpubSaveOptions) error {
 		collectLinks:   true,
 		images:         !opt.NoImages,
 		vectorGraphics: !opt.NoImages,
+		detectTables:   true,
 	})
 	if err != nil {
 		return err
@@ -211,6 +213,9 @@ func (ew *epubWriter) writeBlock(blk *docxBlock) {
 		ew.closeList()
 	}
 	switch blk.kind {
+	case docxTableBlock:
+		ew.writeTable(&ch.body, blk.table)
+		ch.empty = false
 	case docxHeadingBlock:
 		ew.headSeq++
 		id := fmt.Sprintf("h%d", ew.headSeq)
@@ -283,6 +288,72 @@ func (ew *epubWriter) writeBlock(blk *docxBlock) {
 		ch.body.WriteString("</p>\n")
 		ch.empty = false
 	}
+}
+
+// writeTable emits a detected table as XHTML: covered grid positions are
+// omitted (the HTML span model), cell text keeps its styled runs.
+func (ew *epubWriter) writeTable(b *strings.Builder, t *AbsorbedTable) {
+	b.WriteString("<table>\n")
+	for _, row := range t.RowList() {
+		b.WriteString("<tr>")
+		cells := row.CellList()
+		for c := 0; c < len(cells); c++ {
+			cell := cells[c]
+			if cell.Covered {
+				continue
+			}
+			b.WriteString("<td")
+			if cell.ColSpan > 1 {
+				fmt.Fprintf(b, ` colspan="%d"`, cell.ColSpan)
+			}
+			if cell.RowSpan > 1 {
+				fmt.Fprintf(b, ` rowspan="%d"`, cell.RowSpan)
+			}
+			if cell.Shading != nil {
+				fmt.Fprintf(b, ` style="background-color:#%s"`, docxColor(*cell.Shading))
+			}
+			b.WriteString(">")
+			ew.writeCellRuns(b, cell)
+			b.WriteString("</td>")
+			c += cell.ColSpan - 1
+		}
+		b.WriteString("</tr>\n")
+	}
+	b.WriteString("</table>\n")
+}
+
+// writeCellRuns converts the cell's fragments to styled runs (lines joined
+// with <br/>) and emits them.
+func (ew *epubWriter) writeCellRuns(b *strings.Builder, cell *AbsorbedCell) {
+	frs := append([]TextFragment(nil), cell.TextFragments()...)
+	if len(frs) == 0 {
+		return
+	}
+	sort.Slice(frs, func(i, j int) bool {
+		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
+			return frs[i].Y > frs[j].Y
+		}
+		return frs[i].X < frs[j].X
+	})
+	var runs []docRun
+	prevY, prevEnd := frs[0].Y, 0.0
+	for i, fr := range frs {
+		if i > 0 {
+			if fr.Y < prevY-0.5 {
+				runs = append(runs, docRun{br: true})
+				prevEnd = 0
+			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
+				runs[len(runs)-1].text += " "
+			}
+		}
+		runs = append(runs, docRun{
+			text: fr.Text, bold: fr.Bold, italic: fr.Italic,
+			code:  fontFamilyClass(fr.FontName) == "mono",
+			color: fr.Color, sub: fr.IsSubscript, super: fr.IsSuperscript,
+		})
+		prevY, prevEnd = fr.Y, fr.X+fr.Width
+	}
+	ew.writeRuns(b, runs)
 }
 
 func epubAlignAttr(align int8) string {
@@ -385,6 +456,8 @@ code { background: #f2f2f2; }
 img { max-width: 100%; }
 img.ic { vertical-align: text-bottom; }
 p.img { text-align: center; }
+table { border-collapse: collapse; margin: 0.8em 0; }
+td { border: 1px solid #999; padding: 0.25em 0.5em; }
 `
 
 func (ew *epubWriter) chapterXHTML(ch *epubChapter) string {

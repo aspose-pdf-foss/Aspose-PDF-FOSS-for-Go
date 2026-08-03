@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -18,21 +19,25 @@ import (
 // source. Mirrors Aspose.PDF for .NET's Document.Save(path, SaveFormat.DocX)
 // with DocSaveOptions.
 //
-// v1 limitations (documented): repeating headers/footers are suppressed (not
-// converted to w:hdr/w:ftr), underline/strikethrough are not recovered (they
+// Limitations (documented): underline/strikethrough are not recovered (they
 // are vector rules in PDF, invisible to text extraction), fonts are
-// referenced by family name only (no font embedding), and tables flow as
-// paragraphs until the table-detection epic lands (DocEnhancedFlow).
+// referenced by family name only (no font embedding), and borderless tables
+// carry over as pictures until stream-mode detection lands.
 
 // DocRecognitionMode selects the reconstruction algorithm — mirrors
 // Aspose.PDF for .NET's DocSaveOptions.RecognitionMode.
 type DocRecognitionMode int
 
 const (
+	// DocEnhancedFlow (default) is DocFlow plus table recognition: ruled
+	// tables detected by the TableAbsorber become real, editable Word
+	// tables (w:tbl with gridSpan/vMerge); tables the detector cannot
+	// claim still carry over as pictures. Mirrors Aspose's EnhancedFlow.
+	DocEnhancedFlow DocRecognitionMode = iota
 	// DocFlow performs full structure recognition (headings, lists, runs)
-	// and produces a maximally editable document; the layout may differ
-	// from the original.
-	DocFlow DocRecognitionMode = iota
+	// without table reconstruction — ruled tables carry over as pictures
+	// (Aspose Flow-mode behaviour).
+	DocFlow
 )
 
 // DocSaveOptions configures SaveDocx / WriteDocx. The zero value exports all
@@ -40,8 +45,8 @@ const (
 type DocSaveOptions struct {
 	// Pages is a 1-based subset (in the given order); nil = all pages.
 	Pages []int
-	// Mode is the reconstruction algorithm (DocFlow is the default and the
-	// only mode implemented so far).
+	// Mode is the reconstruction algorithm; the zero value DocEnhancedFlow
+	// recognizes ruled tables as real Word tables.
 	Mode DocRecognitionMode
 	// NoImages skips images.
 	NoImages bool
@@ -75,7 +80,7 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	if opt.Mode != DocFlow {
+	if opt.Mode != DocEnhancedFlow && opt.Mode != DocFlow {
 		return fmt.Errorf("WriteDocx: unsupported recognition mode %d", opt.Mode)
 	}
 	pages := d.Pages()
@@ -99,6 +104,7 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 		collectLinks:   true,
 		images:         !opt.NoImages,
 		vectorGraphics: !opt.NoImages,
+		detectTables:   opt.Mode == DocEnhancedFlow,
 	})
 	if err != nil {
 		return err
@@ -160,6 +166,7 @@ const (
 	docxListItemBlock
 	docxCodeBlock
 	docxImageBlock
+	docxTableBlock
 )
 
 // docxBlock is one Word block element to emit, produced by classifying the
@@ -173,13 +180,14 @@ type docxBlock struct {
 	runs        []docRun
 	lines       [][]docRun // code blocks: one run list per visual line
 	imgs        []*Image   // image row: side-by-side images share one paragraph
-	pageNo      int        // source page (for media naming)
-	brkBefore   bool       // start a new Word page before this block
-	align       int8       // 0 left, 1 center, 2 right (w:jc)
-	spaceBefore int        // extra vertical gap above, twips (w:spacing w:before)
-	lastFilled  bool       // last visual line filled its column (wrap continues)
-	yTop, yBot  float64    // source vertical extent (spacing reconstruction)
-	xMin, xMax  float64    // image rows: horizontal extent (centering)
+	table       *AbsorbedTable
+	pageNo      int     // source page (for media naming)
+	brkBefore   bool    // start a new Word page before this block
+	align       int8    // 0 left, 1 center, 2 right (w:jc)
+	spaceBefore int     // extra vertical gap above, twips (w:spacing w:before)
+	lastFilled  bool    // last visual line filled its column (wrap continues)
+	yTop, yBot  float64 // source vertical extent (spacing reconstruction)
+	xMin, xMax  float64 // image rows: horizontal extent (centering)
 }
 
 // Alignment inference: a line is centered when its side gaps within the
@@ -366,6 +374,12 @@ func buildDocxBlocks(doc *flowDoc, pageBreaks bool, margins [4]int) *docxBlockLi
 		}
 		iconPool := newDocxIconPool(fp.icons)
 		for _, blk := range fp.blocks {
+			if blk.table != nil {
+				addBlock(docxBlock{kind: docxTableBlock, table: blk.table,
+					yTop: blk.table.Rect.URY, yBot: blk.table.Rect.LLY})
+				endList()
+				continue
+			}
 			if blk.img != nil {
 				// Images that sat side by side on the source page (their
 				// vertical ranges overlap) share one paragraph, so a row of
@@ -727,6 +741,8 @@ func docxPPr(blk *docxBlock, pStyle, numPr, shd string) string {
 
 func (dw *docxWriter) writeBlock(b *strings.Builder, blk *docxBlock) error {
 	switch blk.kind {
+	case docxTableBlock:
+		dw.writeTable(b, blk)
 	case docxImageBlock:
 		return dw.writeImagePara(b, blk)
 	case docxCodeBlock:
@@ -762,6 +778,172 @@ func (dw *docxWriter) writeCodePara(b *strings.Builder, blk *docxBlock) {
 		}
 		dw.writeRuns(b, line, true)
 	}
+	b.WriteString(`</w:p>`)
+}
+
+// writeTable emits a detected table as a real w:tbl: the grid from the
+// detector's column boundaries, gridSpan for column spans, vMerge
+// restart/continue pairs for row spans, and cell text as styled runs. A
+// separator paragraph follows every table (two adjacent w:tbl elements
+// merge in Word), which also hosts a pending page break.
+func (dw *docxWriter) writeTable(b *strings.Builder, blk *docxBlock) {
+	t := blk.table
+	rows := t.RowList()
+	if len(rows) == 0 {
+		return
+	}
+	if blk.brkBefore {
+		b.WriteString(`<w:p><w:pPr><w:pageBreakBefore/><w:spacing w:after="0"/></w:pPr></w:p>`)
+	}
+	b.WriteString(`<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>` +
+		`<w:top w:val="single" w:sz="4" w:color="auto"/>` +
+		`<w:left w:val="single" w:sz="4" w:color="auto"/>` +
+		`<w:bottom w:val="single" w:sz="4" w:color="auto"/>` +
+		`<w:right w:val="single" w:sz="4" w:color="auto"/>` +
+		`<w:insideH w:val="single" w:sz="4" w:color="auto"/>` +
+		`<w:insideV w:val="single" w:sz="4" w:color="auto"/>` +
+		`</w:tblBorders></w:tblPr>`)
+	b.WriteString(`<w:tblGrid>`)
+	for c := 0; c+1 < len(t.colXs); c++ {
+		fmt.Fprintf(b, `<w:gridCol w:w="%d"/>`, int((t.colXs[c+1]-t.colXs[c])*20+0.5))
+	}
+	b.WriteString(`</w:tblGrid>`)
+
+	for r, row := range rows {
+		b.WriteString(`<w:tr>`)
+		cells := row.CellList()
+		for c := 0; c < len(cells); c++ {
+			cell := cells[c]
+			if cell.Covered {
+				// Covered by a colspan in this row: skip (gridSpan covers).
+				// Covered by a rowspan from above: emit the vMerge
+				// continuation cell Word requires.
+				if !coveredFromAbove(rows, r, c) {
+					continue
+				}
+				width, span := coveringWidth(t, rows, r, c)
+				fmt.Fprintf(b, `<w:tc><w:tcPr><w:tcW w:w="%d" w:type="dxa"/>`, width)
+				if span > 1 {
+					fmt.Fprintf(b, `<w:gridSpan w:val="%d"/>`, span)
+				}
+				b.WriteString(`<w:vMerge/></w:tcPr><w:p/></w:tc>`)
+				c += span - 1
+				continue
+			}
+			width := int((cellRight(t, c, cell.ColSpan) - t.colXs[c]) * 20)
+			fmt.Fprintf(b, `<w:tc><w:tcPr><w:tcW w:w="%d" w:type="dxa"/>`, width)
+			if cell.ColSpan > 1 {
+				fmt.Fprintf(b, `<w:gridSpan w:val="%d"/>`, cell.ColSpan)
+			}
+			if cell.RowSpan > 1 {
+				b.WriteString(`<w:vMerge w:val="restart"/>`)
+			}
+			if cell.Shading != nil {
+				fmt.Fprintf(b, `<w:shd w:val="clear" w:color="auto" w:fill="%s"/>`, docxColor(*cell.Shading))
+			}
+			b.WriteString(`</w:tcPr>`)
+			dw.writeCellContent(b, cell)
+			b.WriteString(`</w:tc>`)
+			c += cell.ColSpan - 1
+		}
+		b.WriteString(`</w:tr>`)
+	}
+	b.WriteString(`</w:tbl><w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`)
+}
+
+// coveredFromAbove reports whether the covered position continues a rowspan
+// (anchor in an earlier row) rather than a colspan in its own row.
+func coveredFromAbove(rows []*AbsorbedRow, r, c int) bool {
+	for rr := r - 1; rr >= 0; rr-- {
+		cell := rows[rr].CellList()[c]
+		if cell.Covered {
+			continue
+		}
+		return rr+cell.RowSpan > r
+	}
+	return false
+}
+
+// coveringWidth returns the dxa width and gridSpan of the vMerge
+// continuation cell at (r, c) — matching the anchor's column span.
+func coveringWidth(t *AbsorbedTable, rows []*AbsorbedRow, r, c int) (int, int) {
+	for rr := r - 1; rr >= 0; rr-- {
+		cell := rows[rr].CellList()[c]
+		if cell.Covered {
+			continue
+		}
+		if rr+cell.RowSpan > r {
+			return int((cellRight(t, c, cell.ColSpan) - t.colXs[c]) * 20), cell.ColSpan
+		}
+		break
+	}
+	return int((t.colXs[c+1] - t.colXs[c]) * 20), 1
+}
+
+// cellRight is the right boundary of a span starting at column c.
+func cellRight(t *AbsorbedTable, c, colSpan int) float64 {
+	idx := c + colSpan
+	if idx >= len(t.colXs) {
+		idx = len(t.colXs) - 1
+	}
+	return t.colXs[idx]
+}
+
+// writeCellContent emits the cell's text as styled runs: fragments grouped
+// into visual lines (w:br between lines), full run look preserved.
+func (dw *docxWriter) writeCellContent(b *strings.Builder, cell *AbsorbedCell) {
+	frs := append([]TextFragment(nil), cell.TextFragments()...)
+	if len(frs) == 0 {
+		b.WriteString(`<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`)
+		return
+	}
+	sort.Slice(frs, func(i, j int) bool {
+		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
+			return frs[i].Y > frs[j].Y
+		}
+		return frs[i].X < frs[j].X
+	})
+	var runs []docRun
+	prevY, prevEnd := frs[0].Y, 0.0
+	for i, fr := range frs {
+		if i > 0 {
+			if fr.Y < prevY-0.5 {
+				runs = append(runs, docRun{br: true})
+				prevEnd = 0
+			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
+				runs[len(runs)-1].text += " "
+			}
+		}
+		runs = append(runs, docRun{
+			text:     fr.Text,
+			bold:     fr.Bold,
+			italic:   fr.Italic,
+			code:     fontFamilyClass(fr.FontName) == "mono",
+			fontName: fr.FontName,
+			fontSize: fr.FontSize,
+			color:    fr.Color,
+			sub:      fr.IsSubscript,
+			super:    fr.IsSuperscript,
+		})
+		prevY, prevEnd = fr.Y, fr.X+fr.Width
+	}
+	// Per-cell alignment from the fragments' position within the cell.
+	llx, urx := frs[0].X, frs[0].X+frs[0].Width
+	for _, fr := range frs {
+		llx = minf(llx, fr.X)
+		urx = maxf(urx, fr.X+fr.Width)
+	}
+	jc := ""
+	colW := cell.Rect.URX - cell.Rect.LLX
+	left, right := llx-cell.Rect.LLX, cell.Rect.URX-urx
+	switch {
+	case colW > 0 && right <= maxf(8, 0.08*colW) && left > right+maxf(6, 0.1*colW):
+		jc = `<w:jc w:val="right"/>`
+	case colW > 0 && left > 8 && right > 8 && absf(left-right) <= maxf(4, 0.06*colW):
+		jc = `<w:jc w:val="center"/>`
+	}
+	b.WriteString(`<w:p><w:pPr><w:spacing w:after="0"/>` + jc + `</w:pPr>`)
+	dw.writeRuns(b, runs, false)
 	b.WriteString(`</w:p>`)
 }
 

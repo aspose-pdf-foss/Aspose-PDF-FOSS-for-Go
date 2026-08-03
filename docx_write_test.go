@@ -327,3 +327,57 @@ func TestWriteDocxPageBreaks(t *testing.T) {
 		t.Error("NoPageBreaks output still contains page breaks")
 	}
 }
+
+func TestWriteDocxEnhancedFlowTables(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	tbl := pdf.NewTable().
+		SetColumnWidths([]float64{120, 120, 120}).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	tbl.AddRow().AddCells("Item", "Qty", "Price")
+	tbl.AddRow().AddCells("Apples", "3", "4.50")
+	r3 := tbl.AddRow()
+	r3.AddCell("Total").SetColSpan(2)
+	r3.AddCell("13.60")
+	if _, err := p.AddTable(tbl, pdf.Rectangle{LLX: 60, LLY: 500, URX: 420, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := doc.WriteDocx(&buf); err != nil { // default = EnhancedFlow
+		t.Fatal(err)
+	}
+	docXML := string(docxParts(t, buf.Bytes())["word/document.xml"])
+	if !strings.Contains(docXML, "<w:tbl>") {
+		t.Fatal("no w:tbl in EnhancedFlow output")
+	}
+	if got := strings.Count(docXML, "<w:tr>"); got != 3 {
+		t.Errorf("rows = %d; want 3", got)
+	}
+	if !strings.Contains(docXML, `<w:gridSpan w:val="2"/>`) {
+		t.Error("colspan not emitted as gridSpan")
+	}
+	for _, want := range []string{"Item", "Apples", "Total", "13.60"} {
+		if !strings.Contains(docXML, ">"+want+"<") {
+			t.Errorf("cell text %q missing", want)
+		}
+	}
+	// The same table must NOT also appear as a picture: EnhancedFlow output
+	// carries no media for this vector-only page.
+	for name := range docxParts(t, buf.Bytes()) {
+		if strings.HasPrefix(name, "word/media/") {
+			t.Errorf("unexpected media part %s (table doubled as picture?)", name)
+		}
+	}
+
+	// Flow mode keeps the picture behaviour.
+	buf.Reset()
+	if err := doc.WriteDocx(&buf, pdf.DocSaveOptions{Mode: pdf.DocFlow}); err != nil {
+		t.Fatal(err)
+	}
+	docXML = string(docxParts(t, buf.Bytes())["word/document.xml"])
+	if strings.Contains(docXML, "<w:tbl>") {
+		t.Error("DocFlow must not emit tables")
+	}
+}

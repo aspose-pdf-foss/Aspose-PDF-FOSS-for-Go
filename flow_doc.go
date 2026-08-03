@@ -21,10 +21,11 @@ import (
 // flowBlock is one emitted unit — a paragraph or an image — ordered by its
 // visual top within the page.
 type flowBlock struct {
-	para *MarkupParagraph
-	img  *Image
-	top  float64
-	col  Rectangle // the column (MarkupSection) the paragraph belongs to
+	para  *MarkupParagraph
+	img   *Image
+	table *AbsorbedTable // detected ruled table (detectTables option)
+	top   float64
+	col   Rectangle // the column (MarkupSection) the paragraph belongs to
 }
 
 // sizeSample is one text run's vote for the document body font size.
@@ -42,6 +43,11 @@ type flowDocOptions struct {
 	// vectorGraphics rasterizes vector-drawing clusters (logos, charts) into
 	// image blocks via the built-in renderer (see flow_vector.go).
 	vectorGraphics bool
+	// detectTables runs the TableAbsorber per page and emits detected ruled
+	// tables as table blocks; paragraphs and vector clusters inside a
+	// detected table leave the flow (their content lives in the cells).
+	// Serializers that enable this MUST handle flowBlock.table.
+	detectTables bool
 	// onParagraph is called for every kept paragraph (HTML flow registers
 	// embedded-font usage here). May be nil.
 	onParagraph func(p *Page, para *MarkupParagraph)
@@ -141,6 +147,20 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 			}
 		}
 
+		// Detected ruled tables become first-class blocks; everything the
+		// table covers (paragraphs, vector clusters) leaves the flow.
+		var tableBlocks []flowBlock
+		var tableRects []Rectangle
+		if opt.detectTables {
+			ta := NewTableAbsorber()
+			if err := ta.Visit(p); err == nil {
+				for _, tab := range ta.TableList() {
+					tableBlocks = append(tableBlocks, flowBlock{table: tab, top: tab.Rect.URY})
+					tableRects = append(tableRects, tab.Rect)
+				}
+			}
+		}
+
 		// Vector-graphics clusters (logos, charts): computed before the
 		// paragraph pass so paragraphs living inside a cluster (chart
 		// labels) can leave the flow — their text is in the patch.
@@ -163,6 +183,22 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				}
 			}
 			vecBlocks, vecClusters, vecIcons = vectorGraphicBlocks(p, imageRects, textRects)
+			if len(tableRects) > 0 {
+				// A cluster that is really a detected table must not double
+				// as a picture.
+				keptBlocks := vecBlocks[:0]
+				keptClusters := vecClusters[:0]
+				for i, vb := range vecBlocks {
+					r := Rectangle{LLX: vb.img.X, LLY: vb.img.Y,
+						URX: vb.img.X + vb.img.PageWidth, URY: vb.img.Y + vb.img.PageHeight}
+					if rectMostlyInside(r, tableRects) {
+						continue
+					}
+					keptBlocks = append(keptBlocks, vb)
+					keptClusters = append(keptClusters, vecClusters[i])
+				}
+				vecBlocks, vecClusters = keptBlocks, keptClusters
+			}
 		}
 
 		var blocks []flowBlock
@@ -180,6 +216,9 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				}
 				if rectMostlyInside(para.Rectangle, vecClusters) {
 					continue // lives inside a rasterized graphics cluster
+				}
+				if rectMostlyInside(para.Rectangle, tableRects) {
+					continue // lives inside a detected table (text in cells)
 				}
 				col := pms[i].Sections[si].Rectangle
 				if len(pms[i].Sections) == 1 && pageWs[i] > 0 {
@@ -211,6 +250,9 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 		}
 		for _, vb := range vecBlocks {
 			insertFlowImage(&blocks, vb)
+		}
+		for _, tb := range tableBlocks {
+			insertFlowImage(&blocks, tb)
 		}
 		fp := flowDocPage{number: n, blocks: blocks, pageH: pageHs[i], pageW: pageWs[i], icons: vecIcons}
 		if opt.collectLinks {

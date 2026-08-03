@@ -44,6 +44,8 @@ type AbsorbedTable struct {
 	// PageNumber is the 1-based source page.
 	PageNumber int
 	rows       []*AbsorbedRow
+	colXs      []float64 // ascending column boundaries (len = cols+1)
+	rowYs      []float64 // ascending row boundaries (len = rows+1)
 }
 
 // RowList returns the table's rows, top-to-bottom.
@@ -67,7 +69,9 @@ type AbsorbedCell struct {
 	// RowSpan/ColSpan are >= 1 on a cell's anchor position.
 	RowSpan, ColSpan int
 	// Covered marks a position occupied by another cell's span.
-	Covered   bool
+	Covered bool
+	// Shading is the cell's background fill colour, when the page paints one.
+	Shading   *Color
 	fragments []TextFragment
 }
 
@@ -111,7 +115,7 @@ func (c *AbsorbedCell) Text() string {
 // Visit runs table detection on the page, replacing the absorber's TableList.
 func (ta *TableAbsorber) Visit(p *Page) error {
 	ta.tables = nil
-	hRules, vRules, _ := pageRules(p)
+	hRules, vRules, fills := pageRules(p)
 	if len(hRules) < 2 || len(vRules) < 2 {
 		return nil
 	}
@@ -130,7 +134,7 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 		if len(comp) < minTableCells {
 			continue
 		}
-		if t := buildAbsorbedTable(comp, lines, p.Number()); t != nil {
+		if t := buildAbsorbedTable(comp, lines, fills, p.Number()); t != nil {
 			ta.tables = append(ta.tables, t)
 		}
 	}
@@ -145,7 +149,7 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 
 // buildAbsorbedTable maps a component's physical cells onto the logical grid
 // and assigns text fragments; nil when the component is not table-shaped.
-func buildAbsorbedTable(comp []latticeCell, lines []TextLine, pageNo int) *AbsorbedTable {
+func buildAbsorbedTable(comp []latticeCell, lines []TextLine, fills []shadedRect, pageNo int) *AbsorbedTable {
 	var xs, ys []float64
 	for _, c := range comp {
 		xs = append(xs, c.LLX, c.URX)
@@ -197,7 +201,7 @@ func buildAbsorbedTable(comp []latticeCell, lines []TextLine, pageNo int) *Absor
 		}
 	}
 
-	table := &AbsorbedTable{PageNumber: pageNo}
+	table := &AbsorbedTable{PageNumber: pageNo, colXs: colXs, rowYs: rowYs}
 	table.Rect = Rectangle{LLX: colXs[0], LLY: rowYs[0], URX: colXs[cols], URY: rowYs[rows]}
 	for r := 0; r < rows; r++ {
 		rowTop := rowYs[len(rowYs)-1-r]
@@ -214,6 +218,30 @@ func buildAbsorbedTable(comp []latticeCell, lines []TextLine, pageNo int) *Absor
 			row.cells = append(row.cells, cell)
 		}
 		table.rows = append(table.rows, row)
+	}
+
+	// Cell shading: a fill box covering most of an anchor cell becomes its
+	// background colour (white fills are the page, not shading).
+	for r := 0; r < rows; r++ {
+		for cc := 0; cc < cols; cc++ {
+			cell := gridCells[r][cc]
+			if cell == nil || cell.Covered {
+				continue
+			}
+			for _, fb := range fills {
+				if fb.col.R > 0.97 && fb.col.G > 0.97 && fb.col.B > 0.97 {
+					continue
+				}
+				w := minf(cell.Rect.URX, fb.URX) - maxf(cell.Rect.LLX, fb.LLX)
+				h := minf(cell.Rect.URY, fb.URY) - maxf(cell.Rect.LLY, fb.LLY)
+				area := (cell.Rect.URX - cell.Rect.LLX) * (cell.Rect.URY - cell.Rect.LLY)
+				if w > 0 && h > 0 && area > 0 && w*h >= 0.6*area {
+					col := fb.col
+					cell.Shading = &col
+					break
+				}
+			}
+		}
 	}
 
 	// Assign text fragments to anchor cells by baseline midpoint.
