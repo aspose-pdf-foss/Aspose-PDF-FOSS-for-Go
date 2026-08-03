@@ -437,3 +437,31 @@ func TestWriteDocxTableWithAdjacentBanner(t *testing.T) {
 		}
 	}
 }
+
+// The paragraph extractor freely merges a heading with the rows of the
+// table right below it into one paragraph; table text must still leave the
+// flow (line-granular subtraction) — appearing exactly once, inside w:tbl,
+// with the heading kept. openpdf-demo-generation.pdf page 4 is the
+// reproducer: "Quarterly results (sample)" + a 7x5 table in one paragraph.
+func TestWriteDocxNoTableTextDoubling(t *testing.T) {
+	doc, err := pdf.Open(testFile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := doc.WriteDocx(&buf); err != nil {
+		t.Fatal(err)
+	}
+	docXML := string(docxParts(t, buf.Bytes())["word/document.xml"])
+	for _, cell := range []string{"North America", "$1,240k", "Dashed border"} {
+		if got := strings.Count(docXML, cell); got != 1 {
+			t.Errorf("%q appears %d times; want exactly 1 (table text doubled as paragraphs?)", cell, got)
+		}
+	}
+	if !strings.Contains(docXML, "Quarterly results (sample)") {
+		t.Error("heading above the table was dropped with the table lines")
+	}
+	if !strings.Contains(docXML, "<w:tbl>") {
+		t.Error("no w:tbl emitted")
+	}
+}

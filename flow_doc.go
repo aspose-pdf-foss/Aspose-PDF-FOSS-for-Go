@@ -204,9 +204,6 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 				if rectMostlyInside(para.Rectangle, vecClusters) {
 					continue // lives inside a rasterized graphics cluster
 				}
-				if rectMostlyInside(para.Rectangle, tableRects) {
-					continue // lives inside a detected table (text in cells)
-				}
 				col := pms[i].Sections[si].Rectangle
 				if len(pms[i].Sections) == 1 && pageWs[i] > 0 {
 					// A single-section page's section rect is just the text
@@ -214,14 +211,21 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 					// page frame is the honest alignment/wrap reference.
 					col = Rectangle{LLX: 0, LLY: 0, URX: pageWs[i], URY: pageHs[i]}
 				}
-				blocks = append(blocks, flowBlock{para: para, top: para.Rectangle.URY, col: col})
-				if opt.onParagraph != nil {
-					opt.onParagraph(p, para)
-				}
-				for _, line := range para.Lines {
-					for _, fr := range line.Fragments {
-						if fr.FontSize > 0 {
-							sizes = append(sizes, sizeSample{fr.FontSize, len([]rune(fr.Text))})
+				// Table text leaves the flow at LINE granularity: the
+				// paragraph extractor freely merges a heading with the tight
+				// rows of the table below it into one paragraph, so a
+				// whole-rect test would either keep the table rows (text
+				// doubles) or drop the heading with them.
+				for _, part := range paraOutsideTables(para, tableRects) {
+					blocks = append(blocks, flowBlock{para: part, top: part.Rectangle.URY, col: col})
+					if opt.onParagraph != nil {
+						opt.onParagraph(p, part)
+					}
+					for _, line := range part.Lines {
+						for _, fr := range line.Fragments {
+							if fr.FontSize > 0 {
+								sizes = append(sizes, sizeSample{fr.FontSize, len([]rune(fr.Text))})
+							}
 						}
 					}
 				}
@@ -249,6 +253,67 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	}
 	doc.bodySize = weightedMedianSize(sizes)
 	return doc, nil
+}
+
+// paraOutsideTables removes the paragraph's lines whose text lives inside a
+// detected table (the cells carry it) and splits the survivors into
+// contiguous parts, each its own paragraph — so a heading above the table
+// and a note below it keep their own flow positions. A line counts as
+// in-table when most of its fragments' midpoints fall inside one table's
+// rectangle (the same assignment rule the table detector uses).
+func paraOutsideTables(para *MarkupParagraph, tableRects []Rectangle) []*MarkupParagraph {
+	if len(tableRects) == 0 {
+		return []*MarkupParagraph{para}
+	}
+	inTable := func(l TextLine) bool {
+		if len(l.Fragments) == 0 {
+			return false
+		}
+		for _, tr := range tableRects {
+			g := Rectangle{LLX: tr.LLX - 2, LLY: tr.LLY - 2, URX: tr.URX + 2, URY: tr.URY + 2}
+			in := 0
+			for _, fr := range l.Fragments {
+				mx, my := fr.X+fr.Width/2, fr.Y+fr.Height/2
+				if mx >= g.LLX && mx <= g.URX && my >= g.LLY && my <= g.URY {
+					in++
+				}
+			}
+			if in*2 > len(l.Fragments) {
+				return true
+			}
+		}
+		return false
+	}
+	anyIn := false
+	for _, l := range para.Lines {
+		if inTable(l) {
+			anyIn = true
+			break
+		}
+	}
+	if !anyIn {
+		return []*MarkupParagraph{para}
+	}
+	var out []*MarkupParagraph
+	var run []TextLine
+	flush := func() {
+		if len(run) > 0 {
+			p := makeParagraph(run)
+			if strings.TrimSpace(p.Text) != "" {
+				out = append(out, &p)
+			}
+			run = nil
+		}
+	}
+	for _, l := range para.Lines {
+		if inTable(l) {
+			flush()
+			continue
+		}
+		run = append(run, l)
+	}
+	flush()
+	return out
 }
 
 // rectMostlyInside reports whether >= 90% of r's area lies within one of the

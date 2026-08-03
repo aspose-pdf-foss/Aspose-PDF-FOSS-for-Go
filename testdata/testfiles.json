@@ -504,5 +504,10 @@
     [
       "PdfWithTable.pdf"
     ]
+  ],
+  "TestWriteDocxNoTableTextDoubling": [
+    [
+      "openpdf-demo-generation.pdf"
+    ]
   ]
 }
