@@ -182,23 +182,10 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 					}
 				}
 			}
-			vecBlocks, vecClusters, vecIcons = vectorGraphicBlocks(p, imageRects, textRects)
-			if len(tableRects) > 0 {
-				// A cluster that is really a detected table must not double
-				// as a picture.
-				keptBlocks := vecBlocks[:0]
-				keptClusters := vecClusters[:0]
-				for i, vb := range vecBlocks {
-					r := Rectangle{LLX: vb.img.X, LLY: vb.img.Y,
-						URX: vb.img.X + vb.img.PageWidth, URY: vb.img.Y + vb.img.PageHeight}
-					if rectMostlyInside(r, tableRects) {
-						continue
-					}
-					keptBlocks = append(keptBlocks, vb)
-					keptClusters = append(keptClusters, vecClusters[i])
-				}
-				vecBlocks, vecClusters = keptBlocks, keptClusters
-			}
+			// Table rulings/shading are excluded from clustering inside
+			// vectorGraphicBlocks — otherwise a banner adjacent to a table
+			// fuses with it into one picture and the table doubles.
+			vecBlocks, vecClusters, vecIcons = vectorGraphicBlocks(p, imageRects, textRects, tableRects)
 		}
 
 		var blocks []flowBlock

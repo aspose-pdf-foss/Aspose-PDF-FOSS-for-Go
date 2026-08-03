@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"image/png"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -379,5 +380,60 @@ func TestWriteDocxEnhancedFlowTables(t *testing.T) {
 	docXML = string(docxParts(t, buf.Bytes())["word/document.xml"])
 	if strings.Contains(docXML, "<w:tbl>") {
 		t.Error("DocFlow must not emit tables")
+	}
+}
+
+// A banner drawn immediately above a table (closer than the cluster merge
+// gap) must not fuse with the table's rulings into one picture — the table
+// content would then appear twice (as w:tbl AND inside the image).
+func TestWriteDocxTableWithAdjacentBanner(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	// Filled banner whose bottom edge is 4pt above the table top.
+	navy := pdf.Color{R: 0.1, G: 0.15, B: 0.4, A: 1}
+	if err := p.DrawRectangle(pdf.Rectangle{LLX: 60, LLY: 704, URX: 420, URY: 760},
+		pdf.ShapeStyle{FillColor: &navy}); err != nil {
+		t.Fatal(err)
+	}
+	tbl := pdf.NewTable().
+		SetColumnWidths([]float64{120, 120, 120}).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	tbl.AddRow().AddCells("Item", "Qty", "Price")
+	tbl.AddRow().AddCells("Apples", "3", "4.50")
+	tbl.AddRow().AddCells("Pears", "2", "5.10")
+	if _, err := p.AddTable(tbl, pdf.Rectangle{LLX: 60, LLY: 500, URX: 420, URY: 700}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := doc.WriteDocx(&buf); err != nil {
+		t.Fatal(err)
+	}
+	docXML := string(docxParts(t, buf.Bytes())["word/document.xml"])
+	if !strings.Contains(docXML, "<w:tbl>") {
+		t.Fatal("no w:tbl in output")
+	}
+	// The banner alone is below the 16pt-per-side cluster minimum in one
+	// dimension only if tiny; here it IS a legitimate picture — but it must
+	// not swallow the table: no media part may be table-sized, and the cell
+	// text must appear exactly once.
+	if got := strings.Count(docXML, ">Apples<"); got != 1 {
+		t.Errorf("cell text emitted %d times; want exactly 1", got)
+	}
+	for name, data := range docxParts(t, buf.Bytes()) {
+		if !strings.HasPrefix(name, "word/media/") {
+			continue
+		}
+		cfg, err := png.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			continue
+		}
+		// 144 DPI: the table region (360x200pt) would be ~720x400px; the
+		// banner alone is 360x56pt -> ~720x120px. Anything taller than
+		// 200px must be the fused banner+table picture.
+		if cfg.Height > 200 {
+			t.Errorf("media %s is %dx%d — banner fused with the table?", name, cfg.Width, cfg.Height)
+		}
 	}
 }

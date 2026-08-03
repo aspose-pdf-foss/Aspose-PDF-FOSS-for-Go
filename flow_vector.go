@@ -33,9 +33,12 @@ const (
 // as stray paragraphs). exclude lists regions already carried by raster
 // images; textRects are the extracted text fragment boxes (clusters
 // dominated by text — table grids, shaded text panels — are skipped, their
-// content flows as text). Rotated pages are skipped (cropping math assumes
-// an upright page).
-func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, []Rectangle, []*Image) {
+// content flows as text); tableRects are detected ruled tables — paths
+// inside them are the table's own rulings/shading and must not seed a
+// cluster (or fuse a neighbouring banner with the table into one picture
+// that then doubles the emitted table). Rotated pages are skipped (cropping
+// math assumes an upright page).
+func vectorGraphicBlocks(p *Page, exclude, textRects, tableRects []Rectangle) ([]flowBlock, []Rectangle, []*Image) {
 	if p.Rotation() != 0 {
 		return nil, nil, nil
 	}
@@ -50,9 +53,29 @@ func vectorGraphicBlocks(p *Page, exclude, textRects []Rectangle) ([]flowBlock, 
 	// Painted-path bboxes via the shared geometry visitor (table_detect_rules
 	// .go); top-level content only — a Form XObject holding a whole imported
 	// page would register as one giant cluster.
+	// Detected tables, grown a little so rulings sitting exactly on the
+	// table's edge still count as inside.
+	grownTables := make([]Rectangle, len(tableRects))
+	for i, tr := range tableRects {
+		grownTables[i] = Rectangle{LLX: tr.LLX - 3, LLY: tr.LLY - 3,
+			URX: tr.URX + 3, URY: tr.URY + 3}
+	}
+	inTable := func(b Rectangle) bool {
+		for _, tr := range grownTables {
+			// Full containment (not area overlap): a ruling's bbox can be a
+			// zero-area line, which any area-ratio test would miss.
+			if b.LLX >= tr.LLX && b.URX <= tr.URX && b.LLY >= tr.LLY && b.URY <= tr.URY {
+				return true
+			}
+		}
+		return false
+	}
 	var boxes []Rectangle
 	visitPaths(p.doc.objects, ops, nil, false, func(pv pathVisit) {
 		if pv.paint != paintNone && pv.bbox.URX >= pv.bbox.LLX {
+			if inTable(pv.bbox) {
+				return // the table's own rulings/shading
+			}
 			boxes = append(boxes, pv.bbox)
 		}
 	})
