@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -892,41 +891,12 @@ func cellRight(t *AbsorbedTable, c, colSpan int) float64 {
 // writeCellContent emits the cell's text as styled runs: fragments grouped
 // into visual lines (w:br between lines), full run look preserved.
 func (dw *docxWriter) writeCellContent(b *strings.Builder, cell *AbsorbedCell) {
-	frs := append([]TextFragment(nil), cell.TextFragments()...)
-	if len(frs) == 0 {
+	runs := absorbedCellRuns(cell)
+	if len(runs) == 0 {
 		b.WriteString(`<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`)
 		return
 	}
-	sort.Slice(frs, func(i, j int) bool {
-		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
-			return frs[i].Y > frs[j].Y
-		}
-		return frs[i].X < frs[j].X
-	})
-	var runs []docRun
-	prevY, prevEnd := frs[0].Y, 0.0
-	for i, fr := range frs {
-		if i > 0 {
-			if fr.Y < prevY-0.5 {
-				runs = append(runs, docRun{br: true})
-				prevEnd = 0
-			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
-				runs[len(runs)-1].text += " "
-			}
-		}
-		runs = append(runs, docRun{
-			text:     fr.Text,
-			bold:     fr.Bold,
-			italic:   fr.Italic,
-			code:     fontFamilyClass(fr.FontName) == "mono",
-			fontName: fr.FontName,
-			fontSize: fr.FontSize,
-			color:    fr.Color,
-			sub:      fr.IsSubscript,
-			super:    fr.IsSuperscript,
-		})
-		prevY, prevEnd = fr.Y, fr.X+fr.Width
-	}
+	frs := cell.TextFragments()
 	// Per-cell alignment from the fragments' position within the cell.
 	llx, urx := frs[0].X, frs[0].X+frs[0].Width
 	for _, fr := range frs {

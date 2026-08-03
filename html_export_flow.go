@@ -40,6 +40,7 @@ func (d *Document) writeHTMLFlow(w io.Writer, pages []*Page, sel []int, title st
 		dropFurniture: true,
 		dropRotated:   true,
 		images:        true,
+		detectTables:  true,
 		onParagraph: func(p *Page, para *MarkupParagraph) {
 			if fonts != nil {
 				fonts.markUsed(p, para.Lines)
@@ -81,6 +82,8 @@ body { margin: 0; background: #fff; }
 .fl img { max-width: 100%; height: auto; display: block; margin: 1.2em auto; }
 .fl .f-serif { font-family: 'Times New Roman', Times, serif; }
 .fl .f-mono  { font-family: 'Courier New', Courier, monospace; }
+.fl table { border-collapse: collapse; margin: 0 0 0.9em; }
+.fl td { border: 1px solid #999; padding: 0.25em 0.5em; }
 `)
 	b.WriteString(fontCSS)
 	b.WriteString("</style>\n</head>\n<body>\n<div class=\"fl\">\n")
@@ -92,6 +95,10 @@ body { margin: 0; background: #fff; }
 		var pb strings.Builder
 		imgSeq := 0
 		for _, blk := range fp.blocks {
+			if blk.table != nil {
+				writeFlowTable(&pb, blk.table)
+				continue
+			}
 			if blk.img != nil {
 				imgSeq++
 				if err := writeFlowImage(&pb, blk.img, sink, fp.number, imgSeq); err != nil {
@@ -212,6 +219,55 @@ func writeFlowParagraph(b *strings.Builder, p *Page, para *MarkupParagraph, body
 		attrs += ` style="` + style[1:] + `"`
 	}
 	fmt.Fprintf(b, "<%s%s>%s</%s>\n", tag, attrs, html.EscapeString(text), tag)
+}
+
+// writeFlowTable emits a detected table as a real <table> with
+// colspan/rowspan, cell shading and styled cell runs.
+func writeFlowTable(b *strings.Builder, t *AbsorbedTable) {
+	b.WriteString("<table>\n")
+	for _, row := range t.RowList() {
+		b.WriteString("<tr>")
+		cells := row.CellList()
+		for c := 0; c < len(cells); c++ {
+			cell := cells[c]
+			if cell.Covered {
+				continue
+			}
+			b.WriteString("<td")
+			if cell.ColSpan > 1 {
+				fmt.Fprintf(b, ` colspan="%d"`, cell.ColSpan)
+			}
+			if cell.RowSpan > 1 {
+				fmt.Fprintf(b, ` rowspan="%d"`, cell.RowSpan)
+			}
+			if cell.Shading != nil {
+				fmt.Fprintf(b, ` style="background-color:#%s"`, docxColor(*cell.Shading))
+			}
+			b.WriteString(">")
+			for _, r := range mergeRuns(absorbedCellRuns(cell), epubSameStyle) {
+				switch {
+				case r.br:
+					b.WriteString("<br/>")
+				case r.text != "":
+					open, close := "", ""
+					if r.code {
+						open, close = "<code>", "</code>"
+					}
+					if r.bold {
+						open, close = open+"<b>", "</b>"+close
+					}
+					if r.italic {
+						open, close = open+"<i>", "</i>"+close
+					}
+					b.WriteString(open + html.EscapeString(r.text) + close)
+				}
+			}
+			b.WriteString("</td>")
+			c += cell.ColSpan - 1
+		}
+		b.WriteString("</tr>\n")
+	}
+	b.WriteString("</table>\n")
 }
 
 // writeFlowImage emits one image as a responsive <img> with the PDF's own

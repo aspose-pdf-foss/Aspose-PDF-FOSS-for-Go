@@ -21,8 +21,9 @@ import (
 // rebuilds styled runs with gap-synthesized spaces. This file is the
 // Markdown serializer over that model: **bold**/*italic* markers, `code`
 // spans, [links](…), list markers with X-indent nesting, and fenced code
-// blocks with indentation reconstructed from X offsets. Tables are not
-// reconstructed (no table reader yet) — their cell text flows as paragraphs.
+// blocks with indentation reconstructed from X offsets. Ruled tables (via
+// the TableAbsorber) become GFM pipe tables — spans flatten, since GFM has
+// no colspan/rowspan.
 
 // MarkdownSaveOptions configures SaveMarkdown / WriteMarkdown. The zero
 // value exports all pages; SaveMarkdown writes images into "<stem>_files"
@@ -106,6 +107,7 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 		dropRotated:   true,
 		collectLinks:  true,
 		images:        !opt.NoImages && sink != nil,
+		detectTables:  true,
 	})
 	if err != nil {
 		return err
@@ -117,6 +119,11 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 	imgSeq := 0
 	for _, fp := range doc.pages {
 		for _, blk := range fp.blocks {
+			if blk.table != nil {
+				mdWriteTable(&b, blk.table)
+				st.reset()
+				continue
+			}
 			if blk.img != nil {
 				imgSeq++
 				url, err := mdImageURL(sink, fp.number, imgSeq, blk.img)
@@ -138,6 +145,72 @@ func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error
 	}
 	_, err = io.WriteString(w, b.String())
 	return err
+}
+
+// mdWriteTable emits a detected table as a GFM pipe table: the first row is
+// the header, spans flatten (anchor text at its position, covered cells
+// empty), multi-line cells join with spaces, and a data column whose cells
+// are mostly right-aligned gets the ---: alignment marker.
+func mdWriteTable(b *strings.Builder, t *AbsorbedTable) {
+	rows := t.RowList()
+	if len(rows) == 0 {
+		return
+	}
+	cols := len(rows[0].CellList())
+	cellText := func(cell *AbsorbedCell) string {
+		if cell.Covered {
+			return ""
+		}
+		txt := collapseWS(strings.ReplaceAll(cell.Text(), "\n", " "))
+		return strings.ReplaceAll(mdEscapeText(txt), "|", "\\|")
+	}
+	// Column alignment vote over the data rows.
+	rightVotes := make([]int, cols)
+	dataRows := 0
+	for _, row := range rows[1:] {
+		dataRows++
+		for c, cell := range row.CellList() {
+			if c >= cols || cell.Covered || len(cell.TextFragments()) == 0 {
+				continue
+			}
+			frs := cell.TextFragments()
+			llx, urx := frs[0].X, frs[0].X+frs[0].Width
+			for _, fr := range frs {
+				llx = minf(llx, fr.X)
+				urx = maxf(urx, fr.X+fr.Width)
+			}
+			colW := cell.Rect.URX - cell.Rect.LLX
+			if colW > 0 && cell.Rect.URX-urx <= maxf(8, 0.08*colW) &&
+				llx-cell.Rect.LLX > (cell.Rect.URX-urx)+maxf(6, 0.1*colW) {
+				rightVotes[c]++
+			}
+		}
+	}
+
+	mdBlankLine(b)
+	writeRow := func(row *AbsorbedRow) {
+		b.WriteString("|")
+		for c, cell := range row.CellList() {
+			if c >= cols {
+				break
+			}
+			b.WriteString(" " + cellText(cell) + " |")
+		}
+		b.WriteString("\n")
+	}
+	writeRow(rows[0])
+	b.WriteString("|")
+	for c := 0; c < cols; c++ {
+		if dataRows > 0 && rightVotes[c]*2 > dataRows {
+			b.WriteString(" ---: |")
+		} else {
+			b.WriteString(" --- |")
+		}
+	}
+	b.WriteString("\n")
+	for _, row := range rows[1:] {
+		writeRow(row)
+	}
 }
 
 // mdEmitState carries the serializer's cross-block context: the active list

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 )
 
@@ -322,38 +321,9 @@ func (ew *epubWriter) writeTable(b *strings.Builder, t *AbsorbedTable) {
 	b.WriteString("</table>\n")
 }
 
-// writeCellRuns converts the cell's fragments to styled runs (lines joined
-// with <br/>) and emits them.
+// writeCellRuns emits the cell's styled runs (lines joined with <br/>).
 func (ew *epubWriter) writeCellRuns(b *strings.Builder, cell *AbsorbedCell) {
-	frs := append([]TextFragment(nil), cell.TextFragments()...)
-	if len(frs) == 0 {
-		return
-	}
-	sort.Slice(frs, func(i, j int) bool {
-		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
-			return frs[i].Y > frs[j].Y
-		}
-		return frs[i].X < frs[j].X
-	})
-	var runs []docRun
-	prevY, prevEnd := frs[0].Y, 0.0
-	for i, fr := range frs {
-		if i > 0 {
-			if fr.Y < prevY-0.5 {
-				runs = append(runs, docRun{br: true})
-				prevEnd = 0
-			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
-				runs[len(runs)-1].text += " "
-			}
-		}
-		runs = append(runs, docRun{
-			text: fr.Text, bold: fr.Bold, italic: fr.Italic,
-			code:  fontFamilyClass(fr.FontName) == "mono",
-			color: fr.Color, sub: fr.IsSubscript, super: fr.IsSuperscript,
-		})
-		prevY, prevEnd = fr.Y, fr.X+fr.Width
-	}
-	ew.writeRuns(b, runs)
+	ew.writeRuns(b, absorbedCellRuns(cell))
 }
 
 func epubAlignAttr(align int8) string {
