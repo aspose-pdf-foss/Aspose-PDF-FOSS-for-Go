@@ -157,28 +157,31 @@ func absorbedCellRuns(cell *AbsorbedCell) []docRun {
 func (ta *TableAbsorber) Visit(p *Page) error {
 	ta.tables = nil
 	hRules, vRules, fills := pageRules(p)
-	if len(hRules) < 2 || len(vRules) < 2 {
-		return nil
-	}
-	grid := buildLatticeGrid(hRules, vRules)
-	cells := latticeCells(grid)
-	if len(cells) == 0 {
-		return nil
-	}
 
 	lines, err := p.ExtractTextWithLayout()
 	if err != nil {
 		return err
 	}
 
-	for _, comp := range groupCells(cells) {
-		if len(comp) < minTableCells {
-			continue
-		}
-		if t := buildAbsorbedTable(comp, lines, fills, p.Number()); t != nil {
-			ta.tables = append(ta.tables, t)
+	if len(hRules) >= 2 && len(vRules) >= 2 {
+		if cells := latticeCells(buildLatticeGrid(hRules, vRules)); len(cells) > 0 {
+			for _, comp := range groupCells(cells) {
+				if len(comp) < minTableCells {
+					continue
+				}
+				if t := buildAbsorbedTable(comp, lines, fills, p.Number()); t != nil {
+					ta.tables = append(ta.tables, t)
+				}
+			}
 		}
 	}
+
+	// Stream (borderless) pass on the regions not claimed by ruled tables.
+	var latticeRects []Rectangle
+	for _, t := range ta.tables {
+		latticeRects = append(latticeRects, t.Rect)
+	}
+	ta.tables = append(ta.tables, detectStreamTables(p, lines, latticeRects, hRules, p.Number())...)
 	sort.SliceStable(ta.tables, func(i, j int) bool {
 		if diff := ta.tables[i].Rect.URY - ta.tables[j].Rect.URY; diff > 0.5 || diff < -0.5 {
 			return diff > 0

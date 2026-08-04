@@ -119,13 +119,22 @@ func (p *Page) pageFragments() ([]textFragment, error) {
 // histogram: an internal run of empty bins at least ~4.5% of the page wide, with
 // text on both sides, is a column gutter. Returns each column's [minX, maxX],
 // left-to-right. A single column is returned when there is no such gutter.
+//
+// The histogram counts DISTINCT LINES per bin, not raw fragments, and (on
+// pages with enough lines) a bin crossed by a single line still reads as
+// empty: a centered running head ("1226  Index") straddling the gutter of a
+// two-column page must not conceal it — one straddling line against dozens
+// of column lines is decoration, and without the split the two columns
+// interleave in reading order.
 func detectColumns(frags []textFragment, pageW float64) [][2]float64 {
 	const bins = 240
 	binW := pageW / bins
 	if binW <= 0 {
 		return nil
 	}
-	occ := make([]bool, bins)
+	lineSets := make([]map[int]struct{}, bins)
+	counts := make([]int, bins)
+	pageLines := map[int]struct{}{}
 	for _, f := range frags {
 		x0, x1 := int(f.x/binW), int(f.endX/binW)
 		if x0 < 0 {
@@ -134,9 +143,25 @@ func detectColumns(frags []textFragment, pageW float64) [][2]float64 {
 		if x1 > bins-1 {
 			x1 = bins - 1
 		}
+		key := int(f.y + 0.5)
+		pageLines[key] = struct{}{}
 		for b := x0; b <= x1; b++ {
-			occ[b] = true
+			if lineSets[b] == nil {
+				lineSets[b] = map[int]struct{}{}
+			}
+			if _, seen := lineSets[b][key]; !seen {
+				lineSets[b][key] = struct{}{}
+				counts[b]++
+			}
 		}
+	}
+	minLines := 1
+	if len(pageLines) >= 6 {
+		minLines = 2
+	}
+	occ := make([]bool, bins)
+	for b := range occ {
+		occ[b] = counts[b] >= minLines
 	}
 	first, last := -1, -1
 	for b := 0; b < bins; b++ {
