@@ -509,5 +509,10 @@
     [
       "openpdf-demo-generation.pdf"
     ]
+  ],
+  "TestRenderWordSubsetUmlauts": [
+    [
+      "word-umlauts.pdf"
+    ]
   ]
 }

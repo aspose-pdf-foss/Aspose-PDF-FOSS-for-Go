@@ -702,6 +702,21 @@ func (f *renderFont) gid(code uint32) uint16 {
 				}
 			}
 		}
+		// When the program carries a Unicode cmap AND the PDF declares a
+		// usable encoding, the encoding is authoritative (ISO 32000-1
+		// §9.6.6.4, nonsymbolic fonts). Word's subsets pair a WinAnsi
+		// /Encoding with a (1,0) Mac cmap whose byte keys are MACROMAN
+		// codes — raw-code-first there picks the MacRoman glyph for the
+		// WinAnsi byte (0xFC: 'ü' in WinAnsi, '¸' in MacRoman), so umlauts
+		// rendered as cedillas. Raw-code-first remains for programs without
+		// a Unicode cmap (symbolic subsets keyed by their own codes).
+		if len(f.prog.runeToGlyph) > 0 && f.fi.known {
+			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+				if g := f.prog.glyphID(r); g != 0 {
+					return g
+				}
+			}
+		}
 		if g := f.prog.codeToGlyph[c]; g != 0 {
 			return g
 		}
