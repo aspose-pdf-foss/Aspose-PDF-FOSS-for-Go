@@ -37,6 +37,11 @@ const (
 	// without table reconstruction — ruled tables carry over as pictures
 	// (Aspose Flow-mode behaviour).
 	DocFlow
+	// DocTextbox is the fixed-layout mode: every paragraph becomes an
+	// absolutely positioned floating text box at its PDF coordinates and
+	// every image an anchored picture — maximal visual fidelity, limited
+	// editability, no reconstruction heuristics. Mirrors Aspose's Textbox.
+	DocTextbox
 )
 
 // DocSaveOptions configures SaveDocx / WriteDocx. The zero value exports all
@@ -79,7 +84,7 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	if opt.Mode != DocEnhancedFlow && opt.Mode != DocFlow {
+	if opt.Mode != DocEnhancedFlow && opt.Mode != DocFlow && opt.Mode != DocTextbox {
 		return fmt.Errorf("WriteDocx: unsupported recognition mode %d", opt.Mode)
 	}
 	pages := d.Pages()
@@ -95,6 +100,24 @@ func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
 				return fmt.Errorf("WriteDocx: page %d out of range 1..%d", n, len(pages))
 			}
 		}
+	}
+
+	if opt.Mode == DocTextbox {
+		dw := &docxWriter{}
+		body, err := d.writeDocxTextbox(pages, sel, opt, dw)
+		if err != nil {
+			return err
+		}
+		parts := []docxPart{
+			{"[Content_Types].xml", []byte(docxContentTypes)},
+			{"_rels/.rels", []byte(docxRootRels)},
+			{"word/document.xml", body},
+			{"word/_rels/document.xml.rels", []byte(docxDocumentRels(dw.rels))},
+			{"word/styles.xml", []byte(docxStyles(22, 0))},
+			{"word/numbering.xml", []byte(docxNumbering(nil))},
+		}
+		parts = append(parts, dw.media...)
+		return writeDocxZip(w, parts)
 	}
 
 	doc, err := buildFlowDoc(pages, sel, flowDocOptions{
@@ -526,6 +549,9 @@ type docxWriter struct {
 	relByImage   map[[32]byte]string
 	imageSeq     int
 	drawingID    int
+	// shapetypeDone marks that the VML t202 shapetype declaration was
+	// already emitted (Textbox mode declares it once, before its first use).
+	shapetypeDone bool
 }
 
 // docxContentMargins derives the section margins from the content bounding
