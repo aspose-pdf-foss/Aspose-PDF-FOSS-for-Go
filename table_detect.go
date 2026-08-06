@@ -99,7 +99,6 @@ func (c *AbsorbedCell) Text() string {
 		case i == 0:
 		case fr.Y < prevY-0.5:
 			b.WriteString("\n")
-			prevEnd = 0
 		default:
 			if gapIsSpace(prevEnd, fr) {
 				b.WriteString(" ")
@@ -132,7 +131,6 @@ func absorbedCellRuns(cell *AbsorbedCell) []docRun {
 		if i > 0 {
 			if fr.Y < prevY-0.5 {
 				runs = append(runs, docRun{br: true})
-				prevEnd = 0
 			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
 				runs[len(runs)-1].text += " "
 			}
@@ -206,9 +204,6 @@ func buildAbsorbedTable(comp []latticeCell, lines []TextLine, fills []shadedRect
 		return nil
 	}
 
-	type anchor struct {
-		cell *AbsorbedCell
-	}
 	gridCells := make([][]*AbsorbedCell, rows)
 	for i := range gridCells {
 		gridCells[i] = make([]*AbsorbedCell, cols)

@@ -48,9 +48,9 @@ func TestRenderWordSubsetUmlauts(t *testing.T) {
 			continue
 		}
 		checked = true
-		wantGid := rf.prog.glyphID('ü')
-		if got := rf.gid(0xFC); got != wantGid {
-			t.Errorf("font %s: gid(0xFC) = %d; want %d (u-umlaut) — MacRoman raw-code glyph leaked", name, got, wantGid)
+		wantGID := rf.prog.glyphID('ü')
+		if got := rf.gid(0xFC); got != wantGID {
+			t.Errorf("font %s: gid(0xFC) = %d; want %d (u-umlaut) — MacRoman raw-code glyph leaked", name, got, wantGID)
 		}
 	}
 	if !checked {

@@ -139,9 +139,8 @@ type epubWriter struct {
 	imgSeq   int
 	headSeq  int
 
-	listOpen   int  // 0 closed, else the open list's listID
-	listOrder  bool // open list ordered?
-	hasContent bool
+	listOpen  int  // 0 closed, else the open list's listID
+	listOrder bool // open list ordered?
 }
 
 // build serializes the block stream into chapters.
