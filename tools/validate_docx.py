@@ -111,8 +111,11 @@ def validate_soffice(fn, outdir):
     soffice = find_soffice()
     if not soffice:
         return None  # rung unavailable
+    # Absolute, separator-normalized paths: soffice on Windows fails to load
+    # a relative path with mixed separators ("dir/sub\file.docx").
     r = subprocess.run(
-        [soffice, "--headless", "--convert-to", "pdf", "--outdir", outdir, fn],
+        [soffice, "--headless", "--convert-to", "pdf",
+         "--outdir", os.path.abspath(outdir), os.path.abspath(fn)],
         capture_output=True, timeout=120)
     stem = os.path.splitext(os.path.basename(fn))[0]
     out = os.path.join(outdir, stem + ".pdf")
