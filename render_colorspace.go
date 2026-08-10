@@ -35,7 +35,26 @@ func (rd *renderer) tintConverter(csVal pdfValue) tintFunc {
 // e.g. shadings — can resolve a DeviceN colour model too.
 func csTintConverter(objects map[int]*pdfObject, csVal pdfValue) tintFunc {
 	arr, ok := resolveRefToArray(objects, csVal)
-	if !ok || len(arr) < 4 {
+	if !ok || len(arr) < 2 {
+		return nil
+	}
+	// A non-sRGB ICCBased space converts sc/scn operands through the
+	// profile (epic pdf-go-16u); sRGB-like profiles keep the fast
+	// count-based path (iccProfileFromCS returns nil for them).
+	if operandName(arr[0]) == "/ICCBased" {
+		prof := iccProfileFromCS(objects, csVal)
+		if prof == nil {
+			return nil
+		}
+		return func(vals []float64) (uint8, uint8, uint8) {
+			if len(vals) != prof.nComp {
+				return compsToRGB(vals)
+			}
+			r, g, b := prof.toSRGB(vals)
+			return uint8(r*255 + 0.5), uint8(g*255 + 0.5), uint8(b*255 + 0.5)
+		}
+	}
+	if len(arr) < 4 {
 		return nil
 	}
 	switch operandName(arr[0]) {

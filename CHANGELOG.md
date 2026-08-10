@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ICC colour management** — ICCBased colour spaces now convert through their embedded profile instead of being passed through as the underlying device space: a pure-Go ICC v2 parser and transform engine (matrix/TRC and grayscale-TRC profiles, `curv`/`para` tone curves, and lut8/lut16 CLUT pipelines with XYZ or Lab connection space) feeds both image extraction and the renderer's colour operators, so wide-gamut sources (AdobeRGB and friends) no longer render oversaturated. Profiles that are effectively sRGB are detected and skipped, keeping the common case at zero cost — in the 1,000+ document corpus, 93 of 106 embedded RGB profiles short-circuit this way, and all 156 profiles parse. No lcms, no cgo.
+
 ### Fixed
 
 - **Converters no longer embed decompression-bomb images** — a degenerate PDF can declare a gigapixel image from a few KB of flate (a corpus file carries 35000×35000 — 1.2 Gpx — in an 11 KB document); the flow exporters and the DOCX Textbox mode embedded the decoded PNG verbatim, producing a DOCX/EPUB that crashed LibreOffice (stack overflow) and stalled Word. Rasters above 30 megapixels are now skipped at collection time (nothing legitimate in the 1,000+ document corpus comes near the cap). Found by the DOCX harness's new LibreOffice render rung, which now passes the full corpus.

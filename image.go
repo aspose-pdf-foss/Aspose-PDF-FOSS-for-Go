@@ -173,10 +173,19 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 		// low-res JPEG foreground) is composited at the mask's resolution; an
 		// /SMask of a different resolution is reconciled by fitSoftMask.
 		// Plain RGB/Gray JPEGs with no mask pass through untouched.
-		if img.ColorSpace == ColorSpaceDeviceCMYK || hasSMask || hasMask {
+		// A wide-gamut ICC profile over DCT also forces the decode path: the
+		// JPEG bytes alone would be shown as sRGB by every consumer.
+		iccProf := (*iccProfile)(nil)
+		if img.ColorSpace == ColorSpaceICCBased {
+			iccProf = iccImageProfile(objects, stream.Dict)
+		}
+		if img.ColorSpace == ColorSpaceDeviceCMYK || hasSMask || hasMask || iccProf != nil {
 			pixels, _, _, err := decodeJPEGToPixels(jpegData)
 			if err != nil {
 				return nil, err
+			}
+			if iccProf != nil && iccProf.nComp == 3 {
+				pixels = iccProf.convertPixels(pixels, img.Width*img.Height)
 			}
 			var alphaMask []byte
 			if hasSMask {
@@ -361,6 +370,17 @@ func extractXObjectImageData(img *Image, objects map[int]*pdfObject, stream *pdf
 					}
 				}
 			}
+		}
+	}
+
+	// ICCBased samples run through the profile to sRGB when the profile is
+	// parseable and not already sRGB-like (epic pdf-go-16u) — wide-gamut
+	// sources (AdobeRGB) otherwise render oversaturated. bpc<8 ICC images
+	// (rare) keep the pass-through.
+	if img.ColorSpace == ColorSpaceICCBased && bpc == 8 {
+		if prof := iccImageProfile(objects, stream.Dict); prof != nil && prof.nComp == components {
+			rawPixels = prof.convertPixels(rawPixels, img.Width*img.Height)
+			components = 3
 		}
 	}
 
