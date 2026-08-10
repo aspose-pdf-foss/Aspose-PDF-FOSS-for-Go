@@ -135,7 +135,7 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 			if imgs, err := p.ExtractImages(); err == nil {
 				for j := range imgs {
 					img := &imgs[j]
-					if len(img.Data) == 0 {
+					if len(img.Data) == 0 || !embeddableImage(img) {
 						continue
 					}
 					imageRects = append(imageRects, Rectangle{
@@ -253,6 +253,18 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 	}
 	doc.bodySize = weightedMedianSize(sizes)
 	return doc, nil
+}
+
+// maxEmbedPixels caps the raster size the flow exporters will embed. A
+// degenerate PDF can declare a gigapixel image from a few KB of flate
+// (55745.pdf: 35000×35000 from an 11 KB file); embedding it verbatim makes
+// the DOCX/EPUB a decompression bomb that crashes LibreOffice (stack
+// overflow) and stalls Word. Such images carry no real content — skip them.
+const maxEmbedPixels = 30_000_000
+
+// embeddableImage reports whether the extracted image is sane to embed.
+func embeddableImage(img *Image) bool {
+	return img.Width > 0 && img.Height > 0 && img.Width*img.Height <= maxEmbedPixels
 }
 
 // paraOutsideTables removes the paragraph's lines whose text lives inside a

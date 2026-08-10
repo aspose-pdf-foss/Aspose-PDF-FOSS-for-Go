@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Converters no longer embed decompression-bomb images** — a degenerate PDF can declare a gigapixel image from a few KB of flate (a corpus file carries 35000×35000 — 1.2 Gpx — in an 11 KB document); the flow exporters and the DOCX Textbox mode embedded the decoded PNG verbatim, producing a DOCX/EPUB that crashed LibreOffice (stack overflow) and stalled Word. Rasters above 30 megapixels are now skipped at collection time (nothing legitimate in the 1,000+ document corpus comes near the cap). Found by the DOCX harness's new LibreOffice render rung, which now passes the full corpus.
+
 ## [0.7.0] — 2026-08-10
 
 The document-conversion release. PDF now converts to **editable Word documents** (`SaveDocx`: flowing text with styles, headings, lists, hyperlinks, images, footers with live page fields — and real, editable Word tables), to **EPUB 3 e-books** (`SaveEpub`), and (from the previous cycle of this release line) to SVG and Markdown. Underneath sits a new **table-detection engine** (`TableAbsorber`, mirroring and extending Aspose.PDF for .NET's): vector-native lattice recognition of ruled tables — merged cells fall out of the rule grid naturally — plus a **stream mode that finds borderless tables from aligned whitespace alone**, something Aspose's absorber does not attempt; detected tables feed every flow exporter (DOCX/EPUB/HTML/Markdown). A third DOCX mode, **Textbox**, gives a fixed-layout export with every line at its exact PDF coordinates. Also here: 0.6.0's linearized ("fast web view") saving now passes **qpdf's strict conformance check** on 1008/1009 linearizable corpus documents, converters gained rotated-text fidelity, and the renderer fixes glyph selection for Word-generated subset fonts. Everything remains pure Go, zero dependencies.

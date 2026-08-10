@@ -81,7 +81,11 @@ func (dw *docxWriter) writeTextboxPage(b *strings.Builder, p *Page, size PageSiz
 	var images []Image
 	if !opt.NoImages {
 		if imgs, err := p.ExtractImages(); err == nil {
-			images = imgs
+			for i := range imgs {
+				if embeddableImage(&imgs[i]) {
+					images = append(images, imgs[i])
+				}
+			}
 		}
 	}
 
