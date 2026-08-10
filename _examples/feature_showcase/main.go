@@ -14,6 +14,9 @@
 //	page 7+ — Multi-page Sales Report (overflow, repeating headers, RowSpan/ColSpan)
 //	page N  — Landscape wide chart (uses pdf.PageFormatA4.Landscape())
 //	page N+1 — Vector graphics showcase (every Draw* method, inline SVG)
+//	page N+2… — Flattening, Flow Layout, Document Conversion (TableAbsorber
+//	           grid over the bill page + its real Markdown export), and the
+//	           Rendering & Imposition meta page
 //
 // Cross-cutting features:
 //   - Page labels: roman (i, ii) for front matter, decimal restarting at 1 for body
@@ -71,6 +74,7 @@ const (
 	destVector    = "section.vector"
 	destFlatten   = "section.flatten"
 	destFlow      = "section.flow"
+	destConvert   = "section.convert"
 	destRender    = "section.render"
 )
 
@@ -148,6 +152,12 @@ func main() {
 	addFlowShowcase(doc)
 	flowPage, _ := doc.Page(flowStartCount + 1)
 
+	// Document Conversion — a meta page filled after the furniture pass so
+	// its thumbnail shows the finished Restaurant Bill page (see
+	// addConversionShowcase below).
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	convertPage, _ := doc.Page(doc.PageCount())
+
 	// Page Rendering — a meta page whose thumbnails are renders of other pages
 	// of this very document, produced by the pure-Go renderer. Its content is
 	// filled in below, after the per-page furniture so the thumbnails show the
@@ -172,6 +182,7 @@ func main() {
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
 		{destFlow, "Flow Layout — Giants of Physics", "flow", flowPage},
+		{destConvert, "Document Conversion", "convert", convertPage},
 		{destRender, "Rendering & Imposition", "image", renderPage},
 	}
 	named := doc.NamedDestinations()
@@ -205,6 +216,12 @@ func main() {
 	for i, p := range doc.Pages() {
 		addUnifiedFooter(p, i+1, doc.PageCount())
 	}
+
+	// Document Conversion — dog-fooding the converters on this very
+	// document: the finished Restaurant Bill page is rasterized with the
+	// TableAbsorber's detected grid overlaid on it, and the SAME page's
+	// actual Markdown export (WriteMarkdown) is typeset beside it.
+	addConversionShowcase(doc, convertPage, billPage, 8)
 
 	// Rendering & Imposition — two features on one meta page. Top row: two
 	// finished pages of this very document rasterized by the pure-Go renderer.
@@ -2510,4 +2527,161 @@ func mustAddOutline(err error) {
 	if err != nil {
 		log.Fatalf("add outline: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------
+// Document Conversion — meta page
+// ---------------------------------------------------------------------
+
+// addConversionShowcase fills the Document Conversion page: the finished
+// Restaurant Bill page rendered as a thumbnail with the TableAbsorber's
+// detected cell grid drawn over it, the very same page's Markdown export
+// beside it, and the DOCX recognition modes + output formats below. Called
+// after the furniture pass so the thumbnail shows the complete page.
+func addConversionShowcase(doc *pdf.Document, page *pdf.Page, billPage *pdf.Page, billPageNum int) {
+	sectionHeader(page, "Document Conversion",
+		"SaveDocx · SaveEpub · SaveMarkdown · SaveHTML · SaveSVG · TableAbsorber")
+
+	navy := pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	grey := pdf.Color{R: 0.35, G: 0.35, B: 0.38, A: 1}
+	azure := pdf.Color{R: 0.10, G: 0.46, B: 0.82, A: 1}
+	frame := pdf.Color{R: 0.72, G: 0.72, B: 0.74, A: 1}
+	card := pdf.Color{R: 0.965, G: 0.965, B: 0.975, A: 1}
+
+	const (
+		slotTop = 700.0
+		slotH   = 352.0
+		capH    = 26.0
+	)
+
+	// --- Left: bill thumbnail + detected grid overlay ------------------
+	var thumb bytes.Buffer
+	if err := billPage.RenderPNG(&thumb, pdf.RenderOptions{DPI: 96}); err != nil {
+		log.Fatalf("conversion thumb: %v", err)
+	}
+	bsz, _ := billPage.Size()
+	slotW := slotH * bsz.Width / bsz.Height
+	leftX := 50.0
+	imgRect := pdf.Rectangle{LLX: leftX, LLY: slotTop - slotH, URX: leftX + slotW, URY: slotTop}
+	mustVector(page.AddImageFromStream(bytes.NewReader(thumb.Bytes()), imgRect))
+	mustVector(page.DrawRectangle(imgRect, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 0.8, Color: &frame},
+	}))
+
+	// Overlay the detected lattice grid, scaled from bill-page space into
+	// the thumbnail rect.
+	ta := pdf.NewTableAbsorber()
+	if err := ta.Visit(billPage); err != nil {
+		log.Fatalf("conversion absorber: %v", err)
+	}
+	sx := slotW / bsz.Width
+	sy := slotH / bsz.Height
+	mapRect := func(r pdf.Rectangle) pdf.Rectangle {
+		return pdf.Rectangle{
+			LLX: imgRect.LLX + r.LLX*sx, LLY: imgRect.LLY + r.LLY*sy,
+			URX: imgRect.LLX + r.URX*sx, URY: imgRect.LLY + r.URY*sy,
+		}
+	}
+	rows, cols := 0, 0
+	for _, t := range ta.TableList() {
+		rows, cols = len(t.RowList()), len(t.RowList()[0].CellList())
+		for _, row := range t.RowList() {
+			for _, cell := range row.CellList() {
+				if cell.Covered {
+					continue
+				}
+				mustVector(page.DrawRectangle(mapRect(cell.Rect), pdf.ShapeStyle{
+					LineStyle: pdf.LineStyle{Width: 0.8, Color: &azure},
+				}))
+			}
+		}
+		mustVector(page.DrawRectangle(mapRect(t.Rect), pdf.ShapeStyle{
+			LineStyle: pdf.LineStyle{Width: 1.2, Color: &pdf.Color{R: 0.85, G: 0.25, B: 0.2, A: 1}},
+		}))
+	}
+	mustText(page.AddText(
+		fmt.Sprintf("TableAbsorber — %d×%d lattice grid detected on the bill page", rows, cols),
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9, Color: &grey, HAlign: pdf.HAlignCenter},
+		pdf.Rectangle{LLX: leftX, LLY: slotTop - slotH - capH, URX: leftX + slotW, URY: slotTop - slotH - 4}))
+
+	// --- Right: the same page as Markdown (real WriteMarkdown output) --
+	mdX := leftX + slotW + 22
+	mdRect := pdf.Rectangle{LLX: mdX, LLY: slotTop - slotH, URX: 545, URY: slotTop}
+	var md bytes.Buffer
+	if err := doc.WriteMarkdown(&md, pdf.MarkdownSaveOptions{Pages: []int{billPageNum}}); err != nil {
+		log.Fatalf("conversion markdown: %v", err)
+	}
+	mustVector(page.DrawRoundedRectangle(mdRect, 6, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 0.8, Color: &frame},
+		FillColor: &card,
+	}))
+	var lines []string
+	for _, ln := range strings.Split(strings.TrimSpace(md.String()), "\n") {
+		if strings.HasPrefix(ln, "Aspose.PDF FOSS for Go") {
+			continue // page footer — WriteMarkdown suppresses it on multi-page exports
+		}
+		lines = append(lines, ln)
+	}
+	maxLines := 34
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines = append(lines, "…")
+	}
+	y := slotTop - 14
+	for _, ln := range lines {
+		if len(ln) > 52 {
+			ln = ln[:51] + "…"
+		}
+		mustText(page.AddText(ln, pdf.TextStyle{Font: pdf.FontCourier, Size: 6.4, Color: &pdf.Color{R: 0.15, G: 0.15, B: 0.18, A: 1}},
+			pdf.Rectangle{LLX: mdX + 8, LLY: y - 8, URX: 541, URY: y}))
+		y -= 9.2
+		if y < slotTop-slotH+8 {
+			break
+		}
+	}
+	mustText(page.AddText("The same page via WriteMarkdown — a real GFM pipe table",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9, Color: &grey, HAlign: pdf.HAlignCenter},
+		pdf.Rectangle{LLX: mdX, LLY: slotTop - slotH - capH, URX: 545, URY: slotTop - slotH - 4}))
+
+	// --- DOCX recognition modes ---------------------------------------
+	modes := []struct{ name, desc string }{
+		{"EnhancedFlow", "Default. Detected tables become real, editable Word tables — merged cells, shading, alignment."},
+		{"Flow", "Flowing text with styles, lists, links, images and footers; tables carry over as pictures."},
+		{"Textbox", "Fixed layout: every line positioned at its exact PDF coordinates; portrait & landscape preserved."},
+	}
+	chipTop := slotTop - slotH - capH - 30
+	chipW, chipH, chipGap := 158.0, 62.0, 10.5
+	for i, m := range modes {
+		x := 50 + float64(i)*(chipW+chipGap)
+		r := pdf.Rectangle{LLX: x, LLY: chipTop - chipH, URX: x + chipW, URY: chipTop}
+		mustVector(page.DrawRoundedRectangle(r, 6, pdf.ShapeStyle{
+			LineStyle: pdf.LineStyle{Width: 0.9, Color: &navy},
+			FillColor: &pdf.Color{R: 0.955, G: 0.965, B: 0.995, A: 1},
+		}))
+		mustText(page.AddText("SaveDocx · "+m.name, pdf.TextStyle{
+			Font: pdf.FontHelveticaBold, Size: 9.5, Color: &navy, HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: x + 6, LLY: chipTop - 16, URX: x + chipW - 6, URY: chipTop - 4}))
+		mustText(page.AddText(m.desc, pdf.TextStyle{
+			Font: pdf.FontHelvetica, Size: 7.4, Color: &grey, HAlign: pdf.HAlignCenter, LineSpacing: 1.25,
+		}, pdf.Rectangle{LLX: x + 7, LLY: chipTop - chipH + 4, URX: x + chipW - 7, URY: chipTop - 18}))
+	}
+
+	// --- Output format badges -----------------------------------------
+	badges := []string{"DOCX", "EPUB", "Markdown", "HTML", "SVG", "PNG · TIFF"}
+	bTop := chipTop - chipH - 26
+	bH := 20.0
+	bGap := 8.0
+	bW := (495.0 - bGap*float64(len(badges)-1)) / float64(len(badges))
+	for i, b := range badges {
+		x := 50 + float64(i)*(bW+bGap)
+		r := pdf.Rectangle{LLX: x, LLY: bTop - bH, URX: x + bW, URY: bTop}
+		mustVector(page.DrawRoundedRectangle(r, 9, pdf.ShapeStyle{FillColor: &navy}))
+		mustText(page.AddText(b, pdf.TextStyle{
+			Font: pdf.FontHelveticaBold, Size: 8.5, Color: &pdf.Color{R: 1, G: 1, B: 1, A: 1}, HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: x, LLY: bTop - bH + 5, URX: x + bW, URY: bTop - 5}))
+	}
+	mustText(page.AddText(
+		"One source, every target: editable Word (three recognition modes), reflowable EPUB 3, GFM Markdown, self-contained or reflowable HTML, per-page SVG, and raster formats — all pure Go, all validated against a 1,000+ document corpus.",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 8.5, Color: &grey, HAlign: pdf.HAlignCenter, LineSpacing: 1.35},
+		pdf.Rectangle{LLX: 60, LLY: bTop - bH - 46, URX: 535, URY: bTop - bH - 8}))
 }
