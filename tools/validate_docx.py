@@ -94,8 +94,21 @@ def validate_python_docx(fn):
         return [f"python-docx: {e!r}"]
 
 
+def find_soffice():
+    p = shutil.which("soffice")
+    if p:
+        return p
+    for cand in (r"C:\Program Files\LibreOffice\program\soffice.exe",
+                 r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                 "/usr/bin/soffice", "/usr/local/bin/soffice",
+                 "/Applications/LibreOffice.app/Contents/MacOS/soffice"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def validate_soffice(fn, outdir):
-    soffice = shutil.which("soffice")
+    soffice = find_soffice()
     if not soffice:
         return None  # rung unavailable
     r = subprocess.run(
