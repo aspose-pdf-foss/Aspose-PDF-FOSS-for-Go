@@ -476,6 +476,32 @@ func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, p *Page, 
 			return nil
 		}
 	}
+	// Symmetric TOC shape: a long-text first column against a bare small-
+	// integer second column ("1. Text Capabilities Showcase | 1") is a
+	// table of contents whose leaders are vector rules (invisible to the
+	// dot-leader guard), not a data table.
+	if modal == 2 {
+		var words []int
+		bare, twoCol := 0, 0
+		for _, r := range run {
+			if len(r.cells) != 2 {
+				continue
+			}
+			twoCol++
+			if s := strings.Fields(streamCellText(r.cells[0])); len(s) > 0 {
+				words = append(words, len(s))
+			}
+			if n, ok := bareInt(r.cells[1]); ok && n > 0 && n < 10000 {
+				bare++
+			}
+		}
+		if twoCol > 0 && float64(bare) >= 0.7*float64(twoCol) && len(words) > 0 {
+			sort.Ints(words)
+			if words[len(words)/2] >= 3 {
+				return nil
+			}
+		}
+	}
 
 	// Guard 11: a two-column candidate set almost entirely in a monospace
 	// face is a code listing with an aligned comment/value column, not a
