@@ -52,7 +52,8 @@ def validate_xsd(fn):
     errors = []
     with zipfile.ZipFile(fn) as z:
         parts = [n for n in z.namelist()
-                 if n in SML_PARTS_PREFIX or n.startswith("xl/worksheets/")]
+                 if n in SML_PARTS_PREFIX
+                 or (n.startswith("xl/worksheets/") and "_rels" not in n)]
         for part in parts:
             try:
                 doc = etree.fromstring(z.read(part))

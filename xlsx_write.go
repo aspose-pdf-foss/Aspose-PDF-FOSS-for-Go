@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
@@ -47,6 +48,9 @@ type XlsxSaveOptions struct {
 	Mode XlsxRecognitionMode
 	// NoStyles suppresses fills, fonts, alignment and column widths.
 	NoStyles bool
+	// NoImages skips images (FullPage mode anchors page images on the
+	// sheet; TablesOnly never carries images).
+	NoImages bool
 }
 
 // SaveXlsx writes the document as an Excel (.xlsx) workbook file.
@@ -108,12 +112,39 @@ func (d *Document) WriteXlsx(w io.Writer, opts ...XlsxSaveOptions) error {
 
 	names := make([]string, len(sheets))
 	parts := []docxPart{}
+	drawingN := 0
+	var media []xlsxMedia
+	mediaIdx := map[[32]byte]int{}
 	for i, s := range sheets {
 		names[i] = s.name
+		// Resolve each sheet's images into deduped workbook media parts.
+		for j := range s.draw {
+			e := &s.draw[j]
+			m := s.drawMedia[j]
+			key := sha256.Sum256(m.data)
+			idx, ok := mediaIdx[key]
+			if !ok {
+				idx = len(media)
+				media = append(media, m)
+				mediaIdx[key] = idx
+			}
+			e.mediaIndex, e.mediaExt = idx, m.ext
+		}
 		parts = append(parts, docxPart{fmt.Sprintf("xl/worksheets/sheet%d.xml", i+1), []byte(s.build())})
+		if len(s.draw) > 0 {
+			drawingN++
+			parts = append(parts,
+				docxPart{fmt.Sprintf("xl/worksheets/_rels/sheet%d.xml.rels", i+1), []byte(xlsxSheetRels(drawingN))},
+				docxPart{fmt.Sprintf("xl/drawings/drawing%d.xml", drawingN), []byte(xlsxDrawingXML(s.draw))},
+				docxPart{fmt.Sprintf("xl/drawings/_rels/drawing%d.xml.rels", drawingN), []byte(xlsxDrawingRels(s.draw))},
+			)
+		}
+	}
+	for i, m := range media {
+		parts = append(parts, docxPart{fmt.Sprintf("xl/media/image%d.%s", i+1, m.ext), m.data})
 	}
 	parts = append(parts,
-		docxPart{"[Content_Types].xml", []byte(xlsxContentTypes(len(sheets)))},
+		docxPart{"[Content_Types].xml", []byte(xlsxContentTypes(len(sheets), drawingN))},
 		docxPart{"_rels/.rels", []byte(xlsxRootRels)},
 		docxPart{"xl/workbook.xml", []byte(xlsxWorkbook(names))},
 		docxPart{"xl/_rels/workbook.xml.rels", []byte(xlsxWorkbookRels(len(sheets)))},
@@ -442,16 +473,33 @@ func buildXlsxFullPage(pages []*Page, sel []int, reg *xlsxStyleRegistry, opt Xls
 			continue
 		}
 
+		// Page images become floating pictures anchored near their band.
+		var pageImages []Image
+		if !opt.NoImages {
+			if imgs, err := p.ExtractImages(); err == nil {
+				for i := range imgs {
+					if embeddableImage(&imgs[i]) && len(imgs[i].Data) > 0 {
+						pageImages = append(pageImages, imgs[i])
+					}
+				}
+			}
+		}
+
 		// Vertical bands: every table is one band; every non-table line is
 		// its own band, ordered by Y descending.
 		type band struct {
 			top   float64
 			table *AbsorbedTable
 			row   streamRow
+			img   *Image
 		}
 		var bands []band
 		for _, t := range tables {
 			bands = append(bands, band{top: t.Rect.URY, table: t})
+		}
+		for i := range pageImages {
+			img := &pageImages[i]
+			bands = append(bands, band{top: img.Y + img.PageHeight, img: img})
 		}
 		for _, line := range lines {
 			if len(line.Fragments) == 0 || lineInsideAny(line, tableRects) {
@@ -483,6 +531,29 @@ func buildXlsxFullPage(pages []*Page, sel []int, reg *xlsxStyleRegistry, opt Xls
 
 		row := 0
 		for _, b := range bands {
+			if b.img != nil {
+				ext := "png"
+				if b.img.Format == ImageFormatJPEG {
+					ext = "jpg"
+				}
+				col := 0
+				if len(cols) > 0 {
+					col = nearestEdge(cols, b.img.X)
+				}
+				sheet.draw = append(sheet.draw, xlsxDrawEntry{
+					row: row, col: col,
+					cxEmu: int64(b.img.PageWidth*12700 + 0.5),
+					cyEmu: int64(b.img.PageHeight*12700 + 0.5),
+				})
+				sheet.drawMedia = append(sheet.drawMedia, xlsxMedia{ext: ext, data: b.img.Data})
+				// Clear rows under the floating picture so following text
+				// does not sit beneath it (default row height ~15 pt).
+				row += int(b.img.PageHeight/15) + 1
+				if row > sheet.maxRow {
+					sheet.maxRow = row
+				}
+				continue
+			}
 			if b.table != nil {
 				appendTableRows(sheet, b.table, b.table.RowList(), &row, reg, opt)
 				row++ // gap after a table block

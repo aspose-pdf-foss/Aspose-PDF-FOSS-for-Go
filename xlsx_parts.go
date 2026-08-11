@@ -15,8 +15,9 @@ import (
 const xlsxNSMain = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 const xlsxNSRel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
-// xlsxContentTypes lists every part; one Override per worksheet.
-func xlsxContentTypes(sheetCount int) string {
+// xlsxContentTypes lists every part; one Override per worksheet and per
+// drawing; image Defaults appear once drawings exist.
+func xlsxContentTypes(sheetCount, drawingCount int) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
 	b.WriteString(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`)
@@ -27,6 +28,13 @@ func xlsxContentTypes(sheetCount int) string {
 		fmt.Fprintf(&b, `<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`, i)
 	}
 	b.WriteString(`<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`)
+	if drawingCount > 0 {
+		b.WriteString(`<Default Extension="png" ContentType="image/png"/>`)
+		b.WriteString(`<Default Extension="jpg" ContentType="image/jpeg"/>`)
+		for i := 1; i <= drawingCount; i++ {
+			fmt.Fprintf(&b, `<Override PartName="/xl/drawings/drawing%d.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`, i)
+		}
+	}
 	b.WriteString(`</Types>`)
 	return b.String()
 }
@@ -247,7 +255,17 @@ type xlsxSheet struct {
 	widths []float64          // per column, Excel character units (0 = default)
 	rows   map[int][]sheetRun // 0-based row → cells with explicit columns
 	maxRow int
-	merges []string // "A1:C2"
+	merges []string        // "A1:C2"
+	draw   []xlsxDrawEntry // anchored images (rendered as a drawing part)
+	// drawMedia carries each entry's bytes until the workbook assembly
+	// dedupes them into xl/media parts (parallel to draw).
+	drawMedia []xlsxMedia
+}
+
+// xlsxMedia is one image payload destined for xl/media.
+type xlsxMedia struct {
+	ext  string // "png" or "jpg"
+	data []byte
 }
 
 type sheetRun struct {
@@ -322,6 +340,9 @@ func (s *xlsxSheet) build() string {
 		}
 		b.WriteString(`</mergeCells>`)
 	}
+	if len(s.draw) > 0 {
+		fmt.Fprintf(&b, `<drawing xmlns:r="%s" r:id="rId1"/>`, xlsxNSRel)
+	}
 	b.WriteString(`</worksheet>`)
 	return b.String()
 }
@@ -336,4 +357,52 @@ func trimFloat(v float64) string {
 		return "0"
 	}
 	return s
+}
+
+// --- drawings (images) ------------------------------------------------------
+
+// xlsxDrawEntry is one image anchored on a worksheet.
+type xlsxDrawEntry struct {
+	row, col   int   // 0-based anchor cell
+	cxEmu      int64 // display size
+	cyEmu      int64
+	mediaIndex int // into the workbook media list (xl/media/imageN.*)
+	mediaExt   string
+}
+
+// xlsxDrawingXML serializes one xl/drawings/drawingN.xml part; images use
+// oneCellAnchor so they float at their anchor cell without resizing with it.
+func xlsxDrawingXML(entries []xlsxDrawEntry) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
+	b.WriteString(`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">`)
+	for i, e := range entries {
+		b.WriteString(`<xdr:oneCellAnchor>`)
+		fmt.Fprintf(&b, `<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`, e.col, e.row)
+		fmt.Fprintf(&b, `<xdr:ext cx="%d" cy="%d"/>`, e.cxEmu, e.cyEmu)
+		fmt.Fprintf(&b, `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="%d" name="Picture %d"/><xdr:cNvPicPr/></xdr:nvPicPr>`, i+1, i+1)
+		fmt.Fprintf(&b, `<xdr:blipFill><a:blip xmlns:r="%s" r:embed="rId%d"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>`, xlsxNSRel, i+1)
+		fmt.Fprintf(&b, `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>`, e.cxEmu, e.cyEmu)
+		b.WriteString(`<xdr:clientData/></xdr:oneCellAnchor>`)
+	}
+	b.WriteString(`</xdr:wsDr>`)
+	return b.String()
+}
+
+// xlsxDrawingRels maps the drawing's rIds onto the media parts.
+func xlsxDrawingRels(entries []xlsxDrawEntry) string {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
+	b.WriteString(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`)
+	for i, e := range entries {
+		fmt.Fprintf(&b, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image%d.%s"/>`, i+1, e.mediaIndex+1, e.mediaExt)
+	}
+	b.WriteString(`</Relationships>`)
+	return b.String()
+}
+
+// xlsxSheetRels declares the worksheet's drawing relationship.
+func xlsxSheetRels(drawingIndex int) string {
+	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+		fmt.Sprintf(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing%d.xml"/></Relationships>`, drawingIndex)
 }
