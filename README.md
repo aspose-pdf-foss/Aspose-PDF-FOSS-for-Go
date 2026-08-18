@@ -1,614 +1,357 @@
 # Aspose.PDF FOSS for Go
 
-[![test](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml)
-[![lint](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/lint.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/lint.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go.svg)](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
+[![test](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/test.yml) [![lint](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/lint.yml/badge.svg)](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/actions/workflows/lint.yml) [![Go Reference](https://pkg.go.dev/badge/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go.svg)](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Go Version](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](https://go.dev/dl/)
 
-A **pure Go PDF library** — **no CGo, no native libraries, no external dependencies** (standard library only), MIT-licensed. Create, edit, render, sign, encrypt, convert, and validate PDF documents: split/merge/extract pages, extract and search text, fill and build AcroForms, draw text/vector graphics/tables, embed and subset fonts, apply digital signatures (PKCS#7, PAdES, timestamps), validate and convert PDF/A, author accessible Tagged PDF, and render pages to images (PNG/JPEG/GIF/BMP, multi-page TIFF) with a built-in dependency-free rasterizer. Convert **Markdown ⇄ PDF** (652/652 official CommonMark suite), export **PDF → HTML** (with fillable forms), **PDF → SVG**, **PDF → Markdown**, and place **SVG** or images onto pages. The `ai` subpackage adds AI copilots — summarization, OCR with a searchable-PDF pipeline, document Q&A — over any OpenAI-compatible endpoint.
+[![Aspose.PDF FOSS for Go](https://products.aspose.org/media/pdf/go/banner-readme.png)](https://products.aspose.org/pdf/go/)
 
-Spec references throughout follow ISO 32000-1 (PDF 1.7) and ISO 32000-2 (PDF 2.0). The API shape mirrors Aspose.PDF for .NET where natural, so concepts transfer directly for migrants. Not to be confused with `aspose-pdf-go-cpp` (a CGo wrapper around a native library) — this project is 100% Go source, `go get` and cross-compile anywhere.
+A pure Go PDF library — no CGo, no native libraries, no third-party package dependencies
+(standard library only), MIT-licensed. It creates, edits, renders, signs, encrypts, converts, and
+validates PDF documents: split/merge/extract pages, extract and search text, fill and build
+AcroForms, draw text/vector graphics/tables, embed and subset fonts, apply digital signatures
+(PKCS#7, PAdES, timestamps), validate and convert PDF/A, author accessible Tagged PDF, and
+render pages to images with a built-in rasterizer that has no third-party package dependencies of
+its own, convert to and from Markdown, HTML, and SVG, and query documents through a set of AI
+copilots over any OpenAI-compatible endpoint.
 
-## Install
+The API shape mirrors Aspose.PDF for .NET where natural, so concepts transfer directly for
+developers coming from that library, and spec references throughout follow ISO 32000-1 (PDF 1.7)
+and ISO 32000-2 (PDF 2.0). This project is not to be confused with `aspose-pdf-go-cpp` (a CGo
+wrapper around a native library) — it is 100% Go source, `go get` and cross-compile anywhere.
+
+## Navigation
+
+- [At a Glance](#at-a-glance)
+- [Key Capabilities](#key-capabilities)
+- [Installation](#installation)
+- [Dependencies](#dependencies)
+- [Quick Start](#quick-start)
+- [Feature Showcase](#feature-showcase)
+- [Additional Examples](#additional-examples)
+- [API Reference](#api-reference)
+- [Documentation & Resources](#documentation--resources)
+- [Scope and Limitations](#scope-and-limitations)
+- [Development and Testing](#development-and-testing)
+- [Third-Party Notices](#third-party-notices)
+- [License](#license)
+
+## At a Glance
+
+```mermaid
+flowchart TD
+  subgraph StartingPoints["Starting Points"]
+    direction LR
+    i1["An existing PDF document (including encrypted)"]
+    i2["Nothing — authored from scratch"]
+  end
+  PRODUCT["Aspose.PDF FOSS for Go"]
+  subgraph Capabilities["Core Capabilities"]
+    direction LR
+    subgraph capl[" "]
+      direction TB
+      c1["Page-level operations (split, merge, extract, impose)"]
+      c2["Encryption and digital signatures"]
+      c3["Content authoring via the Flow layout engine"]
+      c4["Tables and vector graphics"]
+      c5["AcroForm fields"]
+      c6["Annotations, bookmarks, and redaction"]
+      c7["Stamps and watermarks"]
+    end
+    subgraph capr[" "]
+      direction TB
+      c8["Tagged PDF and PDF/UA accessibility"]
+      c9["PDF/A and structural validation"]
+      c10["Rendering to raster images"]
+      c11["HTML, SVG, and Markdown conversion"]
+      c12["AI copilots"]
+      c13["Text extraction, search, and replace"]
+      c14["Table detection and Office/eBook conversion"]
+    end
+  end
+  subgraph Outputs["Outputs"]
+    direction TB
+    o1["PDF documents (file path or in-memory stream)"]
+    o2["PNG, JPEG, GIF, BMP, and TIFF raster images"]
+    o3["HTML (single-file)"]
+    o4["SVG"]
+    o5["Markdown"]
+    o6["Plain text"]
+    o7["DOCX (Word), XLSX (Excel), and EPUB"]
+  end
+  StartingPoints --> PRODUCT --> Capabilities --> Outputs
+```
+
+## Key Capabilities
+
+- **Page-level operations and metadata** — `Document.Split()` breaks a document into per-page
+  documents; `Extract` builds a new document from selected `PageRange`s without touching the
+  source; `Append` combines multiple PDFs into one by merging another document's pages in place;
+  `Rotate`/`SetRotation` turn pages, and `Reorder` rearranges them by an explicit 1-based index
+  slice (repeats and omissions both allowed); `Document.NUp`/`Document.Booklet` (`NUp`/`Booklet`)
+  impose pages onto larger sheets for N-up printing or saddle-stitch binding, each returning a new
+  document built from Form XObjects and leaving the source untouched; and blank PDFs can be
+  created from scratch with `NewDocument`/`NewDocumentFromFormat`. Each `*Page` exposes its own
+  `Number()`, `Size()` (a `PageSize{Width, Height}` in points), and `Rotation()` getters, and page
+  geometry (`MediaBox`/`CropBox`/`TrimBox`/`BleedBox`/`ArtBox`) is readable and, via
+  `SetMediaBox`/`SetCropBox`/`SetTrimBox`/`SetBleedBox`/`SetArtBox` (plus the `SetPageSize`
+  shorthand for resizing the MediaBox), writable without scaling existing content; the `/Info`
+  dictionary round-trips through `Document.Info()`/`SetInfo()`/`ClearInfo()` and a `DocumentInfo`
+  struct, distinct from the XMP metadata packet available via
+  `Document.XMP()`/`SetXMP()`/`ClearXMP()` (backed by the `/Catalog/Metadata` stream, with a raw
+  `XMPRaw()`/`SetXMPRaw()` escape hatch and `SyncInfoToXMP()` to mirror `/Info` into XMP); and the
+  `/PageLabels` numbering tree is written with `Document.SetPageLabels` (roman/decimal/alphabetic
+  styles, prefix, and start value per range) and read back per-page via `Page.Label()`.
+- **Encryption and digital signatures** — `Document.SetPassword(userPassword, ownerPassword)`
+  password-protects the document on save with AES-128 (`/CFM /AESV2`), AES-256 (`/CFM /AESV3`,
+  bumps the file to PDF 2.0), or RC4-128 and granular viewer permissions (print, copy, modify,
+  annotate, fill, accessibility, assemble); sign with a PKCS#7-detached signature
+  (SHA-256, RSA or ECDSA) that can be PAdES, a DocMDP certification, and/or carry an RFC 3161
+  trusted timestamp, over plain or already-encrypted documents, with support for multiple
+  incremental signatures and verification via `VerifySignatures`. Keys are passed as a standard
+  `crypto.Signer` plus `*x509.Certificate` — no `.p12` file required.
+- **Content authoring with the Flow layout engine** — `Document.NewFlow` lays out paragraphs,
+  headings, images, tables, and lists top-to-bottom with automatic pagination; floating boxes
+  (absolute, in-flow, or floated with text wrap-around) and multi-column layout are built on the
+  same engine; `FlowOptions.Tagged` auto-tags every element for a one-call PDF/UA-conformant
+  document.
+- **Tables and vector graphics** — `pdf.NewTable()` builds multi-page tables with repeating
+  header rows (auto-fit or explicit `Row.SetHeight`), cell merging via
+  `Cell.SetColSpan`/`SetRowSpan`, per-cell styling, and image cells via `Cell.SetImage`, rendered
+  onto a page with `(*Page).AddTable(t, rect)`; `(*Page).DrawLine`/`DrawRectangle`/`DrawCircle`/
+  `DrawPath` and friends draw first-class vector content directly on a page, and a `Path` fluent
+  builder (`MoveTo`/`LineTo`/`CurveTo`/`QuadTo`/`Arc`/`Close`) covers arbitrary shapes; fills
+  support solid colours, `ShapeStyle.FillGradient` (linear or radial), and
+  `Document.CreateTilingPattern(w, h)` repeating-motif tiling patterns.
+- **AcroForms** — read, and build from scratch every standard field type with
+  `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton` (plus
+  the typed password/file-select/rich-text/number/date variants — behavior flags exposed as `/Ff`
+  on the underlying field dictionary) and remove one with `RemoveField`; `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
+  and `(*ButtonField).SetAppearance` gives push buttons distinct normal/rollover/down captions
+  and an icon; field values round-trip as typed JSON, FDF, and XFDF for template-fill and
+  Acrobat-interoperable data interchange.
+- **Annotations, bookmarks, and redaction** — the full ISO 32000-1 markup/drawing annotation
+  family with auto-regenerated appearance streams, hierarchical outlines (`OutlineItemCollection`)
+  and named destinations with all 8 PDF destination types, and mark-then-apply redaction that
+  irreversibly removes text, images, and paths from the marked regions. `Document.Flatten()`/
+  `Form.Flatten()` bake interactive fields and annotations into static page content so the
+  result renders identically but is no longer editable.
+- **Tagged PDF and PDF/UA accessibility** — `Document.TaggedContent()` builds a logical structure
+  tree as content is drawn (`TagContent`, `AddTaggedTable`, `AddTaggedList`), and
+  `Document.ValidatePDFUA()` reports the PDF/UA-1 prerequisites still missing.
+- **PDF/A and structural validation** — `Validate` checks structural integrity;
+  `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
+  moves a document toward conformance in one call (strips encryption/JavaScript, embeds
+  non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet).
+- **Rendering to raster images** — a pure-Go anti-aliased renderer with no third-party package
+  dependencies of its own (its own rasterizer — no `golang.org/x/image`, no cgo) draws vector
+  graphics, images (including CCITT fax, JBIG2, and JPEG2000 (`/JPXDecode`) scans), and text
+  (embedded and non-embedded via a `FontRepository` covering `.ttc`/`.otf` faces, including
+  non-embedded CJK) to PNG, JPEG, GIF, BMP, and single- or multi-page
+  TIFF via `Page.RenderImage`/`RenderPNG`/`RenderTIFF`/… and `Document.RenderTIFF`.
+- **HTML, SVG, and Markdown conversion** — `SaveHTML` exports a single-file HTML document with no
+  external assets in four modes (faithful raster, visible text, native SVG-per-page, and
+  reflowable), including fillable AcroForm controls; in text/native modes, embedded TrueType/
+  OpenType fonts are re-wrapped as WOFF `@font-face` data URLs with a browser cmap synthesized
+  from the font's `/ToUnicode` mapping, so text renders in the document's real faces. `SaveSVG`
+  exports standalone true-vector SVG pages with all binary parts embedded as `data:` URLs by
+  default, or externalized via `ResourceWriter`, and `AddSVG` imports SVG 1.1 content (shapes,
+  gradients, clipping, masks) back onto a page; `MarkdownToDocument` renders CommonMark + GFM as a
+  paginated PDF (652/652 on the official test suite), `Flow.AddMarkdown` mixes Markdown into a
+  Flow document, `Page.AddMarkdown(md, rect)` draws it into a `Rectangle` on an existing page, and
+  `SaveMarkdown` re-assembles a PDF as GFM Markdown.
+- **Stamps and watermarks** — `Document.AddTextWatermark`/`AddSVGWatermark` overlay a text or SVG
+  watermark across selected pages (or every page); `(*Page).AddStamp`/`(*Document).AddStamp` place
+  a `TextStamp`, `ImageStamp`, or `PageNumberStamp` on one or more pages.
+- **Table detection and Office/eBook conversion** — `TableAbsorber` (`Visit(page)` then
+  `TableList()`) recognizes ruled and borderless tables directly from a page's vector geometry (no
+  rasterization), with conservative guards so ordinary prose, lists, TOCs, and code listings are
+  never mistaken for tables. This feeds `Document.SaveDocx`/`WriteDocx` (a pure-stdlib OOXML
+  writer producing styled runs, heading styles, hyperlinks, and lists, plus real Word tables —
+  `EnhancedFlow`, the default mode — from detected table structure), `Document.SaveXlsx`/
+  `WriteXlsx` (detected tables become Excel worksheets with real numeric cells, merged cells, and
+  header shading, or a full-page cell-per-line mode), and `Document.SaveEpub`/`WriteEpub` (a
+  reflowable, spec-correct OCF-container EPUB 3 book with chapters split at headings and a real
+  navigation TOC).
+- **AI copilots** — the `ai` subpackage adds document summarization (`SummaryCopilot`), OCR of
+  scanned pages with a `MakeSearchable` pipeline that writes recognized text back as an invisible,
+  selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
+  `/Alt` text generation for tagged figures (`ImageDescriptionCopilot`), over any
+  OpenAI-compatible endpoint.
+- **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
+  (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, recover paragraph/column
+  structure (`Paragraphs()`), search and replace text in place, embed and subset TrueType/
+  OpenType fonts (`.ttf`/`.otf`/`.ttc`) — `Document.LoadFont`/`Document.LoadFontByName("Calibri",
+  bold, italic)` resolve faces by family name via a pluggable `FontRepository`, and
+  `Document.SubsetFonts()` rebuilds each embedded font's own glyph tables (`glyf`/`loca`/`hmtx`/
+  `CIDToGIDMap`) down to only the glyphs actually used; `Document.RemoveUnusedObjects()` deletes
+  every object unreachable from any page and returns the removed count on its own, or fold that
+  same cleanup into a larger pass with the unified `Document.Optimize` pass
+  (`DefaultOptimizationOptions()` is the safe, lossless preset — remove unused objects, subset
+  fonts, Flate-compress and dedupe streams; opt into lossy image recompression via
+  `OptimizationOptions.Images`) or the image-only `Document.OptimizeImages(OptimizeImageOptions)`
+  pass (max DPI downscaling, JPEG quality, and PNG→JPEG conversion); reduce file size further with
+  `Document.SaveLinearized`/`WriteToLinearized` (linearized/fast-web-view output per ISO 32000-1
+  Annex F, so viewers can render page 1 before the whole file downloads), or `ConvertToGrayscale`.
+
+## Installation
 
 ```bash
 go get github.com/aspose-pdf-foss/aspose-pdf-foss-for-go
 ```
 
-Requires Go 1.24 or newer. Standard library only — no transitive dependencies.
+Requires Go 1.24 or newer. The module has no transitive dependencies — everything is built on
+the Go standard library, including the PDF parser/writer, the raster renderer, the SVG and
+Markdown engines, and the PKCS#7/CMS signing code.
+
+## Dependencies
+
+### Required Package Dependencies
+
+No required third-party package dependencies.
+
+### Native and System Requirements
+
+- Go 1.24 or later (`go.mod`'s own `go 1.24` directive).
 
 ## Quick Start
 
 ```go
-import pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
+package main
 
-// Open a PDF
-doc, err := pdf.Open("input.pdf")
+import (
+	"fmt"
+	"log"
 
-// Split into individual page documents
-pages, err := doc.Split()
-for i, p := range pages {
-    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
+	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
+)
+
+func main() {
+	// Open a PDF and split it into per-page documents.
+	doc, err := pdf.Open("input.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pages, err := doc.Split()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for i, p := range pages {
+		p.Save(fmt.Sprintf("page%03d.pdf", i+1))
+	}
+
+	// Merge two PDFs into one — Append mutates the receiver in place.
+	a, _ := pdf.Open("file1.pdf")
+	b, _ := pdf.Open("file2.pdf")
+	a.Append(b)
+	fmt.Println("merged:", a.PageCount(), "pages")
+	a.Save("merged.pdf")
 }
-
-// Merge multiple PDFs into one (Append mutates doc in place)
-doc2, _ := pdf.Open("file2.pdf")
-doc.Append(doc2)
-doc.Save("merged.pdf")
 ```
 
-See [`_examples/`](_examples/) for full runnable programs covering text, forms, annotations, tables, vector graphics, SVG, and the end-to-end `feature_showcase` demo. Short focused API snippets also appear under "Examples" on [pkg.go.dev](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go).
+See [`_examples/`](_examples/) for full runnable programs covering text, forms, annotations,
+tables, vector graphics, SVG, and the end-to-end `feature_showcase` demo, or short focused API
+snippets under "Examples" on [pkg.go.dev](https://pkg.go.dev/github.com/aspose-pdf-foss/aspose-pdf-foss-for-go).
 
 ## Feature Showcase
 
-[![Feature Showcase preview](docs/feature_showcase-preview.png)](docs/feature_showcase.pdf)
+[![Feature showcase preview](docs/feature_showcase-preview.png)](docs/feature_showcase.pdf)
 
-[**docs/feature_showcase.pdf**](docs/feature_showcase.pdf) is a single 14-page PDF generated by [`_examples/feature_showcase`](_examples/feature_showcase/main.go). One narrative covers a clickable table of contents (built with `Page.AddTOC`), text (with an embedded, subsetted Unicode TTF), image embedding, styled AcroForm fields, the full annotation gallery (16 types incl. Polygon/Polyline/Caret), redactions (mark-mode + applied), tables (multi-page with repeating headers and spans), a landscape chart, the vector primitives, form/annotation flattening, and a meta "Rendering & Imposition" page whose thumbnails are renders of this very document — plus N-up and booklet imposition sheets — all drawn by the built-in renderer. Cross-cutting features include bookmarks, named destinations, page labels, Info + XMP metadata, and font subsetting. The showcase itself is left unencrypted so it previews inline on GitHub and opens in any viewer; encryption (RC4 / AES-128 / AES-256) is covered in the [Encryption](#encryption) section below.
+[**docs/feature_showcase.pdf**](docs/feature_showcase.pdf) is a single 14-page PDF generated by
+[`_examples/feature_showcase`](_examples/feature_showcase/main.go) that walks nearly every
+capability above in one document — a clickable table of contents (built with `Page.AddTOC`),
+styled AcroForm fields, the full
+annotation gallery, redactions, multi-page tables, vector graphics, and a meta "Rendering & Imposition"
+page whose thumbnails are renders of the document itself, produced by this library's own renderer.
+Cross-cutting metadata — bookmarks, named destinations, page labels, and Info + XMP
+metadata — is set once and carried through the whole document. The showcase itself is
+deliberately left unencrypted so it previews inline on GitHub and opens in every viewer;
+encryption (RC4 / AES-128 / AES-256) is covered in
+[Encryption and Signing](#encryption-and-signing) below. Regenerate it locally with
+`go run ./_examples/feature_showcase`.
 
-Regenerate locally with `go run ./_examples/feature_showcase`.
+## Additional Examples
 
-## Features
+The most representative example beyond Quick Start is building a document from scratch with the
+Flow layout engine — an additive layer over the Rectangle-based drawing API that computes the
+rectangles for you — rather than editing an existing one.
 
-- **Split** — split a document into individual pages
-- **Extract** — build a new Document from selected page ranges without mutating the source
-- **Merge** — combine multiple PDFs into a single document
-- **Imposition** — `Document.NUp` lays multiple source pages onto larger sheets in a Rows×Cols grid; `Document.Booklet` reorders pages two-up for saddle-stitch binding. Both return a new document (source untouched), built from Form XObjects
-- **Rotate** — rotate pages by 90°, 180°, or 270°
-- **Page geometry** — read page count, dimensions, and all PDF boxes (MediaBox, CropBox, TrimBox, BleedBox, ArtBox) as `Rectangle`s with spec fallback chains, plus page labels; set any box or resize a page via `SetMediaBox`/`SetCropBox`/… and `SetPageSize`
-- **Info metadata** — read and write the document `/Info` dictionary (title, author, subject, keywords, creator, producer, creation/mod dates, plus arbitrary custom entries) via `Document.Info()/SetInfo()/ClearInfo()` and the `DocumentInfo` struct; mirrors Aspose.PDF for .NET's `Document.Info`. (In Aspose.PDF for .NET, `Document.Metadata` is the XMP store — here `Document.XMP()`.)
-- **XMP metadata** — full CRUD of the `/Catalog/Metadata` RDF/XML packet (ISO 32000-1 §14.3.2) via `Document.XMP()/SetXMP()/ClearXMP()` and a raw `XMPRaw()/SetXMPRaw()` escape hatch. `XMPMetadata` models Dublin Core / XMP Basic / PDF schemas (title, authors, description, keywords, creator tool, producer, create/modify/metadata dates) plus arbitrary namespaced custom properties; parser handles both attribute and `rdf:Alt`/`Seq`/`Bag` element forms. `SyncInfoToXMP()` mirrors the `/Info` dictionary into XMP as the spec recommends
-- **Encrypt** — password-protect PDFs with AES-128 (default, ISO 32000-1 §7.6.3.2 V=4 R=4 `/CFM /AESV2`), AES-256 (ISO 32000-2 §7.6.4 V=5 R=6 `/CFM /AESV3`, PDF 2.0), or RC4-128 (legacy V=2 R=3); Standard Security Handler with user + owner passwords and granular viewer permissions (print, copy, modify, annotate, form fill, accessibility, assembly, high-res print). Round-trip preserves AcroForm fields, annotations, and embedded files
-- **Digital signatures** — sign (`Document.Sign`) with a PKCS#7-detached signature (SHA-256, RSA or ECDSA) covering the whole file — invisible or a visible "Digitally signed by …" appearance block, optionally **PAdES** (ETSI.CAdES.detached), a **certification** (DocMDP) signature, and an **RFC 3161 trusted timestamp** — and verify (`Document.VerifySignatures`) integrity, coverage, and the signer certificate. **Multiple signatures** are supported: re-signing an already-signed document appends an incremental update so earlier signatures stay valid. **Encrypted documents** (RC4-128 / AES-128 / AES-256) can be signed as well. The PKCS#7/CMS is built on the standard library alone (no external dependency); output validates in OpenSSL and pyHanko (incl. the timestamp token as trusted, earlier signatures as intact, and encrypted files as `ENTIRE_FILE`). Keys are passed as `crypto.Signer` + `*x509.Certificate` — no `.p12` file required
-- **Outlines (bookmarks)** — read, create, and edit hierarchical bookmarks via `OutlineItemCollection`. Recursive tree model 1:1 with Aspose.PDF for .NET. All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/FitBV) per ISO 32000-1 §12.3.2.2. Style attributes (Bold, Italic, Color), expand/collapse state, and `Action` attachment all roundtrip. Named destinations (`Document.NamedDestinations()`) integrate as the 9th destination type with forward-reference support; reads both legacy `/Catalog/Dests` and modern `/Catalog/Names/Dests`, writes modern only with automatic migration. Works alongside encryption + AcroForm + annotations
-- **Flow layout (document generator)** — `Document.NewFlow(...)` lays content out top-to-bottom and **paginates automatically**: chainable `AddParagraph`/`AddHeading`/`AddImage`/`AddTable`/`AddList`/`AddSpacer`/`AddMarkdown`, plus **floating boxes** (absolute, in-flow, or floated with **text flow-around**), **multi-column layout** with `AddColumnBreak`, then `Render()`. An additive layer over the Rectangle API; set `FlowOptions.Tagged` and every element is auto-tagged for a one-call PDF/UA-conformant report. Mirrors Aspose.PDF for .NET's generator / `Page.Paragraphs` flow model
-- **Tables** — `pdf.NewTable()` builds a Table/Row/Cell tree with Aspose.PDF for .NET-parity naming (`BorderInfo`, `MarginInfo`, `ColumnWidths`). `(*Page).AddTable(t, rect)` renders inside a Rectangle (same paradigm as `AddText`/`AddImage`). Per-cell borders (bitmask sides), padding, text style, alignment, background fill. Auto-fit row heights or `Row.SetHeight` explicit. Cell text reuses the full `AddText` machinery (word-wrap, alignment, font embedding, Unicode). **Multi-page overflow with automatic page append**; **repeating header rows** via `Table.SetRepeatingRowsCount`; **cell merging** via `Cell.SetColSpan` / `SetRowSpan`. Image cells via `Cell.SetImage`; row-level styling via `Row.SetBackground / SetTextStyle / SetBorder / SetMargin`; batch `Table.AddRows`; border edge de-duplication for cleaner identical-style adjacent borders
-- **Vector graphics** — `(*Page).DrawLine / DrawRectangle / DrawRoundedRectangle / DrawCircle / DrawEllipse / DrawPolyline / DrawPolygon / DrawPath` for first-class vector content on PDF pages. `Path` fluent builder with `MoveTo / LineTo / CurveTo / QuadTo / Arc / Close`. `LineStyle` + `ShapeStyle` (color, width, dash pattern, line caps, line joins, alpha). **Gradient fills** — `LinearGradient` / `RadialGradient` (`ShapeStyle.FillGradient`) rendered as PDF axial/radial shading patterns, multi-stop, with off-centre radial focal points. Mirrors Aspose.PDF for .NET's `Graph`/`Shape` model but exposed directly on Page (no container) and Go-idiomatic
-- **Validate** — check structural integrity of a PDF file
-- **Tagged PDF / PDF/UA** — author accessible PDFs: `Document.TaggedContent()` builds a logical structure tree as you draw — `Page.TagContent(parent, type, draw)` brackets a drawing block in marked content and adds a structure element, `StructElement.AddChild` nests grouping elements (Table→TR→TD, lists), and `SetAlt` adds alternate text. `Document.ValidatePDFUA()` reports PDF/UA-1 violations (not tagged, no structure tree/`/ParentTree`/`/Lang`/displayed title, figures without alt text, accessibility blocked by encryption). Mirrors Aspose.PDF for .NET's `Document.TaggedContent` / `Document.Validate(PdfFormat.PDF_UA_1)`
-- **PDF/A validate + convert** — `Document.ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations (XMP `pdfaid`, font embedding, encryption, JavaScript, OutputIntent vs. device colour, transparency, annotation flags, …) for the basic levels, and `Document.ConvertToPDFA(...)` adjusts the document toward conformance (strip encryption/JavaScript, add an sRGB ICC OutputIntent, write the `pdfaid` XMP packet) returning a report of what remains; mirrors Aspose.PDF for .NET's `Document.Validate`/`Document.Convert(PdfFormat)`
-- **Text extraction** — extract text from pages in visual reading order (or raw content-stream order via `TextExtractOptions{Mode: TextExtractRaw}`) with full layout info (coordinates, font, bold/italic, color, sub/superscript)
-- **Structural extraction** — `(*Page/*Document).Paragraphs()` groups text into columns (`MarkupSection`) and paragraphs (`MarkupParagraph{Text, Rectangle, Lines}`) via column + paragraph detection; mirrors Aspose.PDF for .NET's `ParagraphAbsorber`
-- **Image extraction** — extract images as JPEG (passthrough) or PNG with position, dimensions, and color space metadata; supports DeviceRGB, DeviceGray, DeviceCMYK, Indexed, ICCBased color spaces, soft masks (alpha), inline images, and Form XObjects
-- **Add images** — place JPEG or PNG images onto existing pages with precise positioning via PDF rectangles
-- **Image to PDF** — convert standalone images to single-page PDFs with DPI-aware sizing, configurable page dimensions and margins
-- **Replace images** — swap image data on existing pages while preserving position and size
-- **Remove images** — delete images from pages, cleaning up resources and content stream operators
-- **Remove unused objects** — clean up orphaned objects after modifications to reduce file size
-- **Optimize images** — reduce file size by downscaling images above a target DPI and converting opaque PNGs to JPEG
-- **Optimize (unified)** — `Document.Optimize(OptimizationOptions)` runs a size-reduction pass in one call: remove unused objects, subset fonts, **Flate-compress uncompressed streams**, **dedupe byte-identical streams**, and optionally recompress images; returns an `OptimizationResult` of per-op counts. `DefaultOptimizationOptions()` is the safe lossless preset. Mirrors Aspose.PDF for .NET's `Document.OptimizeResources`
-- **PDF to HTML** — `Document.SaveHTML`/`WriteHTML` export the document as a single self-contained HTML file in four modes: **faithful** (pages rendered by the built-in rasterizer, pixel-identical to the PDF, under a transparent selectable text layer), **visible-text** (`HTMLModeText` — glyph-less background raster with real styled HTML text on top: crisp at any zoom, accessible, roughly half the file size) **native** (`HTMLModeNative` — no raster background at all: page graphics become one inline SVG layer per page with true-curve paths, native strokes, clips and blend modes, images pass through as SVG `<image>` with their original JPEG/PNG bytes, and only content SVG cannot express — shadings, patterns, soft masks, transparency groups — degrades locally to positioned raster patches) and **flow** (`HTMLModeFlow` — reflowable: paragraphs, columns and inferred headings re-assembled in reading order into a responsive article that rewraps on mobile; the counterpart of Aspose's `FixedLayout=false`). In text/native modes the document's embedded TrueType/OpenType fonts are re-wrapped as **WOFF `@font-face`** data URLs (pure Go — synthesized browser cmap from `/ToUnicode`), so the text renders in the document's real faces; fonts that can't embed fall back to metric substitutes width-fitted to the layout. Link annotations become clickable `<a>` overlays, page subsets export via `Pages`, backgrounds lazy-load, and `InteractiveForms` turns AcroForm fields into **real fillable HTML controls** (Aspose renders them as static pictures) — no external assets, no JavaScript. Mirrors Aspose.PDF for .NET's `SaveFormat.Html`
-- **Grayscale conversion** — `Document.ConvertToGrayscale()` maps every colour (text, vector, images, shadings, patterns, annotations) to its luminance grey in place; mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`
-- **Markdown to PDF** — `MarkdownToDocument`/`FromStream` render CommonMark + GFM (tables, strikethrough, task lists, autolinks) as clean paginated PDFs with one typographic theme: styled headings, real bold/italic/code/link runs (links become clickable annotations), nested lists with drawn task checkboxes, quoted blocks, indented code cards, aligned tables with repeating headers. The parser passes the **official CommonMark 0.31.2 test suite 652/652**. Also `Flow.AddMarkdown` (mix Markdown into a flow) and `Page.AddMarkdown(md, rect)`; `Tagged` produces PDF/UA-conformant output. Mirrors Aspose.PDF for .NET's `MdLoadOptions`
-- **PDF to SVG** — `Page.SaveSVG`/`WriteSVG` and `Document.SaveSVG` export pages as standalone true-vector SVG files: real Bézier paths and native strokes, text as exact outline paths (no font dependencies), images with their original JPEG/PNG bytes, clips/opacity/blend modes; only shadings/patterns/soft masks degrade to local raster patches. Self-contained by default (`data:` URLs) or externalized via `ResourceWriter`. Mirrors `SaveFormat.Svg`
-- **PDF to Markdown** — `Document.SaveMarkdown`/`WriteMarkdown` re-assemble the document as GFM Markdown: inferred `#`–`###` headings, real `**bold**`/`*italic*`/`` `code` `` runs, `[links](…)` recovered from link annotations, bullet/numbered lists with nesting, fenced code blocks with preserved indentation, images as deduped files / `ImageWriter` callback / `data:` URLs. The Markdown twin of the reflowable HTML mode — and the natural PDF front-end for RAG pipelines (tables flow as text; no table reader yet)
-- **AI copilots (`ai` subpackage)** — document **summarization** (`ai.NewSummaryCopilot` — plain text or rendered as a new PDF), **OCR of scanned pages** (`ai.NewOcrCopilot` with a vision-LLM engine or any custom `OCREngine`), **document Q&A** (`ai.NewChatCopilot` — grounded answers with conversation memory), and **image description / auto alt-text** (`ai.NewImageDescriptionCopilot` — `FillAltTexts` fills missing `/Alt` on a tagged PDF's figures for accessibility) over any OpenAI-compatible endpoint (OpenAI, LiteLLM, Ollama, …), stdlib-only; mirrors Aspose.PDF for .NET's `Aspose.Pdf.AI`. Beyond Aspose: `MakeSearchable` writes the recognized text back as an **invisible text layer**, turning a scan into a selectable, Ctrl+F-searchable PDF in place
-- **Create blank documents** — create single-page blank PDFs with custom dimensions or predefined page formats (A4, Letter, Legal, A3)
-- **Add blank pages** — append or insert blank pages into existing documents at any position
-- **Add text** — draw text on pages with font selection, alignment, word wrap, color, background, underline, strikethrough, rotation, and behind-content mode. **Right-to-left / bidirectional** text (Hebrew and Arabic) is laid out via a pure-Go Unicode Bidi Algorithm (UAX #9): set `TextStyle.RTL` or just include RTL characters, and each line is reordered into visual order with embedded numbers/Latin kept left-to-right; RTL paragraphs right-align by default. **Arabic contextual shaping** (connected letterforms + lam-alef ligatures via Presentation Forms-B) renders proper Arabic with any font that covers the block (e.g. the bundled DejaVu Sans)
-- **Text watermarks** — apply text watermarks to all or selected pages with full styling control
-- **Stamps** — `TextStamp`, `ImageStamp`, `PageNumberStamp`, and `PdfPageStamp` (stamp a page from another PDF) overlay (or underlay) content via `(*Page/*Document).AddStamp`, with opacity, centre-pivot rotation, alignment, and behind-content mode; page-number stamps format `{0}`/`{1}` for headers/footers. Mirrors Aspose.PDF for .NET's `Aspose.Pdf.Stamp` family
-- **Table of contents** — `Document.GenerateTOC` builds a clickable TOC from the outline tree (inserted at the front, with dotted leaders, page numbers, and GoTo links); `Page.AddTOC` renders a supplied entry list into a region with overflow auto-pagination
-- **Text search & replace** — `SearchText` (literal / case-insensitive / RE2 regex, optional `Rectangle` region, optional `SearchInAnnotations`) returns per-match bounding boxes; `ReplaceText` finds and replaces occurrences, redrawing the replacement in a metric-compatible Standard-14 face
-- **Page-label authoring** — `Document.SetPageLabels` writes the `/PageLabels` number tree (roman/decimal/alphabetic styles, prefix, start value) so viewers show logical labels; round-trips with the `Page.Label()` read path
-- **Document JavaScript & open action** — `Document.JavaScript()` is the document-level named-script collection (`/Catalog/Names/JavaScript`); `Document.SetOpenAction` sets the action run when the document opens (GoTo, JavaScript, …)
-- **Stream I/O** — open PDFs from any `io.Reader` via `OpenStream`/`OpenStreamWithPassword`; serialize to any `io.Writer` via `Document.WriteTo` (implements `io.WriterTo`)
-- **Forms (AcroForm)** — read, fill, and build from scratch all standard field types (text, checkbox, radio, combo box, list box, push button); programmatic field creation with `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton`, plus the typed text variants `AddPasswordField`/`AddFileSelectField`/`AddRichTextField`/`AddNumberField`/`AddDateField` (each round-trips its type through Save+Open via its `/Ff` flag or format JavaScript); `RemoveField`; non-ASCII values encoded as UTF-16BE. Widget `/AP` appearance streams are pre-generated on creation and re-generated on every value change (matching Acrobat's layout byte-for-byte), so fields render identically in Acrobat, Foxit, browser viewers, MuPDF, and Poppler — no reliance on `/NeedAppearances`. `Field.SetStyle(FieldStyle)` / `Style()` control border colour, background, text colour, font, size, alignment, and border style/width/dash (persisted as `/MK`, `/BS`, `/DA`, `/Q`). Push buttons additionally support `(*ButtonField).SetAppearance(ButtonAppearance)` for distinct rollover/down captions and an icon image, baked into `/AP/N` / `/AP/R` / `/AP/D` so the button reacts to hover and press. Field values round-trip as **typed JSON, FDF, and XFDF** (`Form.Export/Import{JSON,FDF,XFDF}`) for template-fill and Acrobat-interoperable form-data interchange
-- **Font embedding & subsetting** — embed TrueType (`.ttf`) and OpenType-CFF (`.otf`) fonts with `Document.LoadFont` (full Unicode, Identity-H): TTF as `CIDFontType2`/`FontFile2`, OTF as `CIDFontType0`/`FontFile3`. Or resolve a font **by family name** with `Document.LoadFontByName("Calibri", bold, italic)` — searches registered folders/files (`AddFontFolder`/`AddFontFile`) then the OS fonts, and embeds the match (a `.ttc` collection face is re-wrapped as a standalone sfnt); mirrors Aspose.PDF for .NET's `FontRepository.FindFont`. `Document.SubsetFonts()` rebuilds each embedded TrueType font to keep only the glyphs actually drawn (composite-glyph aware, regenerates `glyf`/`loca`/`hmtx`/`CIDToGIDMap`), typically shrinking a font from hundreds of KB to a few KB (OTF keeps its full program)
-- **PDF → DOCX (Word)** — `Document.SaveDocx(path)` / `WriteDocx(w)` reconstruct the document as an editable Word file: styled runs, named Heading1-6 styles (visible in Word's navigation pane and TOC), hyperlinks, bullet/numbered lists, code paragraphs and inline images carrying the PDF's own bytes. Pure-stdlib OOXML writer; the whole 1000+ document test corpus converts with zero ECMA-376 schema violations. Ruled tables become real, editable Word tables — merged cells, header shading and per-cell alignment included (EnhancedFlow, the default mode). A fixed-layout `Textbox` mode places every line and image as a positioned floating object at its exact PDF coordinates instead. Mirrors Aspose.PDF for .NET's `SaveFormat.DocX` + `DocSaveOptions`
-- **Table detection** — `TableAbsorber` recognizes ruled tables straight from the page's vector geometry (no rasterization): borders drawn as strokes, rectangle edges or thin fills; dashed and per-cell borders; rowspan/colspan recovered from the rule grid. A second, stream-mode pass finds **borderless tables** from aligned whitespace alone (columns seeded from the modal cell count, with a battery of conservative guards so prose, lists, TOCs and code listings are never mistaken for tables — Aspose's absorber is lattice-only). `Visit(page)` → `TableList()` → rows → cells with text fragments. Mirrors and extends Aspose.PDF for .NET's `TableAbsorber`
-- **PDF → XLSX (Excel)** — `Document.SaveXlsx(path)` / `WriteXlsx(w)`: detected tables become Excel worksheets with real numeric cells (numbers, percentages, currency — `SUM()` works immediately), merged cells, header shading and stitched multi-page tables; or a full-page mode that lays every page's text into cells. Mirrors Aspose.PDF for .NET's `SaveFormat.Excel` + `ExcelSaveOptions`
-- **PDF → EPUB** — `Document.SaveEpub(path)` / `WriteEpub(w)` produce a reflowable EPUB 3 book: chapters split at top-level headings, a real navigation TOC, styled text with hyperlinks, lists, code blocks, images and rasterized vector graphics. Spec-correct OCF container, verified across a 1000+ document corpus and openable in Calibre. Mirrors Aspose.PDF for .NET's `SaveFormat.Epub`
-- **Linearization (fast web view)** — `Document.SaveLinearized(path)` / `WriteToLinearized(w)` write a linearized PDF (ISO 32000-1 Annex F) with the first page's objects and a hint table at the front of the file, so a viewer can render page 1 before the whole file downloads (Acrobat shows "Fast Web View: Yes"). The output is an ordinary PDF any reader opens normally; hint tables validated against qpdf's strict `check_linearization` across a 1000+ document corpus. Mirrors the intent of Aspose.PDF for .NET's linearized save
-- **Tiling patterns** — `Document.CreateTilingPattern(w, h)` returns a pattern whose `Canvas()` you draw a cell into, then fill any shape with the repeating motif by setting `ShapeStyle.FillTiling` (with `SetStep` for gaps/overlap). Complements gradient fills for hatching, textures and repeated motifs; mirrors Aspose.PDF for .NET's colored tiling patterns
-- **Reusable Form XObjects** — `Document.CreateForm(w, h)` returns an `XForm` you draw into once (via `Canvas()`, the full page drawing API), then place on any number of pages and positions with `Page.AddForm(form, rect)` — a single shared content stream behind many `Do` invocations. List a page's existing forms with `Page.Forms()` (re-place them anywhere), and copy a form with its whole resource graph into another document with `Document.ImportForm`. Ideal for page templates, shared headers/footers and watermarks; mirrors Aspose.PDF for .NET's `XForm`
-- **Layers (optional content)** — author OCG layers with `Document.AddLayer(name)`, bracket page content with `Page.BeginLayer`/`EndLayer`, and toggle default visibility via `Layer.SetVisible`. The built-in renderer drops hidden layers, viewers expose them in the Layers panel, and names + visibility round-trip; mirrors Aspose.PDF for .NET's `Document.Layers`
-- **Embedded files** — attach arbitrary companion files (source, datasets, the original of a scan) at the document level with `Document.EmbeddedFiles()` (`Add`/`AddFromStream`/`Get`/`Remove`/`Names`/`All`), and read them back (`Data`/`Save`/`MIMEType`/`Description`/`Size`). Stored in the `/Names/EmbeddedFiles` tree alongside named destinations and JavaScript; mirrors Aspose.PDF for .NET's `Document.EmbeddedFiles`. (Page-pinned attachments are also available via `FileAttachmentAnnotation`.)
-- **Annotations** — Link (with /A actions: GoToURI, GoTo, Named, SubmitForm, ResetForm, JavaScript), Highlight, Underline, StrikeOut, Squiggly. Page-scoped collection API (`Page.Annotations()` with `Add`/`At`/`Delete`/`DeleteAt`); existing form widgets surface as read-only `WidgetAnnotation`. Drawing primitives (Square/Circle/Line/Ink/Polygon/Polyline/Caret) with full ISO 32000-1 border styles (Solid/Dashed/Beveled/Inset/Underline) and 10 line-ending styles. Text-bearing types (Text sticky note, FreeText with callout/typewriter/cloudy-border modes, Stamp with 14 predefined visuals + custom image override). FileAttachment with file embedding (path/stream + MIME detection); Redact with mark/apply modes (irreversible content removal of text glyphs, images, and paths via `Document.ApplyRedactions()`); `NewJavaScriptAction` public constructor with security warning. `/AP` appearance streams generated automatically — annotations render natively in any spec-conforming viewer
-- **Render to image** — rasterize pages to PNG/JPEG/GIF/BMP and single- or multi-page TIFF with a dependency-free, pure-Go anti-aliased renderer (`Page.RenderImage`/`RenderPNG`/`RenderTIFF`/…, `Document.RenderTIFF` for a whole document, plus Aspose-style `PngDevice`/`TiffDevice`/`Resolution`). Draws vector graphics, images (incl. stencil image masks, **CCITTFaxDecode** Group 3/4 fax, **JBIG2** bilevel scans, and **JPEG2000** (`/JPXDecode`) colour scans incl. MRC stencil-masked layers), text (embedded TrueType, CFF Type1C/CID `/FontFile3`, and Type3; Standard-14 and non-embedded fonts via bundled metric-compatible substitutes, with a `FontRepository`/`AddFontFolder`/`AddSystemFonts` for exact and installed fonts including `.ttc` collections and `.otf`/CFF; non-embedded Type0 substitution; **non-embedded CJK** (Type0 with predefined Adobe CMaps — GBK/Shift-JIS/Big5/EUC-KR and the Uni\* families — rendered from installed system CJK fonts), axial/radial shadings, tiling patterns, clipping, constant alpha, soft masks, blend modes, Optional-Content visibility, and annotation appearances (AcroForm widgets, stamps, highlights, …); honours text rendering modes and inline images. Default 150 DPI, renders the CropBox
-- **Flatten** — bake interactive content into static page content: `Document.Flatten()` / `Form.Flatten()` (all fields + drop `/AcroForm`), `Field.Flatten()` (one field, leaving the rest of the form interactive), `Annotation.Flatten()` and `AnnotationCollection.Flatten()` (annotations). Appearances are drawn into the page at their rectangle per ISO 32000-1 §12.5.5, then the interactive objects are removed — the result renders identically but is no longer editable
-
-## API Reference
-
-`*Document` methods mutate the receiver in place. `Split` and `Extract` return fresh, fully-independent documents; all other operations (rotation, reorder, metadata, passwords, etc.) modify the document they are called on.
-
-### Opening documents
+### Content Authoring With the Flow Layout Engine
 
 ```go
-// From a file path
-doc, err := pdf.Open("input.pdf")
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+flow := doc.NewFlow(pdf.FlowOptions{})
+flow.AddHeading(1, "Quarterly Report", pdf.TextStyle{})
+flow.AddParagraph("Revenue grew in every region this quarter.", pdf.TextStyle{Size: 11})
+flow.AddList([]string{"North: +12%", "South: +8%"}, false, pdf.TextStyle{Size: 11})
 
-// From an io.Reader (stream, HTTP response, etc.)
-doc, err = pdf.OpenStream(r)
-
-// Encrypted files: returns ErrEncrypted from plain Open; supply a password
-doc, err = pdf.Open("locked.pdf")
-if errors.Is(err, pdf.ErrEncrypted) {
-    doc, err = pdf.OpenWithPassword("locked.pdf", "secret")
+pages, err := flow.Render()
+if err != nil {
+	log.Fatal(err)
 }
-
-// OpenWithPassword also works on plain PDFs (password is silently ignored),
-// so it's a safe drop-in for code that doesn't know up front whether the
-// input is encrypted. The password is tried as both user and owner.
-doc, err = pdf.OpenWithPassword("maybe-encrypted.pdf", "secret")
+fmt.Println("pages:", pages)
 ```
 
-### Splitting
+`NewFlow` returns a `*Flow` that lays chained `AddParagraph`/`AddHeading`/`AddImage`/`AddTable`/
+`AddList` calls out top-to-bottom, paginating automatically; `Render()` returns the number of
+pages produced. `FlowOptions.Tagged` auto-tags every element for a one-call PDF/UA-conformant
+document.
+
+<details>
+<summary>View Additional Code Examples</summary>
+
+### Encrypt a Document
 
 ```go
-doc, err := pdf.Open("input.pdf")
-
-// Split into individual page documents
-pages, err := doc.Split()
-for i, p := range pages {
-    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
-}
-```
-
-### Extracting page ranges
-
-```go
-doc, err := pdf.Open("input.pdf")
-
-// Build a new document with pages 1–3 and 7–9 (doc is not mutated)
-extracted, err := doc.Extract(
-    pdf.PageRange{From: 1, To: 3},
-    pdf.PageRange{From: 7, To: 9},
-)
-extracted.Save("output.pdf")
-```
-
-### Imposition (N-up / booklet)
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// 4-up: four source pages per A4 sheet, in a 2×2 grid
-nup, _ := doc.NUp(pdf.NUpOptions{
-    Rows: 2, Cols: 2,
-    Margin: 18, Gutter: 10,
-    DrawBorder: true,
-})
-nup.Save("4up.pdf")
-
-// Booklet: two-up, reordered for saddle-stitch (print double-sided,
-// fold, staple — pages read in order). Padded to a multiple of 4.
-booklet, _ := doc.Booklet(pdf.BookletOptions{Binding: pdf.BindingLeft})
-booklet.Save("booklet.pdf")
-```
-
-`NUp` arranges pages in a `Rows`×`Cols` grid, scaling each to fit its cell
-(aspect preserved, centered) and filling sheet after sheet. `Booklet` imposes
-pages two-up in saddle-stitch order. Both return a **new** `*Document` (the
-receiver is untouched) built from Form XObjects, so the output is an ordinary
-PDF. This is a production helper (not a PDF-spec feature) mirroring the intent
-of Aspose.PDF for .NET's `PdfFileEditor.MakeNUp` / `MakeBooklet`, adapted to the
-`Document`-method API.
-
-### Deleting pages
-
-```go
-doc, err := pdf.Open("input.pdf")
-
-// Remove pages in place (1-based). Numbers are de-duplicated and validated
-// before anything is removed, so on error the document is unchanged.
-err = doc.DeletePages(1, 3) // drop the first and third pages
-err = doc.DeletePage(2)     // convenience for a single page
-
-doc.Save("output.pdf")
-```
-
-A document must keep at least one page — a call that would remove every page returns an error and changes nothing.
-
-### Page info
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Total page count
-fmt.Println(doc.PageCount())
-
-// Dimensions of every page (width and height in points, 1/72 inch)
-sizes, err := pdf.PageSizes("input.pdf")
-for i, s := range sizes {
-    fmt.Printf("Page %d: %.1f x %.1f pt\n", i+1, s.Width, s.Height)
-}
-```
-
-### Page Labels
-
-Set the `/PageLabels` number tree so viewers show logical labels (front matter as i, ii, then the body restarting at 1). Mirrors Aspose.PDF for .NET's `Document.PageLabels` / `PageLabel`.
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-doc.SetPageLabels([]pdf.PageLabelRange{
-    {StartPage: 1, Style: pdf.PageLabelRomanLower},            // i, ii
-    {StartPage: 3, Style: pdf.PageLabelDecimal, StartNum: 1},  // 1, 2, 3, ...
-    {StartPage: 8, Style: pdf.PageLabelDecimal, Prefix: "A-"}, // A-1, A-2, ...
-})
-
-page, _ := doc.Page(1)
-fmt.Println(page.Label()) // "i"
-
-doc.Save("labeled.pdf") // doc.ClearPageLabels() removes them
-```
-
-### Metadata
-
-```go
-// Read (the /Info dictionary; mirrors Aspose.PDF for .NET's Document.Info)
-doc, _ := pdf.Open("input.pdf")
-info, _ := doc.Info()
-fmt.Println(info.Title, info.Author, info.CreationDate)
-
-// Write (full replacement — unset fields are omitted from the PDF)
-doc.SetInfo(pdf.DocumentInfo{
-    Title:  "My Document",
-    Author: "Jane Smith",
-    Custom: map[string]string{"Department": "Legal"},
-})
-doc.Save("output.pdf")
-
-// Update a single field: read → modify → write
-info, _ = doc.Info()
-info.Title = "Updated Title"
-doc.SetInfo(info)
-
-// Strip all metadata
-doc.ClearInfo()
-doc.Save("clean.pdf")
-```
-
-### XMP metadata
-
-```go
-// Mirror the Info dictionary into an XMP packet, then add XMP-only fields
-doc.SyncInfoToXMP()
-
-xmp, _ := doc.XMP()
-xmp.Keywords = []string{"finance", "report", "Q3"}
-xmp.Custom = append(xmp.Custom, pdf.XMPProperty{
-    Namespace: "http://ns.adobe.com/xap/1.0/mm/",
-    Prefix:    "xmpMM",
-    Name:      "DocumentID",
-    Value:     "uuid:1234",
-})
-doc.SetXMP(xmp)
-doc.Save("with-xmp.pdf")
-
-// Read it back
-got, _ := doc.XMP()
-fmt.Println(got.Title, got.Authors, got.Keywords)
-
-// Or take full control with a raw packet
-doc.SetXMPRaw([]byte(`<?xpacket ...?>...`))
-doc.ClearXMP() // remove the /Catalog/Metadata stream
-```
-
-### Encryption
-
-```go
-// Standalone function — encrypts with default all-allow permissions
-err := pdf.Encrypt("input.pdf", "output.pdf", "userpass", "ownerpass")
-
-// Simple case on a Document (applied on Save/WriteTo)
-doc, _ := pdf.Open("input.pdf")
-doc.SetPassword("userpass", "ownerpass")
-err = doc.Save("output.pdf")
-
-// Granular permissions (RC4-128, Standard Security Handler R=3).
-// Fields omitted from Permissions{} are denied; if SetPermissions is not
-// called at all, every operation is allowed (backward compatible default).
-doc.SetPermissions(pdf.Permissions{
-    AllowPrint:         true,
-    AllowCopy:          true,
-    AllowAccessibility: true,
-})
-doc.Save("restricted.pdf")
-
-// One-call unified API via options — equivalent to SetPassword + SetPermissions
-// in a single struct; replaces any prior encryption config on the document.
-// Algorithm defaults to AES-128 (ISO 32000-1 V=4 R=4 /CFM /AESV2). Pass
-// pdf.EncryptionAlgRC4_128 for legacy RC4-128 V=2 R=3 output, or
-// pdf.EncryptionAlgAES256 for AES-256 V=5 R=6 (ISO 32000-2; output uses
-// %PDF-2.0 header and requires Acrobat DC or another PDF 2.0 viewer).
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
 doc.SetEncryption(pdf.EncryptionOptions{
-    UserPassword:  "userpass",
-    OwnerPassword: "ownerpass",
-    Permissions:   &pdf.Permissions{AllowPrint: true, AllowCopy: true},
-    // Algorithm:  pdf.EncryptionAlgAES128, // default
-    // Algorithm:  pdf.EncryptionAlgAES256, // ISO 32000-2; produces %PDF-2.0
-    // Algorithm:  pdf.EncryptionAlgRC4_128, // legacy
+	UserPassword:  "secret",
+	OwnerPassword: "owner-secret",
+	Permissions:   &pdf.Permissions{AllowPrint: true, AllowCopy: true},
+	Algorithm:     pdf.EncryptionAlgAES128,
 })
-doc.Save("restricted.pdf")
 
-// Reading permissions from an encrypted file (works after OpenWithPassword)
-doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
-perms, ok := doc.Permissions()
-if ok {
-    fmt.Printf("can print: %v, can copy: %v\n", perms.AllowPrint, perms.AllowCopy)
+var buf bytes.Buffer
+if _, err := doc.WriteTo(&buf); err != nil {
+	log.Fatal(err)
 }
 
-// Edit-in-place: OpenWithPassword preserves the password, so a plain Save
-// re-encrypts with the same password. To produce a plaintext copy, call
-// RemoveEncryption explicitly before Save.
-doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
-doc.AddTextWatermark("APPROVED", pdf.TextStyle{Size: 48})
-doc.Save("restricted_signed.pdf")          // still encrypted
-doc.RemoveEncryption()
-doc.Save("decrypted_copy.pdf")             // plaintext
-
-// Change the password, keeping the current algorithm and permissions.
-doc, _ = pdf.OpenWithPassword("restricted.pdf", "userpass")
-doc.ChangePassword("newuserpass", "")      // empty owner → same as user
-doc.Save("restricted.pdf")
+// The file is now encrypted; Open returns ErrEncrypted.
+if _, err := pdf.OpenStream(&buf); err != nil {
+	fmt.Println("encrypted")
+}
 ```
 
-`Permissions` fields map to ISO 32000-1 §7.6.3.2 Table 22 bits 3, 4, 5, 6, 9, 10, 11, 12. The library encodes them with the Adobe convention (reserved bits 7-8 and 13-32 set high). Permissions are enforced by PDF viewers — the library itself is not a DRM mechanism.
-
-In `EncryptionOptions`, `Permissions` is a pointer so that `nil` (omitted) means "grant all", distinguishing the default from an explicit `&Permissions{}` which denies everything.
-
-### Digital signatures
+### Digitally Sign and Verify
 
 ```go
-// Sign — pass your own certificate + key (crypto.Signer: RSA or ECDSA).
-// Here a self-signed test pair is generated in memory; in production load
-// your key+cert from PEM (crypto/x509) or an HSM.
-key, _ := rsa.GenerateKey(rand.Reader, 2048)
-tmpl := x509.Certificate{
-    SerialNumber: big.NewInt(1),
-    Subject:      pkix.Name{CommonName: "Jane Doe"},
-    NotBefore:    time.Now(), NotAfter: time.Now().AddDate(1, 0, 0),
-    KeyUsage:     x509.KeyUsageDigitalSignature,
+key, _ := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+tmpl := &x509.Certificate{
+	SerialNumber: big.NewInt(1),
+	Subject:      pkix.Name{CommonName: "Jane Signer"},
+	NotBefore:    time.Now().Add(-time.Hour),
+	NotAfter:     time.Now().Add(24 * time.Hour),
+	KeyUsage:     x509.KeyUsageDigitalSignature,
 }
-der, _ := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &key.PublicKey, key)
+der, _ := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &key.PublicKey, key)
 cert, _ := x509.ParseCertificate(der)
 
-doc := pdf.NewDocument(595, 842)
-doc.Sign(pdf.SignOptions{
-    Certificate: cert,
-    PrivateKey:  key, // *rsa.PrivateKey and *ecdsa.PrivateKey both satisfy crypto.Signer
-    Reason:      "I approve this document",
-    Name:        "Jane Doe",
-    // Optional: draw a visible "Digitally signed by …" block on the page.
-    Visible: true,
-    Rect:    pdf.Rectangle{LLX: 60, LLY: 60, URX: 360, URY: 140},
-    // Page: 1 (default); Appearance: customize text/style à la SignatureCustomAppearance.
-    // Optional standards extras:
-    PAdES:        true,                             // ETSI.CAdES.detached (PAdES baseline)
-    Certify:      pdf.CertifyFillForms,             // certification (DocMDP) signature
-    TimestampURL: "http://timestamp.digicert.com",  // RFC 3161 trusted timestamp (needs network)
-})
-doc.Save("signed.pdf") // signature is computed and spliced in on Save
-
-// Verify
-signed, _ := pdf.Open("signed.pdf")
-sigs, _ := signed.VerifySignatures()
-for _, s := range sigs {
-    fmt.Printf("%s: valid=%v intact=%v whole-doc=%v signer=%s\n",
-        s.FieldName, s.Valid, s.IntegrityOK, s.CoversWholeDocument,
-        s.Certificate.Subject.CommonName)
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, Reason: "Approval"}); err != nil {
+	log.Fatal(err)
 }
-```
-
-`Document.Sign` adds one **PKCS#7-detached** signature (SHA-256; RSA or ECDSA),
-covering the whole file, configured like encryption and applied on `Save`/`WriteTo`.
-It is invisible by default, or **visible** (`Visible` + `Rect` + `Page`) — drawing a
-"Digitally signed by …" block whose text/style you can tune via `SignatureAppearance`.
-`PAdES` switches the subfilter to ETSI.CAdES.detached (with the ESS signing-certificate
-attribute); `Certify` makes it a certification (DocMDP) signature recording which later
-changes stay allowed; `TimestampURL` embeds an RFC 3161 trusted timestamp from a TSA.
-Re-signing an already-signed document (open it, `Sign` again, save) appends an
-**incremental update** — the original bytes are preserved verbatim, so the earlier
-signature stays valid and the file ends up with multiple signatures. **Encrypted**
-documents are signed the same way (the appended signature objects are encrypted with
-the document's own RC4/AES scheme; the signature value stays plaintext per the spec).
-`Document.VerifySignatures` returns a `SignatureVerification` per signature field —
-`Valid` (cryptographically valid **and** the document is unchanged), `IntegrityOK`,
-`CoversWholeDocument`, and the signer `Certificate`. **Trust-chain validation is the
-caller's responsibility**: the certificate is returned so you can check it against your
-own trust store (a self-signed test certificate is valid but untrusted). The PKCS#7/CMS
-container is built and parsed entirely with the standard library; signed output validates
-in OpenSSL and pyHanko. A signed document is treated as final — sign once and save once,
-on an unencrypted document. (Out of scope for now: PAdES/timestamps/LTV, visible signature
-appearances, certification, and multiple/incremental signatures.)
-
-### Forms (AcroForm)
-
-```go
-doc, _ := pdf.Open("template.pdf")
-
-// Iterate every form field
-for _, f := range doc.Form().Fields() {
-    fmt.Printf("%s = %q (type %v)\n", f.FullName(), f.Value(), pdf.FieldType(f))
+var buf bytes.Buffer
+if _, err := doc.WriteTo(&buf); err != nil {
+	log.Fatal(err)
 }
 
-// Set values by type
-text := doc.Form().Field("name").(*pdf.TextBoxField)
-text.SetValue("Jane Doe")
-
-check := doc.Form().Field("subscribe").(*pdf.CheckboxField)
-check.SetChecked(true)
-
-radio := doc.Form().Field("plan").(*pdf.RadioButtonField)
-radio.Options()[1].SetSelected(true)
-
-combo := doc.Form().Field("country").(*pdf.ComboBoxField)
-combo.SetSelected(0) // by index into combo.Options()
-
-list := doc.Form().Field("interests").(*pdf.ListBoxField)
-if list.MultiSelect() {
-    list.SetSelected(0, 2, 3)
-} else {
-    list.SetSelected(1)
+signed, _ := pdf.OpenStream(&buf)
+sigs, err := signed.VerifySignatures()
+if err != nil {
+	log.Fatal(err)
 }
-
-// Save — each widget already carries a pre-generated /AP appearance
-doc.Save("filled.pdf")
+fmt.Printf("signatures: %d, valid: %v, reason: %s\n", len(sigs), sigs[0].Valid, sigs[0].Reason)
 ```
 
-Field values containing non-ASCII characters (e.g. Cyrillic) are encoded as UTF-16BE with a BOM so any spec-conforming viewer reads them back correctly.
-
-Forms can also be exported as **fillable HTML** — `doc.SaveHTML(path, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText, InteractiveForms: true})` turns every field into a real browser control (see *Exporting to HTML*).
-
-#### Form data as JSON
-
-Export every field value to a typed JSON document, and import it back into the same (or a template) PDF — separating the data from the document for storage, transmission, or bulk template-fill:
-
-```go
-// Export: {"name": {"type": "text", "value": "Jane"}, "subscribe": {"type": "checkbox", "value": true}, ...}
-data, _ := doc.Form().ExportJSON(pdf.JSONExportOptions{Indent: true})
-
-// Fill a template from a JSON payload; n = number of fields applied
-n, _ := template.Form().ImportJSON(data)
-```
-
-The value's JSON kind follows the field type (text/radio/combo → string, checkbox → bool, list box → array). Import dispatches on the target field's type and regenerates each widget's appearance, so imported values render in any viewer. Unknown field names are skipped.
-
-The same data round-trips through the Acrobat-interoperable **FDF** and **XFDF** formats:
-
-```go
-fdf, _ := doc.Form().ExportFDF()    // %FDF-1.2 … /FDF /Fields [ … ]
-template.Form().ImportFDF(fdf)
-
-xfdf, _ := doc.Form().ExportXFDF()  // <xfdf><fields><field name=…><value>…
-template.Form().ImportXFDF(xfdf)
-```
-
-#### Building forms from scratch
-
-```go
-doc := pdf.NewDocument(595, 842)
-form := doc.Form()
-
-// Single-widget fields
-tf, _ := form.AddTextField(1, pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 725}, "name")
-tf.SetMaxLen(50)
-tf.SetValue("Jane Doe")
-
-cb, _ := form.AddCheckbox(1, pdf.Rectangle{LLX: 50, LLY: 660, URX: 70, URY: 680}, "subscribe")
-cb.SetChecked(true)
-
-combo, _ := form.AddComboBox(1, pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 625}, "country",
-    []pdf.ChoiceOption{{Value: "USA"}, {Value: "Canada"}})
-combo.SetSelected(0)
-
-// Radio group: widgets can span multiple pages
-rb, _ := form.AddRadioGroup("plan", []pdf.RadioItem{
-    {PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 540, URX: 70, URY: 560}, Export: "basic"},
-    {PageNum: 1, Rect: pdf.Rectangle{LLX: 50, LLY: 510, URX: 70, URY: 530}, Export: "premium"},
-})
-rb.Options()[0].SetSelected(true)
-
-submit, _ := form.AddPushButton(1, pdf.Rectangle{LLX: 50, LLY: 460, URX: 200, URY: 490}, "submit", "Submit")
-
-// Rich push-button appearance: hover/press captions + an icon, baked
-// into /AP/N, /AP/R, /AP/D so the button reacts in any viewer.
-submit.SetAppearance(pdf.ButtonAppearance{
-    Caption:      "Submit",
-    RolloverText: "Click to submit",
-    DownText:     "Submitting…",
-    IconPath:     "logo.png",
-    IconPosition: pdf.ButtonIconAboveCaption,
-    TextColor:    &pdf.Color{R: 1, G: 1, B: 1, A: 1},
-    FaceColor:    &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
-})
-
-// Style a field: navy border + tint fill + navy text, all persisted
-// as /MK, /BS, /DA and rendered straight into the widget /AP.
-tf.SetStyle(pdf.FieldStyle{
-    BorderColor:     &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
-    BackgroundColor: &pdf.Color{R: 0.95, G: 0.96, B: 1.0, A: 1},
-    TextColor:       &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1},
-    BorderWidth:     1,
-    TextSize:        12,
-})
-
-// Remove a field by name
-form.RemoveField("subscribe")
-
-doc.Save("form.pdf")
-```
-
-Every field is given a pre-generated `/AP` appearance stream on creation and whenever its value or style changes, so the form renders identically across Acrobat, Foxit, browser PDF viewers, MuPDF, and Poppler without depending on `/AcroForm/NeedAppearances` (which the library leaves off by default; `Form.SetNeedAppearances(true)` is available for callers who want viewer-side regeneration).
-
-Out of scope for this release: form flattening, and the richer push-button appearance surface (rollover/down captions, icon images).
-
-### Outlines (Bookmarks)
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-
-// Top-level bookmark with style + destination
-chapter := pdf.NewOutlineItemCollection(doc)
-chapter.SetTitle("Chapter 1")
-chapter.SetBold(true)
-chapter.SetColor(&pdf.Color{R: 0, G: 0, B: 0.8, A: 1})
-chapter.SetDestination(pdf.NewDestinationXYZ(page, 0, 800, 1.0))
-doc.Outlines().Add(chapter)
-
-// Nested child
-section := pdf.NewOutlineItemCollection(doc)
-section.SetTitle("Section 1.1")
-section.SetDestination(pdf.NewDestinationFit(page))
-chapter.Add(section)
-
-doc.Save("with_bookmarks.pdf")
-```
-
-API mirrors Aspose.PDF for .NET's `OutlineItemCollection` 1:1 — `Document.Outlines()` is the root collection, `NewOutlineItemCollection(doc)` constructs an unattached entry, and the same `IList<T>`-equivalent surface (`Add`/`Insert`/`Remove`/`RemoveAt`/`At`/`Count`/`All`) lives on every entry for managing children. All 8 PDF destination types are supported (XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV); the `XYZ`, `FitH`, `FitV`, `FitBH`, `FitBV` flavors also have `NewDestinationXxxUnchanged` variants for leaving specific coordinates as "current viewer state". `Action` and `Destination` may both be set per ISO 32000-1 §12.3.3 — viewers honor `/Dest` first.
-
-```go
-// Named destinations — define once, reuse from outlines and links
-doc.NamedDestinations().Add("intro",    pdf.NewDestinationFit(page1))
-doc.NamedDestinations().Add("appendix", pdf.NewDestinationFitH(page2, 500))
-
-oic := pdf.NewOutlineItemCollection(doc)
-oic.SetTitle("Appendix")
-oic.SetDestination(pdf.NewNamedDestination(doc, "appendix"))
-doc.Outlines().Add(oic)
-```
-
-API mirrors Aspose.PDF for .NET's `NamedDestinations` collection and `NamedDestination` class 1:1. Reads both `/Catalog/Dests` (legacy PDF 1.1) and `/Catalog/Names/Dests` (modern PDF 1.2+) — legacy auto-migrates to modern on save.
-
-### Table of Contents
-
-```go
-doc, _ := pdf.Open("report.pdf")
-
-// (Assume the document already has outline bookmarks — see Outlines above.)
-// Generate a TOC from the bookmark tree and insert it at the front.
-added, _ := doc.GenerateTOC(pdf.TOCOptions{Title: "Table of Contents"})
-fmt.Println(added, "TOC page(s) added") // page numbers/links reflect the shift
-
-doc.Save("with_toc.pdf")
-```
-
-```go
-// Or render a TOC from a supplied list into a region on an existing page.
-toc, _ := doc.Page(1)
-p2, _ := doc.Page(2)
-p5, _ := doc.Page(5)
-toc.AddTOC([]pdf.TOCEntry{
-    {Title: "Introduction", Level: 0, Page: p2},
-    {Title: "Background",   Level: 1, Page: p2},
-    {Title: "Conclusion",   Level: 0, Page: p5},
-}, pdf.Rectangle{LLX: 54, LLY: 54, URX: 541, URY: 760},
-    pdf.TOCOptions{Title: "Contents"})
-```
-
-`GenerateTOC` sources entries from the document outline (nesting becomes the indent
-level) and inserts the TOC as new page(s) at the front; `AddTOC` renders a caller-supplied
-list into a rectangle and auto-appends continuation pages on overflow. Each entry with a
-target page gets a right-aligned page number, a dotted leader, and a clickable GoTo link.
-`TOCOptions` controls the heading, styles, per-level indent, and line spacing; the zero
-value yields page numbers + leaders + links (turn them off with `NoPageNumbers` /
-`NoLeader` / `NoLinks`). Loosely mirrors Aspose.PDF for .NET's `TocInfo`. A runnable
-example lives in [`_examples/toc`](_examples/toc).
-
-### Tables
+### Build a Table
 
 ```go
 doc := pdf.NewDocument(595, 842)
@@ -636,1344 +379,535 @@ fmt.Printf("table flowed to %d additional pages\n", pagesAdded)
 doc.Save("table.pdf")
 ```
 
-For long tables, mark a header row to repeat on every continuation page and use `Cell.SetColSpan` for summary rows:
+### Render a Page to an Image
 
 ```go
-table := pdf.NewTable().
-    SetColumnWidths([]float64{100, 200, 80, 80}).
-    SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
-    SetRepeatingRowsCount(1)
-
-header := table.AddRow()
-header.AddCells("Product", "Description", "Qty", "Total")
-
-for _, item := range invoiceItems {
-    row := table.AddRow()
-    row.AddCells(item.Name, item.Description, item.Qty, item.Total)
-}
-
-// Summary row: "TOTAL" label spans the first 3 columns, amount in column 4.
-totals := table.AddRow()
-totals.AddCell("TOTAL").SetColSpan(3).SetHAlign(pdf.HAlignRight)
-totals.AddCell(fmt.Sprintf("€%.2f", grandTotal))
-
-pagesAdded, _ := page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 100, URX: 510, URY: 750})
-fmt.Printf("table flowed to %d additional pages\n", pagesAdded)
-```
-
-Image cells and row-level styling (alternating row backgrounds, header logo):
-
-```go
-table := pdf.NewTable().
-    SetColumnWidths([]float64{60, 200, 80, 80}).
-    SetRepeatingRowsCount(1)
-
-// Header row with logo image + text headers.
-header := table.AddRow().SetBackground(&pdf.Color{R: 0.95, G: 0.95, B: 0.95, A: 1})
-header.AddCell("").SetImage("logo.png")
-header.AddCell("Product")
-header.AddCell("Qty")
-header.AddCell("Total")
-
-// Alternating row colors via Row.SetBackground.
-rows := table.AddRows([][]string{
-    {"", "Widget",   "5", "€25.00"},
-    {"", "Gadget",   "2", "€18.00"},
-    {"", "Sprocket", "9", "€72.00"},
-})
-for i, r := range rows {
-    if i%2 == 1 {
-        r.SetBackground(&pdf.Color{R: 0.97, G: 0.97, B: 0.97, A: 1})
-    }
-}
-
-page.AddTable(table, pdf.Rectangle{LLX: 50, LLY: 100, URX: 470, URY: 750})
-```
-
-API mirrors Aspose.PDF for .NET's `Table` / `Row` / `Cell` / `BorderInfo` / `MarginInfo` 1:1 in type names. Cells inherit `DefaultCellBorder` / `DefaultCellMargin` / `DefaultCellStyle` from the table unless overridden per-cell. Tables are positioned by `Rectangle` (consistent with `AddText` and `AddImage`) instead of paragraph flow-layout.
-
-### Vector graphics
-
-```go
-doc := pdf.NewDocument(595, 842)
+doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
 page, _ := doc.Page(1)
+_ = page.AddText("Preview me", pdf.TextStyle{Size: 24},
+	pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 780})
 
-// Stroke a dashed red line.
-page.DrawLine(
-    pdf.Point{X: 50, Y: 700}, pdf.Point{X: 545, Y: 700},
-    pdf.LineStyle{
-        Color:       &pdf.Color{R: 1, G: 0, B: 0, A: 1},
-        Width:       2,
-        DashPattern: []float64{6, 3},
-    },
-)
-
-// Fill a rounded box with semi-transparent blue.
-page.DrawRoundedRectangle(
-    pdf.Rectangle{LLX: 100, LLY: 500, URX: 400, URY: 600}, 10,
-    pdf.ShapeStyle{
-        LineStyle: pdf.LineStyle{Width: 1, Color: &pdf.Color{R: 0, G: 0, B: 0.5, A: 1}},
-        FillColor: &pdf.Color{R: 0.6, G: 0.8, B: 1, A: 0.5},
-    },
-)
-
-// Custom path: shape with curve and close.
-path := pdf.NewPath().
-    MoveTo(200, 300).
-    LineTo(400, 300).
-    CurveTo(420, 320, 420, 360, 400, 380).
-    LineTo(200, 380).
-    Close()
-page.DrawPath(path, pdf.ShapeStyle{
-    LineStyle: pdf.LineStyle{Width: 1.5},
-    FillColor: &pdf.Color{R: 1, G: 0.9, B: 0.3, A: 1},
-})
-
-// Gradient fills — linear (left→right) and radial (off-centre highlight).
-red := pdf.Color{R: 0.9, G: 0.1, B: 0.1, A: 1}
-blue := pdf.Color{R: 0.1, G: 0.2, B: 0.8, A: 1}
-white := pdf.Color{R: 1, G: 1, B: 1, A: 1}
-
-page.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 200, URX: 250, URY: 280},
-    pdf.ShapeStyle{FillGradient: pdf.NewLinearGradient(50, 0, 250, 0,
-        pdf.GradientStop{Offset: 0, Color: red},
-        pdf.GradientStop{Offset: 1, Color: blue})})
-
-page.DrawCircle(pdf.Point{X: 150, Y: 100}, 60, pdf.ShapeStyle{
-    FillGradient: pdf.RadialGradient{
-        CX: 150, CY: 100, R: 60, FX: 130, FY: 125, // focal up-left → 3D sphere
-        Stops: []pdf.GradientStop{{0, white}, {1, blue}}}})
-
-doc.Save("shapes.pdf")
-```
-
-### SVG embedding
-
-```go
-// Embed an external SVG file into a page
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-page.AddSVG("logo.svg", pdf.Rectangle{LLX: 50, LLY: 700, URX: 250, URY: 800})
-
-// Pre-parse for reuse on many pages
-svg, _ := doc.LoadSVG("watermark.svg")
-for i := 1; i <= doc.PageCount(); i++ {
-    p, _ := doc.Page(i)
-    p.AddSVGObject(svg, pdf.Rectangle{LLX: 0, LLY: 0, URX: 595, URY: 842})
+img, err := doc.RenderImage(1, pdf.RenderOptions{DPI: 96})
+if err != nil {
+	log.Fatal(err)
 }
-
-// Or use the watermark helper (covers all pages with full-MediaBox positioning)
-doc.AddSVGWatermark("watermark.svg")
+fmt.Println("rendered:", img.Bounds().Dx() > 0 && img.Bounds().Dy() > 0)
 ```
 
-Supports: basic shapes, full SVG 1.1 path syntax (with elliptical-arc decomposition),
-transforms (`translate`/`rotate`/`scale`/`matrix`/`skewX`/`skewY`), viewBox +
-preserveAspectRatio (all 10 modes), 147 CSS named colors, hex/rgb/rgba, absolute length
-units (px/pt/pc/mm/cm/in), group inheritance cascade, gradient fills (linear + radial via
-PDF shading patterns; `gradientUnits` + `gradientTransform`), `<text>` and `<tspan>`
-with mixed content, cursor positioning, `dx`/`dy`/absolute `x`/`y`, `text-anchor`
-(start/middle/end), font styling (family/size/weight/style), Standard 14 heuristic font
-mapping and pluggable TTF resolver, `<image>` (data: URI — PNG and JPEG base64 inline),
-`<defs>`/`<use>`/`<symbol>` (reusable elements with forward-ref and cycle detection),
-`<clipPath>` (clipping paths mapped to PDF `W`/`W*` operators; `clip-path="url(#id)"`
-on any shape/text/image), `<mask>` (soft masks via PDF Form XObject transparency group +
-ExtGState `/SMask`; `maskUnits` and `maskContentUnits` both supported), CSS `<style>`
-blocks (`.class`/`#id`/element selectors with correct specificity cascade), `<filter>`
-with `feDropShadow` emulated as offset+alpha bbox duplicate, `<marker>` (`marker-start`/
-`marker-mid`/`marker-end`) with `orient=auto` rotation along path tangent and `refX`/`refY`
-anchor. Unsupported (skipped silently): `<textPath>`, vertical writing modes, external
-`href` in `<image>`, real Gaussian blur, em/ex/% length units.
+</details>
 
-For SVG files containing Cyrillic or other non-Latin text, register a font resolver that
-returns your embedded TTF:
+## API Reference
 
-```go
-deja, _ := doc.LoadFont("DejaVuSans.ttf")
-doc.SetSVGFontResolver(func(family string, bold, italic bool) pdf.Font {
-    if strings.EqualFold(family, "DejaVu Sans") {
-        return deja
-    }
-    return nil // falls back to heuristic Standard 14 mapping
-})
-page.AddSVG("diagram-with-cyrillic.svg", rect)
-```
+The public API lives in the single root package `asposepdf` (imported as `pdf`), centered on
+`Document` — opened via `Open`/`OpenStream`/`OpenWithPassword`/`OpenStreamWithPassword` (the
+stream forms take any `io.Reader`) and serialized via `Document.WriteTo` (implements
+`io.WriterTo`, so it writes to any `io.Writer`); its `Pages()` method returns live `*Page` views,
+and nearly every mutating method (rotation, reorder, metadata, passwords, …) modifies the
+receiver in place; `Split` and `Extract` are the two exceptions, each returning a fresh, fully
+independent `*Document`. AI copilots live in the separate `ai` subpackage so the root package
+stays free of network code.
 
-### Flattening
+<details>
+<summary>View the Full Core API Surface</summary>
 
-Bake interactive form fields and annotations into static page content — the document renders identically but is no longer fillable or editable.
+### Core API
 
-```go
-doc, _ := pdf.Open("filled-form.pdf")
+| Class | Description |
+|---|---|
+| `AIClient` | AIClient is the contract every copilot consumes: one call, one chat completion. |
+| `APIError` | APIError is returned when the AI endpoint answers with a non-2xx status. |
+| `Action` | Action is the common interface implemented by every concrete action type. |
+| `ActionType` | ActionType identifies the kind of action attached to an annotation (typically a LinkAnnotation's /A entry). |
+| `Annotation` | Annotation is the common interface implemented by every concrete annotation type. |
+| `AnnotationCollection` | AnnotationCollection is the live, ordered set of annotations attached to a single page. |
+| `AnnotationType` | AnnotationType identifies the kind of annotation. |
+| `BmpDevice` | BmpDevice renders a page to BMP. |
+| `BookletBinding` | BookletBinding selects the binding edge of a booklet. |
+| `BookletOptions` | BookletOptions configures Booklet imposition. |
+| `BorderEffect` | BorderEffect controls the /BE/S entry per ISO 32000-1 §12.5.4 Table 167. |
+| `BorderInfo` | BorderInfo describes a border drawn around a table or cell. |
+| `BorderSide` | BorderSide is a bitmask selecting which sides of a rectangular border are drawn. |
+| `BorderStyle` | BorderStyle controls the /BS dict for drawing annotations per ISO 32000-1 §12.5.4 Table 168. |
+| `ButtonAppearance` | ButtonAppearance configures a push button's rich appearance: separate captions for the normal / rollover / down states, an optional icon image, and face/border/text colours. |
+| `ButtonField` | ButtonField is a push button — action only, no value semantics. |
+| `ButtonIconPosition` | ButtonIconPosition controls how a push button lays out its icon and caption — the /MK /TP entry per ISO 32000-1 §12.5.6.19 Table 189. |
+| `CaretAnnotation` | CaretAnnotation marks a point of text insertion or deletion, drawn as an upward caret ("^") filled with the annotation colour; an optional paragraph symbol is set with `SetSymbol(pdf.CaretSymbolParagraph)`. |
+| `CaretSymbol` | CaretSymbol is the /Sy entry of a Caret annotation per ISO 32000-1 §12.5.6.11 Table 180 — an optional symbol drawn together with the caret to associate it with an editing action. |
+| `Cell` | Cell is a single cell within a Row. |
+| `CertifyPermission` | CertifyPermission is the DocMDP permission level of a certification signature (ISO 32000-1 §12.8.2.2 Table 254). |
+| `ChatCopilot` | ChatCopilot answers questions about a document, keeping conversation history. |
+| `ChatOptions` | ChatOptions configures a ChatCopilot. |
+| `CheckboxField` | CheckboxField is a checkbox with on/off state. |
+| `ChoiceOption` | ChoiceOption is one option of a ComboBoxField or ListBoxField. |
+| `CircleAnnotation` | CircleAnnotation draws an elliptical annotation. |
+| `Color` | Color represents an RGBA color with values in [0, 1]. |
+| `ComboBoxField` | ComboBoxField is a single-select dropdown choice field. |
+| `CompletionRequest` | CompletionRequest describes one chat-completion call. |
+| `CompletionResponse` | CompletionResponse is the model's reply. |
+| `DateField` | DateField is a text field with a JavaScript date-format action and a format mask (e.g. "mm/dd/yyyy"). |
+| `Destination` | Destination is the common interface for all explicit destinations. |
+| `DestinationFit` | DestinationFit — [page /Fit]. |
+| `DestinationFitB` | DestinationFitB — [page /FitB]. |
+| `DestinationFitBH` | DestinationFitBH — [page /FitBH top]. |
+| `DestinationFitBV` | DestinationFitBV — [page /FitBV left]. |
+| `DestinationFitH` | DestinationFitH — [page /FitH top]. |
+| `DestinationFitR` | DestinationFitR — [page /FitR left bottom right top]. |
+| `DestinationFitV` | DestinationFitV — [page /FitV left]. |
+| `DestinationType` | DestinationType identifies the destination flavor. |
+| `DestinationXYZ` | DestinationXYZ — [page /XYZ left top zoom]. |
+| `Document` | Document is a PDF document. |
+| `DocumentInfo` | DocumentInfo contains document information from the PDF Info dictionary. |
+| `EmbeddedFile` | EmbeddedFile is one attachment: a /Filespec dictionary with an embedded stream. |
+| `EmbeddedFiles` | EmbeddedFiles is the document's collection of attached (embedded) files — the /Catalog/Names/EmbeddedFiles name tree (ISO 32000-1 §7.11.4). |
+| `EncryptionAlgorithm` | EncryptionAlgorithm selects the cipher and security-handler revision used by (*Document).SetEncryption. |
+| `EncryptionOptions` | EncryptionOptions bundles every knob that controls how a document is encrypted when saved. |
+| `Field` | Field is the common interface implemented by every concrete form field type (TextBoxField, CheckboxField, RadioButtonField, etc.). |
+| `FieldStyle` | FieldStyle is the visual styling applied to a form field's widget(s). |
+| `FigureAlt` | FigureAlt is a /Figure structure element that has no alternate text, paired with the image it brackets (when resolvable). |
+| `FileAttachmentAnnotation` | FileAttachmentAnnotation embeds a file in the document and shows an icon at the annotation's /Rect. |
+| `FileAttachmentIcon` | FileAttachmentIcon names per ISO 32000-1 §12.5.6.15 Table 178. |
+| `FileSelectBoxField` | FileSelectBoxField is a text field whose value is a file path (FileSelect flag), used to attach a local file on submit. |
+| `FloatSide` | FloatSide selects which edge a floated box hugs while text wraps around it. |
+| `FloatingBox` | FloatingBox is a positioned content container (Tier 2 of the flow model): a box with an optional border, background and padding that lays its own content (paragraphs, headings, images, lists) inside its width. |
+| `Flow` | Flow is a document generator that lays content out top-to-bottom and paginates automatically — the "flow" counterpart to the Rectangle-based drawing API. |
+| `FlowOptions` | FlowOptions configures a Flow. |
+| `Font` | Font is implemented by standard 14 fonts and embedded TTF fonts. |
+| `Form` | Form is the document's AcroForm view. |
+| `FormFieldType` | FormFieldType identifies the kind of form field. |
+| `FreeTextAnnotation` | FreeTextAnnotation displays text directly on the page, rendered into /AP/N using an embedded font. |
+| `FreeTextIntent` | FreeTextIntent per ISO 32000-1 §12.5.6.6 /IT entry. |
+| `GenericAnnotation` | GenericAnnotation is the catch-all surface for /Subtype values this release does not yet model (Stamp, FreeText, Ink, etc.). |
+| `GifDevice` | GifDevice renders a page to GIF. |
+| `GoToAction` | GoToAction navigates to a page within the same document. |
+| `GoToURIAction` | GoToURIAction opens a URI in the user's default handler (typically a web browser). |
+| `Gradient` | Gradient is a fill that varies colour across a shape: either a LinearGradient or a RadialGradient. |
+| `GradientStop` | GradientStop is one colour stop in a gradient, positioned at Offset (0 at the gradient's start, 1 at its end). |
+| `HAlign` | HAlign specifies horizontal text alignment within a rectangle. |
+| `HTMLMode` | HTMLMode selects how SaveHTML / WriteHTML represents page text. |
+| `HTMLSaveOptions` | HTMLSaveOptions configures SaveHTML / WriteHTML. |
+| `HighlightAnnotation` | HighlightAnnotation marks a region with semi-transparent highlight color. |
+| `Image` | Image holds an extracted image with its encoded data and metadata. |
+| `ImageColorSpace` | ImageColorSpace describes the original color space of the image in the PDF. |
+| `ImageDescriptionCopilot` | ImageDescriptionCopilot describes images with a vision model. |
+| `ImageDescriptionOptions` | ImageDescriptionOptions configures an ImageDescriptionCopilot. |
+| `ImageFormat` | ImageFormat describes the output format of an extracted image. |
+| `ImageInfo` | ImageInfo holds metadata about an image found on a page without decoding pixel data. |
+| `ImageStamp` | ImageStamp overlays a raster image (PNG or JPEG), stretched to fill Rect. |
+| `ImageToDocumentOptions` | ImageToDocumentOptions controls page sizing for ImageToDocument. |
+| `InkAnnotation` | InkAnnotation draws a series of free-form strokes — typically used to represent handwritten ink. |
+| `JSONExportOptions` | JSONExportOptions controls (*Form).ExportJSON / WriteJSON. |
+| `JavaScriptAction` | JavaScriptAction holds a JavaScript snippet attached to an annotation. |
+| `JavaScriptCollection` | JavaScriptCollection is the document-level JavaScript store, backed by the /Catalog/Names/JavaScript name tree (ISO 32000-1 §7.7.4 / §8.5.1). |
+| `JpegDevice` | JpegDevice renders a page to JPEG. |
+| `LLMOCREngine` | LLMOCREngine recognizes text by sending the page image to a vision-capable chat model. |
+| `LLMOCROptions` | LLMOCROptions configures the vision-model OCR engine. |
+| `Layer` | Layer is one Optional Content Group (OCG) in the document, created with `Document.AddLayer(name)`, bracketed on a page with `Page.BeginLayer`/`EndLayer`, and toggled with `Layer.SetVisible`. |
+| `LineAnnotation` | LineAnnotation draws a straight line between two points, with optional line endings on each end (arrows, circles, etc. |
+| `LineCap` | LineCap is the /J line cap style per ISO 32000-1 §8.4.3.3 Table 54. |
+| `LineEndingStyle` | LineEndingStyle is one of the 10 line-ending shapes per ISO 32000-1 §12.5.6.7 Table 176, used in /Line annotations' /LE entry. |
+| `LineJoin` | LineJoin is the /j line join style per ISO 32000-1 §8.4.3.4 Table 55. |
+| `LineStyle` | LineStyle describes how a stroked path is drawn. |
+| `LinearGradient` | LinearGradient interpolates colour along the line from (X1, Y1) to (X2, Y2). |
+| `LinkAnnotation` | LinkAnnotation is a clickable region. |
+| `LinkHighlightMode` | LinkHighlightMode controls the visual feedback when the link is activated by the user (the /H entry per ISO 32000-1 §12.5.6.5). |
+| `ListBoxField` | ListBoxField is a single- or multi-select list choice field. |
+| `MarginInfo` | MarginInfo describes margins or padding in points: Top / Right / Bottom / Left. |
+| `MarkdownOptions` | MarkdownOptions configures Markdown rendering. |
+| `MarkdownSaveOptions` | MarkdownSaveOptions configures SaveMarkdown / WriteMarkdown. |
+| `MarkupParagraph` | MarkupParagraph is a run of consecutive lines forming one paragraph. |
+| `MarkupSection` | MarkupSection is a column of paragraphs (left-to-right across the page). |
+| `Message` | Message is a single chat message. |
+| `MessageImage` | MessageImage is an inline image attached to a message, sent as a base64 data: URL. |
+| `NUpOptions` | NUpOptions configures NUp imposition. |
+| `NUpOrder` | NUpOrder controls the order in which source pages fill the grid cells of an N-up sheet. |
+| `NamedAction` | NamedAction triggers a built-in viewer command (FirstPage, Print, ...). |
+| `NamedActionType` | NamedActionType identifies one of the standard viewer commands supported by /Named actions per ISO 32000-1 §12.6.4.11. |
+| `NamedDestination` | NamedDestination wraps a name reference into the document's NamedDestinations collection. |
+| `NamedDestinations` | NamedDestinations is a name-to-destination map per ISO 32000-1 §12.3.2.3. |
+| `NumberField` | NumberField is a text field with a JavaScript number-format action, so viewers display and validate the value as a formatted number. |
+| `NumberFormatOptions` | NumberFormatOptions configures a NumberField's display formatting (maps to Acrobat's AFNumber_Format). |
+| `OCRBox` | OCRBox is a rectangle in image pixel space: origin at the top-left corner, Y increasing downward (the usual raster convention — distinct from PDF user space on purpose). |
+| `OCREngine` | OCREngine recognizes text on one page image. |
+| `OCRLine` | OCRLine is one physical text line. |
+| `OCRResult` | OCRResult is the recognized content of one page image. |
+| `OCRWord` | OCRWord is word-level detail within a line, for engines that provide it. |
+| `OcrCopilot` | OcrCopilot recognizes text on scanned pages. |
+| `OcrOptions` | OcrOptions configures an OcrCopilot. |
+| `OpenAIClient` | OpenAIClient talks to an OpenAI-compatible chat-completions endpoint using only the standard library. |
+| `OpenAIClientOptions` | OpenAIClientOptions configures NewOpenAIClient. |
+| `OptimizationOptions` | OptimizationOptions selects which reductions Document.Optimize applies. |
+| `OptimizationResult` | OptimizationResult reports what Document.Optimize changed. |
+| `OptimizeImageOptions` | OptimizeImageOptions controls image optimization behavior. |
+| `OutlineItemCollection` | OutlineItemCollection represents an outline entry and the collection of its children. |
+| `PDFAFormat` | PDFAFormat identifies a PDF/A conformance level. |
+| `PDFAIssue` | PDFAIssue describes a single PDF/A conformance violation. |
+| `PDFAValidationReport` | PDFAValidationReport is returned by (*Document).ValidatePDFA. |
+| `PDFUAIssue` | PDFUAIssue describes a single PDF/UA (accessibility) conformance violation. |
+| `PDFUAValidationReport` | PDFUAValidationReport is returned by (*Document).ValidatePDFUA. |
+| `Page` | Page is a live view of a single page within a Document. |
+| `PageFormat` | PageFormat describes a page size in points (1/72 inch). |
+| `PageLabelRange` | PageLabelRange describes a contiguous run of pages that share a numbering style. |
+| `PageLabelStyle` | PageLabelStyle is the numbering style applied within a PageLabelRange. |
+| `PageMarkup` | PageMarkup is the structured text of one page. |
+| `PageNumberStamp` | PageNumberStamp stamps the page number (and optionally the total), formatted by Format. |
+| `PageRange` | PageRange specifies an inclusive range of pages (1-based). |
+| `PageSize` | PageSize holds the width and height of a PDF page in points (1/72 inch). |
+| `PasswordBoxField` | PasswordBoxField is a text field whose input is masked (Password flag). |
+| `Path` | Path is a sequence of MoveTo/LineTo/CurveTo/Close operations defining an arbitrary 2D path in PDF user space (origin at page bottom-left, Y up). |
+| `PdfPageStamp` | PdfPageStamp overlays (or underlays) a page from another PDF document as a stamp — the source page is imported once as a Form XObject and drawn into the stamp's Rect, scaled to fit while preserving aspect ratio, positioned by HAlign/VAlign, and honoring Opacity, RotateAngle and Background. |
+| `Permissions` | Permissions controls what a viewer allows on an encrypted PDF. |
+| `PngDevice` | PngDevice renders a page to PNG at a fixed resolution. |
+| `Point` | Point is a single point in PDF user-space coordinates. |
+| `PolygonAnnotation` | PolygonAnnotation draws a closed polygon through a `[]pdf.Point` list of vertices, with a stroked border and optional interior fill. |
+| `PolylineAnnotation` | PolylineAnnotation draws an open polyline through a `[]pdf.Point` list of vertices, with a stroked border, optional line endings at the first and last vertex, and optional interior fill for closed endings. |
+| `QuadPoint` | QuadPoint is one quadrilateral within a markup annotation's /QuadPoints array. |
+| `RadialGradient` | RadialGradient interpolates colour from the focal point (FX, FY) out to the circle centred at (CX, CY) with radius R. |
+| `RadioButtonField` | RadioButtonField is a group of mutually exclusive options. |
+| `RadioButtonOptionField` | RadioButtonOptionField is one of the option widgets inside a RadioButtonField. |
+| `RadioItem` | RadioItem describes one widget inside a radio group. |
+| `Rectangle` | Rectangle represents a PDF rectangle [llx, lly, urx, ury] in points (1/72 inch). |
+| `RedactAnnotation` | RedactAnnotation marks regions for redaction. |
+| `RenderOptions` | RenderOptions controls page rasterization. |
+| `ReplaceOptions` | ReplaceOptions tunes how ReplaceText matches the search text. |
+| `ResetFormAction` | ResetFormAction resets named form fields to their /DV defaults. |
+| `Resolution` | Resolution is a rendering resolution in DPI. |
+| `RichTextBoxField` | RichTextBoxField is a text field that carries a rich-text value (RichText flag + /RV) in addition to its plain /V. |
+| `RotationAngle` | RotationAngle represents a valid PDF page rotation in clockwise degrees. |
+| `Row` | Row is a single row within a Table. |
+| `SVG` | SVG is the pre-parsed SVG document. |
+| `SVGFontResolver` | SVGFontResolver maps an SVG font-family + style to a `pdf.Font`. |
+| `SVGSaveOptions` | SVGSaveOptions configures SaveSVG / WriteSVG. |
+| `SearchOptions` | SearchOptions tunes how SearchText interprets the query. |
+| `ShapeStyle` | ShapeStyle combines a stroke (LineStyle) with an optional fill color. |
+| `SignOptions` | SignOptions configures a digital signature. |
+| `SignatureAppearance` | SignatureAppearance controls the visible signature block's content and styling. |
+| `SignatureVerification` | SignatureVerification is the result of verifying one digital signature. |
+| `SquareAnnotation` | SquareAnnotation draws a rectangular annotation with stroked border and optional interior fill. |
+| `SquigglyAnnotation` | SquigglyAnnotation draws a wavy underline under text (typically used for spell-check style hints). |
+| `Stamp` | Stamp is content overlaid on (or behind) a page: a TextStamp, an ImageStamp, or a PageNumberStamp. |
+| `StampAnnotation` | StampAnnotation is a rubber-stamp annotation. |
+| `StampName` | StampName names per ISO 32000-1 §12.5.6.13 Table 184. |
+| `StrikeOutAnnotation` | StrikeOutAnnotation draws a horizontal line through text. |
+| `StructElement` | StructElement is a node in the logical structure tree. |
+| `StructType` | StructType is a PDF standard structure type (ISO 32000-1 §14.8.4), used as the /S value of a structure element. |
+| `SubmitFormAction` | SubmitFormAction submits form field values to a URL. |
+| `SubmitFormFlags` | SubmitFormFlags is the /Flags bitfield for a /SubmitForm action per ISO 32000-1 Table 237. |
+| `SummaryCopilot` | SummaryCopilot produces document summaries with an AI model. |
+| `SummaryOptions` | SummaryOptions configures a SummaryCopilot. |
+| `TOCEntry` | TOCEntry is one line of a table of contents: a title, an indent level (0 = top level), and the page it points at. |
+| `TOCOptions` | TOCOptions controls how a table of contents is rendered. |
+| `Table` | Table is a transient builder for a tabular layout drawn onto a Page. |
+| `TaggedContent` | TaggedContent is the facade for authoring a Tagged PDF (ISO 32000-1 §14.8): it owns the document's logical structure tree and sets the catalog marks PDF/UA requires. |
+| `TextAnnotation` | TextAnnotation is a sticky-note annotation. |
+| `TextBoxField` | TextBoxField is a single- or multi-line text input. |
+| `TextExtractOptions` | TextExtractOptions configures ExtractText. |
+| `TextExtractionMode` | TextExtractionMode selects how ExtractText orders the extracted text. |
+| `TextFragment` | TextFragment represents a contiguous run of text with uniform font. |
+| `TextIcon` | TextIcon names per ISO 32000-1 §12.5.6.4 Table 172, used in /Subtype /Text annotations' /Name entry. |
+| `TextLine` | TextLine represents a horizontal line of text fragments at a common Y position. |
+| `TextMatch` | TextMatch is a single occurrence located by SearchText. |
+| `TextRecognitionResult` | TextRecognitionResult is the recognized text of one processed page. |
+| `TextStamp` | TextStamp overlays a line (or wrapped block) of text. |
+| `TextStyle` | TextStyle defines reusable text formatting properties. |
+| `TiffDevice` | TiffDevice renders pages to TIFF. |
+| `TilingPattern` | TilingPattern is a repeating fill (PatternType 1, ISO 32000-1 §8.7.3.1): a small cell of content tiled across whatever shape it fills. |
+| `UnderlineAnnotation` | UnderlineAnnotation draws a horizontal line under text. |
+| `Usage` | Usage reports token counts when the provider returns them. |
+| `VAlign` | VAlign specifies vertical text alignment within a rectangle. |
+| `ValidationIssue` | ValidationIssue describes a single problem found in a PDF file. |
+| `ValidationReport` | ValidationReport is returned by Validate and summarises the structural integrity of a PDF. |
+| `WidgetAnnotation` | WidgetAnnotation is the read-only view of a form widget annotation surfaced through AnnotationCollection. |
+| `XForm` | XForm is a reusable Form XObject (ISO 32000-1 §8.10) — an independent content stream (with its own resources) that can be placed on any number of pages and positions with a single Do invocation. Create one with `Document.CreateForm(w, h)` and draw into it via `Canvas()`, place it with `Page.AddForm(form, rect)`, list a page's existing forms with `Page.Forms()`, or copy one (with its whole resource graph) from another document with `Document.ImportForm`. |
+| `XMPMetadata` | XMPMetadata is the document's XMP packet modelled as common schema fields plus a list of arbitrary Custom properties. |
+| `XMPProperty` | XMPProperty is a single simple (string-valued) XMP property in an arbitrary namespace. |
 
-// Flatten the whole form (removes every field and the /AcroForm dict)
-doc.Flatten()                 // convenience for doc.Form().Flatten()
 
-// …or flatten a single field, leaving the rest of the form interactive
-doc.Form().Field("signature").Flatten()
+---
 
-// Flatten one annotation, or every (non-widget) annotation on a page
-page, _ := doc.Page(1)
-page.Annotations().At(0).Flatten()
-page.Annotations().Flatten()
+#### Detailed Member Reference
 
-doc.Save("flattened.pdf")
-```
+### Encryption and Signing
 
-Each field/annotation's appearance (`/AP/N`, honoring the active `/AS` state) is drawn into the page content at its rectangle per ISO 32000-1 §12.5.5, then the interactive object is removed.
+- `Permissions` fields map to ISO 32000-1 §7.6.3.2 Table 22 bits 3–12; the library encodes them
+  with the Adobe convention (reserved bits set high). In `EncryptionOptions`, `Permissions` is a
+  pointer so `nil` means "grant all", distinguishing that default from an explicit
+  `&Permissions{}`, which denies everything.
+- `Document.Sign` covers the whole file with one PKCS#7-detached signature, invisible by default
+  or visible via `Visible`/`Rect`/`Page`/`SignatureAppearance`; `PAdES` switches the subfilter to
+  `ETSI.CAdES.detached`, `Certify` adds a DocMDP certification, and `TimestampURL` embeds an RFC
+  3161 timestamp. Re-signing an already-signed document appends an incremental update so the
+  earlier signature stays valid. `Document.VerifySignatures` returns `Valid`, `IntegrityOK`,
+  `CoversWholeDocument`, and the signer `Certificate` per signature field — trust-chain validation
+  against your own store is the caller's responsibility.
+
+### Forms (AcroForm)
+
+- Field values containing non-ASCII characters are encoded as UTF-16BE with a BOM. `Form.Export/
+  ImportJSON` round-trips every field as typed JSON keyed by full name (checkbox → bool, list box
+  → array); `Form.Export/ImportFDF` and `Form.Export/ImportXFDF` provide the same round-trip in
+  Acrobat-interoperable FDF and XFDF.
+- Every widget's `/AP` appearance stream is pre-generated and regenerated on every value or style
+  change, so fields render identically across Acrobat, Foxit, browser viewers, MuPDF, and Poppler
+  without depending on `/AcroForm/NeedAppearances`.
+
+### Outlines, Named Destinations, and Table of Contents
+
+- `Document.Outlines()` is the root `OutlineItemCollection`; `NewOutlineItemCollection(doc)`
+  constructs an unattached entry with an `IList`-equivalent surface (`Add`/`Insert`/`Remove`/
+  `RemoveAt`/`At`/`Count`/`All`). All 8 destination types (XYZ/Fit/FitH/FitV/FitR/FitB/FitBH/
+  FitBV) are supported; `Action` and `Destination` may both be set (viewers honor `/Dest` first).
+- `Document.NamedDestinations()` reads both `/Catalog/Dests` (legacy) and `/Catalog/Names/Dests`
+  (modern), writing modern-only with automatic migration on save.
+- `Document.GenerateTOC` builds a clickable table of contents from the outline tree and inserts it
+  as new page(s) at the front; `Page.AddTOC` renders a caller-supplied entry list into a
+  rectangle, auto-paginating on overflow. `TOCOptions` controls the heading, per-level indent, and
+  whether page numbers, dotted leaders, and links are drawn. A runnable example lives in
+  [`_examples/toc`](_examples/toc).
+
+### Document JavaScript and Open Actions
+
+- `Document.JavaScript()` returns the document-level named-script collection, backed by the
+  `/Catalog/Names/JavaScript` name tree (ISO 32000-1 §7.7.4 / §8.5.1) — `Add(name, script)`,
+  `Get(name)`, `Has(name)`, `Remove(name)`, `Names()`, `Count()`, and `Clear()` manage it
+  directly. This is distinct from the action-level `JavaScriptAction` that fires on an
+  annotation click, not on the document-open event.
+- `Document.OpenAction()`/`Document.SetOpenAction(act)`/`Document.RemoveOpenAction()` read, set,
+  and clear the `/Catalog/OpenAction` entry (ISO 32000-1 §12.3.2 / §12.6.1) — the action a viewer
+  runs when the document opens (GoTo, JavaScript, Named, …). A `GoTo` open action is bound to the
+  document, so its destination resolves to a 1-based page number on read; both round-trip through
+  `Save` and coexist with named destinations. Document-level JavaScript executes in the
+  recipient's viewer when the file is opened — embed only scripts you authored or audited.
+
+### Deleting Pages and Inserting Blank Pages
+
+- `Document.DeletePages(pageNums ...int)` removes one or more 1-based pages in place — page
+  numbers are de-duplicated and validated before anything is removed, so a call that would remove
+  every page returns an error and leaves the document unchanged; `Document.DeletePage(n)` is the
+  single-page convenience form.
+- `Document.AddBlankPage(width, height)`/`Document.AddBlankPageFromFormat(format)` append a blank
+  page to the end of an already-open document; `Document.InsertBlankPage(position, width,
+  height)`/`Document.InsertBlankPageFromFormat(position, format)` insert one at a specific
+  1-based position instead — distinct from building a whole new document from scratch via
+  `NewFlow`.
+
+### Text Drawing and Right-to-Left / Arabic Shaping
+
+- `TextStyle.RTL` (or simply including RTL characters) enables right-to-left/bidirectional layout
+  for drawn text: a pure-Go Unicode Bidi Algorithm (UAX #9) implementation reorders each line
+  into visual order, keeping embedded numbers and Latin runs left-to-right, and RTL paragraphs
+  right-align by default. Arabic contextual shaping (connected letterforms plus lam-alef
+  ligatures via Presentation Forms-B) renders proper Arabic with any font that covers the block,
+  including the bundled DejaVu Sans.
+
+### Vector Graphics and SVG Import
+
+- `AddSVG`/`AddSVGFromStream` render a parsed SVG onto a page: basic shapes, the full SVG 1.1
+  path syntax, transforms, `viewBox`/`preserveAspectRatio`, 147 CSS named colors, linear/radial
+  gradients (`gradientUnits`/`gradientTransform`), `<text>`/`<tspan>` with font styling and a
+  pluggable `SVGFontResolver` for non-Latin text, `<image>` (data URIs), `<defs>`/`<use>`/
+  `<symbol>`, `<clipPath>` (clipping paths compile to PDF `W`/`W*` operators), `<mask>` (soft
+  masks via a PDF Form XObject transparency group + ExtGState `/SMask`, honoring
+  `maskUnits`/`maskContentUnits`), CSS `<style>` blocks, `<filter feDropShadow>`, and `<marker>`
+  (`marker-start`/`marker-mid`/`marker-end` rotate via `orient=auto` along the path tangent, using
+  `refX`/`refY` anchors). Unsupported and skipped silently: `<textPath>`, vertical writing
+  modes, external `<image href>`, real Gaussian blur, and em/ex/% length units.
 
 ### Annotations
 
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
+- `Page.Annotations()` returns the page's `AnnotationCollection`, with `Add`/`At`/`Delete`/
+  `DeleteAt` managing the list directly.
+- Supported subtypes: `Link` (with GoToURI/GoTo/Named/SubmitForm/ResetForm/JavaScript actions),
+  `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `Line`, `Ink`, `Text`,
+  `FreeText` (Plain/Callout/Typewriter intents), `Stamp` (14 predefined visuals or a custom
+  image), `Polygon`/`Polyline`, `Caret`, `FileAttachment`, and `Redact`. Existing form widgets
+  surface as read-only `WidgetAnnotation`; mutate them through the `Form` API instead.
+- `FileAttachmentAnnotation` shows one of four icons (`Paperclip` default, `Graph`, `PushPin`,
+  `Tag`); the embedded file's MIME type is auto-detected from its extension.
+- Border styles (`Solid`/`Dashed`/`Beveled`/`Inset`/`Underline`) and 10 line-ending shapes are
+  available on the drawing types; every property setter immediately regenerates the annotation's
+  `/AP/N` appearance stream, so no `/NeedAppearances` flag is needed.
+- `Document.ApplyRedactions()` removes text glyphs, image XObjects, and paths inside a
+  `Redact` annotation's `/QuadPoints`; `ValidateRedactions()` is a recommended pre-flight
+  parseability check. `NewJavaScriptAction` carries a documented security warning — embedded
+  JavaScript executes in the recipient's viewer.
 
-// Add a hyperlink
-link := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 720})
-link.SetAction(pdf.NewGoToURIAction("https://example.com"))
-link.SetColor(&pdf.Color{R: 0, G: 0, B: 1, A: 1})
-link.SetHighlight(pdf.LinkHighlightOutline) // /H click feedback: None / Invert (default) / Outline / Push
-page.Annotations().Add(link)
+### Stamps
 
-// Highlight a passage
-hl := pdf.NewHighlightAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 600, URX: 300, URY: 615})
-hl.SetColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
-hl.SetTitle("Reviewer")
-hl.SetContents("Important paragraph")
-hl.SetQuadPoints([]pdf.QuadPoint{
-    {X1: 50, Y1: 615, X2: 300, Y2: 615, X3: 50, Y3: 600, X4: 300, Y4: 600},
-})
-page.Annotations().Add(hl)
+- `TextStamp`, `ImageStamp`, `PageNumberStamp`, and `PdfPageStamp` (which stamps in a page from
+  another PDF) overlay or underlay content via `(*Page/*Document).AddStamp`, with `Opacity`,
+  centre-pivot `RotateAngle`, alignment, and a `Background` behind-content flag;
+  `PageNumberStamp.Format` uses `{0}`/`{1}` placeholders for the page number and total (e.g.
+  `"Page {0} of {1}"`).
 
-// Iterate and filter
-for _, a := range page.Annotations().All() {
-    if a.AnnotationType() != pdf.AnnotationTypeLink {
-        continue
-    }
-    if uri, ok := a.(*pdf.LinkAnnotation).Action().(*pdf.GoToURIAction); ok {
-        fmt.Println(uri.URI())
-    }
-}
+### Validation: Structural, PDF/A, and PDF/UA
 
-// Wire a form push button to a server submit
-submit := pdf.NewLinkAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 50, URX: 200, URY: 80})
-submit.SetAction(pdf.NewSubmitFormAction(
-    "https://example.com/api/subscribe",
-    []string{"name", "email"},
-    pdf.SubmitGetMethod|pdf.SubmitExportFormat,
-))
-page.Annotations().Add(submit)
+- `Validate` is a structural-integrity check only (`INVALID_HEADER`/`XREF_ERROR`/`OBJECT_ERROR`/
+  `PAGE_TREE_ERROR`/`STREAM_ERROR`/`ENCRYPTED` issue codes) — not a PDF/A or PDF/UA conformance
+  check.
+- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` inspects the XMP `pdfaid` identifier, font embedding,
+  encryption, JavaScript/Launch actions, the ICC OutputIntent against device colour, transparency
+  (PDF/A-1), annotation flags, and metadata compression; the "a" levels additionally require a
+  Tagged PDF (structure tree + `/Lang`).
+- `ConvertToPDFA` strips encryption and JavaScript, removes embedded files for PDF/A-1, sets
+  annotation print flags, auto-embeds non-embedded Standard-14 fonts (and other non-embedded
+  simple fonts drawn with `AddText`) with bundled metric-compatible clones, adds a pure-Go sRGB
+  ICC OutputIntent, and writes a `pdfaid` XMP packet — then returns a report of whatever still
+  fails. `Symbol`/`ZapfDingbats` and composite (Type0/CJK) fonts are not auto-fixed; confirm full
+  conformance with a dedicated validator such as veraPDF.
+- `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) prerequisites: a Tagged PDF with
+  `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, a displayed title, alternate text on
+  every figure/formula, and accessibility not blocked by encryption.
 
-doc.Save("with_annotations.pdf")
+### Tagged PDF Authoring
+
+- `AddTaggedTable` renders a `Table` and builds its `/Table → /TR → /TH`/`/TD` structure in one
+  call (repeating header rows become `/TH`); `AddTaggedList` does the same for bulleted/numbered
+  lists. Decoration (headers, footers, page numbers) is marked as an artifact so it stays out of
+  the structure tree.
+
+### Rendering to Images
+
+- The renderer draws vector graphics (paths, Gray/RGB/CMYK/Separation/DeviceN colour, shadings,
+  tiling patterns, clipping, alpha, soft masks, blend modes), images (Image XObjects, stencil
+  masks, CCITT Group 3/4 fax, JBIG2 bilevel scans, JPEG2000 colour scans including MRC
+  stencil-masked layers), and text (embedded TrueType/CFF/Type3, non-embedded fonts via bundled
+  metric-compatible substitutes, non-embedded CJK via predefined Adobe CMaps rendered from
+  installed system fonts), and annotation appearances (AcroForm field widgets, stamps,
+  highlights, free text, …) to PNG/JPEG/GIF/BMP/TIFF at a default 150 DPI over the CropBox.
+  Unsupported elements (mesh shadings, isolated/knockout transparency groups, non-embedded
+  Symbol) are skipped so a page always renders. Embedded fonts render via `/FontFile3` (CFF/
+  Type1C and CID-keyed) and TrueType tables; non-embedded fonts resolve through a `FontRepository`
+  covering exact/installed fonts including `.ttc` collections and `.otf`/CFF; JPEG2000 colour
+  scans (`/JPXDecode`) are decoded including MRC high-resolution stencil-masked foreground layers.
+
+### HTML, SVG, and Markdown Conversion
+
+- `SaveHTML`/`WriteHTML` export one single-file HTML document with no external assets and no
+  JavaScript; text is selectable and Ctrl+F-searchable in every mode, link annotations become
+  clickable `<a>` overlays, and `InteractiveForms` turns AcroForm fields into real browser
+  controls.
+- `SaveSVG`/`WriteSVG` export standalone true-vector SVG with real Bézier paths, native strokes,
+  and glyph-outline text (no font dependencies); `SVGSaveOptions.DPI` (default 150) sets the
+  resolution of the small raster patches used only where shadings/patterns/soft masks can't be
+  expressed in SVG.
+- `MarkdownToDocument`/`FromStream` render headings, styled bold/italic/code/link runs, task
+  checkboxes, block quotes, code cards, and GFM tables into a paginated PDF; `MarkdownOptions.
+  FontFamily`/`CodeFontFamily` (or explicit `LoadFont` faces) cover non-Latin text. `SaveMarkdown`/
+  `WriteMarkdown` reverse the process, inferring headings from font size and recovering
+  bold/italic/code runs, links, and nested lists — tables are not yet reconstructed and flow as
+  paragraphs.
+
+### AI Copilots
+
+- `ai.NewSummaryCopilot` produces plain-text or, with `ai.SummaryOptions.Markdown` set,
+  Markdown-rendered document summaries — the model is asked to format the summary as Markdown,
+  which is then rendered through the same `MarkdownToDocument` pipeline used elsewhere;
+  `ai.NewOcrCopilot` recognizes scanned pages (auto-detected by low extractable text plus a
+  dominant full-page image) and its `MakeSearchable` method writes the recognized text back as an
+  invisible, selectable layer; `ai.NewChatCopilot` answers questions about a document with
+  conversation history; `ai.NewImageDescriptionCopilot.FillAltTexts` fills missing `/Alt` text on
+  a tagged document's figures. All four work over any OpenAI-compatible endpoint (OpenAI, LiteLLM,
+  Ollama, …) and are implemented with the standard library only.
+
+### Text Extraction, Search, and Images
+
+- `SearchText` (literal, case-insensitive, or RE2 regex, with an optional region) returns
+  per-match bounding boxes built from per-glyph positions; `ReplaceText` redraws the replacement
+  at the same baseline/size/colour in a metric-compatible Standard-14 face. Both match within a
+  single text line only.
+- `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
+  as JPEG (DCTDecode passthrough) or PNG, across DeviceRGB/DeviceGray/DeviceCMYK/Indexed/ICCBased
+  color spaces with soft masks applied as PNG alpha; `Document.ImageInfos()`/`Page.ImageInfos()`
+  list the same images' position, size, and color space *without* decoding pixel data, for fast,
+  selective extraction (call `.Extract()` on just the ones you need). `AddImage`/
+  `AddImageFromStream` (a file path or an `io.Reader`, respectively; an Image XObject either way)
+  is the recommended default for anything larger than a tiny icon, where `AddInlineImage` is more
+  appropriate.
+- `ImageToDocument(path, opts...)`/`ImageToDocumentFromStream(r, opts...)` build a brand-new
+  single-page `*Document` from a standalone JPEG or PNG file, with `ImageToDocumentOptions`
+  controlling explicit `PageWidth`/`PageHeight` and margins (0 = size the page from the image's
+  own DPI). An already-placed page image can be swapped in place with `ImageInfo.Replace(path)`/
+  `.ReplaceFromStream(r)` (format auto-detected from magic bytes; position and size on the page
+  stay unchanged even if the new image's own dimensions differ) or removed entirely with
+  `ImageInfo.Remove()` (deletes the XObject reference and its drawing operators from the page;
+  page-level images only, not ones nested inside a Form XObject).
+
+</details>
+
+## Documentation & Resources
+
+- **[Getting started guide](https://docs.aspose.org/pdf/go/)** — installation, walkthroughs, and feature guides for this library.
+- **[How-to guides & FAQ](https://kb.aspose.org/pdf/go/)** — task-focused answers for common PDF-processing questions.
+- **[Full API reference](https://reference.aspose.org/pdf/go/)** — the complete, browsable reference for the public API surface (the [API reference](#api-reference) section above covers the essentials).
+- **[Contributing guide](CONTRIBUTING.md)** — development setup and how to submit changes.
+- **[Changelog](CHANGELOG.md)** — release history and notable changes.
+- Found a bug or have a feature request? [Open an issue](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues) on GitHub.
+
+## Scope and Limitations
+
+- Viewer permissions (`Permissions`/`SetPermissions`) are enforced by PDF viewers, not by this
+  library — the encryption bitfield is written into the file, but the library itself is not a
+  DRM mechanism.
+- Linearization (`SaveLinearized`/`WriteToLinearized`) cannot be combined with encryption or
+  digital signing in the same document.
+- `ConvertToPDFA` auto-embeds non-embedded Standard-14 fonts but does not auto-fix
+  `Symbol`/`ZapfDingbats`, composite (Type0/CJK) fonts, or PDF/A-1 transparency; confirm full
+  conformance with a dedicated validator such as veraPDF.
+- The built-in renderer does not support mesh shadings (PDF shading types 4-7); other shading
+  types, patterns, and blend modes render normally.
+- `ConvertToGrayscale` maps device colours, images, and shadings/patterns to their luminance grey
+  in place, but Separation/DeviceN, Indexed, and PostScript/sampled shading functions are
+  best-effort only.
+- `MarkdownToDocument` has no syntax highlighting yet; `SaveMarkdown` does not reconstruct tables
+  from a PDF (cell text flows as paragraphs) and caps inferred heading levels at 3.
+- `SearchText` and `ReplaceText` match within a single text line only — a query that straddles a
+  line break is not found.
+- Scanned pages are auto-detected (no extractable text plus a dominant full-page image);
+  `OcrOptions.Pages`/`All` override the default selection when auto-detection guesses wrong. The
+  bundled `LLMOCREngine` returns line-level OCR text with no coordinates, so
+  `MakeSearchable` positions the hidden searchable text on an even grid rather than exact
+  per-word boxes; implement the one-method `ai.OCREngine` interface over an engine that reports
+  word boxes (e.g. Tesseract or a cloud OCR service) for exact alignment. For non-Latin text,
+  pass a Unicode font via `OcrOptions.Font` (see `Document.LoadFont`).
+- The AI copilots (summarization, OCR, chat, alt-text) send extracted document text and/or
+  rendered page images to the configured endpoint. For sensitive documents, point the client at a
+  local endpoint (e.g. Ollama) — the same client code works unchanged.
+- `Table` does not yet support content-driven auto-fit column widths, per-side border dash
+  patterns, or a `RowSpan` group splitting across a page break.
+
+These limitations don't apply to
+[Aspose.PDF for Go — Enterprise Edition](https://products.aspose.com/pdf/go-cpp/), which adds
+the full Aspose.PDF facade surface, broader format coverage, and commercial support.
+
+## Development and Testing
+
+```bash
+go build ./...
+go test ./...
 ```
 
-Supported subtypes: `Link`, `Highlight`, `Underline`, `StrikeOut`, `Squiggly`, `Square`, `Circle`, `Line`, `Ink`, `Text`, `FreeText`, `Stamp`, `FileAttachment`, `Redact`. Existing form widgets surface as `WidgetAnnotation` for read-only inspection — to mutate form fields use the `Form` API.
-
-### Drawing annotations (Square / Circle / Line / Ink)
-
-```go
-doc := pdf.NewDocument(595, 842)
-page, _ := doc.Page(1)
-
-// Filled rectangle with dashed red border
-sq := pdf.NewSquareAnnotation(page, pdf.Rectangle{LLX: 50, LLY: 700, URX: 200, URY: 800})
-sq.SetColor(&pdf.Color{R: 1, G: 0, B: 0, A: 1})
-sq.SetInteriorColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
-sq.SetBorderStyle(pdf.BorderDashed)
-sq.SetDashPattern([]float64{4, 2})
-page.Annotations().Add(sq)
-
-// Blue circle, beveled border
-c := pdf.NewCircleAnnotation(page, pdf.Rectangle{LLX: 250, LLY: 700, URX: 400, URY: 800})
-c.SetColor(&pdf.Color{R: 0, G: 0, B: 1, A: 1})
-c.SetBorderStyle(pdf.BorderBeveled)
-c.SetBorderWidth(3)
-page.Annotations().Add(c)
-
-// Arrow line with closed-arrow heads on both ends
-ln := pdf.NewLineAnnotation(page,
-    pdf.Point{X: 50, Y: 600}, pdf.Point{X: 400, Y: 500})
-ln.SetStartLineEnding(pdf.LineEndingClosedArrow)
-ln.SetEndLineEnding(pdf.LineEndingClosedArrow)
-ln.SetInteriorColor(&pdf.Color{R: 1, G: 1, B: 0, A: 1})
-page.Annotations().Add(ln)
-
-// Smooth ink stroke (Catmull-Rom smoothing applied automatically for 3+ points)
-ink := pdf.NewInkAnnotation(page, [][]pdf.Point{
-    {{X: 50, Y: 400}, {X: 100, Y: 450}, {X: 150, Y: 420},
-     {X: 200, Y: 460}, {X: 250, Y: 400}},
-})
-ink.SetColor(&pdf.Color{R: 0, G: 0.5, B: 0, A: 1})
-page.Annotations().Add(ink)
-
-// Closed polygon, blue fill + red border
-poly := pdf.NewPolygonAnnotation(page, []pdf.Point{
-    {X: 300, Y: 300}, {X: 420, Y: 320}, {X: 400, Y: 420}, {X: 310, Y: 400},
-})
-poly.SetColor(&pdf.Color{R: 1, A: 1})
-poly.SetInteriorColor(&pdf.Color{B: 1, A: 1})
-page.Annotations().Add(poly)
-
-// Open polyline with arrow heads
-pl := pdf.NewPolylineAnnotation(page, []pdf.Point{
-    {X: 50, Y: 250}, {X: 150, Y: 320}, {X: 280, Y: 240},
-})
-pl.SetColor(&pdf.Color{G: 0.5, A: 1})
-pl.SetEndLineEnding(pdf.LineEndingClosedArrow)
-pl.SetInteriorColor(&pdf.Color{G: 0.5, A: 1})
-page.Annotations().Add(pl)
-
-// Caret insertion marker
-car := pdf.NewCaretAnnotation(page, pdf.Rectangle{LLX: 300, LLY: 200, URX: 320, URY: 230})
-car.SetColor(&pdf.Color{R: 0.8, A: 1})
-page.Annotations().Add(car)
-
-doc.Save("drawing.pdf")
-```
-
-Border styles available: `BorderSolid`, `BorderDashed`, `BorderBeveled`, `BorderInset`,
-`BorderUnderline` (per ISO 32000-1 Table 168). Line endings: `LineEndingNone`,
-`Square`, `Circle`, `Diamond`, `OpenArrow`, `ClosedArrow`, `Butt`, `ROpenArrow`,
-`RClosedArrow`, `Slash` (Table 176). Each property setter (`SetBorderStyle`,
-`SetColor`, `SetStrokes`, etc.) immediately regenerates the annotation's
-appearance stream so `/AP/N` is always in sync; no `/NeedAppearances=true`
-required, drawing annotations render in any spec-conforming viewer.
-
-`PolygonAnnotation` (closed) and `PolylineAnnotation` (open) take a `[]pdf.Point`
-of vertices and share the same border/interior-colour surface; the polyline
-also accepts start/end line endings. `CaretAnnotation` marks an insertion point
-as an upward chevron filling its rectangle, with an optional `/Sy` paragraph
-symbol (`SetSymbol(pdf.CaretSymbolParagraph)`).
-
-### Text-bearing annotations (Text / FreeText / Stamp)
-
-```go
-doc := pdf.NewDocument(595, 842)
-page, _ := doc.Page(1)
-
-// Sticky-note annotation (icon-based, no /AP needed — viewer renders icon)
-ta := pdf.NewTextAnnotation(page, pdf.Point{X: 50, Y: 700})
-ta.SetIcon(pdf.TextIconComment)
-ta.SetTitle("Reviewer")
-ta.SetContents("Important comment about this paragraph.")
-ta.SetOpen(true)
-page.Annotations().Add(ta)
-
-// FreeText — text drawn directly on the page
-ft := pdf.NewFreeTextAnnotation(page,
-    pdf.Rectangle{LLX: 100, LLY: 600, URX: 400, URY: 660},
-    "Highlighted note\nMulti-line supported",
-    pdf.TextStyle{
-        Font:       pdf.FontHelveticaBold,
-        Size:       14,
-        Color:      &pdf.Color{R: 0, G: 0, B: 0.5, A: 1},
-        Background: &pdf.Color{R: 1, G: 1, B: 0.85, A: 1},
-        HAlign:     pdf.HAlignCenter,
-        VAlign:     pdf.VAlignMiddle,
-    })
-ft.SetBorderWidth(2)
-ft.SetBorderEffect(pdf.BorderEffectCloudy)
-page.Annotations().Add(ft)
-
-// FreeText with callout pointer (Acrobat-style "comment with arrow")
-ftc := pdf.NewFreeTextAnnotation(page,
-    pdf.Rectangle{LLX: 300, LLY: 500, URX: 500, URY: 570},
-    "Callout note",
-    pdf.TextStyle{Font: pdf.FontHelvetica, Size: 11})
-ftc.SetCalloutPoints([]pdf.Point{
-    {X: 250, Y: 530}, // knee
-    {X: 200, Y: 480}, // endpoint (arrow tip)
-})
-ftc.SetEndLineEnding(pdf.LineEndingClosedArrow)
-page.Annotations().Add(ftc)
-
-// Stamp — predefined "Approved" with built-in green visual
-sap := pdf.NewStampAnnotation(page,
-    pdf.Rectangle{LLX: 100, LLY: 400, URX: 300, URY: 470},
-    pdf.StampNameApproved)
-page.Annotations().Add(sap)
-
-// Stamp with custom image (PNG / JPEG via path or io.Reader)
-sci := pdf.NewStampAnnotation(page,
-    pdf.Rectangle{LLX: 320, LLY: 400, URX: 500, URY: 470},
-    pdf.StampNameDraft) // /Name still set per spec, image overrides /AP
-sci.SetCustomImage("logo.png")
-page.Annotations().Add(sci)
-
-doc.Save("text_bearing.pdf")
-```
-
-`TextAnnotation` icon names: `TextIconNote` (default), `Comment`, `Key`, `Help`, `NewParagraph`,
-`Paragraph`, `Insert`. `FreeTextAnnotation` supports three intents — `FreeTextIntentFreeText`
-(default), `Callout` (with arrow), `Typewriter` (no border/background). Border effects: `BorderEffectNone`
-(default) and `BorderEffectCloudy` (wavy border per ISO 32000-1 §12.5.4 /BE). All 14 stamp names
-from ISO 32000-1 Table 184 (`StampNameApproved` through `StampNameTopSecret`) ship with
-library-default colored visuals — green for positive (Approved/Final/ForPublicRelease), red for
-warning (Confidential/Expired/etc.), orange for informational (Draft/AsIs/etc.), gray for neutral
-(Departmental). Custom images (JPEG / PNG) override the default visual.
-
-### Specialised annotations (FileAttachment / Redact / JavaScript actions)
-
-```go
-doc := pdf.NewDocument(595, 842)
-page, _ := doc.Page(1)
-
-// FileAttachment — embed a file with an icon
-fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 50, Y: 700})
-fa.SetIcon(pdf.FileAttachmentIconPushPin)
-fa.SetFile("report.pdf")
-fa.SetFileDescription("Q3 financial report")
-fa.SetTitle("Reviewer")
-fa.SetContents("Attached: Q3 report")
-page.Annotations().Add(fa)
-
-// Redact — mark for redaction (apply destructively below)
-page.AddText("Confidential data here",
-    pdf.TextStyle{Font: pdf.FontHelvetica, Size: 14},
-    pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 630})
-ra := pdf.NewRedactAnnotation(page,
-    pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 630})
-ra.SetInteriorColor(&pdf.Color{R: 0, G: 0, B: 0, A: 1})
-ra.SetOverlayText("REDACTED")
-page.Annotations().Add(ra)
-
-// Apply destructively — text under /QuadPoints is irreversibly removed
-if err := doc.ApplyRedactions(); err != nil {
-    log.Fatal(err)
-}
-
-// JavaScript action on a Link
-link := pdf.NewLinkAnnotation(page,
-    pdf.Rectangle{LLX: 50, LLY: 500, URX: 200, URY: 520})
-link.SetAction(pdf.NewJavaScriptAction("app.alert('Hello from PDF');"))
-page.Annotations().Add(link)
-
-doc.Save("specialised.pdf")
-```
-
-`FileAttachmentAnnotation` icons: `Paperclip` (default), `Graph`, `PushPin`, `Tag`.
-MIME type auto-detected from file extension. After save, viewers display the icon
-and let users save/open the embedded file. `RedactAnnotation` operates in two modes:
-mark mode (annotation alone, decorative — content still extractable) and apply mode
-(after `Document.ApplyRedactions()`, page content is rewritten to remove text glyphs,
-image XObjects, and paths inside `/QuadPoints` regions; the redact annotation is then
-deleted). Use `ValidateRedactions()` first as a pre-flight parseability check.
-**`NewJavaScriptAction`** carries a documented security warning — embedded JavaScript
-executes in the recipient's viewer.
-
-### Document JavaScript & open action
-
-```go
-doc := pdf.NewDocument(595, 842)
-doc.AddBlankPage(595, 842)
-
-// Document-level named scripts (run on open), stored in /Catalog/Names/JavaScript
-js := doc.JavaScript()
-js.Add("setup", "this.title = 'Report';")
-js.Add("greet", "app.alert('Welcome');")
-_ = js.Names()      // ["greet" "setup"] — lexically sorted
-_ = js.Get("setup") // "this.title = 'Report';"
-
-// OpenAction — jump to page 2 when the document is opened
-doc.SetOpenAction(pdf.NewGoToAction(2, 800))
-// ...or run a script on open instead:
-// doc.SetOpenAction(pdf.NewJavaScriptAction("app.alert('opened');"))
-
-doc.Save("with-js.pdf")
-
-// Read back
-act := doc.OpenAction() // *pdf.GoToAction → PageNum() == 2
-_ = act
-```
-
-`Document.JavaScript()` is a named-script collection (`Add`/`Get`/`Has`/`Remove`/`Names`/`Count`/`Clear`)
-backed by the `/Catalog/Names/JavaScript` name tree — distinct from the action-level
-`JavaScriptAction` that fires on an annotation click. `Document.SetOpenAction` /
-`OpenAction` / `RemoveOpenAction` manage the `/Catalog/OpenAction` run on open (GoTo,
-JavaScript, Named, …); a GoTo open-action resolves its destination to a 1-based page
-number on read. Both round-trip through Save and coexist with named destinations.
-Document-level JavaScript executes in the recipient's viewer when the file is opened —
-embed only scripts you authored or audited.
-
-### Validation
-
-```go
-report, err := pdf.Validate("input.pdf")
-if err != nil {
-    log.Fatal(err)
-}
-if !report.Valid {
-    for _, issue := range report.Issues {
-        fmt.Println(issue.Code, issue.Message)
-    }
-}
-```
-
-Issue codes: `INVALID_HEADER`, `XREF_ERROR`, `OBJECT_ERROR`, `PAGE_TREE_ERROR`, `STREAM_ERROR`, `ENCRYPTED`.
-
-`Validate` is a **structural-integrity** check (is the file parseable and internally consistent). For archival **PDF/A** conformance, use `ValidatePDFA` (below).
-
-### PDF/A Conformance Validation
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-report := doc.ValidatePDFA(pdf.PDFA1B) // also PDFA2B, PDFA3B
-if !report.Conformant {
-    for _, issue := range report.Issues {
-        fmt.Println(issue.Rule, issue.Message)
-    }
-}
-```
-
-`ValidatePDFA` is a read-only diagnostic for all six PDF/A levels (ISO 19005-1/2/3): `PDFA1B/2B/3B` (basic) and `PDFA1A/2A/3A` (accessible). It checks the XMP `pdfaid` identifier, font embedding, encryption, JavaScript/Launch actions, ICC OutputIntent vs. device colour, transparency (PDF/A-1), annotation flags/appearances, an uncompressed `/Metadata` stream, and LZW/embedded-file restrictions; the "a" levels additionally require a Tagged PDF (structure tree + `/Lang`) — author one with `Document.TaggedContent` (see "Authoring a Tagged PDF" below). Mirrors the intent of Aspose.PDF for .NET's `Document.Validate(PdfFormat)`.
-
-To make a document conformant, use `ConvertToPDFA`:
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-report, _ := doc.ConvertToPDFA(pdf.PDFA1B)
-if !report.Conformant {
-    // remaining issues the library can't fix automatically (e.g. embed fonts)
-    for _, issue := range report.Issues {
-        fmt.Println(issue.Rule, issue.Message)
-    }
-}
-doc.Save("archival.pdf")
-```
-
-`ConvertToPDFA` removes encryption, JavaScript/Launch actions and (for PDF/A-1) attachments, sets annotation print flags, **auto-embeds non-embedded simple fonts** (Standard-14 and other single-byte Type1/TrueType, using the bundled metric-compatible clones — text is preserved), adds an sRGB ICC OutputIntent (generated in pure Go), and writes a `pdfaid` XMP packet — then returns a report of whatever still fails. A document built with `AddText` converts to fully conformant in one call. `Symbol`/`ZapfDingbats`, composite fonts and PDF/A-1 transparency are not auto-fixed (surfaced in the report). Confirm full conformance with a dedicated validator such as veraPDF. Mirrors Aspose.PDF for .NET's `Document.Convert(PdfFormat)`.
-
-### PDF/UA (Accessibility) Validation
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-report := doc.ValidatePDFUA()
-if !report.Conformant {
-    for _, issue := range report.Issues {
-        fmt.Println(issue.Rule, issue.Message)
-    }
-}
-```
-
-`ValidatePDFUA` is a read-only check of the PDF/UA-1 (ISO 14289-1) accessibility prerequisites: the document is a Tagged PDF with a logical structure tree (`/StructTreeRoot` + `/ParentTree`), declares a default language (`/Lang`) and a displayed title (`/ViewerPreferences/DisplayDocTitle`), gives every figure/formula alternate text, and does not block accessibility through encryption. Use PAC or veraPDF-UA for final sign-off. Mirrors Aspose.PDF for .NET's `Document.Validate(PdfFormat.PDF_UA_1)`.
-
-### Authoring a Tagged (Accessible) PDF
-
-```go
-doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
-tc := doc.TaggedContent()
-tc.SetTitle("Quarterly Report")
-tc.SetLanguage("en-US")
-page, _ := doc.Page(1)
-
-// Each TagContent call brackets the drawing in marked content and adds a
-// structure element, so the result is a Tagged PDF.
-page.TagContent(tc.Root(), pdf.StructH1, func() error {
-    return page.AddText("Quarterly Report", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 24},
-        pdf.Rectangle{LLX: 50, LLY: 760, URX: 545, URY: 800})
-})
-page.TagContent(tc.Root(), pdf.StructP, func() error {
-    return page.AddText("This report covers Q3 results.", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12},
-        pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 750})
-})
-fig, _ := page.TagContent(tc.Root(), pdf.StructFigure, func() error {
-    return page.AddImage("chart.png", pdf.Rectangle{LLX: 50, LLY: 540, URX: 300, URY: 680})
-})
-fig.SetAlt("Bar chart of Q3 sales by region") // required for figures
-
-// Grouping elements nest (Table → TR → TD, lists, …):
-tbl := tc.Root().AddChild(pdf.StructTable)
-row := tbl.AddChild(pdf.StructTR)
-cell := row.AddChild(pdf.StructTD)
-page.TagContent(cell, pdf.StructP, func() error { /* draw the cell */ return nil })
-
-doc.Save("accessible.pdf") // doc.ValidatePDFUA() is now Conformant
-```
-
-Tables tag themselves — `AddTaggedTable` renders a `Table` and builds its `/Table → /TR → /TH/TD` structure in one call (repeating header rows become `/TH`; backgrounds and borders are marked as artifacts):
-
-```go
-t := pdf.NewTable().SetColumnWidths([]float64{150, 150, 150})
-t.SetRepeatingRowsCount(1) // first row is the header
-t.AddRow().AddCells("Region", "Q3", "Q4")
-t.AddRow().AddCells("North", "$1.2M", "$1.5M")
-
-tableElem, _, _ := page.AddTaggedTable(tc, tc.Root(), t,
-    pdf.Rectangle{LLX: 50, LLY: 500, URX: 550, URY: 720})
-_ = tableElem
-```
-
-Lists tag themselves too, and decoration (headers/footers, page numbers) is marked as an artifact so it stays out of the structure tree:
-
-```go
-// Bulleted (ordered=false) or numbered (ordered=true) list → /L → /LI → /Lbl+/LBody
-page.AddTaggedList(tc, tc.Root(), []string{"Apples", "Oranges", "Pears"},
-    pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12},
-    pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 720}, false)
-
-// A running footer is decoration, not structure:
-page.TagArtifact(func() error {
-    return page.AddText("Confidential", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9},
-        pdf.Rectangle{LLX: 50, LLY: 30, URX: 545, URY: 45})
-})
-```
-
-### Text Extraction
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Simple text — one string per page
-texts, err := doc.ExtractText()
-for i, text := range texts {
-    fmt.Printf("=== Page %d ===\n%s\n", i+1, text)
-}
-
-// Structured text with layout info
-layouts, err := doc.ExtractTextWithLayout()
-for _, lines := range layouts {
-    for _, line := range lines {
-        fmt.Printf("Y=%.1f: %s\n", line.Y, line.Text)
-        for _, frag := range line.Fragments {
-            fmt.Printf("  [%.1f,%.1f] %q font=%s size=%.1f bold=%v italic=%v\n",
-                frag.X, frag.Y, frag.Text, frag.FontName, frag.FontSize,
-                frag.Bold, frag.Italic)
-        }
-    }
-}
-
-// Per-page extraction
-page, _ := doc.Page(1)
-text, err := page.ExtractText()
-lines, err := page.ExtractTextWithLayout()
-```
-
-### Rendering pages to images
-
-Rasterize a page to an image with a dependency-free, pure-Go renderer (own anti-aliased rasterizer — no `golang.org/x/image`, no cgo).
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-
-// To an in-memory image
-img, _ := page.RenderImage(pdf.RenderOptions{DPI: 150})
-
-// Or straight to a file
-f, _ := os.Create("page1.png")
-page.RenderPNG(f, pdf.RenderOptions{DPI: 150})
-f.Close()
-
-// JPEG / GIF / BMP, and Aspose-style devices
-page.RenderJPEG(out, pdf.RenderOptions{DPI: 200}, 90)
-dev := pdf.NewPngDevice(pdf.NewResolution(300))
-dev.Process(page, out)
-
-// TIFF — one page, or the whole document as a single multi-page TIFF
-page.RenderTIFF(out, pdf.RenderOptions{DPI: 150})
-doc.RenderTIFF(out, pdf.RenderOptions{DPI: 150})          // every page → one file
-doc.RenderTIFF(out, pdf.RenderOptions{DPI: 150}, 3, 1)    // selected pages, in order
-pdf.NewTiffDevice(pdf.NewResolution(200)).ProcessDocument(doc, out)
-```
-
-> **Status:** the renderer draws **vector graphics** (paths, fills, strokes, Gray/RGB/CMYK plus Separation/DeviceN colour, axial/radial **shadings**, tiling patterns, **clipping**, constant alpha, **soft masks**, **blend modes**, Optional-Content visibility), **images** (Image XObjects with soft-mask alpha, stencil **image masks**, **CCITTFaxDecode** Group 3/4 fax, **JBIG2** bilevel scans — symbol-dictionary/text-region + generic/refinement regions on the arithmetic path — **JPEG2000** (`/JPXDecode`) colour scans incl. MRC high-res stencil-masked foreground layers, and inline images), and **text** (embedded **TrueType** and **CFF** — Type1C simple and CID-keyed `/FontFile3` — plus **Type3** fonts; non-embedded fonts via bundled metric-compatible substitutes and a `FontRepository` for exact/installed fonts including `.ttc` collections and `.otf`/CFF; non-embedded Type0 substitution, **non-embedded CJK** via predefined Adobe CMaps (GB1/CNS1/Japan1/Korea1) rendered from installed system fonts, and synthesized ZapfDingbats checkbox/radio marks), and **annotation appearances** (AcroForm field widgets, stamps, highlights, free text, …). Unsupported elements (mesh shadings, isolated/knockout transparency groups, non-embedded Symbol, mixed Group 3 2-D fax) are skipped, so a page always renders. Output: **PNG / JPEG / GIF / BMP / TIFF** (single- and multi-page); DPI defaults to 150; the rendered region is the CropBox.
-
-### Exporting to HTML
-
-Export the document as one self-contained HTML file — no external assets, no JavaScript.
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Faithful mode (default): full page raster + transparent selectable text layer.
-doc.SaveHTML("out.html")
-
-// Visible-text mode: glyph-less background raster, real styled HTML text on
-// top (crisp at any zoom, ~half the size). The document's embedded fonts are
-// re-wrapped as WOFF @font-face data URLs so the text keeps its real faces;
-// pass NoFontEmbedding to stay on metric substitutes width-fitted to the layout.
-doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
-
-// Native mode: no raster background at all — page graphics are one inline
-// SVG layer (true-curve paths, native strokes, clips, blend modes; images
-// keep their original JPEG/PNG bytes); only shadings/patterns/soft masks
-// degrade to small positioned raster patches.
-doc.SaveHTML("out.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeNative})
-
-// Flow mode: reflowable HTML — paragraphs and headings (inferred from font
-// sizes) in reading order in a responsive column that rewraps on mobile;
-// images flow between paragraphs. The reflowable counterpart of Aspose's
-// FixedLayout=false.
-doc.SaveHTML("article.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeFlow})
-
-// Interactive forms: AcroForm fields become real fillable HTML controls —
-// text/number/date inputs, textareas, checkboxes, radios, selects — with
-// values, flags, styling and PDF tab order. Submit/reset push buttons become
-// working <button>s inside a <form>, so the result can be filled in,
-// printed, and even submitted right from the browser, no JavaScript.
-// Aspose.PDF for .NET renders fields as static pictures; this converts them.
-doc.SaveHTML("form.html", pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText, InteractiveForms: true})
-
-// Multi-file output: resources as external files next to the HTML (or via a
-// custom ResourceWriter callback — S3, CDN, anywhere), and one HTML per page.
-doc.SaveHTML("site/doc.html", pdf.HTMLSaveOptions{
-    Mode: pdf.HTMLModeNative, ResourceDir: "assets", SplitPages: true,
-})
-
-// Bookmark sidebar: the outline tree as a collapsible no-JS <nav> of links.
-doc.SaveHTML("out.html", pdf.HTMLSaveOptions{OutlineNav: true})
-
-// Page subset, custom raster DPI and title; or write to any io.Writer.
-doc.SaveHTML("part.html", pdf.HTMLSaveOptions{Pages: []int{1, 3}, DPI: 96, Title: "Report"})
-doc.WriteHTML(w, pdf.HTMLSaveOptions{Mode: pdf.HTMLModeText})
-```
-
-In both modes the text is selectable, copyable and Ctrl+F-searchable, link annotations become clickable `<a>` overlays (external URLs and in-document `#pageN` jumps), and page backgrounds carry `loading="lazy"` so large documents open fast.
-
-### Exporting to SVG
-
-Export pages as standalone true-vector SVG files: real Bézier paths with native strokes, clips, opacity and blend modes; images keep their original JPEG/PNG bytes; text is rendered as exact glyph outline paths, so the file has no font dependencies. Only shadings/patterns/soft masks degrade to small embedded raster patches.
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// One page → one self-contained SVG (images embedded as data: URLs).
-page, _ := doc.Page(1)
-_ = page.SaveSVG("page1.svg")
-_ = page.WriteSVG(w) // or to any io.Writer
-
-// Whole document → doc_p1.svg, doc_p2.svg, … next to the given path.
-_ = doc.SaveSVG("out/doc.svg")
-
-// Externalize images/patches instead of embedding them.
-_ = doc.SaveSVG("out/doc.svg", pdf.SVGSaveOptions{
-    Pages: []int{1, 3},
-    ResourceWriter: func(name string, data []byte) (string, error) {
-        // upload to S3/CDN/anywhere; return the URL to reference
-        return "assets/" + name, os.WriteFile("out/assets/"+name, data, 0o644)
-    },
-})
-```
-
-`SVGSaveOptions.DPI` (default 150) sets the coordinate scale and the resolution of raster patches — the vector content itself is resolution-independent. Mirrors Aspose.PDF for .NET's `Document.Save(SaveFormat.Svg)`.
-
-### Markdown to PDF
-
-Render CommonMark + GFM Markdown (tables, strikethrough, task lists, autolinks) as a paginated PDF. The parser passes the official CommonMark 0.31.2 test suite **652/652**.
-
-```go
-// A .md file → PDF (image paths resolve relative to the file).
-doc, _ := pdf.MarkdownToDocument("report.md")
-_ = doc.Save("report.pdf")
-
-// From any io.Reader, with options.
-doc, _ = pdf.MarkdownToDocumentFromStream(r, pdf.MarkdownOptions{
-    Format:   pdf.PageFormatLetter,
-    BaseSize: 12,
-    Tagged:   true, // PDF/UA-conformant structure tree, title, language
-})
-
-// Mix Markdown into a flow, or drop it into a rectangle.
-flow := doc2.NewFlow(pdf.FlowOptions{})
-flow.AddMarkdown("## Section\n\nBody with **bold** and a [link](https://example.com).")
-_, _ = flow.Render()
-_ = page.AddMarkdown("- boxed\n- list", pdf.Rectangle{LLX: 60, LLY: 600, URX: 300, URY: 760})
-```
-
-Headings scale from `BaseSize`; bold/italic/strikethrough/code spans render as real styled runs, links become clickable annotations, task items draw vector checkboxes, block quotes get a left rule, code blocks keep their indentation on a gray card, GFM tables map onto the table engine (repeating bold header, `:---:` alignment). Images: local paths and `data:` URLs (remote URLs render their alt text — the library does no network I/O). For non-Latin text set `MarkdownOptions.FontFamily`/`CodeFontFamily` (e.g. `"Arial"`/`"Consolas"` — resolved from registered or OS fonts and embedded), or pass `LoadFont` faces explicitly. Raw HTML is skipped (`<br>` honored); no syntax highlighting yet.
-
-Bonus: `ai.SummaryOptions.Markdown` makes `SummaryCopilot` ask the model for Markdown and renders the summary PDF through this pipeline — formatted AI summaries out of the box.
-
-### PDF to Markdown
-
-The reverse of the Markdown renderer: re-assemble a PDF as GFM Markdown — ideal as the PDF front-end of a RAG pipeline.
-
-```go
-doc, _ := pdf.Open("report.pdf")
-
-// Images land in "report_files/" next to the output (SHA-256 deduped).
-_ = doc.SaveMarkdown("report.md")
-
-// Or stream it — images embedded as data: URLs, externalized via a
-// callback (S3/CDN), or skipped.
-_ = doc.WriteMarkdown(w, pdf.MarkdownSaveOptions{EmbedImages: true})
-_ = doc.WriteMarkdown(w2) // no writer → text only
-```
-
-Headings are inferred from font sizes, bold/italic/monospace fragments become `**`/`*`/`` ` `` runs, link annotations come back as `[text](url)`, bullet and numbered lists keep their nesting, and monospace paragraphs become fenced code blocks with their indentation. Tables are not reconstructed yet (cell text flows as paragraphs).
-
-### AI-powered operations (`ai` subpackage)
-
-The `ai` subpackage adds AI copilots mirroring Aspose.PDF for .NET's `Aspose.Pdf.AI` — summarization, OCR of scanned pages, a searchable-PDF pipeline, document Q&A, and image description with automatic alt-text — over any **OpenAI-compatible** endpoint (OpenAI, LiteLLM, Ollama, OpenRouter, …). Pure Go, standard library only; the root package stays free of AI and network code.
-
-> These features send document content (extracted text and/or rendered page images) to the configured AI endpoint. For sensitive documents point the client at a local endpoint (e.g. Ollama) — the same client works unchanged.
-
-```go
-import (
-    pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
-    "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/ai"
-)
-
-client := ai.NewOpenAIClient(ai.OpenAIClientOptions{
-    BaseURL: "http://localhost:11434/v1", // Ollama; empty = api.openai.com
-    APIKey:  os.Getenv("OPENAI_API_KEY"),
-    Model:   "gpt-4o-mini",
-})
-
-// Summarize a document (mirrors OpenAISummaryCopilot).
-doc, _ := pdf.Open("report.pdf")
-sum := ai.NewSummaryCopilot(client, ai.SummaryOptions{Document: doc, MaxWords: 200})
-text, _ := sum.GetSummary(ctx)          // the summary as a string
-_ = sum.SaveSummary(ctx, "summary.pdf") // or rendered as a new PDF
-
-// OCR scanned pages (mirrors OpenAIOcrCopilot) …
-scan, _ := pdf.Open("scanned.pdf")
-engine := ai.NewLLMOCREngine(client, ai.LLMOCROptions{}) // vision model
-ocr := ai.NewOcrCopilot(engine, ai.OcrOptions{Document: scan})
-results, _ := ocr.GetTextRecognition(ctx) // recognized text per page
-
-// … or go further than Aspose: make the scanned PDF searchable in place.
-// An invisible text layer (text rendering mode 3) is written over each
-// scanned page — the file looks pixel-identical but becomes selectable,
-// copyable and Ctrl+F-searchable in any viewer.
-n, _ := ocr.MakeSearchable(ctx)
-_ = scan.Save("scanned_searchable.pdf")
-fmt.Println("OCRed pages:", n)
-
-// Chat with a document (mirrors OpenAIChatCopilot) — answers are grounded
-// in the extracted text and the conversation keeps its history.
-chat := ai.NewChatCopilot(client, ai.ChatOptions{Document: doc})
-a1, _ := chat.Ask(ctx, "What is the total amount due?")
-a2, _ := chat.Ask(ctx, "And the due date?") // follow-up sees a1's context
-fmt.Println(a1, a2)
-
-// Fill missing alt text on a tagged PDF's figures (accessibility, PDF/UA) —
-// describes each figure's image and sets its /Alt in one call.
-tagged, _ := pdf.Open("report_tagged.pdf")
-imgCop := ai.NewImageDescriptionCopilot(client, ai.ImageDescriptionOptions{})
-n, _ := imgCop.FillAltTexts(ctx, tagged) // clears ValidatePDFUA's UA_FIGURE_NO_ALT
-_ = tagged.Save("report_accessible.pdf")
-fmt.Println("figures described:", n)
-```
-
-Scanned pages are auto-detected (no extractable text + a dominant full-page image); pass `OcrOptions.Pages`/`All` to override. The bundled `LLMOCREngine` returns line-level text without coordinates, so `MakeSearchable` lays the hidden lines on an even grid over the scan (search and copy work; selection alignment is approximate). Implement the one-method `ai.OCREngine` interface over Tesseract or a cloud OCR service that reports word boxes and the hidden text will sit exactly under the printed words. For non-Latin text pass a Unicode font via `OcrOptions.Font` (see `Document.LoadFont`).
-
-### Text Search
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Literal, case-sensitive by default. Each match carries its page and a
-// bounding rectangle in PDF user space.
-matches, err := doc.SearchText("Invoice")
-for _, m := range matches {
-    fmt.Printf("page %d: %q at [%.0f,%.0f]-[%.0f,%.0f]\n",
-        m.PageNumber, m.Text, m.Rect.LLX, m.Rect.LLY, m.Rect.URX, m.Rect.URY)
-}
-
-// Case-insensitive, and regular-expression (RE2) modes
-hits, _ := doc.SearchText("total", pdf.SearchOptions{CaseInsensitive: true})
-nums, _ := doc.SearchText(`\$\d+\.\d{2}`, pdf.SearchOptions{Regex: true})
-
-// Limit to a region (PDF user space, per page): only matches whose box
-// intersects the rectangle are returned.
-hdr, _ := doc.SearchText("Total", pdf.SearchOptions{Rectangle: &pdf.Rectangle{LLX: 0, LLY: 740, URX: 612, URY: 792}})
-
-// Single page
-page, _ := doc.Page(1)
-onPage, _ := page.SearchText("Summary")
-```
-
-Each match's `Rect` is built from the per-glyph positions recorded during extraction, so the box hugs the matched text rather than being interpolated. Matches are located within a single text line (a query that straddles a line break is not found).
-
-### Text Replace
-
-```go
-doc, _ := pdf.Open("input.pdf")
-n, _ := doc.ReplaceText("2023", "2026") // every occurrence; returns the count
-doc.ReplaceText("draft", "FINAL", pdf.ReplaceOptions{CaseInsensitive: true})
-doc.ReplaceText(`\$\d+\.\d{2}`, "$0.00", pdf.ReplaceOptions{Regex: true})
-doc.ReplaceText("CONFIDENTIAL", "") // empty replacement deletes the match
-doc.Save("output.pdf")
-```
-
-The matched glyphs are removed and the replacement is drawn at the same baseline, size, and colour in a metric-compatible Standard-14 face chosen from the original's family and style — so any replacement text renders, even when the original used an embedded subset font that lacks the new glyphs (the face may shift for non-Standard-14 originals). The line is not re-flowed: a much longer replacement can overrun following content. Matches are located within a single line, like `SearchText`.
-
-### Image Extraction
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Extract images from all pages
-allImages, err := doc.ExtractImages()
-for pageIdx, images := range allImages {
-    for imgIdx, img := range images {
-        ext := ".png"
-        if img.Format == pdf.ImageFormatJPEG {
-            ext = ".jpg"
-        }
-        img.Save(fmt.Sprintf("page%d_img%d%s", pageIdx+1, imgIdx+1, ext))
-
-        fmt.Printf("  %dx%d %s at (%.1f, %.1f)\n",
-            img.Width, img.Height, ext, img.X, img.Y)
-    }
-}
-
-// Per-page extraction
-page, _ := doc.Page(1)
-images, err := page.ExtractImages()
-```
-
-```go
-// List image metadata without decoding (fast)
-allInfos, err := doc.ImageInfos()
-for pageIdx, infos := range allInfos {
-    for _, info := range infos {
-        fmt.Printf("page %d: %dx%d %s\n",
-            pageIdx+1, info.Width, info.Height, info.Name)
-    }
-}
-
-// Selectively extract only large images
-for _, infos := range allInfos {
-    for i, info := range infos {
-        if info.Width >= 500 {
-            img, _ := infos[i].Extract()
-            img.Save(fmt.Sprintf("large_%d.png", i))
-        }
-    }
-}
-```
-
-Images are output as JPEG (passthrough for DCTDecode streams) or PNG (everything else). Supported color spaces: DeviceRGB, DeviceGray, DeviceCMYK (converted to RGB), Indexed (palette expansion), and ICCBased. Soft masks are applied as PNG alpha channels.
-
-### Adding Images
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-
-// Add a JPEG image at position (100, 600) with size 200x150
-rect := pdf.Rectangle{LLX: 100, LLY: 600, URX: 300, URY: 750}
-page.AddImage("logo.jpg", rect)
-
-// Add from stream
-f, _ := os.Open("photo.png")
-page.AddImageFromStream(f, pdf.Rectangle{LLX: 50, LLY: 50, URX: 250, URY: 250})
-f.Close()
-
-// Tiny one-off image inline in the content stream (BI/ID/EI) rather than an XObject
-page.AddInlineImage("icon.png", pdf.Rectangle{LLX: 20, LLY: 20, URX: 44, URY: 44})
-
-doc.Save("output.pdf")
-```
-
-> Inline images (`AddInlineImage`) suit tiny pictures like icons or rules; for anything larger, `AddImage` (an Image XObject) is the recommended default.
-
-### Image to PDF
-
-```go
-// Convert an image to a single-page PDF (DPI-aware page sizing)
-doc, _ := pdf.ImageToDocument("photo.jpg")
-doc.Save("photo.pdf")
-
-// With explicit A4 page size and margins
-doc, _ = pdf.ImageToDocument("logo.png", pdf.ImageToDocumentOptions{
-    PageWidth:  595, // A4
-    PageHeight: 842,
-    MarginLeft: 72,  // 1 inch margins
-    MarginRight: 72,
-    MarginTop:  72,
-    MarginBottom: 72,
-})
-doc.Save("logo_a4.pdf")
-```
-
-### Replacing and Removing Images
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-infos, _ := page.ImageInfos()
-
-// Replace first image with a new one
-infos[0].Replace("new_logo.jpg")
-
-// Replace from stream
-f, _ := os.Open("photo.png")
-infos[1].ReplaceFromStream(f)
-f.Close()
-
-// Remove an image
-infos[2].Remove()
-
-doc.Save("output.pdf")
-```
-
-### Cleaning Up Unused Objects
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-infos, _ := page.ImageInfos()
-infos[0].Remove()
-
-removed := doc.RemoveUnusedObjects()
-fmt.Printf("removed %d unused objects\n", removed)
-doc.Save("output.pdf") // smaller file
-```
-
-### Optimizing Images
-
-```go
-doc, _ := pdf.Open("large.pdf")
-optimized, err := doc.OptimizeImages(pdf.OptimizeImageOptions{
-    MaxDPI:           150,
-    JPEGQuality:      75,
-    ConvertPNGToJPEG: true,
-})
-fmt.Printf("optimized %d images\n", optimized)
-doc.Save("smaller.pdf")
-```
-
-Or run everything in one pass with the unified optimizer:
-
-```go
-doc, _ := pdf.Open("large.pdf")
-
-// Safe lossless preset: remove unused objects, subset fonts, compress
-// uncompressed streams, dedupe byte-identical streams.
-res, _ := doc.Optimize(pdf.DefaultOptimizationOptions())
-fmt.Printf("removed %d objects, subset %d fonts, compressed %d, deduped %d\n",
-    res.RemovedObjects, res.SubsettedFonts, res.CompressedStreams, res.DeduplicatedStreams)
-
-// Add (potentially lossy) image recompression by setting Images:
-res, _ = doc.Optimize(pdf.OptimizationOptions{
-    RemoveUnusedObjects:    true,
-    SubsetFonts:            true,
-    CompressStreams:        true,
-    RemoveDuplicateStreams: true,
-    Images:                 &pdf.OptimizeImageOptions{MaxDPI: 150, ConvertPNGToJPEG: true},
-})
-doc.Save("smaller.pdf")
-```
-
-### Converting to Grayscale
-
-```go
-doc, _ := pdf.Open("color.pdf")
-doc.ConvertToGrayscale() // text, vector, images, shadings, annotations → grey
-doc.Save("grayscale.pdf")
-```
-
-`ConvertToGrayscale` maps every colour to its luminance grey in place — content-stream device colours, raster images (re-encoded as DeviceGray), axial/radial shadings and patterns, and annotation colours/appearances, recursing through Form XObjects. Geometry, text and layout are unchanged. Separation/DeviceN, Indexed and PostScript/sampled shading functions are best-effort. Mirrors Aspose.PDF for .NET's `RgbToDeviceGrayConversionStrategy`.
-
-### Linearizing for Fast Web View
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Write a linearized ("fast web view") PDF: the first page and a hint table
-// sit at the front so a viewer can render page 1 before the whole file lands.
-doc.SaveLinearized("web-optimized.pdf")
-```
-
-> The output is an ordinary PDF that any reader opens normally (Acrobat shows "Fast Web View: Yes"). Encryption and signing cannot be combined with linearization. Mirrors the intent of Aspose.PDF for .NET's linearized save.
-
-### Flow Layout (Auto-Paginating Document Generator)
-
-Instead of positioning every element by `Rectangle`, build a document that **flows** top-to-bottom and paginates itself:
-
-```go
-doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
-
-flow := doc.NewFlow(pdf.FlowOptions{}) // default A4, 54pt margins
-flow.AddHeading(1, "Annual Report", pdf.TextStyle{})
-flow.AddParagraph(longText, pdf.TextStyle{})       // wraps and splits across pages
-flow.AddImage("chart.png", 300, 0)                 // height 0 → preserve aspect
-flow.AddTable(table)                               // paginates if tall
-flow.AddList([]string{"First", "Second"}, true, pdf.TextStyle{})
-
-pages, _ := flow.Render() // lays it all out, appending pages as needed
-doc.Save("report.pdf")
-```
-
-The flow is an additive layer over the Rectangle drawing API (it computes the rectangles for you). Set `FlowOptions.Tagged` to a `TaggedContent` and every element is **auto-tagged** — one call produces a PDF/UA-conformant accessible document:
-
-```go
-tc := doc.TaggedContent()
-tc.SetTitle("Report"); tc.SetLanguage("en-US")
-flow := doc.NewFlow(pdf.FlowOptions{Tagged: tc})
-// … add elements … then flow.Render(); doc.ValidatePDFUA() is Conformant
-```
-
-**Floating boxes** are positioned containers (border/background/padding + their own content). Place one absolutely on a page, or insert it into a flow where it takes its measured height:
-
-```go
-box := pdf.NewFloatingBox().
-    SetBackground(&pdf.Color{R: 0.95, G: 0.95, B: 0.8, A: 1}).
-    SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
-    SetPadding(pdf.MarginInfo{Top: 10, Right: 10, Bottom: 10, Left: 10}).
-    AddHeading(3, "Note", pdf.TextStyle{}).
-    AddParagraph("A callout box; its content flows inside.", pdf.TextStyle{})
-
-page.AddFloatingBox(box, pdf.Rectangle{LLX: 300, LLY: 600, URX: 545, URY: 760}) // absolute
-flow.AddFloatingBox(box) // or in the flow, at its measured height
-```
-
-**Multi-column** layout is one option away — content fills each column top-to-bottom, then the next column, then the next page:
-
-```go
-flow := doc.NewFlow(pdf.FlowOptions{Columns: 2}) // two-column newsletter
-flow.AddHeading(2, "Newsletter", pdf.TextStyle{})
-flow.AddParagraph(longText, pdf.TextStyle{})
-flow.Render()
-```
-
-**Text flow-around** floats a box against a column edge and wraps the following paragraphs around it:
-
-```go
-sidebar := pdf.NewFloatingBox().SetBackground(&pdf.Color{R: 0.9, G: 0.95, B: 1, A: 1}).
-    AddParagraph("A pull quote or sidebar.", pdf.TextStyle{})
-flow.AddFloatBox(sidebar, pdf.FloatLeft, 150) // body text wraps to its right, then full width below
-flow.AddParagraph(longBody, pdf.TextStyle{})
-```
-
-Mirrors the intent of Aspose.PDF for .NET's generator / `Page.Paragraphs` / `FloatingBox` / columns / floats.
-
-### Creating Blank Documents
-
-```go
-// From explicit dimensions (in points, 1/72 inch)
-doc := pdf.NewDocument(595, 842)
-doc.Save("blank.pdf")
-
-// From predefined format
-doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
-doc.Save("a4.pdf")
-
-// Landscape orientation
-doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4.Landscape())
-doc.Save("a4_landscape.pdf")
-```
-
-### Adding Blank Pages
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Append a blank A4 page
-doc.AddBlankPageFromFormat(pdf.PageFormatA4)
-
-// Insert a landscape Letter page at position 2
-doc.InsertBlankPageFromFormat(2, pdf.PageFormatLetter.Landscape())
-
-doc.Save("output.pdf")
-```
-
-### Adding Text
-
-```go
-doc, _ := pdf.Open("input.pdf")
-page, _ := doc.Page(1)
-
-// Define a reusable text style
-title := pdf.TextStyle{
-    Font:   pdf.FontHelveticaBold,
-    Size:   24,
-    Color:  &pdf.Color{R: 0, G: 0, B: 0.8, A: 1},
-    HAlign: pdf.HAlignCenter,
-}
-
-// Draw text inside a rectangle (word wrap + clipping)
-page.AddText("Hello, PDF!", title, pdf.Rectangle{
-    LLX: 50, LLY: 700, URX: 545, URY: 750,
-})
-
-// Rotated text (e.g. column headers)
-page.AddText("Revenue", pdf.TextStyle{
-    Font:     pdf.FontHelveticaBold,
-    Size:     10,
-    Rotation: 45, // degrees counter-clockwise
-}, pdf.Rectangle{LLX: 100, LLY: 500, URX: 130, URY: 600})
-
-doc.Save("output.pdf")
-```
-
-#### Embedded TrueType / OpenType fonts and subsetting
-
-```go
-doc := pdf.NewDocument(595, 842)
-page, _ := doc.Page(1)
-
-// Embed a TrueType (.ttf) font for full Unicode coverage (Cyrillic, CJK, …)
-deja, _ := doc.LoadFont("DejaVuSans.ttf")
-page.AddText("Привет, мир! — Ñoño café", pdf.TextStyle{Font: deja, Size: 16},
-    pdf.Rectangle{LLX: 50, LLY: 700, URX: 545, URY: 740})
-
-// OpenType-CFF (.otf) fonts load the same way — embedded as CIDFontType0 /
-// FontFile3 (the renderer and external viewers both draw it):
-serif, _ := doc.LoadFont("SourceSerif4-Regular.otf")
-page.AddText("OpenType-CFF embedding", pdf.TextStyle{Font: serif, Size: 16},
-    pdf.Rectangle{LLX: 50, LLY: 660, URX: 545, URY: 700})
-
-// Or resolve a font by family name — no path needed. Searches registered
-// sources (AddFontFolder/AddFontFile) then the OS fonts, and embeds the match
-// (a .ttc collection face is re-wrapped as a standalone sfnt):
-pdf.AddSystemFonts()
-calibri, err := doc.LoadFontByName("Calibri", true /*bold*/, false /*italic*/)
-if err == nil {
-    page.AddText("By-name font", pdf.TextStyle{Font: calibri, Size: 16},
-        pdf.Rectangle{LLX: 50, LLY: 620, URX: 545, URY: 660})
-}
-
-// Shrink every embedded TrueType font to just the glyphs drawn — call once,
-// after all text is added and before Save (a 760 KB font drops to a few KB).
-// Returns the number of fonts subsetted. (Embedded .otf keeps its full program.)
-doc.SubsetFonts()
-doc.Save("output.pdf")
-```
-
-### Text Watermarks
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Add watermark to all pages
-doc.AddTextWatermark("CONFIDENTIAL", pdf.TextStyle{
-    Font:     pdf.FontHelveticaBold,
-    Size:     60,
-    Color:    &pdf.Color{R: 0.8, G: 0.8, B: 0.8, A: 0.3},
-    Rotation: 45,
-    HAlign:   pdf.HAlignCenter,
-    VAlign:   pdf.VAlignMiddle,
-    Behind:   true, // draw under existing content
-})
-
-// Watermark on specific pages only
-doc.AddTextWatermark("DRAFT", pdf.TextStyle{
-    Font:     pdf.FontHelvetica,
-    Size:     48,
-    Color:    &pdf.Color{R: 1, G: 0, B: 0, A: 0.2},
-    Rotation: -45,
-    HAlign:   pdf.HAlignCenter,
-    VAlign:   pdf.VAlignMiddle,
-    Behind:   true,
-}, 1, 3) // pages 1 and 3
-
-doc.Save("output.pdf")
-```
-
-### Stamps (text / image / page number)
-
-Stamps overlay (or underlay) content on pages. Mirrors Aspose.PDF for .NET's
-`Stamp` family (`TextStamp`, `ImageStamp`, `PageNumberStamp`); apply with
-`Page.AddStamp` or `Document.AddStamp`. Shared fields — `Rect` (zero = whole
-page), `HAlign`/`VAlign`, `Opacity`, `RotateAngle` (centred), `Background`
-(behind content).
-
-```go
-doc, _ := pdf.Open("input.pdf")
-
-// Diagonal translucent watermark on every page (Rect defaults to the page).
-ts := pdf.NewTextStamp("DRAFT", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 72,
-    Color: &pdf.Color{R: 0.8, A: 1}})
-ts.HAlign, ts.VAlign = pdf.HAlignCenter, pdf.VAlignMiddle
-ts.RotateAngle, ts.Opacity, ts.Background = 45, 0.35, true
-doc.AddStamp(ts)
-
-// Footer page number on every page: "Page 1 of N", ...
-pn := pdf.NewPageNumberStamp("Page {0} of {1}", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10})
-pn.HAlign, pn.VAlign = pdf.HAlignCenter, pdf.VAlignBottom
-pn.Rect = pdf.Rectangle{LLX: 0, LLY: 20, URX: 595, URY: 40}
-doc.AddStamp(pn)
-
-// Logo image stamp in a corner of page 1.
-img, _ := pdf.NewImageStamp("logo.png")
-img.Rect = pdf.Rectangle{LLX: 450, LLY: 760, URX: 560, URY: 820}
-img.Opacity = 0.8
-p, _ := doc.Page(1)
-p.AddStamp(img)
-
-doc.Save("output.pdf")
-```
-
-### Document API
-
-```go
-doc, err := pdf.Open("input.pdf")
-
-fmt.Println(doc.PageCount())   // total pages
-fmt.Println(doc.Info())        // Info dictionary
-
-// Rotate pages (mutates in place; rotation accumulates)
-err = doc.Rotate(pdf.Rotate90, 1, 2)
-err = doc.Rotate(pdf.Rotate90, 1, 2) // pages 1 and 2 are now at 180°
-
-// Set absolute rotation (replaces existing rotation)
-err = doc.SetRotation(pdf.Rotate90, 1) // page 1 is now exactly 90°
-err = doc.SetRotation(pdf.Rotate0)     // reset all pages to 0°
-
-// Reorder pages (pages may be repeated or omitted)
-err = doc.Reorder([]int{3, 1, 2})
-
-// Append pages from one or more documents (mutates receiver)
-doc2, _ := pdf.Open("part2.pdf")
-doc3, _ := pdf.Open("part3.pdf")
-doc.Append(doc2, doc3)
-
-// Split into individual page documents (fresh independent Documents)
-pages, err := doc.Split()
-
-// Extract page ranges to a new independent Document
-sub, err := doc.Extract(pdf.PageRange{From: 1, To: 3})
-
-// Password-protect on save
-doc.SetPassword("userpass", "ownerpass")
-
-// Save to file or writer
-err = doc.Save("output.pdf")
-// or
-_, err = doc.WriteTo(w) // implements io.WriterTo
-```
-
-### Pages
-
-```go
-doc, _ := pdf.Open("input.pdf")
-pages := doc.Pages()
-for _, p := range pages {
-    size, _ := p.Size()
-    fmt.Printf("Page %d: %.0fx%.0f pt, rotation %d°, label %q\n",
-        p.Number(), size.Width, size.Height, p.Rotation(), p.Label())
-}
-
-// PDF boxes are Rectangles; each falls back to the next if not set:
-// ArtBox/TrimBox/BleedBox → CropBox → MediaBox
-p, _ := doc.Page(1)
-media, _ := p.MediaBox()
-crop,  _ := p.CropBox()
-fmt.Printf("media %.0fx%.0f, crop %+v\n", media.URX-media.LLX, media.URY-media.LLY, crop)
-
-// Resize a page, or set any box directly (content is not scaled)
-p.SetPageSize(595, 842) // MediaBox = [0 0 595 842]
-p.SetCropBox(pdf.Rectangle{LLX: 10, LLY: 10, URX: 585, URY: 832})
-```
+Standalone runnable example programs live in `_examples/<name>/main.go` (excluded from
+`go build ./...`/`go test ./...` by their leading underscore); run one directly with
+`go run ./_examples/<name>`. Short, focused API examples live as `ExampleXxx` functions in
+`examples_test.go`, validated by `go test` via their `// Output:` comments and surfaced on
+pkg.go.dev next to each documented function. Test PDF fixtures live flat under `testdata/`.
+
+## Third-Party Notices
+
+The compiled library links against nothing but the Go standard library, and every PDF primitive
+— the parser, writer, raster renderer, SVG and Markdown engines, and the PKCS#7/CMS signing code
+— is implemented from scratch within the module. It bundles Latin-subset copies of four
+metric-compatible open fonts (Arimo, Tinos, Cousine, and Carlito), used to render the PDF
+Standard-14 fonts and Calibri when no embedded or system font is available, licensed under the
+SIL Open Font License 1.1 — see [fonts/LICENSE.txt](fonts/LICENSE.txt).
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the [MIT License](LICENSE). The MIT License permits use, copying,
+modification, distribution, sublicensing, and commercial use, provided its copyright and
+permission notice are retained. The software is provided without warranty.
 
-The library bundles Latin-subset copies of four metric-compatible fonts —
-Arimo, Tinos, Cousine, and Carlito — used to render the PDF Standard-14 fonts
-(and Calibri) when no embedded or system font is available. These are licensed
-under the SIL Open
-Font License 1.1, which permits bundling with software under any license; see
-[fonts/LICENSE.txt](fonts/LICENSE.txt). The MIT license above covers the
-library's own code (SPDX: `MIT AND OFL-1.1` for the distribution as a whole).
-
-## Product Page
-
-[Aspose.PDF FOSS for Go](https://products.aspose.com/pdf/) — part of the Aspose family of document processing libraries.
+The library also bundles the Arimo, Tinos, Cousine, and Carlito font families under the SIL Open
+Font License 1.1, used to render the PDF Standard-14 fonts (and Calibri) when no embedded or
+system font is available — see [fonts/LICENSE.txt](fonts/LICENSE.txt) (SPDX: `MIT AND OFL-1.1`
+for the distribution as a whole). The MIT license above covers the library's own code.
