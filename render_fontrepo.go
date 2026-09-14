@@ -237,6 +237,27 @@ func (r *fontRepository) findSystemExact(fi fontInfo) *ttfFont {
 	return nil
 }
 
+// findSystemFamily returns the installed regular face whose family name is
+// exactly family. It is for the cases where a substitute has to be the real
+// thing: a symbol font carries its own glyph repertoire, so no metric-
+// compatible clone and no near-name match will do — Wingdings is not
+// ZapfDingbats. Matching by family (rather than by PostScript name, as
+// findSystemExact does) is what finds the installed Symbol, whose PostScript
+// name is "SymbolMT".
+func (r *fontRepository) findSystemFamily(family string) *ttfFont {
+	family = strings.ToLower(strings.TrimSpace(family))
+	if family == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ensureSystemIndexed()
+	if ref, ok := r.sysByFamily[family+"|"+styleKey(false, false, "")]; ok {
+		return r.load(ref)
+	}
+	return nil
+}
+
 // compactFontName lowercases and strips every non-alphanumeric character, so
 // "YuGothic-Medium", "Yu Gothic Medium" and "YuGothicMedium" all collapse to
 // the same key.

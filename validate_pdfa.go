@@ -169,6 +169,7 @@ func (d *Document) pdfaCheckEncryption(r *PDFAValidationReport) {
 }
 
 func (d *Document) pdfaCheckFonts(r *PDFAValidationReport) {
+	used := d.pdfaUsedFonts()
 	for _, obj := range d.objects {
 		dict, ok := obj.Value.(pdfDict)
 		if !ok || dictGetName(dict, "/Type") != "/Font" {
@@ -178,6 +179,9 @@ func (d *Document) pdfaCheckFonts(r *PDFAValidationReport) {
 		case "/CIDFontType0", "/CIDFontType2":
 			continue // checked via the parent Type0 font
 		}
+		if !used[obj.Num] {
+			continue // never selected for rendering
+		}
 		if !pdfaFontEmbedded(d.objects, dict) {
 			name := dictGetName(dict, "/BaseFont")
 			if name == "" {
@@ -186,6 +190,44 @@ func (d *Document) pdfaCheckFonts(r *PDFAValidationReport) {
 			r.add("FONT_NOT_EMBEDDED", fmt.Sprintf("font %s is not embedded; PDF/A requires all fonts to be embedded", name))
 		}
 	}
+}
+
+// pdfaUsedFonts returns the object numbers of the fonts that a content stream
+// actually selects with Tf. PDF/A requires embedding for the fonts used to
+// render text (ISO 19005-1 §6.3.4), not for every face a resource dictionary
+// happens to name: an Acrobat form keeps ZapfDingbats in /AcroForm/DR whether
+// or not anything draws with it, and flagging that reports a violation no
+// conforming validator raises.
+func (d *Document) pdfaUsedFonts() map[int]bool {
+	used := map[int]bool{}
+	scan := func(data []byte, res pdfDict) {
+		if len(data) == 0 || res == nil {
+			return
+		}
+		fonts, ok := resolveRefToDict(d.objects, res["/Font"])
+		if !ok {
+			return
+		}
+		ops, err := parseContentStream(data)
+		if err != nil {
+			return
+		}
+		for _, op := range ops {
+			if op.Operator != "Tf" || len(op.Operands) == 0 {
+				continue
+			}
+			name, ok := op.Operands[0].(pdfName)
+			if !ok {
+				continue
+			}
+			if ref, ok := fonts[string(name)].(pdfRef); ok {
+				used[ref.Num] = true
+			}
+		}
+	}
+
+	d.forEachContentStream(scan)
+	return used
 }
 
 func pdfaFontEmbedded(objects map[int]*pdfObject, fontDict pdfDict) bool {

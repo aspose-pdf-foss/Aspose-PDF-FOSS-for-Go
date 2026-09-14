@@ -129,11 +129,18 @@ func TestConvertToPDFAAccessible(t *testing.T) {
 
 // TestConvertToPDFASymbolRemains: Symbol/ZapfDingbats have no Latin substitute
 // and stay a reported violation.
-func TestConvertToPDFASymbolRemains(t *testing.T) {
+// A Symbol font has no metric-compatible Latin clone to stand in for it, so
+// conversion depends on a real symbol face being available: when one is
+// registered (or installed), it is embedded; otherwise the document keeps the
+// violation. Both outcomes are correct — what must not happen is a clean
+// report with no font program in the file.
+func TestConvertToPDFASymbolFont(t *testing.T) {
 	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
 	p, _ := doc.Page(1)
-	p.AddText("abcd", pdf.TextStyle{Font: pdf.FontSymbol, Size: 18},
-		pdf.Rectangle{LLX: 50, LLY: 700, URX: 400, URY: 740})
+	if err := p.AddText("abcd", pdf.TextStyle{Font: pdf.FontSymbol, Size: 18},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 400, URY: 740}); err != nil {
+		t.Fatal(err)
+	}
 	rep, err := doc.ConvertToPDFA(pdf.PDFA1B)
 	if err != nil {
 		t.Fatal(err)
@@ -141,8 +148,15 @@ func TestConvertToPDFASymbolRemains(t *testing.T) {
 	if hasRule(rep, "XMP_MISSING") || hasRule(rep, "COLOR_NO_OUTPUT_INTENT") {
 		t.Error("metadata/colour should still be fixed even with a Symbol font")
 	}
-	if !hasRule(rep, "FONT_NOT_EMBEDDED") {
-		t.Error("expected Symbol to remain a FONT_NOT_EMBEDDED violation")
+	if hasRule(rep, "FONT_NOT_EMBEDDED") {
+		return // no symbol face available here, and the report says so
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("/FontFile2")) {
+		t.Error("conversion reported no font violation but embedded no font program")
 	}
 }
 

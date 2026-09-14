@@ -42,7 +42,10 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 		d.removePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
+	d.generatePDFAAppearances()
+	d.clearNeedAppearances()
 	d.embedStandardFonts()
+	d.embedCompositeFonts()
 	d.addSRGBOutputIntent()
 	if err := d.setPDFAMetadata(format); err != nil {
 		return nil, err
@@ -58,6 +61,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 // untouched. Symbol and ZapfDingbats have no Latin substitute and are left as a
 // reported violation; composite (Type0) and Type3 fonts are out of scope.
 func (d *Document) embedStandardFonts() {
+	used := d.pdfaUsedFonts()
 	for _, obj := range d.objects {
 		dict, ok := obj.Value.(pdfDict)
 		if !ok || dictGetName(dict, "/Type") != "/Font" {
@@ -71,13 +75,41 @@ func (d *Document) embedStandardFonts() {
 		if fontDescriptorHasFile(d.objects, dict) {
 			continue // already embedded
 		}
+		if !used[obj.Num] {
+			// Nothing draws with it, so PDF/A does not ask for it to be
+			// embedded and a font program would only add weight.
+			continue
+		}
 		fi := resolveFont(d.objects, dict)
 		f := fallbackFontFor(fi)
 		if f == nil {
-			continue // Symbol / ZapfDingbats — no metric-compatible substitute
+			f = symbolFaceFor(fi)
+		}
+		if f == nil {
+			continue // no substitute and no installed face to embed
 		}
 		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f)
 	}
+}
+
+// symbolFaceFor finds a face to embed for a font the bundled metric-compatible
+// clones do not cover — Symbol and ZapfDingbats, whose glyphs no Latin
+// substitute carries. A face registered through AddFontFile/AddFontFolder wins;
+// otherwise an installed one of the same name is used, as Acrobat does. The
+// font's own embedding permissions are respected, so a face its vendor marks
+// as non-embeddable is left alone and the document keeps the violation.
+func symbolFaceFor(fi fontInfo) *ttfFont {
+	f := fontRepo.find(fi)
+	if f == nil {
+		f = fontRepo.findSystemExact(fi)
+	}
+	if f == nil {
+		f = fontRepo.findSystemFamily(normalizeFontName(fi.name))
+	}
+	if f == nil || !f.embeddingAllowed() {
+		return nil
+	}
+	return f
 }
 
 // buildEmbeddedSimpleFont constructs an embedded simple TrueType font dict that
@@ -91,10 +123,8 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 	widths := make(pdfArray, 256)
 	for c := 0; c < 256; c++ {
 		w := 0
-		if r := fi.encoding[c]; r != 0 {
-			if gid := f.glyphID(r); int(gid) < len(f.glyphWidths) {
-				w = scale(f.glyphWidths[gid])
-			}
+		if gid := substituteGlyphFor(f, fi, c); int(gid) < len(f.glyphWidths) {
+			w = scale(f.glyphWidths[gid])
 		}
 		widths[c] = w
 	}
@@ -116,6 +146,26 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 		out["/Encoding"] = pdfName("/WinAnsiEncoding")
 	}
 	return out
+}
+
+// substituteGlyphFor maps one character code of the original font onto a glyph
+// of the substitute. A text face is reached through Unicode; a symbol face has
+// no Unicode cmap at all — the installed Symbol and Dingbats fonts carry a
+// (3,0) "symbol" cmap keyed by the raw code in the 0xF000 page — so the code
+// itself is looked up when the character does not resolve.
+func substituteGlyphFor(f *ttfFont, fi fontInfo, code int) uint16 {
+	if r := fi.encoding[code]; r != 0 {
+		if gid := f.glyphID(r); gid != 0 {
+			return gid
+		}
+	}
+	if gid, ok := f.codeToGlyph[uint16(0xF000|code)]; ok {
+		return gid
+	}
+	if gid, ok := f.codeToGlyph[uint16(code)]; ok {
+		return gid
+	}
+	return 0
 }
 
 func isPDFAForbiddenAction(dict pdfDict) bool {
@@ -198,6 +248,58 @@ func (d *Document) fixPDFAAnnotations() {
 			ad["/F"] = (flags | flagPrint) &^ (flagHidden | flagNoView)
 		}
 	}
+}
+
+// generatePDFAAppearances draws the normal appearance (/AP/N) of every
+// annotation that lacks one. PDF/A requires each visible annotation but a Link
+// to carry its own appearance, because a conforming reader is not allowed to
+// synthesize one — a checkbox with no /AP would simply disappear in an
+// archival viewer. Form-field widgets are drawn by the AcroForm appearance
+// generators, and the drawing and markup annotations regenerate their own.
+// Icon annotations (/Text sticky notes, /FileAttachment) draw no appearance of
+// their own — viewers supply the icon — and stay a reported violation, as do
+// subtypes this library does not draw.
+func (d *Document) generatePDFAAppearances() {
+	var form *Form
+	for _, page := range d.Pages() {
+		for _, a := range page.Annotations().All() {
+			base := a.annotationBaseRef()
+			if base == nil || base.dict == nil {
+				continue
+			}
+			switch dictGetName(base.dict, "/Subtype") {
+			case "/Link", "/Popup":
+				continue
+			case "/Widget":
+				if _, ok := resolveRefToDict(d.objects, base.dict["/AP"]); ok {
+					continue
+				}
+				if form == nil {
+					form = d.Form()
+				}
+				regenerateWidgetAppearance(form, base.dict)
+				continue
+			}
+			if _, ok := resolveRefToDict(d.objects, base.dict["/AP"]); ok {
+				continue
+			}
+			if r, ok := a.(interface{ RegenerateAppearance() }); ok {
+				r.RegenerateAppearance()
+			}
+		}
+	}
+}
+
+// clearNeedAppearances turns off the AcroForm flag that asks a viewer to build
+// field appearances itself. PDF/A forbids it: an archival file has to carry
+// the appearances it is meant to show, which generatePDFAAppearances has just
+// made sure of.
+func (d *Document) clearNeedAppearances() {
+	acro, ok := resolveRefToDict(d.objects, d.catalog["/AcroForm"])
+	if !ok {
+		return
+	}
+	delete(acro, "/NeedAppearances")
 }
 
 // addSRGBOutputIntent adds an sRGB ICC OutputIntent to the catalog (idempotent).

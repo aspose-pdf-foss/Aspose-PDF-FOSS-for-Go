@@ -39,6 +39,7 @@ type ttfFont struct {
 	// From OS/2.
 	capHeight   int16
 	weight      uint16
+	fsType      uint16 // embedding permissions (OS/2 fsType); see embeddingAllowed
 	flagsBold   bool
 	flagsItalic bool
 
@@ -67,6 +68,20 @@ type ttfFont struct {
 func (f *ttfFont) layout() *otLayout {
 	f.otOnce.Do(func() { f.ot = parseOTLayout(f) })
 	return f.ot
+}
+
+// embeddingAllowed reports whether the font's own licensing bits permit
+// embedding it in a document (OS/2 fsType, OpenType spec): bit 1 marks a face
+// the vendor forbids embedding, and bit 9 one that may only be embedded as a
+// bitmap, which a PDF font program cannot be. Everything else — installable,
+// preview-and-print, editable — is allowed. A font with no OS/2 table (fsType
+// stays 0) is installable.
+func (f *ttfFont) embeddingAllowed() bool {
+	const (
+		restricted = 0x0002
+		bitmapOnly = 0x0200
+	)
+	return f.fsType&restricted == 0 && f.fsType&bitmapOnly == 0
 }
 
 // tableRecord is an entry in the TTF table directory.
@@ -483,6 +498,7 @@ func parseOS2(f *ttfFont, tables map[string]tableRecord) error {
 		return fmt.Errorf("parse ttf OS/2: too small")
 	}
 	f.weight = binary.BigEndian.Uint16(b[4:6])
+	f.fsType = binary.BigEndian.Uint16(b[8:10])
 	fsSelection := binary.BigEndian.Uint16(b[62:64])
 	f.flagsItalic = fsSelection&0x01 != 0
 	f.flagsBold = fsSelection&0x20 != 0
