@@ -913,8 +913,7 @@ stays free of network code.
 - Certificate-based encryption accepts RSA recipients only (PKCS#1 v1.5 key transport); elliptic
   curve recipients (key agreement) and the legacy RC4 sub-filters are not written.
 - OpenType shaping covers Arabic-family, Hebrew, and simple (Latin, Cyrillic, Greek) scripts; the
-  Indic, Khmer, Myanmar, and Hangul reordering shapers and vertical text are not implemented, and
-  text extraction returns right-to-left lines in visual order.
+  Indic, Khmer, Myanmar, and Hangul reordering shapers and vertical text are not implemented.
 - `ConvertToPDFA` auto-embeds non-embedded Standard-14 fonts but does not auto-fix
   `Symbol`/`ZapfDingbats`, composite (Type0/CJK) fonts, or PDF/A-1 transparency; confirm full
   conformance with a dedicated validator such as veraPDF.

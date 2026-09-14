@@ -402,9 +402,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				top := e.mcStack[len(e.mcStack)-1]
 				e.mcStack = e.mcStack[:len(e.mcStack)-1]
 				if top.actualText != nil {
-					for _, r := range *top.actualText {
-						e.emitRune(r)
-					}
+					e.emitCluster(*top.actualText)
 				}
 			}
 
@@ -580,12 +578,43 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 // The characters share the glyph's position; the caller advances once.
 func (e *textExtractor) emitMapped(code uint16, r rune) {
 	if seq := e.font.toUnicodeSeq[code]; len(seq) > 1 {
-		for _, sr := range seq {
-			e.emitRune(sr)
-		}
+		e.emitCluster(string(seq))
 		return
 	}
 	e.emitRune(r)
+}
+
+// emitCluster emits the characters that one glyph — or one /ActualText span —
+// stands for. A right-to-left cluster is laid down in reverse: its characters
+// are recorded in logical order, while the line around them is collected in
+// visual order and restored to logical order as a whole afterwards (see
+// bidiVisualToLogical). Without this a lam-alef ligature, whose one glyph
+// stands for two letters, would come back with those letters swapped.
+func (e *textExtractor) emitCluster(s string) {
+	runes := []rune(s)
+	if len(runes) > 1 && clusterIsRTL(runes) {
+		for i := len(runes) - 1; i >= 0; i-- {
+			e.emitRune(runes[i])
+		}
+		return
+	}
+	for _, r := range runes {
+		e.emitRune(r)
+	}
+}
+
+// clusterIsRTL reports whether a cluster's first strong character is
+// right-to-left.
+func clusterIsRTL(runes []rune) bool {
+	for _, r := range runes {
+		switch bidiClass(r) {
+		case clsR, clsAL:
+			return true
+		case clsL:
+			return false
+		}
+	}
+	return false
 }
 
 func (e *textExtractor) emitRune(r rune) {

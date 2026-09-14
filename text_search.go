@@ -221,7 +221,35 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		prevEndX = f.X + f.Width
 		havePrev = true
 	}
+	if bidiHasStrongRTL(string(m.text)) {
+		m = m.logicalOrder()
+	}
 	return m
+}
+
+// logicalOrder puts the line's runes — and the per-rune fragment mapping that
+// turns a match back into a rectangle — into logical order, so a search for
+// right-to-left text matches the way the text is typed rather than the way its
+// glyphs sit on the page. The fragments themselves are left in visual order.
+func (m lineRuneMap) logicalOrder() lineRuneMap {
+	runes := []rune(string(m.text))
+	if len(runes) != len(m.owner) {
+		return m
+	}
+	logical, order := bidiVisualToLogical(runes)
+	out := lineRuneMap{
+		runeByte:   make([]int, 0, len(order)),
+		owner:      make([]int, 0, len(order)),
+		local:      make([]int, 0, len(order)),
+		runeCounts: m.runeCounts,
+	}
+	for i, vis := range order {
+		out.runeByte = append(out.runeByte, len(out.text))
+		out.owner = append(out.owner, m.owner[vis])
+		out.local = append(out.local, m.local[vis])
+		out.text = utf8.AppendRune(out.text, logical[i])
+	}
+	return out
 }
 
 // searchLine matches re against a single line and maps each match back to a

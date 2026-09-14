@@ -326,6 +326,56 @@ func bidiVisualString(s string, baseLevel int) string {
 	return string(out)
 }
 
+// bidiVisualBaseLevel guesses the base direction of a line that is already in
+// visual order. Rule P2 cannot be used: it takes the direction of the first
+// strong character in LOGICAL order, which is the last one here for a
+// right-to-left line — and a line beginning with Arabic is indistinguishable
+// from one merely ending with it once the glyphs have been laid out. The
+// strong characters are counted instead, and the majority decides; a tie or a
+// line with no right-to-left characters is left-to-right.
+func bidiVisualBaseLevel(runes []rune) int {
+	var rtl, ltr int
+	for _, r := range runes {
+		switch bidiClass(r) {
+		case clsR, clsAL:
+			rtl++
+		case clsL:
+			ltr++
+		}
+	}
+	if rtl > ltr {
+		return 1
+	}
+	return 0
+}
+
+// bidiVisualToLogical converts one line of extracted text from visual order —
+// the order the glyphs sit on the page, left to right — back into logical
+// order, the order its characters were typed. It returns the reordered runes
+// and the permutation that produced them (logical position → index in runes).
+//
+// The reordering is its own inverse for the level structure a single line has:
+// rule L2 reverses nested level runs, and reversing them a second time
+// restores what was there before, so the visual sequence is resolved and
+// reordered exactly as bidiVisualString does. Mirrored brackets flip back for
+// the same reason.
+func bidiVisualToLogical(runes []rune) ([]rune, []int) {
+	if len(runes) == 0 {
+		return runes, nil
+	}
+	levels := bidiResolve(runes, bidiVisualBaseLevel(runes))
+	order := bidiReorderIndices(levels)
+	out := make([]rune, len(runes))
+	for i, idx := range order {
+		r := runes[idx]
+		if levels[idx]%2 == 1 {
+			r = bidiMirror(r)
+		}
+		out[i] = r
+	}
+	return out, order
+}
+
 // bidiMirror returns the mirror image of a paired punctuation character (for
 // characters resolved to an RTL level), or r unchanged.
 func bidiMirror(r rune) rune {

@@ -192,6 +192,13 @@ func assembleLine(frags []textFragment) TextLine {
 	}
 
 	line.Text = buf.String()
+	// Glyphs are collected in visual order (left to right on the page), which
+	// reads backwards for right-to-left scripts; put the line back into the
+	// order its characters were typed.
+	if bidiHasStrongRTL(line.Text) {
+		logical, _ := bidiVisualToLogical([]rune(line.Text))
+		line.Text = string(logical)
+	}
 	return line
 }
 

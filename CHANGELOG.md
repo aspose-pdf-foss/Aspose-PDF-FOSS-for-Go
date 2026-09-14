@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Right-to-left text extracts in reading order** — Arabic and Hebrew glyphs sit on the page in visual order, and `ExtractText` returned them that way, so every word read backwards and a copied line was unusable. Lines carrying right-to-left characters are now put back into the order their characters were typed, which also makes `SearchText` match an Arabic or Hebrew phrase as it is typed (match rectangles still land on the right glyphs). `TextExtractRaw` keeps content-stream order by design.
 - **Ligatures extract as all of their letters** — a `/ToUnicode` entry mapping one glyph to several characters (the "fi" ligature common in LaTeX and Word output) extracted as its first character only, and a supplementary-plane destination (a surrogate pair) extracted as nothing. Both now read back whole.
 - **Embedded fonts write a deterministic `/ToUnicode`** — a glyph shared by two characters (the space glyph usually serves U+00A0 too) was written with both mappings in random order, so a space could extract as a no-break space from one save to the next. Each glyph now maps to its lowest code point.
 
