@@ -5,34 +5,41 @@ package asposepdf
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 )
 
-// MarkupSide selects which document the markup is drawn on.
-type MarkupSide int
+// DiffMarkupSide selects which document the markup is drawn on.
+type DiffMarkupSide int
 
 const (
-	// MarkupDestination marks the second document: insertions highlighted,
-	// deletions shown as carets carrying the removed text. The zero value.
-	MarkupDestination MarkupSide = iota
-	// MarkupSource marks the first document: deletions struck out,
+	// DiffMarkupDestination marks the second document: insertions
+	// highlighted, deletions shown as carets carrying the removed text. The
+	// zero value.
+	DiffMarkupDestination DiffMarkupSide = iota
+	// DiffMarkupSource marks the first document: deletions struck out,
 	// insertions shown as carets carrying the added text.
-	MarkupSource
+	DiffMarkupSource
 )
 
-// MarkupOptions styles the marked-up copy. The zero value marks the second
-// document in green and red, titles every annotation "Comparison" and keeps
-// the annotations live.
-type MarkupOptions struct {
-	Side        MarkupSide
+// DiffMarkupOptions styles the marked-up copy. The zero value marks the
+// second document in green and red, titles every annotation "Comparison" and
+// keeps the annotations live.
+type DiffMarkupOptions struct {
+	Side        DiffMarkupSide
 	InsertColor *Color
 	DeleteColor *Color
 	Title       string
-	Flatten     bool
+	// Flatten bakes the comparison markup into the page content and removes
+	// it, via (*AnnotationCollection).Flatten. That call flattens every
+	// non-widget annotation already on the page, not only the ones this
+	// writer added — an existing highlight or free-text annotation in the
+	// source document is flattened too.
+	Flatten bool
 }
 
 // resolved fills in the defaults.
-func (o MarkupOptions) resolved() MarkupOptions {
+func (o DiffMarkupOptions) resolved() DiffMarkupOptions {
 	if o.InsertColor == nil {
 		o.InsertColor = &Color{R: 0.20, G: 0.72, B: 0.35, A: 1}
 	}
@@ -45,17 +52,19 @@ func (o MarkupOptions) resolved() MarkupOptions {
 	return o
 }
 
-func lastMarkupOption(opts []MarkupOptions) MarkupOptions {
+func lastMarkupOption(opts []DiffMarkupOptions) DiffMarkupOptions {
 	if len(opts) == 0 {
-		return MarkupOptions{}.resolved()
+		return DiffMarkupOptions{}.resolved()
 	}
 	return opts[len(opts)-1].resolved()
 }
 
 // SaveMarkup writes a copy of one of the compared documents with every
 // difference marked as an annotation. The documents handed to the comparer
-// are left untouched.
-func (r *ComparisonResult) SaveMarkup(path string, opts ...MarkupOptions) error {
+// are left untouched; the output is a new document, so signatures on the
+// input do not survive the copy. Marking up an encrypted document is not
+// supported — save it without encryption first.
+func (r *ComparisonResult) SaveMarkup(path string, opts ...DiffMarkupOptions) error {
 	var buf bytes.Buffer
 	if err := r.WriteMarkup(&buf, opts...); err != nil {
 		return err
@@ -63,11 +72,13 @@ func (r *ComparisonResult) SaveMarkup(path string, opts ...MarkupOptions) error 
 	return writeFile(path, buf.Bytes())
 }
 
-// WriteMarkup writes the marked-up copy to w.
-func (r *ComparisonResult) WriteMarkup(w io.Writer, opts ...MarkupOptions) error {
+// WriteMarkup writes the marked-up copy to w. The output is a new document,
+// so signatures on the input do not survive the copy. Marking up an
+// encrypted document is not supported — save it without encryption first.
+func (r *ComparisonResult) WriteMarkup(w io.Writer, opts ...DiffMarkupOptions) error {
 	o := lastMarkupOption(opts)
 	source := r.src
-	if o.Side == MarkupDestination {
+	if o.Side == DiffMarkupDestination {
 		source = r.dst
 	}
 	if source == nil {
@@ -96,8 +107,14 @@ func (r *ComparisonResult) WriteMarkup(w io.Writer, opts ...MarkupOptions) error
 }
 
 // copyDocument serializes a document and opens the bytes again, yielding an
-// independent document the caller's is unaffected by.
+// independent document the caller's is unaffected by. A document configured
+// for encryption re-encrypts on WriteTo, so OpenStream would reject the
+// serialized copy with a bare ErrEncrypted; that case is detected up front
+// and reported with an error that names the operation and the cause instead.
 func copyDocument(d *Document) (*Document, error) {
+	if _, encrypted := d.Permissions(); encrypted {
+		return nil, fmt.Errorf("WriteMarkup: marking up an encrypted document is not supported; save it without encryption first: %w", ErrEncrypted)
+	}
 	var buf bytes.Buffer
 	if _, err := d.WriteTo(&buf); err != nil {
 		return nil, err
@@ -106,7 +123,7 @@ func copyDocument(d *Document) (*Document, error) {
 }
 
 // annotate draws every difference onto doc.
-func (r *ComparisonResult) annotate(doc *Document, o MarkupOptions) error {
+func (r *ComparisonResult) annotate(doc *Document, o DiffMarkupOptions) error {
 	for i, op := range r.ops {
 		if op.Operation == OperationEqual {
 			continue
@@ -134,8 +151,8 @@ func (r *ComparisonResult) annotate(doc *Document, o MarkupOptions) error {
 
 // markupTarget returns the page and rectangles an operation occupies on the
 // marked side, if any.
-func markupTarget(op DiffOperation, side MarkupSide) (int, []Rectangle) {
-	if side == MarkupSource {
+func markupTarget(op DiffOperation, side DiffMarkupSide) (int, []Rectangle) {
+	if side == DiffMarkupSource {
 		return op.SourcePage, op.SourceRects
 	}
 	return op.DestPage, op.DestRects
@@ -144,7 +161,7 @@ func markupTarget(op DiffOperation, side MarkupSide) (int, []Rectangle) {
 // anchorFor finds where to put a caret for the operation at index i: the
 // right edge of the last unchanged word before it, else the left edge of the
 // first unchanged word after it.
-func anchorFor(ops []DiffOperation, i int, side MarkupSide) (int, Rectangle, bool) {
+func anchorFor(ops []DiffOperation, i int, side DiffMarkupSide) (int, Rectangle, bool) {
 	for j := i - 1; j >= 0; j-- {
 		if ops[j].Operation != OperationEqual {
 			continue
@@ -173,7 +190,7 @@ func anchorFor(ops []DiffOperation, i int, side MarkupSide) (int, Rectangle, boo
 }
 
 // addSpanAnnotation highlights an insertion or strikes out a deletion.
-func addSpanAnnotation(doc *Document, pageNum int, rects []Rectangle, op DiffOperation, o MarkupOptions) error {
+func addSpanAnnotation(doc *Document, pageNum int, rects []Rectangle, op DiffOperation, o DiffMarkupOptions) error {
 	page, err := doc.Page(pageNum)
 	if err != nil {
 		return err
@@ -210,7 +227,7 @@ func addSpanAnnotation(doc *Document, pageNum int, rects []Rectangle, op DiffOpe
 }
 
 // addCaretAnnotation marks the point where text was removed or added.
-func addCaretAnnotation(doc *Document, pageNum int, rect Rectangle, op DiffOperation, o MarkupOptions) error {
+func addCaretAnnotation(doc *Document, pageNum int, rect Rectangle, op DiffOperation, o DiffMarkupOptions) error {
 	page, err := doc.Page(pageNum)
 	if err != nil {
 		return err
