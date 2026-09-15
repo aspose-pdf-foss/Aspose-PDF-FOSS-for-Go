@@ -182,6 +182,11 @@ flowchart TD
   header shading, or a full-page cell-per-line mode), and `Document.SaveEpub`/`WriteEpub` (a
   reflowable, spec-correct OCF-container EPUB 3 book with chapters split at headings and a real
   navigation TOC).
+- **Document comparison** — `CompareDocumentsPageByPage` and `CompareFlatDocuments` report what
+  changed between two PDFs word by word, with the page and rectangle of every difference;
+  `ComparisonResult.SaveMarkup` writes a copy of either document in which insertions are
+  highlighted, deletions struck out and removed text kept in the annotation note, so a reviewer
+  reads the change list in any PDF viewer. Mirrors Aspose.PDF for .NET's `TextPdfComparer`.
 - **AI copilots** — the `ai` subpackage adds document summarization (`SummaryCopilot`), OCR of
   scanned pages with a `MakeSearchable` pipeline that writes recognized text back as an invisible,
   selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
