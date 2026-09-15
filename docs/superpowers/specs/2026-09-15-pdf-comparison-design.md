@@ -57,14 +57,14 @@ func (r *ComparisonResult) HasChanges() bool
 func (r *ComparisonResult) Operations() []DiffOperation
 func (r *ComparisonResult) PageOperations(pageNum int) []DiffOperation
 func (r *ComparisonResult) Statistics() ComparisonStatistics
-func (r *ComparisonResult) SaveMarkup(path string, opts ...MarkupOptions) error
-func (r *ComparisonResult) WriteMarkup(w io.Writer, opts ...MarkupOptions) error
+func (r *ComparisonResult) SaveMarkup(path string, opts ...DiffMarkupOptions) error
+func (r *ComparisonResult) WriteMarkup(w io.Writer, opts ...DiffMarkupOptions) error
 
 type ComparisonStatistics struct {
     EqualWords, InsertedWords, DeletedWords int
-    ChangedPages []int // 1-based, ascending: destination pages carrying a
-                       // change, plus source pages with no destination
-                       // counterpart (a shortened document)
+    ChangedPages []int // 1-based, ascending: the destination page for an
+                       // inserted run, the source page for a deleted run —
+                       // which in flat mode can mix the two numbering spaces
 }
 ```
 
@@ -94,14 +94,19 @@ type ComparisonOptions struct {
 type EditOperationsOrder int // EditOperationsDeleteFirst (default),
                              // EditOperationsInsertFirst
 
-type MarkupOptions struct {
-    Side        MarkupSide // MarkupDestination (default), MarkupSource
+type DiffMarkupOptions struct {
+    Side        DiffMarkupSide // DiffMarkupDestination (default), DiffMarkupSource
     InsertColor *Color     // default green (0.20, 0.72, 0.35)
     DeleteColor *Color     // default red   (0.88, 0.22, 0.22)
     Title       string     // annotation /T, default "Comparison"
     Flatten     bool
 }
 ```
+
+Named `DiffMarkupOptions`/`DiffMarkupSide`/`DiffMarkupDestination`/`DiffMarkupSource`
+rather than a bare `Markup*` prefix: `paragraph.go` already exports
+`MarkupParagraph`, `MarkupSection` and `PageMarkup` for structural text
+extraction, an unrelated namespace in this flat package.
 
 `ExtractionArea` is rejected together with `ExcludeTables`, `ExcludeAreas1` or
 `ExcludeAreas2` (an error, not a silent precedence) — the same incompatibility
@@ -140,10 +145,18 @@ Common prefix and suffix are trimmed first, then the greedy O(ND) Myers
 algorithm runs over the token keys, keeping the V array per D and walking it
 back into an edit script. Memory is O(D²), negligible for related documents.
 
-Two unrelated documents drive D toward N+M, so `maxEditDistance` (4096 by
-default, internal) caps the search: beyond it the comparer emits one `Delete`
-carrying the whole source text and one `Insert` carrying the whole
-destination text. An honest degenerate answer beats an hours-long search.
+Two unrelated documents drive D toward N+M, so `maxEditDistance` (2000,
+internal) caps the search: the cost grows with the square of the edit
+distance in both time and memory (the frontier snapshots — one per round —
+bound a roughly maxEditDistance²-int allocation, about 64 MB at this value).
+Beyond the cap the comparer emits one `Delete` carrying the whole source text
+and one `Insert` carrying the whole destination text. An honest degenerate
+answer beats an hours-long search.
+
+When trimming the common prefix/suffix empties one side entirely, the answer
+is already known — the other side is one run of deletions or insertions — so
+`diffKeys` skips the Myers search altogether in that case rather than paying
+its cost (up to the cap) to rediscover a pure insertion or deletion.
 
 `EditOperationsOrder` decides only the order of the adjacent delete and insert
 runs of a replacement.
@@ -165,7 +178,13 @@ reads as a move rather than a delete plus an insert.
 independent copy of that document by serializing it to memory and reopening it
 with `OpenStream`. The caller's `*Document` is never mutated — it can be
 marked up repeatedly with different options. The copy is a new document:
-signatures on the input do not survive it.
+signatures on the input do not survive it. Marking up an **encrypted**
+document is not supported: a document configured for encryption re-encrypts
+on the copy's `WriteTo`, so `OpenStream` would reject the serialized copy
+with a bare `ErrEncrypted`. `copyDocument` detects this up front via
+`(*Document).Permissions()`'s second return value and reports an error that
+names the operation and wraps `ErrEncrypted`, instead of surfacing the
+unexplained rejection.
 
 On the destination side:
 
