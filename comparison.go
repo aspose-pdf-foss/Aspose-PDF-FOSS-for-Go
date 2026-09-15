@@ -10,6 +10,7 @@ package asposepdf
 
 import (
 	"errors"
+	"sort"
 	"strings"
 )
 
@@ -198,4 +199,184 @@ func assembleText(ops []DiffOperation, side Operation) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// ComparisonResult holds the differences between two documents and can write
+// a marked-up copy of either side.
+type ComparisonResult struct {
+	ops   []DiffOperation
+	pages [][]DiffOperation // page-by-page mode only; index 0 is page 1
+	src   *Document
+	dst   *Document
+}
+
+// HasChanges reports whether anything differs. Mirrors Aspose.PDF for .NET's
+// SideBySideDocsComparisonResult.HasChanges.
+func (r *ComparisonResult) HasChanges() bool {
+	for _, op := range r.ops {
+		if op.Operation != OperationEqual {
+			return true
+		}
+	}
+	return false
+}
+
+// Operations returns every difference in document order.
+func (r *ComparisonResult) Operations() []DiffOperation {
+	return r.ops
+}
+
+// PageOperations returns the operations of one 1-based page. An operation is
+// listed under the page it physically occupies: the second document's page
+// for equal and inserted text, the first document's page for deleted text.
+func (r *ComparisonResult) PageOperations(pageNum int) []DiffOperation {
+	if r.pages != nil {
+		if pageNum < 1 || pageNum > len(r.pages) {
+			return nil
+		}
+		return r.pages[pageNum-1]
+	}
+	var out []DiffOperation
+	for _, op := range r.ops {
+		if operationPage(op) == pageNum {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
+// operationPage is the page an operation is listed under.
+func operationPage(op DiffOperation) int {
+	if op.Operation == OperationDelete {
+		return op.SourcePage
+	}
+	if op.DestPage != 0 {
+		return op.DestPage
+	}
+	return op.SourcePage
+}
+
+// ComparisonStatistics summarises a comparison. Mirrors the shape of
+// Aspose.PDF for .NET's DocumentComparisonStatistics.
+type ComparisonStatistics struct {
+	EqualWords    int
+	InsertedWords int
+	DeletedWords  int
+	// ChangedPages lists, ascending, the pages carrying a change: destination
+	// pages, plus source pages that have no destination counterpart.
+	ChangedPages []int
+}
+
+// Statistics counts the words on each side of the comparison. Mirrors
+// Aspose.PDF for .NET's TextPdfComparer.CreateComparisonStatistics.
+func (r *ComparisonResult) Statistics() ComparisonStatistics {
+	var st ComparisonStatistics
+	seen := map[int]bool{}
+	for _, op := range r.ops {
+		words := len(strings.Fields(op.Text))
+		switch op.Operation {
+		case OperationEqual:
+			st.EqualWords += words
+		case OperationInsert:
+			st.InsertedWords += words
+		case OperationDelete:
+			st.DeletedWords += words
+		}
+		if op.Operation != OperationEqual {
+			if p := operationPage(op); p > 0 {
+				seen[p] = true
+			}
+		}
+	}
+	for p := range seen {
+		st.ChangedPages = append(st.ChangedPages, p)
+	}
+	sort.Ints(st.ChangedPages)
+	return st
+}
+
+// CompareDocumentsPageByPage compares page 1 with page 1, page 2 with page 2
+// and so on; the pages of the longer document beyond the shorter one are
+// reported wholly inserted or wholly deleted. Mirrors Aspose.PDF for .NET's
+// TextPdfComparer.CompareDocumentsPageByPage.
+func CompareDocumentsPageByPage(d1, d2 *Document, opts ...ComparisonOptions) (*ComparisonResult, error) {
+	if d1 == nil || d2 == nil {
+		return nil, errors.New("CompareDocumentsPageByPage: nil document")
+	}
+	o := lastComparisonOption(opts)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
+
+	count := d1.PageCount()
+	if d2.PageCount() > count {
+		count = d2.PageCount()
+	}
+	res := &ComparisonResult{src: d1, dst: d2, pages: make([][]DiffOperation, count)}
+	for i := 1; i <= count; i++ {
+		src, err := documentPageTokens(d1, i, o, false)
+		if err != nil {
+			return nil, err
+		}
+		dst, err := documentPageTokens(d2, i, o, true)
+		if err != nil {
+			return nil, err
+		}
+		ops := diffTokens(src, dst, o.EditOperationsOrder)
+		res.pages[i-1] = ops
+		res.ops = append(res.ops, ops...)
+	}
+	return res, nil
+}
+
+// CompareFlatDocuments compares the documents as one continuous text, so
+// content that moved across a page boundary reads as unchanged. Mirrors
+// Aspose.PDF for .NET's TextPdfComparer.CompareFlatDocuments.
+func CompareFlatDocuments(d1, d2 *Document, opts ...ComparisonOptions) (*ComparisonResult, error) {
+	if d1 == nil || d2 == nil {
+		return nil, errors.New("CompareFlatDocuments: nil document")
+	}
+	o := lastComparisonOption(opts)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
+	src, err := documentTokens(d1, o, false)
+	if err != nil {
+		return nil, err
+	}
+	dst, err := documentTokens(d2, o, true)
+	if err != nil {
+		return nil, err
+	}
+	return &ComparisonResult{
+		ops: diffTokens(src, dst, o.EditOperationsOrder),
+		src: d1,
+		dst: d2,
+	}, nil
+}
+
+// documentPageTokens returns one page's filtered tokens, or nothing when the
+// document has no such page.
+func documentPageTokens(d *Document, pageNum int, o ComparisonOptions, second bool) ([]wordToken, error) {
+	if pageNum > d.PageCount() {
+		return nil, nil
+	}
+	page, err := d.Page(pageNum)
+	if err != nil {
+		return nil, err
+	}
+	return comparePageTokens(page, o, second)
+}
+
+// documentTokens concatenates every page's tokens, each remembering its page.
+func documentTokens(d *Document, o ComparisonOptions, second bool) ([]wordToken, error) {
+	var all []wordToken
+	for i := 1; i <= d.PageCount(); i++ {
+		tokens, err := documentPageTokens(d, i, o, second)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, tokens...)
+	}
+	return all, nil
 }

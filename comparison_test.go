@@ -209,3 +209,107 @@ func TestComparePagesNilPage(t *testing.T) {
 		t.Fatal("a nil page must be rejected")
 	}
 }
+
+func TestCompareDocumentsPageByPage(t *testing.T) {
+	a := buildComparisonDoc(t, "page one alpha", "page two beta")
+	b := buildComparisonDoc(t, "page one alpha", "page two gamma")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.HasChanges() {
+		t.Fatal("HasChanges = false, want true")
+	}
+	if got := res.PageOperations(1); len(got) == 0 {
+		t.Fatal("page 1 reported no operations at all")
+	} else {
+		for _, op := range got {
+			if op.Operation != pdf.OperationEqual {
+				t.Errorf("page 1 is unchanged but reported %v %q", op.Operation, op.Text)
+			}
+		}
+	}
+	var changed bool
+	for _, op := range res.PageOperations(2) {
+		if op.Operation == pdf.OperationInsert && op.Text == "gamma" {
+			changed = true
+		}
+	}
+	if !changed {
+		t.Errorf("page 2 operations = %+v, want an insertion of %q", res.PageOperations(2), "gamma")
+	}
+	st := res.Statistics()
+	if st.InsertedWords != 1 || st.DeletedWords != 1 {
+		t.Errorf("statistics = %+v, want one word inserted and one deleted", st)
+	}
+	if len(st.ChangedPages) != 1 || st.ChangedPages[0] != 2 {
+		t.Errorf("ChangedPages = %v, want [2]", st.ChangedPages)
+	}
+}
+
+func TestCompareDocumentsIdenticalHasNoChanges(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta", "gamma delta")
+	b := buildComparisonDoc(t, "alpha beta", "gamma delta")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.HasChanges() {
+		t.Fatalf("identical documents reported changes: %+v", res.Operations())
+	}
+	flat, err := pdf.CompareFlatDocuments(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flat.HasChanges() {
+		t.Fatalf("identical documents reported changes in flat mode: %+v", flat.Operations())
+	}
+}
+
+func TestCompareDocumentsPageByPageExtraPage(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha")
+	b := buildComparisonDoc(t, "alpha", "beta gamma")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, op := range res.PageOperations(2) {
+		if op.Operation == pdf.OperationInsert && op.Text == "beta gamma" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the added page's text = %+v, want one insertion of %q", res.PageOperations(2), "beta gamma")
+	}
+}
+
+// Text that moved to another page reads as a move in flat mode: the words are
+// equal, only their page changed.
+func TestCompareFlatDocumentsAcrossPages(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta gamma delta", "")
+	b := buildComparisonDoc(t, "alpha beta", "gamma delta")
+
+	res, err := pdf.CompareFlatDocuments(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range res.Operations() {
+		if op.Operation != pdf.OperationEqual {
+			t.Fatalf("moving text across a page break reported %v %q", op.Operation, op.Text)
+		}
+	}
+}
+
+func TestCompareDocumentsNil(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha")
+	if _, err := pdf.CompareDocumentsPageByPage(a, nil); err == nil {
+		t.Fatal("a nil document must be rejected")
+	}
+	if _, err := pdf.CompareFlatDocuments(nil, a); err == nil {
+		t.Fatal("a nil document must be rejected")
+	}
+}
