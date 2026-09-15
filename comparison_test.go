@@ -201,6 +201,124 @@ func TestComparisonOptionsIncompatible(t *testing.T) {
 	}
 }
 
+// ExcludeAreas1/ExcludeAreas2 drop the words inside the given regions before
+// diffing. Excluding the changed word on both sides must silence the
+// change; without the exclusion the same comparison must report it, so the
+// test cannot pass vacuously (e.g. if the option were silently ignored).
+func TestComparePagesExcludeAreas(t *testing.T) {
+	a := buildComparisonDoc(t, "total is 100 euro")
+	b := buildComparisonDoc(t, "total is 200 euro")
+	p1, p2 := firstPages(t, a, b)
+
+	baseline, err := pdf.ComparePages(p1, p2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baselineChanged bool
+	for _, op := range baseline {
+		if op.Operation != pdf.OperationEqual {
+			baselineChanged = true
+		}
+	}
+	if !baselineChanged {
+		t.Fatal("baseline comparison (no exclusion) reported no change; the fixture is broken")
+	}
+
+	m1, err := p1.SearchText("100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := p2.SearchText("200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m1) != 1 || len(m2) != 1 {
+		t.Fatalf("got %d/%d matches for the changed word, want 1/1", len(m1), len(m2))
+	}
+
+	ops, err := pdf.ComparePages(p1, p2, pdf.ComparisonOptions{
+		ExcludeAreas1: []pdf.Rectangle{m1[0].Rect},
+		ExcludeAreas2: []pdf.Rectangle{m2[0].Rect},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if op.Operation != pdf.OperationEqual {
+			t.Fatalf("edit inside an excluded area was reported: %v %q", op.Operation, op.Text)
+		}
+	}
+}
+
+// buildComparisonTableDoc writes a small ruled table (SetBorder on both the
+// table and its default cell border, so the lattice detector sees a grid)
+// with one cell carrying cellText, and reopens the saved document.
+func buildComparisonTableDoc(t *testing.T, cellText string) *pdf.Document {
+	t.Helper()
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatalf("page: %v", err)
+	}
+	tbl := pdf.NewTable().
+		SetColumnWidths([]float64{120, 120, 120}).
+		SetBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1}).
+		SetDefaultCellBorder(pdf.BorderInfo{Sides: pdf.BorderSideAll, Width: 1})
+	tbl.AddRow().AddCells("Item", "Qty", "Price")
+	tbl.AddRow().AddCells(cellText, "7", "9.10")
+	if _, err := page.AddTable(tbl, pdf.Rectangle{LLX: 60, LLY: 500, URX: 420, URY: 700}); err != nil {
+		t.Fatalf("add table: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	re, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	return re
+}
+
+// ExcludeTables drops the words inside tables the TableAbsorber detects. Two
+// documents differing only inside a ruled table cell must report no changes
+// with ExcludeTables set, and must report the change without it — otherwise
+// a failure to detect the table at all would make this pass vacuously.
+func TestComparePagesExcludeTables(t *testing.T) {
+	a := buildComparisonTableDoc(t, "Pears")
+	b := buildComparisonTableDoc(t, "Plums")
+	p1, p2 := firstPages(t, a, b)
+
+	tables := detectOn(t, a)
+	if len(tables) != 1 {
+		t.Fatalf("table detection found %d tables in the comparison fixture, want 1 (the fixture must produce a detectable table or this test passes vacuously)", len(tables))
+	}
+
+	baseline, err := pdf.ComparePages(p1, p2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baselineChanged bool
+	for _, op := range baseline {
+		if op.Operation != pdf.OperationEqual {
+			baselineChanged = true
+		}
+	}
+	if !baselineChanged {
+		t.Fatal("baseline comparison (no exclusion) reported no change; the fixture is broken")
+	}
+
+	ops, err := pdf.ComparePages(p1, p2, pdf.ComparisonOptions{ExcludeTables: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if op.Operation != pdf.OperationEqual {
+			t.Fatalf("ExcludeTables left a change reported: %v %q", op.Operation, op.Text)
+		}
+	}
+}
+
 func TestComparePagesNilPage(t *testing.T) {
 	a := buildComparisonDoc(t, "alpha")
 	p1, err := a.Page(1)
@@ -306,6 +424,37 @@ func TestCompareFlatDocumentsAcrossPages(t *testing.T) {
 	}
 }
 
+// CompareFlatDocuments leaves the per-page index nil, so PageOperations must
+// fall back to scanning Operations() by page instead of indexing into it.
+func TestPageOperationsOnFlatResult(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta", "gamma delta")
+	b := buildComparisonDoc(t, "alpha beta", "gamma epsilon")
+
+	res, err := pdf.CompareFlatDocuments(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := res.PageOperations(2)
+	if len(got) == 0 {
+		t.Fatal("PageOperations(2) on a flat-mode result returned nothing")
+	}
+	var found bool
+	for _, op := range got {
+		if op.Operation == pdf.OperationInsert && op.Text == "epsilon" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("page 2 operations = %+v, want an insertion of %q", got, "epsilon")
+	}
+	// Page 1 is unchanged, so it must not be pulled in by the scan.
+	for _, op := range res.PageOperations(1) {
+		if op.Operation != pdf.OperationEqual {
+			t.Errorf("page 1 is unchanged but PageOperations(1) reported %v %q", op.Operation, op.Text)
+		}
+	}
+}
+
 func TestCompareDocumentsNil(t *testing.T) {
 	a := buildComparisonDoc(t, "alpha")
 	if _, err := pdf.CompareDocumentsPageByPage(a, nil); err == nil {
@@ -341,6 +490,16 @@ func TestSaveMarkupAnnotatesTheDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	matches, err := page.SearchText("200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("search found %d matches for %q, want 1", len(matches), "200")
+	}
+	wantRect := matches[0].Rect
+	wantColor := pdf.Color{R: 0.20, G: 0.72, B: 0.35, A: 1} // the default insert colour
+
 	var highlights, carets int
 	for _, ann := range page.Annotations().All() {
 		switch ann.AnnotationType() {
@@ -351,6 +510,27 @@ func TestSaveMarkupAnnotatesTheDestination(t *testing.T) {
 			}
 			if ann.Title() != "Comparison" {
 				t.Errorf("highlight title = %q, want %q", ann.Title(), "Comparison")
+			}
+			h, ok := ann.(*pdf.HighlightAnnotation)
+			if !ok {
+				t.Fatalf("highlight annotation has concrete type %T, want *pdf.HighlightAnnotation", ann)
+			}
+			if c := h.Color(); c == nil || !closeColor(*c, wantColor) {
+				t.Errorf("highlight colour = %+v, want %+v", c, wantColor)
+			}
+			quads := h.QuadPoints()
+			if len(quads) != 1 {
+				t.Fatalf("highlight quad points = %d, want 1 (one rectangle in the run)", len(quads))
+			}
+			// The quad must sit over the changed word: compare its corners
+			// against an independent oracle, SearchText's rectangle for "200".
+			q := quads[0]
+			const tol = 0.5
+			if abs(q.X1-wantRect.LLX) > tol || abs(q.Y1-wantRect.URY) > tol ||
+				abs(q.X2-wantRect.URX) > tol || abs(q.Y2-wantRect.URY) > tol ||
+				abs(q.X3-wantRect.LLX) > tol || abs(q.Y3-wantRect.LLY) > tol ||
+				abs(q.X4-wantRect.URX) > tol || abs(q.Y4-wantRect.LLY) > tol {
+				t.Errorf("highlight quad = %+v, want corners of %+v", q, wantRect)
 			}
 		case pdf.AnnotationTypeCaret:
 			carets++
@@ -364,6 +544,12 @@ func TestSaveMarkupAnnotatesTheDestination(t *testing.T) {
 	}
 }
 
+// closeColor compares two colours within a small float tolerance.
+func closeColor(a, b pdf.Color) bool {
+	const tol = 0.01
+	return abs(a.R-b.R) <= tol && abs(a.G-b.G) <= tol && abs(a.B-b.B) <= tol && abs(a.A-b.A) <= tol
+}
+
 func TestSaveMarkupSourceSideStrikesOut(t *testing.T) {
 	a := buildComparisonDoc(t, "total is 100 euro")
 	b := buildComparisonDoc(t, "total is 200 euro")
@@ -373,7 +559,7 @@ func TestSaveMarkupSourceSideStrikesOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Side: pdf.MarkupSource}); err != nil {
+	if err := res.WriteMarkup(&buf, pdf.DiffMarkupOptions{Side: pdf.DiffMarkupSource}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -384,17 +570,29 @@ func TestSaveMarkupSourceSideStrikesOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var strikes int
+	var strikes, carets int
 	for _, ann := range page.Annotations().All() {
-		if ann.AnnotationType() == pdf.AnnotationTypeStrikeOut {
+		switch ann.AnnotationType() {
+		case pdf.AnnotationTypeStrikeOut:
 			strikes++
 			if ann.Contents() != "100" {
 				t.Errorf("strike-out contents = %q, want %q", ann.Contents(), "100")
+			}
+		case pdf.AnnotationTypeCaret:
+			// The insertion has no text on the source side, so it is marked
+			// with a caret carrying the inserted text — the paired half of
+			// the replacement, mirroring the strike-out asserted above.
+			carets++
+			if ann.Contents() != "200" {
+				t.Errorf("caret contents = %q, want the inserted text %q", ann.Contents(), "200")
 			}
 		}
 	}
 	if strikes != 1 {
 		t.Fatalf("got %d strike-outs, want 1", strikes)
+	}
+	if carets != 1 {
+		t.Fatalf("got %d carets, want 1 (the paired insertion on the source side)", carets)
 	}
 }
 
@@ -431,7 +629,7 @@ func TestSaveMarkupFlatten(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Flatten: true}); err != nil {
+	if err := res.WriteMarkup(&buf, pdf.DiffMarkupOptions{Flatten: true}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -458,7 +656,7 @@ func TestSaveMarkupRendersDifferently(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Flatten: true}); err != nil {
+	if err := res.WriteMarkup(&buf, pdf.DiffMarkupOptions{Flatten: true}); err != nil {
 		t.Fatal(err)
 	}
 	marked, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -542,5 +740,18 @@ func TestComparePagesArabic(t *testing.T) {
 	}
 	if changed != 2 {
 		t.Errorf("got %d changed words, want one deleted and one inserted", changed)
+	}
+
+	// The word-count assertions above would also pass if the tokenizer read
+	// glyphs in visual (rendering) order instead of logical order — the
+	// shared word is a common suffix either way. Pin logical order directly:
+	// under logical order the shared word is the *first* thing typed, so it
+	// must be the first operation reported.
+	if len(ops) == 0 {
+		t.Fatal("comparison produced no operations")
+	}
+	wantFirst := "السلام" // as-salamu
+	if ops[0].Operation != pdf.OperationEqual || ops[0].Text != wantFirst {
+		t.Fatalf("first operation = %+v, want an equal run carrying %q (logical order)", ops[0], wantFirst)
 	}
 }
