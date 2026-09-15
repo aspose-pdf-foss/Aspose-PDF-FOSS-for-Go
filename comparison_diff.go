@@ -4,9 +4,14 @@ package asposepdf
 
 // maxEditDistance caps the Myers search. Two unrelated documents drive the
 // edit distance towards the sum of their lengths, and the search cost grows
-// with its square; past this point the comparer reports one wholesale
-// deletion and one wholesale insertion instead of grinding for minutes.
-const maxEditDistance = 4096
+// with the square of that distance in both time and memory — myersScript
+// snapshots the whole frontier once per round, so the cap bounds a roughly
+// maxEditDistance^2-int allocation (about 64 MB at this value). A typical
+// comparison has a small edit distance and allocates kilobytes, since the
+// common prefix and suffix are trimmed before the search starts. Past the
+// cap, the comparer reports one wholesale deletion and one wholesale
+// insertion instead of grinding through — and allocating — the full square.
+const maxEditDistance = 2000
 
 type editKind int
 
