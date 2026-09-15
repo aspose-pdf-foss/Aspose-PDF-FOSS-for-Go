@@ -491,3 +491,56 @@ func renderPNG(t *testing.T, doc *pdf.Document) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// Arabic is drawn in visual order; comparison must work on the logical order
+// extraction restores, so the changed word is the one that is reported.
+func TestComparePagesArabic(t *testing.T) {
+	build := func(text string) *pdf.Document {
+		doc := pdf.NewDocument(400, 200)
+		font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+		if err != nil {
+			t.Fatalf("load font: %v", err)
+		}
+		page, err := doc.Page(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := page.AddText(text, pdf.TextStyle{Font: font, Size: 18},
+			pdf.Rectangle{LLX: 20, LLY: 80, URX: 380, URY: 140}); err != nil {
+			t.Fatalf("add text: %v", err)
+		}
+		var buf bytes.Buffer
+		if _, err := doc.WriteTo(&buf); err != nil {
+			t.Fatal(err)
+		}
+		re, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return re
+	}
+
+	a := build("\u0627\u0644\u0633\u0644\u0627\u0645 \u0639\u0644\u064a\u0643\u0645")       // as-salamu alaykum
+	b := build("\u0627\u0644\u0633\u0644\u0627\u0645 \u0644\u0644\u0639\u0627\u0644\u0645") // as-salamu lil-alam
+	p1, p2 := firstPages(t, a, b)
+
+	ops, err := pdf.ComparePages(p1, p2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var equal, changed int
+	for _, op := range ops {
+		switch op.Operation {
+		case pdf.OperationEqual:
+			equal += len(strings.Fields(op.Text))
+		default:
+			changed += len(strings.Fields(op.Text))
+		}
+	}
+	if equal != 1 {
+		t.Errorf("got %d unchanged words, want the shared first word", equal)
+	}
+	if changed != 2 {
+		t.Errorf("got %d changed words, want one deleted and one inserted", changed)
+	}
+}
