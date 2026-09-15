@@ -84,3 +84,43 @@ func TestTokenKeyIgnoreCase(t *testing.T) {
 		t.Errorf("case-insensitive key = %q, want %q", got, "alpha")
 	}
 }
+
+func TestFilterTokensByArea(t *testing.T) {
+	tokens := []wordToken{
+		{text: "in", rect: Rectangle{LLX: 10, LLY: 10, URX: 30, URY: 20}},
+		{text: "out", rect: Rectangle{LLX: 200, LLY: 200, URX: 220, URY: 210}},
+	}
+	area := Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}
+	got := filterTokens(tokens, &area, nil)
+	if len(got) != 1 || got[0].text != "in" {
+		t.Fatalf("got %+v, want only the token inside the area", got)
+	}
+}
+
+func TestFilterTokensByExcludeArea(t *testing.T) {
+	tokens := []wordToken{
+		{text: "keep", rect: Rectangle{LLX: 10, LLY: 10, URX: 30, URY: 20}},
+		{text: "drop", rect: Rectangle{LLX: 200, LLY: 200, URX: 220, URY: 210}},
+	}
+	exclude := []Rectangle{{LLX: 150, LLY: 150, URX: 250, URY: 250}}
+	got := filterTokens(tokens, nil, exclude)
+	if len(got) != 1 || got[0].text != "keep" {
+		t.Fatalf("got %+v, want only the token outside the excluded area", got)
+	}
+}
+
+// A word sitting on the boundary belongs to whichever region contains its
+// midpoint — never to both.
+func TestFilterTokensDecidesByMidpoint(t *testing.T) {
+	tokens := []wordToken{
+		{text: "straddles", rect: Rectangle{LLX: 90, LLY: 10, URX: 110, URY: 20}},
+	}
+	area := Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 100}
+	if got := filterTokens(tokens, &area, nil); len(got) != 0 {
+		t.Fatalf("midpoint x=100 is not inside [0,100); got %+v", got)
+	}
+	wider := Rectangle{LLX: 0, LLY: 0, URX: 101, URY: 100}
+	if got := filterTokens(tokens, &wider, nil); len(got) != 1 {
+		t.Fatalf("midpoint x=100 is inside [0,101]; got %+v", got)
+	}
+}

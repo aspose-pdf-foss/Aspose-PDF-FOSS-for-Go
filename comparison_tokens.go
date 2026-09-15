@@ -92,3 +92,51 @@ func tokenKey(text string, ignoreCase bool) string {
 	}
 	return text
 }
+
+// filterTokens keeps the words whose rectangle midpoint lies inside area
+// (when non-nil) and outside every excluded rectangle. Deciding by the
+// midpoint means a word on a boundary belongs to exactly one region.
+func filterTokens(tokens []wordToken, area *Rectangle, exclude []Rectangle) []wordToken {
+	if area == nil && len(exclude) == 0 {
+		return tokens
+	}
+	out := make([]wordToken, 0, len(tokens))
+	for _, tk := range tokens {
+		if area != nil && !midpointIn(tk.rect, *area) {
+			continue
+		}
+		skip := false
+		for _, ex := range exclude {
+			if midpointIn(tk.rect, ex) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			out = append(out, tk)
+		}
+	}
+	return out
+}
+
+// midpointIn reports whether the centre of r lies within area.
+func midpointIn(r, area Rectangle) bool {
+	cx := (r.LLX + r.URX) / 2
+	cy := (r.LLY + r.URY) / 2
+	return cx >= area.LLX && cx < area.URX && cy >= area.LLY && cy < area.URY
+}
+
+// tableRects returns the bounding rectangles of the tables detected on the
+// page — ruled and borderless alike, since the absorber runs both passes.
+func tableRects(p *Page) ([]Rectangle, error) {
+	ta := NewTableAbsorber()
+	if err := ta.Visit(p); err != nil {
+		return nil, err
+	}
+	tables := ta.TableList()
+	rects := make([]Rectangle, 0, len(tables))
+	for _, t := range tables {
+		rects = append(rects, t.Rect)
+	}
+	return rects, nil
+}
