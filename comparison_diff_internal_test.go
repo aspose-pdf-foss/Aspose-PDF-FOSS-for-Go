@@ -102,3 +102,87 @@ func TestDiffKeysCapReturnsFalse(t *testing.T) {
 		t.Fatal("two entirely different sequences of cap length should report the cap")
 	}
 }
+
+// tokensFrom builds tokens for a sentence, one line, one page, with
+// non-overlapping rectangles so grouping has something real to union.
+func tokensFrom(t *testing.T, s string, page int) []wordToken {
+	t.Helper()
+	var out []wordToken
+	x := 0.0
+	for _, w := range strings.Fields(s) {
+		width := float64(len(w)) * 6
+		out = append(out, wordToken{
+			text: w,
+			key:  w,
+			page: page,
+			line: 0,
+			rect: Rectangle{LLX: x, LLY: 100, URX: x + width, URY: 112},
+		})
+		x += width + 3
+	}
+	return out
+}
+
+func TestGroupOperationsMergesRuns(t *testing.T) {
+	src := tokensFrom(t, "alpha beta gamma delta", 1)
+	dst := tokensFrom(t, "alpha delta", 1)
+	edits, ok := diffKeys([]string{"alpha", "beta", "gamma", "delta"}, []string{"alpha", "delta"})
+	if !ok {
+		t.Fatal("cap hit")
+	}
+	ops := groupOperations(edits, src, dst, EditOperationsDeleteFirst)
+	if len(ops) != 3 {
+		t.Fatalf("got %d operations, want 3: %+v", len(ops), ops)
+	}
+	if ops[1].Operation != OperationDelete || ops[1].Text != "beta gamma" {
+		t.Fatalf("operation 1 = %v %q, want delete %q", ops[1].Operation, ops[1].Text, "beta gamma")
+	}
+	if len(ops[1].SourceRects) != 1 {
+		t.Fatalf("deleted run on one line must carry one rectangle, got %d", len(ops[1].SourceRects))
+	}
+	if ops[1].SourcePage != 1 || ops[1].DestPage != 0 {
+		t.Errorf("deletion pages = src %d dst %d, want 1 and 0", ops[1].SourcePage, ops[1].DestPage)
+	}
+}
+
+func TestGroupOperationsBreaksRunsAtLineAndPage(t *testing.T) {
+	src := []wordToken{
+		{text: "one", key: "one", page: 1, line: 0, rect: Rectangle{LLX: 0, LLY: 100, URX: 20, URY: 112}},
+		{text: "two", key: "two", page: 1, line: 1, rect: Rectangle{LLX: 0, LLY: 80, URX: 20, URY: 92}},
+		{text: "three", key: "three", page: 2, line: 0, rect: Rectangle{LLX: 0, LLY: 100, URX: 30, URY: 112}},
+	}
+	edits := []edit{
+		{kind: editDelete, a: 0, b: -1},
+		{kind: editDelete, a: 1, b: -1},
+		{kind: editDelete, a: 2, b: -1},
+	}
+	ops := groupOperations(edits, src, nil, EditOperationsDeleteFirst)
+	if len(ops) != 2 {
+		t.Fatalf("a run must break at the page boundary: got %d operations %+v", len(ops), ops)
+	}
+	if ops[0].Text != "one two" || len(ops[0].SourceRects) != 2 {
+		t.Errorf("first run = %q with %d rects, want %q with 2", ops[0].Text, len(ops[0].SourceRects), "one two")
+	}
+	if ops[1].SourcePage != 2 {
+		t.Errorf("second run page = %d, want 2", ops[1].SourcePage)
+	}
+}
+
+func TestGroupOperationsRespectsEditOperationsOrder(t *testing.T) {
+	src := tokensFrom(t, "total is 100", 1)
+	dst := tokensFrom(t, "total is 200", 1)
+	edits, ok := diffKeys([]string{"total", "is", "100"}, []string{"total", "is", "200"})
+	if !ok {
+		t.Fatal("cap hit")
+	}
+
+	first := groupOperations(edits, src, dst, EditOperationsDeleteFirst)
+	if first[1].Operation != OperationDelete || first[2].Operation != OperationInsert {
+		t.Errorf("DeleteFirst gave %v then %v", first[1].Operation, first[2].Operation)
+	}
+
+	second := groupOperations(edits, src, dst, EditOperationsInsertFirst)
+	if second[1].Operation != OperationInsert || second[2].Operation != OperationDelete {
+		t.Errorf("InsertFirst gave %v then %v", second[1].Operation, second[2].Operation)
+	}
+}

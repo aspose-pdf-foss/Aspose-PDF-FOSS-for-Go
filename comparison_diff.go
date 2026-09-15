@@ -2,6 +2,8 @@
 
 package asposepdf
 
+import "strings"
+
 // maxEditDistance caps the Myers search. Two unrelated documents drive the
 // edit distance towards the sum of their lengths, and the search cost grows
 // with the square of that distance in both time and memory — myersScript
@@ -157,4 +159,130 @@ func backtrackScript(trace [][]int, offset, n, m int) []edit {
 		rev[i], rev[j] = rev[j], rev[i]
 	}
 	return rev
+}
+
+// groupOperations turns an edit script into runs. Adjacent edits of the same
+// kind merge while they stay on the same page; their rectangles are unioned
+// per line, so a run crossing two lines reports two boxes.
+func groupOperations(edits []edit, src, dst []wordToken, order EditOperationsOrder) []DiffOperation {
+	var ops []DiffOperation
+	for i := 0; i < len(edits); {
+		j := i + 1
+		for j < len(edits) && edits[j].kind == edits[i].kind &&
+			samePage(edits[i], edits[j], src, dst) {
+			j++
+		}
+		ops = append(ops, buildOperation(edits[i:j], src, dst))
+		i = j
+	}
+	if order == EditOperationsInsertFirst {
+		swapReplacements(ops)
+	}
+	return ops
+}
+
+// samePage reports whether two edits of the same kind sit on the same page of
+// the side they belong to.
+func samePage(a, b edit, src, dst []wordToken) bool {
+	switch a.kind {
+	case editInsert:
+		return dst[a.b].page == dst[b.b].page
+	case editDelete:
+		return src[a.a].page == src[b.a].page
+	default:
+		return src[a.a].page == src[b.a].page && dst[a.b].page == dst[b.b].page
+	}
+}
+
+// buildOperation assembles one run into a DiffOperation.
+func buildOperation(run []edit, src, dst []wordToken) DiffOperation {
+	op := DiffOperation{}
+	var srcTokens, dstTokens []wordToken
+	for _, e := range run {
+		if e.a >= 0 {
+			srcTokens = append(srcTokens, src[e.a])
+		}
+		if e.b >= 0 {
+			dstTokens = append(dstTokens, dst[e.b])
+		}
+	}
+	switch run[0].kind {
+	case editInsert:
+		op.Operation = OperationInsert
+		op.Text = joinTokenText(dstTokens)
+	case editDelete:
+		op.Operation = OperationDelete
+		op.Text = joinTokenText(srcTokens)
+	default:
+		op.Operation = OperationEqual
+		op.Text = joinTokenText(srcTokens)
+	}
+	if len(srcTokens) > 0 {
+		op.SourcePage = srcTokens[0].page
+		op.SourceRects = lineRects(srcTokens)
+	}
+	if len(dstTokens) > 0 {
+		op.DestPage = dstTokens[0].page
+		op.DestRects = lineRects(dstTokens)
+	}
+	return op
+}
+
+// joinTokenText joins the words of a run with single spaces.
+func joinTokenText(tokens []wordToken) string {
+	parts := make([]string, len(tokens))
+	for i, tk := range tokens {
+		parts[i] = tk.text
+	}
+	return strings.Join(parts, " ")
+}
+
+// lineRects unions the tokens' rectangles per layout line, keeping document
+// order, so a run wrapping onto the next line reports one box per line.
+func lineRects(tokens []wordToken) []Rectangle {
+	var (
+		rects []Rectangle
+		cur   Rectangle
+		line  = -1
+		open  bool
+	)
+	for _, tk := range tokens {
+		if !open || tk.line != line {
+			if open {
+				rects = append(rects, cur)
+			}
+			cur, line, open = tk.rect, tk.line, true
+			continue
+		}
+		cur = unionRect(cur, tk.rect)
+	}
+	if open {
+		rects = append(rects, cur)
+	}
+	return rects
+}
+
+// swapReplacements puts the inserted half of a replacement before the deleted
+// half, for EditOperationsInsertFirst.
+func swapReplacements(ops []DiffOperation) {
+	for i := 0; i+1 < len(ops); i++ {
+		if ops[i].Operation == OperationDelete && ops[i+1].Operation == OperationInsert {
+			ops[i], ops[i+1] = ops[i+1], ops[i]
+			i++ // the pair is settled; do not reconsider it
+		}
+	}
+}
+
+// wholeReplacement is the answer when the edit-distance cap is hit: the whole
+// source is reported deleted and the whole destination inserted, page by page
+// so the rectangles stay usable.
+func wholeReplacement(src, dst []wordToken, order EditOperationsOrder) []DiffOperation {
+	edits := make([]edit, 0, len(src)+len(dst))
+	for i := range src {
+		edits = append(edits, edit{kind: editDelete, a: i, b: -1})
+	}
+	for i := range dst {
+		edits = append(edits, edit{kind: editInsert, a: -1, b: i})
+	}
+	return groupOperations(edits, src, dst, order)
 }
