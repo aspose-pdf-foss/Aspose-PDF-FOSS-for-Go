@@ -194,8 +194,12 @@ is poorer than the data.
 
 `Flatten: true` finishes by calling `Annotations().Flatten()` per page.
 
-Appearances come from the existing builders, so the markup renders identically
-in Acrobat, in our own renderer and in MuPDF.
+Highlight and strike-out annotations have no appearance generator in this
+library (viewers synthesize one from `/QuadPoints`), so the markup writer
+builds theirs with the shared appearance builder — a Multiply-blended wash for
+the highlight, a centre line for the strike-out. Carets generate their own.
+With an `/AP` present, the markup renders identically in Acrobat, in our own
+renderer and in MuPDF.
 
 ### 4. `comparison.go` — API surface
 

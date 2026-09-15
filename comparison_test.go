@@ -4,6 +4,8 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -312,4 +314,180 @@ func TestCompareDocumentsNil(t *testing.T) {
 	if _, err := pdf.CompareFlatDocuments(nil, a); err == nil {
 		t.Fatal("a nil document must be rejected")
 	}
+}
+
+func TestSaveMarkupAnnotatesTheDestination(t *testing.T) {
+	a := buildComparisonDoc(t, "total is 100 euro")
+	b := buildComparisonDoc(t, "total is 200 euro")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join("result_files", "TestSaveMarkupAnnotatesTheDestination")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "markup.pdf")
+	if err := res.SaveMarkup(out); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := pdf.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var highlights, carets int
+	for _, ann := range page.Annotations().All() {
+		switch ann.AnnotationType() {
+		case pdf.AnnotationTypeHighlight:
+			highlights++
+			if ann.Contents() != "200" {
+				t.Errorf("highlight contents = %q, want %q", ann.Contents(), "200")
+			}
+			if ann.Title() != "Comparison" {
+				t.Errorf("highlight title = %q, want %q", ann.Title(), "Comparison")
+			}
+		case pdf.AnnotationTypeCaret:
+			carets++
+			if ann.Contents() != "100" {
+				t.Errorf("caret contents = %q, want the deleted text %q", ann.Contents(), "100")
+			}
+		}
+	}
+	if highlights != 1 || carets != 1 {
+		t.Fatalf("got %d highlights and %d carets, want 1 and 1", highlights, carets)
+	}
+}
+
+func TestSaveMarkupSourceSideStrikesOut(t *testing.T) {
+	a := buildComparisonDoc(t, "total is 100 euro")
+	b := buildComparisonDoc(t, "total is 200 euro")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Side: pdf.MarkupSource}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var strikes int
+	for _, ann := range page.Annotations().All() {
+		if ann.AnnotationType() == pdf.AnnotationTypeStrikeOut {
+			strikes++
+			if ann.Contents() != "100" {
+				t.Errorf("strike-out contents = %q, want %q", ann.Contents(), "100")
+			}
+		}
+	}
+	if strikes != 1 {
+		t.Fatalf("got %d strike-outs, want 1", strikes)
+	}
+}
+
+// Marking up must not touch the documents the caller handed in.
+func TestSaveMarkupLeavesInputsAlone(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta")
+	b := buildComparisonDoc(t, "alpha gamma")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := res.WriteMarkup(&buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range []*pdf.Document{a, b} {
+		page, err := doc.Page(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := page.Annotations().Count(); n != 0 {
+			t.Errorf("input document gained %d annotations", n)
+		}
+	}
+}
+
+func TestSaveMarkupFlatten(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta")
+	b := buildComparisonDoc(t, "alpha gamma")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Flatten: true}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := page.Annotations().Count(); n != 0 {
+		t.Fatalf("flattened output still carries %d annotations", n)
+	}
+}
+
+// The highlight must actually paint: its appearance stream is generated, so
+// our own renderer shows it too.
+func TestSaveMarkupRendersDifferently(t *testing.T) {
+	a := buildComparisonDoc(t, "alpha beta")
+	b := buildComparisonDoc(t, "alpha gamma")
+
+	res, err := pdf.CompareDocumentsPageByPage(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := res.WriteMarkup(&buf, pdf.MarkupOptions{Flatten: true}); err != nil {
+		t.Fatal(err)
+	}
+	marked, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := renderPNG(t, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := renderPNG(t, marked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("the marked-up page renders identically to the unmarked one")
+	}
+}
+
+func renderPNG(t *testing.T, doc *pdf.Document) ([]byte, error) {
+	t.Helper()
+	page, err := doc.Page(1)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := page.RenderPNG(&buf, pdf.RenderOptions{DPI: 72}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
