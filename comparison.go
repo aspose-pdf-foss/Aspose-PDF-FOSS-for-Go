@@ -71,7 +71,10 @@ const (
 	// EditOperationsDeleteFirst reports the removed text before the added
 	// text. This is the zero value.
 	EditOperationsDeleteFirst EditOperationsOrder = iota
-	// EditOperationsInsertFirst reports the added text first.
+	// EditOperationsInsertFirst reports the added text first. This only
+	// reorders the delete/insert pair at their adjacent junction: a
+	// replacement split across a page boundary (the deletion on one page,
+	// the insertion on the next) is not reordered and comes out interleaved.
 	EditOperationsInsertFirst
 )
 
@@ -221,7 +224,9 @@ func (r *ComparisonResult) HasChanges() bool {
 	return false
 }
 
-// Operations returns every difference in document order.
+// Operations returns every operation, differences and unchanged runs alike,
+// in document order. The returned slice is the result's internal storage;
+// the caller must not sort or truncate it in place.
 func (r *ComparisonResult) Operations() []DiffOperation {
 	return r.ops
 }
@@ -229,6 +234,8 @@ func (r *ComparisonResult) Operations() []DiffOperation {
 // PageOperations returns the operations of one 1-based page. An operation is
 // listed under the page it physically occupies: the second document's page
 // for equal and inserted text, the first document's page for deleted text.
+// In page-by-page mode the returned slice is the result's internal storage;
+// the caller must not sort or truncate it in place.
 func (r *ComparisonResult) PageOperations(pageNum int) []DiffOperation {
 	if r.pages != nil {
 		if pageNum < 1 || pageNum > len(r.pages) {
@@ -262,8 +269,14 @@ type ComparisonStatistics struct {
 	EqualWords    int
 	InsertedWords int
 	DeletedWords  int
-	// ChangedPages lists, ascending, the pages carrying a change: destination
-	// pages, plus source pages that have no destination counterpart.
+	// ChangedPages lists, ascending, the pages carrying a change. Each page
+	// number is chosen by the same rule PageOperations uses to place an
+	// operation — the destination page for equal and inserted text, the
+	// source page for deleted text — but since only non-equal operations
+	// contribute, in practice this means the destination page for an
+	// insertion and the source page for a deletion. In flat mode source and
+	// destination page numbers are independent counters, so this list can
+	// mix the two numbering spaces.
 	ChangedPages []int
 }
 

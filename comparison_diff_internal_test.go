@@ -32,6 +32,8 @@ func TestDiffKeysRoundTrip(t *testing.T) {
 		{"one two three", "one TWO three"},             // replacement
 		{"", "alpha beta"},                             // empty source
 		{"alpha beta", ""},                             // empty destination
+		{"alpha beta gamma", "alpha"},                  // prefix survives, middle+suffix emptied
+		{"alpha", "alpha beta gamma"},                  // prefix survives, middle+suffix inserted
 		{"a b c d e f", "f e d c b a"},                 // reversal
 		{"the quick brown fox", "the slow brown cat!"}, // two replacements
 	}

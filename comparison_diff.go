@@ -47,7 +47,29 @@ func diffKeys(a, b []string) ([]edit, bool) {
 		suf++
 	}
 
-	mid, ok := myersScript(a[pre:len(a)-suf], b[pre:len(b)-suf])
+	ta, tb := a[pre:len(a)-suf], b[pre:len(b)-suf]
+
+	// Once either trimmed side is empty, the answer is already known: the
+	// other side is one run of deletions or insertions. Skipping the Myers
+	// search here matters — a page-sized deletion would otherwise pay the
+	// full O(D^2) cost (frontier snapshots up to maxEditDistance) on every
+	// page just to rediscover that there was nothing to search for.
+	var mid []edit
+	ok := true
+	switch {
+	case len(ta) == 0:
+		mid = make([]edit, len(tb))
+		for i := range tb {
+			mid[i] = edit{kind: editInsert, a: -1, b: i}
+		}
+	case len(tb) == 0:
+		mid = make([]edit, len(ta))
+		for i := range ta {
+			mid[i] = edit{kind: editDelete, a: i, b: -1}
+		}
+	default:
+		mid, ok = myersScript(ta, tb)
+	}
 	if !ok {
 		return nil, false
 	}
@@ -239,6 +261,8 @@ func joinTokenText(tokens []wordToken) string {
 
 // lineRects unions the tokens' rectangles per layout line, keeping document
 // order, so a run wrapping onto the next line reports one box per line.
+// Precondition: tokens arrive in non-decreasing line order — true by
+// construction, since tokens are produced in reading order.
 func lineRects(tokens []wordToken) []Rectangle {
 	var (
 		rects []Rectangle
@@ -263,7 +287,10 @@ func lineRects(tokens []wordToken) []Rectangle {
 }
 
 // swapReplacements puts the inserted half of a replacement before the deleted
-// half, for EditOperationsInsertFirst.
+// half, for EditOperationsInsertFirst. It only reorders the pair at the
+// adjacent delete/insert junction: a replacement split across a page
+// boundary (the delete on one page, the insert on the next) comes out
+// interleaved rather than with every insert first.
 func swapReplacements(ops []DiffOperation) {
 	for i := 0; i+1 < len(ops); i++ {
 		if ops[i].Operation == OperationDelete && ops[i+1].Operation == OperationInsert {

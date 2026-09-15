@@ -119,7 +119,9 @@ func filterTokens(tokens []wordToken, area *Rectangle, exclude []Rectangle) []wo
 	return out
 }
 
-// midpointIn reports whether the centre of r lies within area.
+// midpointIn reports whether the centre of r lies within area, using the
+// half-open convention [LLX, URX) x [LLY, URY) — a centre exactly on the top
+// or right edge is outside.
 func midpointIn(r, area Rectangle) bool {
 	cx := (r.LLX + r.URX) / 2
 	cy := (r.LLY + r.URY) / 2
