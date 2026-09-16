@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"os"
 	"strings"
@@ -550,6 +551,104 @@ func TestVerifySignatureReturnsChain(t *testing.T) {
 	}
 	if s.Chain[0].SerialNumber.Cmp(s.Certificate.SerialNumber) == 0 {
 		t.Error("Chain repeats the signer certificate")
+	}
+}
+
+// A signing service that only ever sees a digest — the shape a remote HSM or
+// a cloud signing API offers — must be able to produce the same signature as
+// a local key.
+func TestSignWithSignHashCallback(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+
+	var calls int
+	var sawHash crypto.Hash
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert,
+		Digest:      pdf.DigestSHA384,
+		Name:        "Remote Signer",
+		SignHash: func(digest []byte, hash crypto.Hash) ([]byte, error) {
+			calls++
+			sawHash = hash
+			if len(digest) != hash.Size() {
+				t.Errorf("digest is %d bytes, want %d for %v", len(digest), hash.Size(), hash)
+			}
+			return key.Sign(rand.Reader, digest, hash)
+		},
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("SignHash called %d times, want 1", calls)
+	}
+	if sawHash != crypto.SHA384 {
+		t.Errorf("SignHash saw %v, want SHA-384 (the Digest that was asked for)", sawHash)
+	}
+
+	signed, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs, err := signed.VerifySignatures()
+	if err != nil || len(sigs) != 1 {
+		t.Fatalf("VerifySignatures: %v / %d results", err, len(sigs))
+	}
+	if !sigs[0].Valid {
+		t.Errorf("signature not valid: %v", sigs[0].Err)
+	}
+	if sigs[0].Certificate == nil || sigs[0].Certificate.Subject.CommonName != "Test Signer" {
+		t.Errorf("Certificate = %v", sigs[0].Certificate)
+	}
+}
+
+// An error from the signing service must surface, not produce a broken file.
+func TestSignHashCallbackErrorSurfaces(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert,
+		SignHash: func(digest []byte, hash crypto.Hash) ([]byte, error) {
+			return nil, errors.New("hsm offline")
+		},
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err == nil {
+		t.Fatal("WriteTo succeeded despite the signing service failing")
+	} else if !strings.Contains(err.Error(), "hsm offline") {
+		t.Errorf("error = %v, want it to carry the callback failure", err)
+	}
+}
+
+// Exactly one way of signing must be given.
+func TestSignRejectsAmbiguousKeyMaterial(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	cb := func(digest []byte, hash crypto.Hash) ([]byte, error) { return nil, nil }
+
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert, PrivateKey: key, SignHash: cb}); err == nil {
+		t.Error("both PrivateKey and SignHash were accepted")
+	}
+	if err := doc.Sign(pdf.SignOptions{Certificate: cert}); err == nil {
+		t.Error("neither PrivateKey nor SignHash was accepted")
 	}
 }
 

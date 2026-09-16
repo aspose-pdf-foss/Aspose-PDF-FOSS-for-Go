@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -71,6 +72,17 @@ type SignOptions struct {
 	// Aspose.PDF for .NET's SignatureCustomAppearance). nil = a sensible
 	// default (signer name + date, plus reason/location when set).
 	Appearance *SignatureAppearance
+
+	// SignHash signs a digest instead of holding the key: the alternative to
+	// PrivateKey for a hardware module or a remote signing service that only
+	// ever sees the hash. It is handed the digest and the hash that produced
+	// it, and returns the raw signature — PKCS#1 v1.5 for an RSA
+	// certificate, ASN.1 ECDSA for an elliptic-curve one, matching what
+	// crypto.Signer would have produced. Exactly one of PrivateKey and
+	// SignHash must be set; Certificate is required either way, since the
+	// SignerInfo is built from it. Mirrors the intent of Aspose.PDF for
+	// .NET's CustomSignHash.
+	SignHash func(digest []byte, hash crypto.Hash) ([]byte, error)
 
 	// Digest selects the hash used for the message digest and the signature
 	// itself. The zero value is SHA-256. Mirrors Aspose.PDF for .NET's
@@ -200,13 +212,37 @@ type signConfig struct {
 	incremental                     bool
 }
 
+// callbackSigner adapts a SignHash callback to crypto.Signer, so a remote
+// signing service travels the same path as a local key. Public() answers from
+// the certificate, which is the only public key a verifier will use anyway.
+type callbackSigner struct {
+	pub  crypto.PublicKey
+	sign func(digest []byte, hash crypto.Hash) ([]byte, error)
+}
+
+func (s *callbackSigner) Public() crypto.PublicKey { return s.pub }
+
+func (s *callbackSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	sig, err := s.sign(digest, opts.HashFunc())
+	if err != nil {
+		return nil, fmt.Errorf("sign: SignHash: %w", err)
+	}
+	if len(sig) == 0 {
+		return nil, fmt.Errorf("sign: SignHash returned no signature")
+	}
+	return sig, nil
+}
+
 // Sign configures a digital signature applied on the next Save/WriteTo.
 // Mirrors the intent of Aspose.PDF for .NET's PdfFileSignature.Sign,
 // adapted to this library's options paradigm. Returns an error for a
 // missing certificate or key.
 func (d *Document) Sign(opts SignOptions) error {
-	if opts.Certificate == nil || opts.PrivateKey == nil {
-		return fmt.Errorf("Sign: Certificate and PrivateKey are required")
+	if opts.Certificate == nil {
+		return fmt.Errorf("Sign: Certificate is required")
+	}
+	if (opts.PrivateKey == nil) == (opts.SignHash == nil) {
+		return fmt.Errorf("Sign: set exactly one of PrivateKey and SignHash")
 	}
 	switch opts.Certificate.PublicKeyAlgorithm {
 	case x509.RSA, x509.ECDSA:
@@ -239,9 +275,13 @@ func (d *Document) Sign(opts SignOptions) error {
 	if incremental && d.catalogNum == 0 {
 		return fmt.Errorf("Sign: cannot determine catalog object number for incremental signing")
 	}
+	key := opts.PrivateKey
+	if key == nil {
+		key = &callbackSigner{pub: opts.Certificate.PublicKey, sign: opts.SignHash}
+	}
 	d.sign = &signConfig{
 		cert:        opts.Certificate,
-		key:         opts.PrivateKey,
+		key:         key,
 		chain:       opts.Chain,
 		digest:      opts.Digest,
 		reason:      opts.Reason,
