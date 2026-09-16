@@ -20,7 +20,11 @@ type SignatureVerification struct {
 	IntegrityOK         bool              // the /ByteRange bytes match the signature digest
 	CoversWholeDocument bool              // the signature covers the entire file
 	Certificate         *x509.Certificate // signer certificate (nil on parse failure)
-	Err                 error             // non-nil reason when Valid is false
+	// Chain holds the other certificates the signer embedded — the
+	// intermediates a caller needs to build a path to a trust anchor. The
+	// signer certificate itself is not repeated here.
+	Chain []*x509.Certificate
+	Err   error // non-nil reason when Valid is false
 }
 
 // VerifySignatures verifies every digital signature in the document and
@@ -39,6 +43,35 @@ func (d *Document) VerifySignatures() ([]SignatureVerification, error) {
 		out = append(out, verifyOneSignature(d.source, sf.name, sf.sig))
 	}
 	return out, nil
+}
+
+// SignatureNames returns the field name of every signature in the document,
+// in document order. Mirrors Aspose.PDF for .NET's
+// PdfFileSignature.GetSignatureNames.
+func (d *Document) SignatureNames() []string {
+	fields := d.collectSignatureFields()
+	names := make([]string, 0, len(fields))
+	for _, sf := range fields {
+		names = append(names, sf.name)
+	}
+	return names
+}
+
+// VerifySignature verifies the one signature held by the named field. The
+// error reports a missing field or missing source bytes; a signature that is
+// present but invalid comes back in the result, with the reason in Err —
+// there is nothing exceptional about a document failing to verify. Mirrors
+// Aspose.PDF for .NET's PdfFileSignature.VerifySignature(sigName).
+func (d *Document) VerifySignature(fieldName string) (SignatureVerification, error) {
+	if len(d.source) == 0 {
+		return SignatureVerification{}, fmt.Errorf("VerifySignature: no source bytes (open the document from a file or stream)")
+	}
+	for _, sf := range d.collectSignatureFields() {
+		if sf.name == fieldName {
+			return verifyOneSignature(d.source, sf.name, sf.sig), nil
+		}
+	}
+	return SignatureVerification{}, fmt.Errorf("VerifySignature: no signature field named %q", fieldName)
 }
 
 type sigFieldRef struct {
@@ -126,12 +159,18 @@ func verifyOneSignature(source []byte, fieldName string, sig pdfDict) SignatureV
 		res.Err = fmt.Errorf("missing /Contents")
 		return res
 	}
-	signer, _, err := verifyPKCS7Detached(cms, content)
+	signer, certs, err := verifyPKCS7Detached(cms, content)
 	if err != nil {
 		res.Err = err
 		return res
 	}
 	res.Certificate = signer
+	for _, c := range certs {
+		if c.Equal(signer) {
+			continue
+		}
+		res.Chain = append(res.Chain, c)
+	}
 	res.IntegrityOK = true
 	res.Valid = true
 	return res

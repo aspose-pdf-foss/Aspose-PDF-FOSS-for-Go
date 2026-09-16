@@ -447,6 +447,112 @@ func TestSignMultiple(t *testing.T) {
 	}
 }
 
+// Working with one signature at a time: list the fields, verify a named one,
+// and refuse a name that is not there.
+func TestSignatureNamesAndVerifyByName(t *testing.T) {
+	k1, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1 := newSelfSigned(t, k1)
+	k2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := newSelfSigned(t, k2)
+
+	doc := pdf.NewDocument(400, 300)
+	if err := doc.Sign(pdf.SignOptions{Certificate: c1, PrivateKey: k1, Name: "Alice"}); err != nil {
+		t.Fatalf("first Sign: %v", err)
+	}
+	var b1 bytes.Buffer
+	if _, err := doc.WriteTo(&b1); err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := pdf.OpenStream(bytes.NewReader(b1.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc2.Sign(pdf.SignOptions{Certificate: c2, PrivateKey: k2, Name: "Bob"}); err != nil {
+		t.Fatalf("second Sign: %v", err)
+	}
+	var b2 bytes.Buffer
+	if _, err := doc2.WriteTo(&b2); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := pdf.OpenStream(bytes.NewReader(b2.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := signed.SignatureNames()
+	if len(names) != 2 || names[0] != "Signature1" || names[1] != "Signature2" {
+		t.Fatalf("SignatureNames() = %v, want [Signature1 Signature2]", names)
+	}
+
+	second, err := signed.VerifySignature("Signature2")
+	if err != nil {
+		t.Fatalf("VerifySignature(Signature2): %v", err)
+	}
+	if !second.Valid {
+		t.Errorf("Signature2 not valid: %v", second.Err)
+	}
+	if second.SignerName != "Bob" {
+		t.Errorf("SignerName = %q, want Bob", second.SignerName)
+	}
+
+	if _, err := signed.VerifySignature("Nope"); err == nil {
+		t.Error("VerifySignature accepted a field that does not exist")
+	}
+}
+
+// The intermediates a signer embeds are what a caller needs to build a path
+// to a trust anchor, so the result has to hand them back.
+func TestVerifySignatureReturnsChain(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := newSelfSigned(t, key)
+	extraKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra := newSelfSigned(t, extraKey)
+
+	doc := pdf.NewDocument(400, 200)
+	if err := doc.Sign(pdf.SignOptions{
+		Certificate: cert, PrivateKey: key, Chain: []*x509.Certificate{extra}, Name: "Chained",
+	}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	signed, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs, err := signed.VerifySignatures()
+	if err != nil || len(sigs) != 1 {
+		t.Fatalf("VerifySignatures: %v / %d results", err, len(sigs))
+	}
+	s := sigs[0]
+	if !s.Valid {
+		t.Fatalf("signature not valid: %v", s.Err)
+	}
+	if len(s.Chain) != 1 {
+		t.Fatalf("Chain = %d certificates, want 1 (the embedded intermediate)", len(s.Chain))
+	}
+	if s.Chain[0].SerialNumber.Cmp(extra.SerialNumber) != 0 {
+		t.Errorf("Chain[0] is not the embedded certificate")
+	}
+	if s.Chain[0].SerialNumber.Cmp(s.Certificate.SerialNumber) == 0 {
+		t.Error("Chain repeats the signer certificate")
+	}
+}
+
 func TestSignIncrementalRequiresSource(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
