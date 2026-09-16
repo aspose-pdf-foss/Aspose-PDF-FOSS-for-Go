@@ -69,11 +69,6 @@ func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 		}
 	}
 
-	prevXref, err := lastStartxref(d.source)
-	if err != nil {
-		return nil, err
-	}
-
 	// New objects must start above every object number in the original file.
 	// d.nextID only reflects objects kept in memory — the /Pages and /Catalog
 	// nodes were dropped on open but still occupy numbers in the file — so
@@ -206,6 +201,25 @@ func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 		modified[page.Num] = pageDict
 	}
 
+	out, err := d.appendRevision(baseNextID, modified, encState)
+	if err != nil {
+		return nil, err
+	}
+	return d.applySignature(out)
+}
+
+// appendRevision writes d.source followed by one incremental revision
+// carrying every object numbered at or above baseNextID in d.objects plus the
+// new values of existing objects in modified, then a cross-reference table
+// and a trailer pointing at the previous one. No earlier byte moves, which is
+// what keeps signatures already in the file valid. Shared by the signer and
+// by the /DSS writer (AddValidationInfo).
+func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, encState *encryptState) ([]byte, error) {
+	prevXref, err := lastStartxref(d.source)
+	if err != nil {
+		return nil, err
+	}
+
 	// --- Collect everything to emit (new objects + modified existing). ---
 	type emitObj struct {
 		num, gen int
@@ -278,8 +292,7 @@ func buildIncrementalSignedPDF(d *Document) ([]byte, error) {
 	writeHexBytes(&buf, id1)
 	buf.WriteString("] >>\n")
 	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOff)
-
-	return d.applySignature(buf.Bytes())
+	return buf.Bytes(), nil
 }
 
 // xrefRow is one entry to write into the incremental xref table.
