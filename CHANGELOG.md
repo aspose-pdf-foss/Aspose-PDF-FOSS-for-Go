@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-09-16
+
+The complex-script and comparison release. **Text is now shaped by the font itself**: a pure-Go OpenType engine reads GDEF, GSUB and GPOS and applies them the way HarfBuzz does — Arabic, Persian and Urdu join through the font's own contextual forms rather than the Presentation Forms-B fallback, vowel marks sit on their base letters, ligatures form and pairs kern, glyph-for-glyph identical to HarfBuzz across a 54-string differential suite on four fonts. Its counterpart on the read side: **right-to-left text finally extracts in the order it was typed** instead of the order it sits on the page, so Arabic and Hebrew stop coming back backwards and `SearchText` matches a phrase as a person types it. **Document comparison** arrives as a new subsystem mirroring Aspose.PDF for .NET's `TextPdfComparer`: two PDFs diff word by word, and because every difference carries the page and rectangle it occupies on *both* sides — which theirs does not — the result is not only a list but a **marked-up copy of the document**, insertions highlighted, deletions struck out, the change list readable in any viewer's comments panel. **PDF/A conversion** closes its font and appearance gaps, taking the corpus from 766 to 971 of 1,003 documents converting to a clean report. And the four text-markup annotations now draw their own appearance streams, so a highlight a caller builds is visible everywhere — not only in the one viewer that synthesizes one. Pure Go, zero dependencies, as always.
+
 ### Added
 
 - **Document comparison** — `CompareDocumentsPageByPage(d1, d2)` / `CompareFlatDocuments(d1, d2)` / `ComparePages(p1, p2)` report the differences between two PDFs word by word, mirroring Aspose.PDF for .NET's `TextPdfComparer`. Each `DiffOperation` carries its operation and text like theirs and, beyond theirs, **the page and rectangle of the run on both sides** — so the result can be drawn back onto the document: `ComparisonResult.SaveMarkup` writes a copy with insertions highlighted, deletions struck out (or marked with a caret carrying the removed text on the new document), every annotation titled so a viewer's comments panel becomes the change list. Words come from the layout extractor through the same rune-map machinery `SearchText` uses, so right-to-left text compares in logical order; `ComparisonOptions` mirrors theirs (`ExtractionArea`, `ExcludeAreas1/2`, `ExcludeTables` via the `TableAbsorber`, `EditOperationsOrder`) and adds `IgnoreCase`. Corpus: every one of the 1008 documents compares against itself with no differences reported, in 14s. Graphical and side-by-side comparison are the next phases. (`pdf-go-175w`)
 - **OpenType shaping (GSUB/GPOS)** — text drawn with an embedded OpenType font is now shaped by the font's own layout tables. Arabic joins through the font's contextual forms, so faces without Presentation Forms-B — Amiri, Noto Naskh, most modern Arabic fonts — render connected script instead of isolated letters; Persian and Urdu letters join too; vowel marks (harakat, Hebrew points) sit on their base letters; ligatures form and letter pairs kern. A pure-Go engine reads GDEF, GSUB and GPOS — every lookup type, including contextual, chaining, cursive and mark-to-mark attachment — and applies them the way HarfBuzz does: output is **glyph-for-glyph identical to HarfBuzz** across a 54-string Arabic/Persian/Urdu/Hebrew/Latin differential suite on four fonts, and MuPDF renders the result exactly as our renderer does. Shaped text stays extractable and searchable: substituted glyphs map back to their characters through `/ToUnicode`, and clusters no single glyph can name carry `/ActualText`. No API change — `AddText` simply gets it right, and unkerned text still produces byte-identical content streams. (`pdf-go-26u4`)
-
 - **PDF/A conversion closes its font and appearance gaps** — `ConvertToPDFA` now draws the appearances annotations are missing (form-field widgets included, which a conforming reader may not synthesize, so a checkbox without one simply vanished), embeds composite CJK fonts as a glyph subset of the matching installed face, and embeds Symbol or ZapfDingbats from a face registered through `AddFontFile`/`AddFontFolder`. Embedding permissions are honoured throughout: a face whose OS/2 `fsType` forbids embedding is never written into a document. Across the 1,000-document corpus, documents converting to a clean report went from 766 to 971. (`pdf-go-ilt4`)
 
 ### Fixed
@@ -434,7 +437,13 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.1...v0.9.0
+[0.8.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.1.0...v0.2.0
