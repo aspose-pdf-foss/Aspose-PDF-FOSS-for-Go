@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-// Document comparison. Mirrors the text half of Aspose.PDF for .NET's
-// Aspose.Pdf.Comparison namespace (TextPdfComparer, DiffOperation,
-// ComparisonOptions), extended with the location of every difference:
-// Aspose's DiffOperation carries only an operation and its text, while these
-// operations also carry the pages and rectangles the words occupy on both
-// sides — which is what lets the result be drawn back onto the original.
 package asposepdf
 
 import (
@@ -13,6 +7,14 @@ import (
 	"sort"
 	"strings"
 )
+
+// Document comparison (epic pdf-go-175w): mirrors the text half of
+// Aspose.PDF for .NET's Aspose.Pdf.Comparison namespace (TextPdfComparer,
+// DiffOperation, ComparisonOptions), extended with the location of every
+// difference — Aspose's DiffOperation carries only an operation and its text,
+// while these operations also carry the pages and rectangles the words occupy
+// on both sides, which is what lets the result be drawn back onto the
+// original.
 
 // Operation is the kind of a difference. Mirrors Aspose.PDF for .NET's
 // Aspose.Pdf.Comparison.Operation.
