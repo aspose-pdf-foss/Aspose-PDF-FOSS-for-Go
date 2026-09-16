@@ -11,35 +11,79 @@ type QuadPoint struct {
 	X1, Y1, X2, Y2, X3, Y3, X4, Y4 float64
 }
 
-// HighlightAnnotation marks a region with semi-transparent highlight
-// color. Renders natively in spec-conforming viewers from /Subtype +
-// /QuadPoints + /C — no /AP needed.
-type HighlightAnnotation struct {
+// markupAnnotationBase is the shared body of the four text-markup
+// annotations (Highlight, Underline, StrikeOut, Squiggly), which differ only
+// in /Subtype and in how they draw themselves. The quad accessors live here,
+// and — as on drawingAnnotationBase for the shape annotations — every setter
+// that changes what the annotation looks like calls the regenerate hook the
+// concrete type installs, so /AP/N always matches the properties.
+type markupAnnotationBase struct {
 	annotationBase
+	regenerate func()
+}
+
+// QuadPoints returns the array of quads describing the marked region.
+// Returns nil if /QuadPoints is absent or its array length is not a
+// multiple of 8 (malformed).
+func (m *markupAnnotationBase) QuadPoints() []QuadPoint {
+	return readQuadPoints(m.dict["/QuadPoints"])
+}
+
+// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
+func (m *markupAnnotationBase) SetQuadPoints(qp []QuadPoint) {
+	if len(qp) == 0 {
+		delete(m.dict, "/QuadPoints")
+	} else {
+		m.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
+	}
+	m.regenerateAppearance()
+}
+
+// SetColor writes /C and redraws the appearance in the new colour.
+func (m *markupAnnotationBase) SetColor(c *Color) {
+	m.annotationBase.SetColor(c)
+	m.regenerateAppearance()
+}
+
+// SetRect moves the annotation and redraws its appearance, whose coordinates
+// are relative to the rectangle.
+func (m *markupAnnotationBase) SetRect(r Rectangle) {
+	m.annotationBase.SetRect(r)
+	m.regenerateAppearance()
+}
+
+// regenerateAppearance runs the concrete type's generator, if one is
+// installed. Annotations parsed from a file get theirs in annotationFromDict.
+func (m *markupAnnotationBase) regenerateAppearance() {
+	if m.regenerate != nil {
+		m.regenerate()
+	}
+}
+
+// HighlightAnnotation marks a region with a semi-transparent highlight
+// colour, washed over the text the quads cover.
+type HighlightAnnotation struct {
+	markupAnnotationBase
 }
 
 func (a *HighlightAnnotation) AnnotationType() AnnotationType { return AnnotationTypeHighlight }
 
-// QuadPoints returns the array of quads describing the selection.
-// Returns nil if /QuadPoints is absent or its array length is not a
-// multiple of 8 (malformed).
-func (a *HighlightAnnotation) QuadPoints() []QuadPoint {
-	return readQuadPoints(a.dict["/QuadPoints"])
+func (a *HighlightAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateHighlightAppearance(a))
 }
 
-// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
-func (a *HighlightAnnotation) SetQuadPoints(qp []QuadPoint) {
-	if len(qp) == 0 {
-		delete(a.dict, "/QuadPoints")
-		return
-	}
-	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
-}
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *HighlightAnnotation) RegenerateAppearance() { a.regenerateAP() }
 
 // NewHighlightAnnotation builds an unbound highlight annotation. Page
 // must be non-nil.
 func NewHighlightAnnotation(page *Page, rect Rectangle) *HighlightAnnotation {
-	return &HighlightAnnotation{annotationBase: newMarkupBase("NewHighlightAnnotation", page, rect, "/Highlight")}
+	a := &HighlightAnnotation{markupAnnotationBase{
+		annotationBase: newMarkupBase("NewHighlightAnnotation", page, rect, "/Highlight"),
+	}}
+	a.regenerate = a.regenerateAP
+	a.regenerateAP()
+	return a
 }
 
 // newMarkupBase is the shared constructor body for the four markup
@@ -60,87 +104,75 @@ func newMarkupBase(callerName string, page *Page, rect Rectangle, subtype pdfNam
 
 // UnderlineAnnotation draws a horizontal line under text.
 type UnderlineAnnotation struct {
-	annotationBase
+	markupAnnotationBase
 }
 
 func (a *UnderlineAnnotation) AnnotationType() AnnotationType { return AnnotationTypeUnderline }
 
-// QuadPoints returns the array of quads describing the underlined region.
-// Returns nil if /QuadPoints is absent or its array length is not a
-// multiple of 8 (malformed).
-func (a *UnderlineAnnotation) QuadPoints() []QuadPoint {
-	return readQuadPoints(a.dict["/QuadPoints"])
+func (a *UnderlineAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateUnderlineAppearance(a))
 }
 
-// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
-func (a *UnderlineAnnotation) SetQuadPoints(qp []QuadPoint) {
-	if len(qp) == 0 {
-		delete(a.dict, "/QuadPoints")
-		return
-	}
-	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
-}
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *UnderlineAnnotation) RegenerateAppearance() { a.regenerateAP() }
 
 // NewUnderlineAnnotation builds an unbound underline annotation.
 func NewUnderlineAnnotation(page *Page, rect Rectangle) *UnderlineAnnotation {
-	return &UnderlineAnnotation{annotationBase: newMarkupBase("NewUnderlineAnnotation", page, rect, "/Underline")}
+	a := &UnderlineAnnotation{markupAnnotationBase{
+		annotationBase: newMarkupBase("NewUnderlineAnnotation", page, rect, "/Underline"),
+	}}
+	a.regenerate = a.regenerateAP
+	a.regenerateAP()
+	return a
 }
 
 // StrikeOutAnnotation draws a horizontal line through text.
 type StrikeOutAnnotation struct {
-	annotationBase
+	markupAnnotationBase
 }
 
 func (a *StrikeOutAnnotation) AnnotationType() AnnotationType { return AnnotationTypeStrikeOut }
 
-// QuadPoints returns the array of quads describing the strike-out region.
-// Returns nil if /QuadPoints is absent or its array length is not a
-// multiple of 8 (malformed).
-func (a *StrikeOutAnnotation) QuadPoints() []QuadPoint {
-	return readQuadPoints(a.dict["/QuadPoints"])
+func (a *StrikeOutAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateStrikeOutAppearance(a))
 }
 
-// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
-func (a *StrikeOutAnnotation) SetQuadPoints(qp []QuadPoint) {
-	if len(qp) == 0 {
-		delete(a.dict, "/QuadPoints")
-		return
-	}
-	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
-}
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *StrikeOutAnnotation) RegenerateAppearance() { a.regenerateAP() }
 
 // NewStrikeOutAnnotation builds an unbound strike-out annotation.
 func NewStrikeOutAnnotation(page *Page, rect Rectangle) *StrikeOutAnnotation {
-	return &StrikeOutAnnotation{annotationBase: newMarkupBase("NewStrikeOutAnnotation", page, rect, "/StrikeOut")}
+	a := &StrikeOutAnnotation{markupAnnotationBase{
+		annotationBase: newMarkupBase("NewStrikeOutAnnotation", page, rect, "/StrikeOut"),
+	}}
+	a.regenerate = a.regenerateAP
+	a.regenerateAP()
+	return a
 }
 
 // SquigglyAnnotation draws a wavy underline under text (typically used
 // for spell-check style hints).
 type SquigglyAnnotation struct {
-	annotationBase
+	markupAnnotationBase
 }
 
 func (a *SquigglyAnnotation) AnnotationType() AnnotationType { return AnnotationTypeSquiggly }
 
-// QuadPoints returns the array of quads describing the squiggly region.
-// Returns nil if /QuadPoints is absent or its array length is not a
-// multiple of 8 (malformed).
-func (a *SquigglyAnnotation) QuadPoints() []QuadPoint {
-	return readQuadPoints(a.dict["/QuadPoints"])
+func (a *SquigglyAnnotation) regenerateAP() {
+	setAppearanceN(&a.annotationBase, generateSquigglyAppearance(a))
 }
 
-// SetQuadPoints writes /QuadPoints. nil or empty slice removes the entry.
-func (a *SquigglyAnnotation) SetQuadPoints(qp []QuadPoint) {
-	if len(qp) == 0 {
-		delete(a.dict, "/QuadPoints")
-		return
-	}
-	a.dict["/QuadPoints"] = quadPointsToPDFArray(qp)
-}
+// RegenerateAppearance forces /AP/N to be rebuilt from current properties.
+func (a *SquigglyAnnotation) RegenerateAppearance() { a.regenerateAP() }
 
 // NewSquigglyAnnotation builds an unbound squiggly-underline annotation.
 func NewSquigglyAnnotation(page *Page, rect Rectangle) *SquigglyAnnotation {
-	return &SquigglyAnnotation{annotationBase: newMarkupBase("NewSquigglyAnnotation", page, rect, "/Squiggly")}
+	a := &SquigglyAnnotation{markupAnnotationBase{
+		annotationBase: newMarkupBase("NewSquigglyAnnotation", page, rect, "/Squiggly"),
+	}}
+	a.regenerate = a.regenerateAP
+	a.regenerateAP()
+	return a
 }
 
 func readQuadPoints(v pdfValue) []QuadPoint {

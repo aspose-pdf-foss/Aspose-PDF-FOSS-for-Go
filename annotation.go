@@ -367,13 +367,21 @@ func parseAnnotation(base annotationBase) Annotation {
 	case "/Link":
 		return &LinkAnnotation{annotationBase: base}
 	case "/Highlight":
-		return &HighlightAnnotation{annotationBase: base}
+		hl := &HighlightAnnotation{markupAnnotationBase{annotationBase: base}}
+		hl.regenerate = hl.regenerateAP
+		return hl
 	case "/Underline":
-		return &UnderlineAnnotation{annotationBase: base}
+		ul := &UnderlineAnnotation{markupAnnotationBase{annotationBase: base}}
+		ul.regenerate = ul.regenerateAP
+		return ul
 	case "/StrikeOut":
-		return &StrikeOutAnnotation{annotationBase: base}
+		so := &StrikeOutAnnotation{markupAnnotationBase{annotationBase: base}}
+		so.regenerate = so.regenerateAP
+		return so
 	case "/Squiggly":
-		return &SquigglyAnnotation{annotationBase: base}
+		sq := &SquigglyAnnotation{markupAnnotationBase{annotationBase: base}}
+		sq.regenerate = sq.regenerateAP
+		return sq
 	case "/Square":
 		sq := &SquareAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
 		sq.regenerate = sq.regenerateAP

@@ -213,7 +213,6 @@ func addSpanAnnotation(doc *Document, pageNum int, rects []Rectangle, op DiffOpe
 		a.SetColor(colour)
 		a.SetTitle(o.Title)
 		a.SetContents(op.Text)
-		setAppearanceN(&a.annotationBase, highlightAppearance(rects, bbox, *colour))
 		return page.Annotations().Add(a)
 	}
 
@@ -222,7 +221,6 @@ func addSpanAnnotation(doc *Document, pageNum int, rects []Rectangle, op DiffOpe
 	a.SetColor(colour)
 	a.SetTitle(o.Title)
 	a.SetContents(op.Text)
-	setAppearanceN(&a.annotationBase, strikeOutAppearance(rects, bbox, *colour))
 	return page.Annotations().Add(a)
 }
 
@@ -241,41 +239,4 @@ func addCaretAnnotation(doc *Document, pageNum int, rect Rectangle, op DiffOpera
 	a.SetTitle(o.Title)
 	a.SetContents(op.Text)
 	return page.Annotations().Add(a)
-}
-
-// highlightAppearance paints the marked words in a translucent wash. Multiply
-// blending keeps the glyphs readable through the colour, which is what a
-// highlighter pen does and what viewers synthesize for /Highlight.
-func highlightAppearance(rects []Rectangle, bbox Rectangle, colour Color) *pdfStream {
-	b := newAppearanceBuilder()
-	b.SetFillColorRGB(colour)
-	for _, r := range rects {
-		b.Rect(r.LLX-bbox.LLX, r.LLY-bbox.LLY, r.URX-r.LLX, r.URY-r.LLY)
-	}
-	b.Fill()
-	content := append([]byte("/GSMul gs\n"), b.Bytes()...)
-	resources := pdfDict{
-		"/ExtGState": pdfDict{
-			"/GSMul": pdfDict{
-				"/Type": pdfName("/ExtGState"),
-				"/BM":   pdfName("/Multiply"),
-				"/ca":   1.0,
-			},
-		},
-	}
-	return makeFormXObjectWithResources(content, Rectangle{URX: bbox.URX - bbox.LLX, URY: bbox.URY - bbox.LLY}, resources)
-}
-
-// strikeOutAppearance draws a line through the middle of each marked run.
-func strikeOutAppearance(rects []Rectangle, bbox Rectangle, colour Color) *pdfStream {
-	b := newAppearanceBuilder()
-	b.SetStrokeColorRGB(colour)
-	b.SetLineWidth(1)
-	for _, r := range rects {
-		y := (r.LLY+r.URY)/2 - bbox.LLY
-		b.MoveTo(r.LLX-bbox.LLX, y)
-		b.LineTo(r.URX-bbox.LLX, y)
-	}
-	b.Stroke()
-	return makeFormXObjectWithResources(b.Bytes(), Rectangle{URX: bbox.URX - bbox.LLX, URY: bbox.URY - bbox.LLY}, pdfDict{})
 }

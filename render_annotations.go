@@ -79,8 +79,10 @@ func (rd *renderer) drawAnnotation(objects map[int]*pdfObject, ad pdfDict) {
 // synthesizeAnnotationAppearance builds an appearance stream for a drawing
 // annotation that carries no /AP, the way a viewer does (ISO 32000-1 §12.5.5:
 // absent an appearance, one is generated from the annotation's properties).
-// Covers the markup shapes the library can render from /Rect, /C, /IC, /BS and
-// geometry (Square/Circle/Line/Ink); returns nil for other subtypes, which are
+// Covers the shapes the library can render from /Rect, /C, /IC, /BS and
+// geometry (Square/Circle/Line/Ink) and the four text-markup annotations,
+// which viewers draw from /QuadPoints (a highlight from another producer
+// routinely ships without an /AP); returns nil for other subtypes, which are
 // skipped. The stream is drawn directly and not stored on the document.
 func (rd *renderer) synthesizeAnnotationAppearance(ad pdfDict) *pdfStream {
 	db := drawingAnnotationBase{annotationBase: annotationBase{
@@ -95,6 +97,14 @@ func (rd *renderer) synthesizeAnnotationAppearance(ad pdfDict) *pdfStream {
 		return generateLineAppearance(&LineAnnotation{drawingAnnotationBase: db})
 	case "/Ink":
 		return generateInkAppearance(&InkAnnotation{drawingAnnotationBase: db})
+	case "/Highlight":
+		return generateHighlightAppearance(&HighlightAnnotation{markupAnnotationBase{annotationBase: db.annotationBase}})
+	case "/Underline":
+		return generateUnderlineAppearance(&UnderlineAnnotation{markupAnnotationBase{annotationBase: db.annotationBase}})
+	case "/StrikeOut":
+		return generateStrikeOutAppearance(&StrikeOutAnnotation{markupAnnotationBase{annotationBase: db.annotationBase}})
+	case "/Squiggly":
+		return generateSquigglyAppearance(&SquigglyAnnotation{markupAnnotationBase{annotationBase: db.annotationBase}})
 	}
 	return nil
 }
