@@ -323,6 +323,7 @@ func escapeLiteral(s string) string {
 // security handler. Branches on s.algorithm:
 //   - EncryptionAlgRC4_128 → V=2 R=3, no /CF (default crypt filter is
 //     implicit RC4 for V<4).
+//   - EncryptionAlgRC4_40 → V=1 R=2, /Length 40, likewise no /CF.
 //   - EncryptionAlgAES128 → V=4 R=4 with /CF/StdCF/CFM /AESV2 and
 //     /StmF and /StrF pointing to /StdCF. ISO 32000-1 §7.6.3.2.
 //
@@ -374,6 +375,12 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		}
 		dict["/StmF"] = pdfName("/StdCF")
 		dict["/StrF"] = pdfName("/StdCF")
+	case EncryptionAlgRC4_40:
+		// The original handler: no /V at all is legal, but writing 1 is
+		// clearer and equally accepted.
+		dict["/V"] = 1
+		dict["/R"] = 2
+		dict["/Length"] = 40
 	default: // EncryptionAlgRC4_128
 		dict["/V"] = 2
 		dict["/R"] = 3

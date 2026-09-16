@@ -121,7 +121,22 @@ const (
 	// %PDF-2.0; viewers older than Adobe Acrobat DC (~2015) may not
 	// support PDF 2.0 documents.
 	EncryptionAlgAES256
+
+	// EncryptionAlgRC4_40 — RC4-40, the original Standard Security Handler
+	// V=1 R=2. Present for interoperability with old readers and archives
+	// that only understand it; a 40-bit key is breakable by brute force in
+	// minutes, so never choose it to protect anything.
+	EncryptionAlgRC4_40
 )
+
+// revision returns the security-handler revision and key length in bytes for
+// the RC4 algorithms (Algorithms 2-5 differ between them).
+func (a EncryptionAlgorithm) rc4Revision() (r, keyLen int) {
+	if a == EncryptionAlgRC4_40 {
+		return 2, 5
+	}
+	return 3, encKeyLen
+}
 
 // EncryptionOptions bundles every knob that controls how a document is
 // encrypted when saved. It is the unified structured input for
@@ -223,9 +238,10 @@ func newEncryptState(cfg *encryptConfig) (*encryptState, error) {
 	}
 
 	perms := cfg.effectivePermissions()
-	oEntry := computeOwnerEntry(cfg.userPassword, ownerPwd)
-	key := computeEncKey(cfg.userPassword, oEntry, perms, fileID)
-	uEntry := computeUserEntry(key, fileID)
+	r, keyLen := cfg.algorithm.rc4Revision()
+	oEntry := computeOwnerEntryR(cfg.userPassword, ownerPwd, r, keyLen)
+	key := computeEncKeyR(cfg.userPassword, oEntry, perms, fileID, r, keyLen)
+	uEntry := computeUserEntryR(key, fileID, r)
 
 	return &encryptState{
 		algorithm:   cfg.algorithm, // zero value = EncryptionAlgAES128 (new default)
@@ -249,20 +265,30 @@ func padPassword(s string) []byte {
 
 // computeOwnerEntry computes the /O encryption dict entry per PDF Algorithm 3.
 func computeOwnerEntry(userPwd, ownerPwd string) []byte {
-	// MD5 of padded owner password, then 50 extra rounds (R=3).
+	return computeOwnerEntryR(userPwd, ownerPwd, 3, encKeyLen)
+}
+
+// computeOwnerEntryR is the revision-aware form of computeOwnerEntry (PDF
+// Algorithm 3). Revision 2 hashes the owner password once and encrypts the
+// padded user password with a single RC4 pass; revision 3 adds the 50 extra
+// MD5 rounds and the 19 XOR-keyed passes.
+func computeOwnerEntryR(userPwd, ownerPwd string, r, keyLen int) []byte {
 	sum := md5.Sum(padPassword(ownerPwd))
 	key := sum[:]
-	for i := 0; i < 50; i++ {
-		s := md5.Sum(key[:encKeyLen])
-		key = s[:]
+	if r >= 3 {
+		for i := 0; i < 50; i++ {
+			s := md5.Sum(key[:keyLen])
+			key = s[:]
+		}
 	}
-	ownerKey := key[:encKeyLen]
+	ownerKey := key[:keyLen]
 
-	// RC4-encrypt padded user password with owner key, then 19 XOR'd iterations (R=3).
 	result := padPassword(userPwd)
 	applyRC4(result, ownerKey)
-	for i := 1; i <= 19; i++ {
-		applyRC4(result, xorKey(ownerKey, byte(i)))
+	if r >= 3 {
+		for i := 1; i <= 19; i++ {
+			applyRC4(result, xorKey(ownerKey, byte(i)))
+		}
 	}
 	return result
 }
@@ -342,7 +368,7 @@ func encryptBytesRC4(s *encryptState, objNum int, data []byte) []byte {
 // parameter exists because Algorithm 1.A (AES) reads it.
 func (s *encryptState) encryptBytes(objNum, gen int, data []byte) ([]byte, error) {
 	switch s.algorithm {
-	case EncryptionAlgRC4_128:
+	case EncryptionAlgRC4_128, EncryptionAlgRC4_40:
 		return encryptBytesRC4(s, objNum, data), nil
 	case EncryptionAlgAES128:
 		return encryptBytesAES128(s, objNum, gen, data)
