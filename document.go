@@ -60,6 +60,7 @@ type Document struct {
 	tagged       *TaggedContent         // nil until first TaggedContent() call
 	sign         *signConfig            // nil unless Sign() configured a digital signature
 	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
+	repair       RepairReport           // what had to be reconstructed to open the file; zero when it parsed as written
 
 	// Captured at open time from the trailer, used by incremental save
 	// (signing an existing PDF without rewriting it). Zero for built docs.
@@ -209,7 +210,8 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 		firstErr = err
 	}
 
-	xref, trailer, rerr := reconstructXRef(data)
+	var trailerSynthesised bool
+	xref, trailer, rerr := reconstructXRef(data, &trailerSynthesised)
 	if rerr != nil {
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, rerr))
 	}
@@ -221,6 +223,13 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, derr))
 	}
 	doc.source = data
+	// The file did not parse as written; record what it took to open it so
+	// the caller can report the damage (see repair.go).
+	doc.repair = RepairReport{
+		XRefReconstructed: true,
+		ObjectsRecovered:  len(xref.entries),
+		TrailerRecovered:  trailerSynthesised,
+	}
 	return doc, nil
 }
 

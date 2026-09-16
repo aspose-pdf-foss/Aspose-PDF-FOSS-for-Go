@@ -29,7 +29,7 @@ func isAlphaNum(b byte) bool {
 // Limitation: objects stored inside compressed object streams (ObjStm)
 // have no top-level header and are not recovered, so a file that both
 // uses object streams and has a broken xref may still fail to open.
-func reconstructXRef(data []byte) (*xrefTable, pdfDict, error) {
+func reconstructXRef(data []byte, trailerSynthesised *bool) (*xrefTable, pdfDict, error) {
 	table := &xrefTable{entries: map[int]xrefEntry{}}
 	for _, loc := range objHeaderRE.FindAllSubmatchIndex(data, -1) {
 		start := loc[0]
@@ -52,7 +52,10 @@ func reconstructXRef(data []byte) (*xrefTable, pdfDict, error) {
 		return nil, nil, fmt.Errorf("reconstruct xref: no objects found")
 	}
 
-	trailer := reconstructTrailer(data, table)
+	trailer, synthesised := reconstructTrailer(data, table)
+	if synthesised {
+		*trailerSynthesised = true
+	}
 	if trailer == nil {
 		return nil, nil, fmt.Errorf("reconstruct xref: no /Root catalog found")
 	}
@@ -64,10 +67,12 @@ func reconstructXRef(data []byte) (*xrefTable, pdfDict, error) {
 // /Info) since that is usually intact even when the xref offsets are not;
 // failing that, it synthesises a trailer pointing /Root at the first
 // /Catalog object found via the reconstructed table.
-func reconstructTrailer(data []byte, table *xrefTable) pdfDict {
+// The second result reports that the trailer had to be synthesised from a
+// catalog object because the file carried none usable.
+func reconstructTrailer(data []byte, table *xrefTable) (pdfDict, bool) {
 	if t := lastTrailerDict(data); t != nil {
 		if _, ok := t["/Root"]; ok {
-			return t
+			return t, false
 		}
 	}
 	raw := newRawDocument(data, table, pdfDict{})
@@ -87,10 +92,10 @@ func reconstructTrailer(data []byte, table *xrefTable) pdfDict {
 			continue
 		}
 		if d, ok := obj.Value.(pdfDict); ok && dictGetName(d, "/Type") == "/Catalog" {
-			return pdfDict{"/Root": pdfRef{Num: num}}
+			return pdfDict{"/Root": pdfRef{Num: num}}, true
 		}
 	}
-	return nil
+	return nil, false
 }
 
 // lastTrailerDict parses the dictionary following the file's last
