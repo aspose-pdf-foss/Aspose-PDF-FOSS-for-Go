@@ -107,6 +107,65 @@ func signVerifyRoundTrip(t *testing.T, key crypto.Signer) {
 	}
 }
 
+// Each digest the API offers must survive the whole path: sign a real
+// document with it, reopen the bytes and verify through the public API.
+func TestSignDigestAlgorithms(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		digest pdf.DigestAlgorithm
+	}{
+		{"SHA-256", pdf.DigestSHA256},
+		{"SHA-384", pdf.DigestSHA384},
+		{"SHA-512", pdf.DigestSHA512},
+		{"SHA3-256", pdf.DigestSHA3_256},
+		{"SHA3-384", pdf.DigestSHA3_384},
+		{"SHA3-512", pdf.DigestSHA3_512},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert := newSelfSigned(t, key)
+
+			doc := pdf.NewDocument(400, 200)
+			page, _ := doc.Page(1)
+			if err := page.AddText("Signed with "+c.name,
+				pdf.TextStyle{Font: pdf.FontHelvetica, Size: 14, Color: &pdf.Color{A: 1}},
+				pdf.Rectangle{LLX: 30, LLY: 110, URX: 370, URY: 150}); err != nil {
+				t.Fatal(err)
+			}
+			if err := doc.Sign(pdf.SignOptions{
+				Certificate: cert, PrivateKey: key, Digest: c.digest, Name: "Test Signer",
+			}); err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+			var buf bytes.Buffer
+			if _, err := doc.WriteTo(&buf); err != nil {
+				t.Fatal(err)
+			}
+
+			signed, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+			if err != nil {
+				t.Fatalf("OpenStream: %v", err)
+			}
+			sigs, err := signed.VerifySignatures()
+			if err != nil {
+				t.Fatalf("VerifySignatures: %v", err)
+			}
+			if len(sigs) != 1 {
+				t.Fatalf("got %d signatures, want 1", len(sigs))
+			}
+			if !sigs[0].Valid {
+				t.Errorf("signature not valid: %v", sigs[0].Err)
+			}
+			if !sigs[0].CoversWholeDocument {
+				t.Error("CoversWholeDocument = false")
+			}
+		})
+	}
+}
+
 func TestSignVerifyRSA(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

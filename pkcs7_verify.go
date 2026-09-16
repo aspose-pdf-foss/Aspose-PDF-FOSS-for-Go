@@ -6,7 +6,6 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -78,13 +77,24 @@ func verifyPKCS7Detached(der, content []byte) (signer *x509.Certificate, certs [
 		return nil, nil, fmt.Errorf("pkcs7 verify: signer certificate not found among embedded certs")
 	}
 
-	// The messageDigest signed attribute must equal SHA-256 of the content.
+	// Which hash the signer used is named in the SignerInfo; a signature we
+	// cannot identify the digest of is not one we can check.
+	hash, ok := digestAlgorithmFor(si.DigestAlgorithm.Algorithm)
+	if !ok {
+		return nil, nil, fmt.Errorf("pkcs7 verify: unsupported digest algorithm %v", si.DigestAlgorithm.Algorithm)
+	}
+	if !hash.Available() {
+		return nil, nil, fmt.Errorf("pkcs7 verify: digest algorithm %v not available in this build", si.DigestAlgorithm.Algorithm)
+	}
+
+	// The messageDigest signed attribute must equal that hash of the content.
 	mdAttr, err := signedAttrDigest(si.SignedAttrs.Bytes)
 	if err != nil {
 		return nil, nil, err
 	}
-	sum := sha256.Sum256(content)
-	if !bytesEqualConst(mdAttr, sum[:]) {
+	mh := hash.New()
+	mh.Write(content)
+	if !bytesEqualConst(mdAttr, mh.Sum(nil)) {
 		return nil, nil, fmt.Errorf("pkcs7 verify: messageDigest mismatch (content tampered)")
 	}
 
@@ -94,8 +104,9 @@ func verifyPKCS7Detached(der, content []byte) (signer *x509.Certificate, certs [
 	if err != nil {
 		return nil, nil, err
 	}
-	digest := sha256.Sum256(setOf)
-	if err = verifySignature(signer, digest[:], si.Signature); err != nil {
+	sh := hash.New()
+	sh.Write(setOf)
+	if err = verifySignature(signer, sh.Sum(nil), si.Signature, hash); err != nil {
 		return nil, nil, err
 	}
 	return signer, certs, nil
@@ -132,12 +143,13 @@ func signedAttrDigest(setContent []byte) ([]byte, error) {
 	return nil, fmt.Errorf("pkcs7 verify: messageDigest attribute not found")
 }
 
-// verifySignature checks sig against digest using the certificate's public
-// key (RSA PKCS#1 v1.5 or ECDSA).
-func verifySignature(cert *x509.Certificate, digest, sig []byte) error {
+// verifySignature checks sig against digest using the certificate public
+// key (RSA PKCS#1 v1.5 or ECDSA). hash names the digest, which PKCS#1 v1.5
+// encodes into the padding; ECDSA signs the digest bytes as they are.
+func verifySignature(cert *x509.Certificate, digest, sig []byte, hash crypto.Hash) error {
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
-		if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest, sig); err != nil {
+		if err := rsa.VerifyPKCS1v15(pub, hash, digest, sig); err != nil {
 			return fmt.Errorf("pkcs7 verify: RSA signature invalid: %w", err)
 		}
 	case *ecdsa.PublicKey:

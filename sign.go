@@ -72,6 +72,11 @@ type SignOptions struct {
 	// default (signer name + date, plus reason/location when set).
 	Appearance *SignatureAppearance
 
+	// Digest selects the hash used for the message digest and the signature
+	// itself. The zero value is SHA-256. Mirrors Aspose.PDF for .NET's
+	// DigestHashAlgorithm.
+	Digest DigestAlgorithm
+
 	// PAdES produces an ETSI.CAdES.detached (PAdES baseline) signature: the
 	// CMS carries the ESS signing-certificate-v2 attribute and /SubFilter is
 	// /ETSI.CAdES.detached. The zero value produces a classic
@@ -96,6 +101,59 @@ type SignOptions struct {
 	// and is auto-enabled when the document already contains a signature.
 	// Requires a document opened from an existing PDF (Open/OpenStream).
 	Incremental bool
+}
+
+// DigestAlgorithm is the hash a signature is computed with. Mirrors
+// Aspose.PDF for .NET's DigestHashAlgorithm; the zero value is SHA-256,
+// which is what every earlier release wrote.
+type DigestAlgorithm int
+
+const (
+	DigestSHA256   DigestAlgorithm = iota // SHA-256 (default)
+	DigestSHA384                          // SHA-384
+	DigestSHA512                          // SHA-512
+	DigestSHA3_256                        // SHA3-256
+	DigestSHA3_384                        // SHA3-384
+	DigestSHA3_512                        // SHA3-512
+)
+
+// hash returns the crypto.Hash for the algorithm, and false for a value
+// outside the enum.
+func (a DigestAlgorithm) hash() (crypto.Hash, bool) {
+	switch a {
+	case DigestSHA256:
+		return crypto.SHA256, true
+	case DigestSHA384:
+		return crypto.SHA384, true
+	case DigestSHA512:
+		return crypto.SHA512, true
+	case DigestSHA3_256:
+		return crypto.SHA3_256, true
+	case DigestSHA3_384:
+		return crypto.SHA3_384, true
+	case DigestSHA3_512:
+		return crypto.SHA3_512, true
+	}
+	return 0, false
+}
+
+// String names the algorithm the way the standards do.
+func (a DigestAlgorithm) String() string {
+	switch a {
+	case DigestSHA256:
+		return "SHA-256"
+	case DigestSHA384:
+		return "SHA-384"
+	case DigestSHA512:
+		return "SHA-512"
+	case DigestSHA3_256:
+		return "SHA3-256"
+	case DigestSHA3_384:
+		return "SHA3-384"
+	case DigestSHA3_512:
+		return "SHA3-512"
+	}
+	return fmt.Sprintf("DigestAlgorithm(%d)", int(a))
 }
 
 // CertifyPermission is the DocMDP permission level of a certification
@@ -129,6 +187,7 @@ type signConfig struct {
 	cert                            *x509.Certificate
 	key                             crypto.Signer
 	chain                           []*x509.Certificate
+	digest                          DigestAlgorithm
 	reason, location, contact, name string
 	when                            time.Time
 	visible                         bool
@@ -153,6 +212,9 @@ func (d *Document) Sign(opts SignOptions) error {
 	case x509.RSA, x509.ECDSA:
 	default:
 		return fmt.Errorf("Sign: unsupported key algorithm %v (RSA or ECDSA)", opts.Certificate.PublicKeyAlgorithm)
+	}
+	if _, ok := opts.Digest.hash(); !ok {
+		return fmt.Errorf("Sign: unknown Digest %v", opts.Digest)
 	}
 	if opts.Visible {
 		if opts.Rect.URX <= opts.Rect.LLX || opts.Rect.URY <= opts.Rect.LLY {
@@ -181,6 +243,7 @@ func (d *Document) Sign(opts SignOptions) error {
 		cert:        opts.Certificate,
 		key:         opts.PrivateKey,
 		chain:       opts.Chain,
+		digest:      opts.Digest,
 		reason:      opts.Reason,
 		location:    opts.Location,
 		contact:     opts.ContactInfo,
@@ -377,7 +440,7 @@ func (d *Document) applySignature(raw []byte) ([]byte, error) {
 	if when.IsZero() {
 		when = time.Now()
 	}
-	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when, d.sign.padES, d.sign.tsaURL)
+	pkcs7, err := buildPKCS7Detached(content, d.sign.cert, d.sign.key, d.sign.chain, when, d.sign.padES, d.sign.tsaURL, d.sign.digest)
 	if err != nil {
 		return nil, err
 	}

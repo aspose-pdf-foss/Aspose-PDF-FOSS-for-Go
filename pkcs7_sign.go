@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"crypto"
 	"crypto/rand"
+	_ "crypto/sha3" // registers SHA3-256/384/512 with the crypto.Hash registry
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
@@ -30,9 +31,60 @@ var (
 	oidAttrSigningTime   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5}
 	oidDigestSHA256      = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
 	oidRSAEncryption     = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
-	oidECDSAWithSHA256   = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2}
 	oidAttrSigningCertV2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47} // ESS signing-certificate-v2 (PAdES/CAdES)
 )
+
+// Digest and signature algorithm identifiers per digest choice. SHA-2 lives
+// under the NIST hashAlgs arc, SHA-3 under sigAlgs beside it (NIST CSOR,
+// RFC 8692). An RSA signature over a SHA-2 digest keeps the bare
+// rsaEncryption identifier — the form every earlier release wrote and every
+// validator we test against accepts, with the digest named by the
+// SignerInfo digestAlgorithm field; for SHA-3 the explicit
+// id-rsassa-pkcs1-v1_5-with-sha3-* identifiers are used instead, because the
+// rsaEncryption pairing is not universally recognised there.
+var digestOIDs = map[DigestAlgorithm]asn1.ObjectIdentifier{
+	DigestSHA256:   {2, 16, 840, 1, 101, 3, 4, 2, 1},
+	DigestSHA384:   {2, 16, 840, 1, 101, 3, 4, 2, 2},
+	DigestSHA512:   {2, 16, 840, 1, 101, 3, 4, 2, 3},
+	DigestSHA3_256: {2, 16, 840, 1, 101, 3, 4, 2, 8},
+	DigestSHA3_384: {2, 16, 840, 1, 101, 3, 4, 2, 9},
+	DigestSHA3_512: {2, 16, 840, 1, 101, 3, 4, 2, 10},
+}
+
+var rsaSigOIDs = map[DigestAlgorithm]asn1.ObjectIdentifier{
+	DigestSHA256:   oidRSAEncryption,
+	DigestSHA384:   oidRSAEncryption,
+	DigestSHA512:   oidRSAEncryption,
+	DigestSHA3_256: {2, 16, 840, 1, 101, 3, 4, 3, 14},
+	DigestSHA3_384: {2, 16, 840, 1, 101, 3, 4, 3, 15},
+	DigestSHA3_512: {2, 16, 840, 1, 101, 3, 4, 3, 16},
+}
+
+var ecdsaSigOIDs = map[DigestAlgorithm]asn1.ObjectIdentifier{
+	DigestSHA256:   {1, 2, 840, 10045, 4, 3, 2},
+	DigestSHA384:   {1, 2, 840, 10045, 4, 3, 3},
+	DigestSHA512:   {1, 2, 840, 10045, 4, 3, 4},
+	DigestSHA3_256: {2, 16, 840, 1, 101, 3, 4, 3, 10},
+	DigestSHA3_384: {2, 16, 840, 1, 101, 3, 4, 3, 11},
+	DigestSHA3_512: {2, 16, 840, 1, 101, 3, 4, 3, 12},
+}
+
+// digestAlgorithmFor is the reverse lookup the verifier needs: which hash a
+// digestAlgorithm OID names.
+func digestAlgorithmFor(oid asn1.ObjectIdentifier) (crypto.Hash, bool) {
+	for alg, o := range digestOIDs {
+		if o.Equal(oid) {
+			return alg.mustHash(), true
+		}
+	}
+	return 0, false
+}
+
+// mustHash is hash() for a value already known to be in range.
+func (a DigestAlgorithm) mustHash() crypto.Hash {
+	h, _ := a.hash()
+	return h
+}
 
 // essCertIDv2 / signingCertificateV2 implement the ESS signing-certificate-v2
 // signed attribute (RFC 5035 §5.4), required by PAdES/CAdES. The hash
@@ -104,14 +156,19 @@ type contentInfo struct {
 
 // buildPKCS7Detached produces a DER-encoded CMS SignedData over content
 // (detached), signed by key for cert. chain is included alongside the
-// signer cert so verifiers can build the path. SHA-256 throughout. When
-// padES is set, the ESS signing-certificate-v2 signed attribute is added,
-// making the signature CAdES/PAdES-conformant.
-func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time, padES bool, tsaURL string) ([]byte, error) {
+// signer cert so verifiers can build the path. digest selects the hash used
+// for the message digest and for the signature. When padES is set, the ESS
+// signing-certificate-v2 signed attribute is added, making the signature
+// CAdES/PAdES-conformant.
+func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signer, chain []*x509.Certificate, signingTime time.Time, padES bool, tsaURL string, digest DigestAlgorithm) ([]byte, error) {
 	if cert == nil || key == nil {
 		return nil, fmt.Errorf("pkcs7: nil certificate or key")
 	}
-	h := crypto.SHA256.New()
+	hash, ok := digest.hash()
+	if !ok {
+		return nil, fmt.Errorf("pkcs7: unknown digest algorithm %v", digest)
+	}
+	h := hash.New()
 	h.Write(content)
 	msgDigest := h.Sum(nil)
 
@@ -127,13 +184,13 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 	if err != nil {
 		return nil, err
 	}
-	ah := crypto.SHA256.New()
+	ah := hash.New()
 	ah.Write(attrsForSigning)
-	signature, err := key.Sign(rand.Reader, ah.Sum(nil), crypto.SHA256)
+	signature, err := key.Sign(rand.Reader, ah.Sum(nil), hash)
 	if err != nil {
 		return nil, fmt.Errorf("pkcs7: sign: %w", err)
 	}
-	sigAlg, err := signatureAlgorithmFor(cert)
+	sigAlg, err := signatureAlgorithmFor(cert, digest)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +207,7 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 			IssuerRaw:    asn1.RawValue{FullBytes: cert.RawIssuer},
 			SerialNumber: cert.SerialNumber,
 		},
-		DigestAlgorithm:    algorithmIdentifier{Algorithm: oidDigestSHA256, Parameters: asn1NULL()},
+		DigestAlgorithm:    algorithmIdentifier{Algorithm: digestOIDs[digest], Parameters: asn1NULL()},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: sigAlg,
 		Signature:          signature,
@@ -177,7 +234,7 @@ func buildPKCS7Detached(content []byte, cert *x509.Certificate, key crypto.Signe
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []algorithmIdentifier{{Algorithm: oidDigestSHA256, Parameters: asn1NULL()}},
+		DigestAlgorithms: []algorithmIdentifier{{Algorithm: digestOIDs[digest], Parameters: asn1NULL()}},
 		ContentInfo:      encapContentInfo{EContentType: oidData},
 		Certificates:     asn1.RawValue{FullBytes: certsDER},
 		SignerInfos:      []signerInfo{si},
@@ -292,13 +349,26 @@ func marshalCertSet(cert *x509.Certificate, chain []*x509.Certificate) ([]byte, 
 }
 
 // signatureAlgorithmFor picks the SignerInfo signatureAlgorithm from the
-// certificate's public key type.
-func signatureAlgorithmFor(cert *x509.Certificate) (algorithmIdentifier, error) {
+// certificate public key type and the digest in use.
+func signatureAlgorithmFor(cert *x509.Certificate, digest DigestAlgorithm) (algorithmIdentifier, error) {
 	switch cert.PublicKeyAlgorithm {
 	case x509.RSA:
-		return algorithmIdentifier{Algorithm: oidRSAEncryption, Parameters: asn1NULL()}, nil
+		oid, ok := rsaSigOIDs[digest]
+		if !ok {
+			return algorithmIdentifier{}, fmt.Errorf("pkcs7: unknown digest algorithm %v", digest)
+		}
+		// RSASSA-PKCS1-v1_5 with an explicit SHA-3 identifier takes no
+		// parameters; bare rsaEncryption carries NULL.
+		if oid.Equal(oidRSAEncryption) {
+			return algorithmIdentifier{Algorithm: oid, Parameters: asn1NULL()}, nil
+		}
+		return algorithmIdentifier{Algorithm: oid}, nil
 	case x509.ECDSA:
-		return algorithmIdentifier{Algorithm: oidECDSAWithSHA256}, nil
+		oid, ok := ecdsaSigOIDs[digest]
+		if !ok {
+			return algorithmIdentifier{}, fmt.Errorf("pkcs7: unknown digest algorithm %v", digest)
+		}
+		return algorithmIdentifier{Algorithm: oid}, nil
 	default:
 		return algorithmIdentifier{}, fmt.Errorf("pkcs7: unsupported key algorithm %v (need RSA or ECDSA)", cert.PublicKeyAlgorithm)
 	}
