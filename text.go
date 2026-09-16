@@ -19,6 +19,13 @@ const (
 	// without visual sorting — useful when the emission order is significant or
 	// when the reading-order heuristics reorder columned/overlapping content.
 	TextExtractRaw
+	// TextExtractFlatten lays the page out on a fixed-pitch character grid:
+	// every word keeps its horizontal position, padded with spaces, so
+	// columns stay columns and the output reads like the page when shown in a
+	// monospace font. Mirrors Aspose.PDF for .NET's TextFormattingMode.Flatten
+	// — useful for fixed-format reports, for diffing two revisions of a page,
+	// and for tabular text no table detector was asked about.
+	TextExtractFlatten
 )
 
 // TextExtractOptions configures ExtractText. The zero value is reading order.
@@ -48,8 +55,13 @@ func (p *Page) ExtractText(opts ...TextExtractOptions) (string, error) {
 
 	ext := newTextExtractor(p.doc.objects, fonts)
 	ext.process(ops, resources)
-	if len(opts) > 0 && opts[0].Mode == TextExtractRaw {
-		return ext.textRaw(), nil
+	if len(opts) > 0 {
+		switch opts[0].Mode {
+		case TextExtractRaw:
+			return ext.textRaw(), nil
+		case TextExtractFlatten:
+			return ext.textFlattened(), nil
+		}
 	}
 	return ext.text(), nil
 }
@@ -200,6 +212,13 @@ func (e *textExtractor) insideActualText() bool {
 func (e *textExtractor) text() string {
 	e.flushFragment()
 	return cleanExtractedText(buildTextFromFragments(e.fragments))
+}
+
+// textFlattened returns the fragments laid out on a fixed-pitch character
+// grid, so horizontal positions survive as runs of spaces.
+func (e *textExtractor) textFlattened() string {
+	e.flushFragment()
+	return cleanExtractedText(buildFlattenedTextFromFragments(e.fragments))
 }
 
 // textRaw returns the fragments joined in content-stream emission order (no

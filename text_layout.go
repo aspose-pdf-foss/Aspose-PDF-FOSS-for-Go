@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // TextFragment represents a contiguous run of text with uniform font.
@@ -200,6 +201,104 @@ func assembleLine(frags []textFragment) TextLine {
 		line.Text = string(logical)
 	}
 	return line
+}
+
+// buildFlattenedTextFromFragments lays the page out on a fixed-pitch
+// character grid: each fragment starts at the column its x position maps to,
+// the space between fragments is padding, and a wide vertical gap becomes a
+// blank line. The result reads like the page in a monospace font, which is
+// what makes it diffable and what keeps columns aligned without a table
+// detector (TextExtractFlatten).
+func buildFlattenedTextFromFragments(frags []textFragment) string {
+	lines := groupFragmentsIntoLines(frags)
+	if len(lines) == 0 {
+		return ""
+	}
+	cell := flattenCellWidth(lines)
+	originX := flattenOriginX(lines)
+
+	var buf strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			buf.WriteByte(0x0A)
+			gap := lines[i-1].Y - line.Y
+			size := 12.0
+			if len(line.Fragments) > 0 {
+				size = line.Fragments[0].FontSize
+			}
+			if gap > size*1.5 {
+				buf.WriteByte(0x0A)
+			}
+		}
+		buf.WriteString(flattenLine(line, originX, cell))
+	}
+	return buf.String()
+}
+
+// flattenLine places one line on the grid, never overwriting text already
+// placed: a fragment whose column is behind the cursor is separated by a
+// single space instead.
+func flattenLine(line TextLine, originX, cell float64) string {
+	var out []rune
+	for _, f := range line.Fragments {
+		if f.Text == "" {
+			continue
+		}
+		col := int(math.Round((f.X - originX) / cell))
+		if col < 0 {
+			col = 0
+		}
+		if col < len(out) && len(out) > 0 {
+			col = len(out) + 1
+		}
+		for len(out) < col {
+			out = append(out, 0x20)
+		}
+		out = append(out, []rune(f.Text)...)
+	}
+	return strings.TrimRight(string(out), " ")
+}
+
+// flattenCellWidth is the width of one grid cell: the median advance per
+// character across the page. The median rather than the minimum, so one
+// narrow superscript cannot stretch the whole page into ribbons.
+func flattenCellWidth(lines []TextLine) float64 {
+	var widths []float64
+	for _, line := range lines {
+		for _, f := range line.Fragments {
+			n := utf8.RuneCountInString(f.Text)
+			if n == 0 || f.Width <= 0 {
+				continue
+			}
+			widths = append(widths, f.Width/float64(n))
+		}
+	}
+	if len(widths) == 0 {
+		return 6 // a sane default; the page has no measurable text anyway
+	}
+	sort.Float64s(widths)
+	cell := widths[len(widths)/2]
+	if cell < 0.5 {
+		cell = 0.5
+	}
+	return cell
+}
+
+// flattenOriginX is the leftmost text position, so the leftmost column is 0
+// rather than however far the page margin happens to be.
+func flattenOriginX(lines []TextLine) float64 {
+	origin := math.Inf(1)
+	for _, line := range lines {
+		for _, f := range line.Fragments {
+			if f.Text != "" && f.X < origin {
+				origin = f.X
+			}
+		}
+	}
+	if math.IsInf(origin, 1) {
+		return 0
+	}
+	return origin
 }
 
 // buildTextFromFragments groups fragments into lines and joins them as plain text.
