@@ -437,9 +437,16 @@ func (d *Document) Append(others ...*Document) {
 }
 
 // RemoveUnusedObjects removes objects from the document that are not
-// reachable from any page. Returns the number of objects removed.
+// reachable from any page or from the document catalog (/Root). The catalog
+// is a GC root in its own right — /Metadata, /OutputIntents, /AcroForm,
+// /StructTreeRoot, /Names and similar catalog-only-referenced content is
+// never dropped just because no page happens to reference it too. Returns
+// the number of objects removed.
 func (d *Document) RemoveUnusedObjects() int {
 	reachable := collectReachableIDs(d.objects, d.pages)
+	if d.catalog != nil {
+		markReachable(d.objects, pdfValue(d.catalog), reachable)
+	}
 
 	removed := 0
 	for id := range d.objects {

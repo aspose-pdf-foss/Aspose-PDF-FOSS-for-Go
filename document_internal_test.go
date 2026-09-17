@@ -319,3 +319,36 @@ func TestCollectReachableIDsCyclic(t *testing.T) {
 		t.Error("page should be reachable")
 	}
 }
+
+// The /Catalog is itself a GC root: content reachable only from it — the XMP
+// /Metadata stream chief among them — must never be silently dropped just
+// because no page happens to reference it too. Discovered while wiring the
+// writer's PDF/A-1 object-stream guard (isPDFA1) to the document's live XMP:
+// Optimize's default RemoveUnusedObjects step was orphaning /Catalog/Metadata
+// on every call, which defeated the guard as soon as Optimize ran after
+// ConvertToPDFA.
+func TestRemoveUnusedObjectsKeepsCatalogOnlyContent(t *testing.T) {
+	doc := NewDocument(200, 200)
+	if err := doc.SetXMPRaw([]byte("<x/>")); err != nil {
+		t.Fatal(err)
+	}
+	metaRef, ok := doc.catalog["/Metadata"].(pdfRef)
+	if !ok {
+		t.Fatal("setup: /Catalog/Metadata is not a plain reference")
+	}
+
+	// A genuinely orphaned object: referenced from nowhere, not even the
+	// catalog.
+	orphanNum := doc.nextID
+	doc.nextID++
+	doc.objects[orphanNum] = &pdfObject{Num: orphanNum, Value: pdfDict{"/Foo": pdfName("/Bar")}}
+
+	doc.RemoveUnusedObjects()
+
+	if _, exists := doc.objects[metaRef.Num]; !exists {
+		t.Error("/Catalog/Metadata was removed even though the catalog still references it")
+	}
+	if _, exists := doc.objects[orphanNum]; exists {
+		t.Error("a truly orphaned object (unreferenced by any page or the catalog) should still be removed")
+	}
+}
