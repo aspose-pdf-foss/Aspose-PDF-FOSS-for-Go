@@ -54,7 +54,11 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	totalObjects := asm.totalObjects
 	remapFn := asm.remapFn()
 
-	if d.compressObjects {
+	// PDF/A-1 (PDF 1.4-based) forbids object and cross-reference streams; check
+	// the document's own XMP here rather than trusting compressObjects alone,
+	// so the guard holds regardless of Optimize/ConvertToPDFA call order and
+	// for a document opened from an existing PDF/A-1 file (see isPDFA1).
+	if d.compressObjects && !d.isPDFA1() {
 		out, err := buildObjectStreamPDF(d, asm)
 		if err != nil {
 			return nil, err

@@ -160,15 +160,29 @@ func TestCompressObjectsRoundTrip(t *testing.T) {
 }
 
 // Encrypted objects inside an object stream are protected by the stream's
-// encryption only; every algorithm must reopen with the password.
+// encryption only; every algorithm must reopen with the password. The
+// "value 7 readable in the clear" bytes.Contains check this test used to run
+// proves nothing: Flate already hides the literal text inside the object
+// stream regardless of encryption, so it can never fail. Assert something
+// that actually distinguishes encrypted from unencrypted output instead:
+// /ObjStm is present (objects still got packed) and the header matches the
+// algorithm (AES-256 bumps to %PDF-2.0 per ISO 32000-2; the others bump the
+// usual %PDF-1.4 -> %PDF-1.5 for object streams).
 func TestCompressObjectsEncrypted(t *testing.T) {
-	for _, alg := range []EncryptionAlgorithm{EncryptionAlgRC4_128, EncryptionAlgAES128, EncryptionAlgAES256} {
+	for _, alg := range []EncryptionAlgorithm{EncryptionAlgRC4_40, EncryptionAlgRC4_128, EncryptionAlgAES128, EncryptionAlgAES256} {
 		t.Run(fmt.Sprint(alg), func(t *testing.T) {
 			doc := formDocument(t, 120)
 			doc.SetEncryption(EncryptionOptions{UserPassword: "u", OwnerPassword: "o", Algorithm: alg})
 			out := saveCompressed(t, doc)
-			if bytes.Contains(out, []byte("value 7")) {
-				t.Error("a field value is readable in the clear")
+			if !bytes.Contains(out, []byte("/ObjStm")) {
+				t.Error("no object stream in the encrypted output")
+			}
+			wantHeader := "%PDF-1.5"
+			if alg == EncryptionAlgAES256 {
+				wantHeader = "%PDF-2.0"
+			}
+			if !bytes.HasPrefix(out, []byte(wantHeader)) {
+				t.Errorf("header = %q, want %s", out[:8], wantHeader)
 			}
 			reopened, err := OpenStreamWithPassword(bytes.NewReader(out), "u")
 			if err != nil {
@@ -185,25 +199,7 @@ func TestCompressObjectsEncrypted(t *testing.T) {
 // A document signed on a compressed save keeps its signature dictionary out of
 // the object streams, so the placeholders are patched and the signature holds.
 func TestCompressObjectsSigned(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmpl := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "ObjStm Signer"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(1, 0, 0),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, key.Public(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cert, key := newTestSigner(t, "ObjStm Signer")
 
 	doc := formDocument(t, 120)
 	if err := doc.Sign(SignOptions{Certificate: cert, PrivateKey: key}); err != nil {
@@ -315,6 +311,9 @@ func TestSignEncryptedCompressedAppendsXRefStream(t *testing.T) {
 	if bytes.Contains(out, []byte("\nxref\n")) {
 		t.Error("a classic xref section appears in an encrypted, compressed, signed file")
 	}
+	if !bytes.Contains(out, []byte("/XRef")) {
+		t.Error("no cross-reference stream in an encrypted, compressed, signed file")
+	}
 	reopened, err := OpenStreamWithPassword(bytes.NewReader(out), "u")
 	if err != nil {
 		t.Fatal(err)
@@ -325,6 +324,32 @@ func TestSignEncryptedCompressedAppendsXRefStream(t *testing.T) {
 	}
 	if len(sigs) != 1 || !sigs[0].Valid {
 		t.Fatalf("signature does not hold: %+v", sigs)
+	}
+}
+
+// More than objStmCapacity (100) packable objects must spill into a second
+// /ObjStm, and every object must still be reachable through it on reopen.
+func TestCompressObjectsMultipleObjectStreams(t *testing.T) {
+	out := saveCompressed(t, formDocument(t, 101))
+
+	if n := bytes.Count(out, []byte("/Type /ObjStm")); n < 2 {
+		t.Errorf("%d /ObjStm streams in the output, want at least 2", n)
+	}
+
+	doc, err := OpenStream(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if n := len(doc.Form().Fields()); n != 101 {
+		t.Errorf("%d fields after reopen, want 101", n)
+	}
+	for i := 0; i < 101; i++ {
+		name := fmt.Sprintf("field%03d", i)
+		f := doc.Form().Field(name)
+		want := fmt.Sprintf("value %d", i)
+		if f == nil || f.Value() != want {
+			t.Errorf("%s = %#v, want %q", name, f, want)
+		}
 	}
 }
 
@@ -358,5 +383,87 @@ func TestConvertToPDFA1ClearsCompressObjects(t *testing.T) {
 	}
 	if bytes.Contains(buf.Bytes(), []byte("/ObjStm")) {
 		t.Error("a PDF/A-1 conversion was written with object streams")
+	}
+}
+
+// The PDF/A-1 guard must hold in either call order. ConvertToPDFA clears
+// compressObjects as a convenience, but a later Optimize call can set it
+// again; the writer must still refuse object streams because it checks the
+// document's own XMP (isPDFA1), not just the flag Optimize last touched.
+func TestConvertToPDFA1ThenOptimizeStaysUncompressed(t *testing.T) {
+	doc := formDocument(t, 5)
+	if _, err := doc.ConvertToPDFA(PDFA1B); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.Optimize(DefaultOptimizationOptions()); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.Bytes()
+	if bytes.Contains(out, []byte("/ObjStm")) {
+		t.Error("a PDF/A-1 document was written with object streams after a later Optimize call")
+	}
+	if bytes.Contains(out, []byte("/XRef")) {
+		t.Error("a PDF/A-1 document was written with a cross-reference stream after a later Optimize call")
+	}
+}
+
+// The guard also protects a document that was never itself passed to
+// ConvertToPDFA: a document opened from an existing PDF/A-1 file already
+// carries the pdfaid:part=1 XMP, and Optimize must still refuse to compress
+// it, purely from that XMP — the compressObjects-clearing convenience in
+// ConvertToPDFA never ran on this *Document instance at all.
+func TestOpenedPDFA1DocumentStaysUncompressed(t *testing.T) {
+	doc := formDocument(t, 5)
+	if _, err := doc.ConvertToPDFA(PDFA1B); err != nil {
+		t.Fatal(err)
+	}
+	var pdfa1 bytes.Buffer
+	if _, err := doc.WriteTo(&pdfa1); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStream(bytes.NewReader(pdfa1.Bytes()))
+	if err != nil {
+		t.Fatalf("reopen the PDF/A-1 file: %v", err)
+	}
+	if _, err := reopened.Optimize(DefaultOptimizationOptions()); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := reopened.WriteTo(&out); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("/ObjStm")) {
+		t.Error("a document opened from a PDF/A-1 file was written with object streams after Optimize")
+	}
+	if bytes.Contains(out.Bytes(), []byte("/XRef")) {
+		t.Error("a document opened from a PDF/A-1 file was written with a cross-reference stream after Optimize")
+	}
+}
+
+// PDF/A-2 is PDF 1.7-based and permits object streams, so the same
+// Optimize-after-convert sequence must still compress.
+func TestConvertToPDFA2ThenOptimizeCompresses(t *testing.T) {
+	doc := formDocument(t, 150)
+	if _, err := doc.ConvertToPDFA(PDFA2B); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.Optimize(DefaultOptimizationOptions()); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.Bytes()
+	if !bytes.Contains(out, []byte("/ObjStm")) {
+		t.Error("a PDF/A-2 document should still pack into object streams after ConvertToPDFA+Optimize")
+	}
+	if !bytes.Contains(out, []byte("/XRef")) {
+		t.Error("a PDF/A-2 document should still write a cross-reference stream after ConvertToPDFA+Optimize")
 	}
 }

@@ -36,8 +36,12 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("ConvertToPDFA: document has no pages")
 	}
-	// PDF/A-1 is built on PDF 1.4, which has no object streams: converting to
-	// it must undo a CompressObjects set earlier, or the file cannot conform.
+	// PDF/A-1 is built on PDF 1.4, which has no object streams: clear a
+	// CompressObjects set earlier as a convenience. The actual enforcement
+	// lives in the writer (buildDocumentPDF, via isPDFA1), which checks the
+	// document's XMP at write time — so the guard also holds if Optimize runs
+	// again after this call, or for a document opened from an existing
+	// PDF/A-1 file that never went through ConvertToPDFA at all.
 	if format.part() == 1 {
 		d.compressObjects = false
 	}

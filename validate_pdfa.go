@@ -109,6 +109,29 @@ var (
 	rePDFAConfElem = regexp.MustCompile(`<pdfaid:conformance\s*>\s*([A-Za-z])`)
 )
 
+// xmpPDFAPart returns the pdfaid:part value found in an XMP packet (as
+// either an attribute or an element), or "" when absent. Shared by
+// pdfaCheckXMP and isPDFA1.
+func xmpPDFAPart(s string) string {
+	return firstSubmatch(s, rePDFAPartAttr, rePDFAPartElem)
+}
+
+// isPDFA1 reports whether the document's current XMP packet identifies it as
+// PDF/A-1 (pdfaid:part "1"), regardless of the "a"/"b" conformance letter.
+// PDF/A-1 is built on PDF 1.4, which has neither object streams nor
+// cross-reference streams — buildDocumentPDF consults this before taking the
+// object-stream branch so the restriction holds no matter how
+// Optimize/ConvertToPDFA were called or in what order, and also for a
+// document opened from an existing PDF/A-1 file (whose XMP already carries
+// the identifier without any ConvertToPDFA call at all).
+func (d *Document) isPDFA1() bool {
+	raw, err := d.XMPRaw()
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	return xmpPDFAPart(string(raw)) == "1"
+}
+
 func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 	raw, err := d.XMPRaw()
 	if err != nil || len(raw) == 0 {
@@ -116,7 +139,7 @@ func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 		return
 	}
 	s := string(raw)
-	part := firstSubmatch(s, rePDFAPartAttr, rePDFAPartElem)
+	part := xmpPDFAPart(s)
 	conf := firstSubmatch(s, rePDFAConfAttr, rePDFAConfElem)
 	if part == "" || conf == "" {
 		r.add("XMP_PDFAID_MISSING", "XMP packet lacks the pdfaid:part/pdfaid:conformance identifier required by PDF/A")
