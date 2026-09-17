@@ -4,6 +4,8 @@ package asposepdf
 
 import (
 	"bytes"
+	"fmt"
+	"sort"
 	"strconv"
 )
 
@@ -95,4 +97,165 @@ func appendBigEndian(dst []byte, v int64, width int) []byte {
 		dst = append(dst, byte(v>>(8*uint(i))))
 	}
 	return dst
+}
+
+// objectPackable reports whether an object may live inside an object stream:
+// not a stream, not the encryption dictionary, and not a signature dictionary,
+// whose /Contents and /ByteRange are patched in place by byte offset.
+func objectPackable(id int, v pdfValue, encryptObjID int) bool {
+	if id == encryptObjID && encryptObjID != 0 {
+		return false
+	}
+	switch t := v.(type) {
+	case *pdfStream:
+		return false
+	case pdfDict:
+		return !isSignatureDict(t)
+	}
+	return true
+}
+
+// countPackableObjects counts the document's objects eligible for packing.
+func (d *Document) countPackableObjects() int {
+	n := 0
+	for num, obj := range d.objects {
+		if objectPackable(num, obj.Value, 0) {
+			n++
+		}
+	}
+	return n
+}
+
+// buildObjectStreamPDF lays out an assembled document with eligible objects
+// packed into object streams and a cross-reference stream in place of the
+// classic table. Numbering comes from assemble; object streams and the
+// cross-reference stream take the numbers after it.
+func buildObjectStreamPDF(d *Document, asm *assembled) ([]byte, error) {
+	encState := asm.encState
+	remapFn := asm.remapFn()
+	identity := func(n int) int { return n }
+
+	type item struct {
+		id      int
+		val     pdfValue
+		remap   func(int) int
+		encrypt bool
+	}
+	items := make([]item, 0, len(asm.contentIDs)+4)
+	for _, oldID := range asm.contentIDs {
+		items = append(items, item{asm.remap[oldID], d.objects[oldID].Value, remapFn, true})
+	}
+	kids := make(pdfArray, len(d.pages))
+	for i, p := range d.pages {
+		kids[i] = pdfDirectRef{Num: remapFn(p.Num)}
+	}
+	items = append(items, item{asm.pagesObjID,
+		pdfDict{"/Type": pdfName("/Pages"), "/Count": len(d.pages), "/Kids": kids}, identity, false})
+	items = append(items, item{asm.catalogObjID, pdfValue(asm.catalog), remapFn, true})
+	if asm.infoObjID != 0 {
+		items = append(items, item{asm.infoObjID, pdfValue(d.info), remapFn, true})
+	}
+	if asm.encryptObjID != 0 {
+		items = append(items, item{asm.encryptObjID, pdfValue(buildEncryptDict(encState)), identity, false})
+	}
+
+	header := asm.header
+	if header == "%PDF-1.4\n" {
+		header = "%PDF-1.5\n"
+	}
+	var buf bytes.Buffer
+	buf.WriteString(header)
+	buf.WriteString("%\xe2\xe3\xcf\xd3\n")
+
+	encFor := func(num int) func([]byte) ([]byte, error) {
+		if encState == nil {
+			return nil
+		}
+		return func(b []byte) ([]byte, error) { return encState.encryptBytes(num, 0, b) }
+	}
+
+	offsets := make(map[int]int64, len(items))
+	var packed []packedObj
+	for _, it := range items {
+		if objectPackable(it.id, it.val, asm.encryptObjID) {
+			// Written without per-object encryption: the object stream that
+			// holds it is encrypted as a whole.
+			var body bytes.Buffer
+			if err := writeValue(&body, it.val, it.remap, nil); err != nil {
+				return nil, err
+			}
+			packed = append(packed, packedObj{num: it.id, body: body.Bytes()})
+			continue
+		}
+		offsets[it.id] = int64(buf.Len())
+		var encFn func([]byte) ([]byte, error)
+		if it.encrypt {
+			encFn = encFor(it.id)
+		}
+		if err := writeObject(&buf, it.id, it.val, it.remap, encFn); err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(packed, func(i, j int) bool { return packed[i].num < packed[j].num })
+
+	type location struct{ stream, index int }
+	where := make(map[int]location, len(packed))
+	nextID := asm.totalObjects
+	for start := 0; start < len(packed); start += objStmCapacity {
+		end := start + objStmCapacity
+		if end > len(packed) {
+			end = len(packed)
+		}
+		batch := packed[start:end]
+		data, first := buildObjectStream(batch)
+		num := nextID
+		nextID++
+		for i, o := range batch {
+			where[o.num] = location{num, i}
+		}
+		offsets[num] = int64(buf.Len())
+		st := &pdfStream{
+			Dict:    pdfDict{"/Type": pdfName("/ObjStm"), "/N": len(batch), "/First": first},
+			Data:    data,
+			Decoded: true,
+		}
+		if err := writeObject(&buf, num, st, identity, encFor(num)); err != nil {
+			return nil, err
+		}
+	}
+
+	xrefNum := nextID
+	size := xrefNum + 1
+	xrefOff := int64(buf.Len())
+	rows := make([]xrefStreamEntry, size)
+	rows[0] = xrefStreamEntry{typ: 0, f2: 0, f3: 65535}
+	for n := 1; n < size; n++ {
+		if l, ok := where[n]; ok {
+			rows[n] = xrefStreamEntry{typ: 2, f2: int64(l.stream), f3: l.index}
+		} else if off, ok := offsets[n]; ok {
+			rows[n] = xrefStreamEntry{typ: 1, f2: off}
+		}
+	}
+	rows[xrefNum] = xrefStreamEntry{typ: 1, f2: xrefOff}
+	data, w := encodeXRefEntries(rows)
+
+	dict := pdfDict{
+		"/Type": pdfName("/XRef"),
+		"/Size": size,
+		"/W":    w,
+		"/Root": pdfDirectRef{Num: asm.catalogObjID},
+	}
+	if asm.infoObjID != 0 {
+		dict["/Info"] = pdfDirectRef{Num: asm.infoObjID}
+	}
+	if encState != nil {
+		dict["/Encrypt"] = pdfDirectRef{Num: asm.encryptObjID}
+		dict["/ID"] = pdfArray{pdfHexString(encState.fileID), pdfHexString(encState.fileID)}
+	}
+	// The cross-reference stream is never encrypted (ISO 32000-1 §7.5.8.2).
+	if err := writeObject(&buf, xrefNum, &pdfStream{Dict: dict, Data: data, Decoded: true}, identity, nil); err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOff)
+	return buf.Bytes(), nil
 }

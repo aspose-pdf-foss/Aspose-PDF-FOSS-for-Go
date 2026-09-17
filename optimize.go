@@ -24,6 +24,10 @@ type OptimizationOptions struct {
 	// RemoveDuplicateStreams merges byte-identical stream objects into one
 	// and repoints references (lossless).
 	RemoveDuplicateStreams bool
+	// CompressObjects packs non-stream objects into object streams and writes
+	// a cross-reference stream on Save/WriteTo (lossless; the file becomes
+	// PDF 1.5 or later). Ignored by SaveLinearized.
+	CompressObjects bool
 	// Images, when non-nil, downscales/recodes images per the options
 	// (potentially lossy — opt-in).
 	Images *OptimizeImageOptions
@@ -36,18 +40,22 @@ type OptimizationResult struct {
 	OptimizedImages     int
 	CompressedStreams   int
 	DeduplicatedStreams int
+	// CompressedObjects is the number of objects eligible for packing when
+	// Optimize ran; the packing itself happens on Save/WriteTo.
+	CompressedObjects int
 }
 
 // DefaultOptimizationOptions returns the safe, lossless preset: remove unused
-// objects, subset fonts, compress uncompressed streams, and dedupe identical
-// streams. Image recompression is left off (opt-in via Images because it can
-// be lossy).
+// objects, subset fonts, compress uncompressed streams, dedupe identical
+// streams, and pack objects into object streams. Image recompression is left
+// off (opt-in via Images because it can be lossy).
 func DefaultOptimizationOptions() OptimizationOptions {
 	return OptimizationOptions{
 		RemoveUnusedObjects:    true,
 		SubsetFonts:            true,
 		CompressStreams:        true,
 		RemoveDuplicateStreams: true,
+		CompressObjects:        true,
 	}
 }
 
@@ -81,6 +89,10 @@ func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error
 	}
 	if opts.RemoveUnusedObjects {
 		res.RemovedObjects = d.RemoveUnusedObjects()
+	}
+	if opts.CompressObjects {
+		d.compressObjects = true
+		res.CompressedObjects = d.countPackableObjects()
 	}
 	return res, nil
 }

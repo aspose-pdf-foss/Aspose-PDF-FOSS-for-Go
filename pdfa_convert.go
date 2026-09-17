@@ -36,6 +36,11 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("ConvertToPDFA: document has no pages")
 	}
+	// PDF/A-1 is built on PDF 1.4, which has no object streams: converting to
+	// it must undo a CompressObjects set earlier, or the file cannot conform.
+	if format.part() == 1 {
+		d.compressObjects = false
+	}
 	d.RemoveEncryption()
 	d.stripPDFAActions()
 	if format == PDFA1B {

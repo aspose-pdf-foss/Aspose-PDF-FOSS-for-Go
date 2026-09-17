@@ -54,6 +54,17 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	totalObjects := asm.totalObjects
 	remapFn := asm.remapFn()
 
+	if d.compressObjects {
+		out, err := buildObjectStreamPDF(d, asm)
+		if err != nil {
+			return nil, err
+		}
+		if d.sign != nil {
+			return d.applySignature(out)
+		}
+		return out, nil
+	}
+
 	var buf bytes.Buffer
 	buf.WriteString(asm.header)
 	buf.WriteString("%\xe2\xe3\xcf\xd3\n") // binary marker

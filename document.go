@@ -66,6 +66,10 @@ type Document struct {
 	// document would drop that revision, so it is written back verbatim.
 	revisionAppended bool
 
+	// compressObjects makes Save/WriteTo pack non-stream objects into object
+	// streams and write a cross-reference stream (OptimizationOptions.CompressObjects).
+	compressObjects bool
+
 	// Captured at open time from the trailer, used by incremental save
 	// (signing an existing PDF without rewriting it). Zero for built docs.
 	catalogNum    int      // original /Root object number
