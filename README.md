@@ -106,7 +106,10 @@ flowchart TD
   annotate, fill, accessibility, assemble); sign with a PKCS#7-detached signature
   (SHA-256, RSA or ECDSA) that can be PAdES, a DocMDP certification, and/or carry an RFC 3161
   trusted timestamp, over plain or already-encrypted documents, with support for multiple
-  incremental signatures and verification via `VerifySignatures`. Keys are passed as a standard
+  incremental signatures and verification via `VerifySignatures` — optionally asking the issuer
+  whether the signing certificate was revoked (OCSP or CRL, network opt-in through
+  `ValidationOptions`) and embedding that evidence as a `/DSS` with `AddValidationInfo`, so the
+  signature still verifies after the certificate expires (LTV). Keys are passed as a standard
   `crypto.Signer` plus `*x509.Certificate` — no `.p12` file required. Documents can also be
   encrypted for **certificate recipients** instead of a password
   (`EncryptionOptions.Recipients`, the `/Adobe.PubSec` handler): each recipient gets its own
@@ -598,6 +601,11 @@ stays free of network code.
 | `ReplaceOptions` | ReplaceOptions tunes how ReplaceText matches the search text. |
 | `ResetFormAction` | ResetFormAction resets named form fields to their /DV defaults. |
 | `Resolution` | Resolution is a rendering resolution in DPI. |
+| `RevocationCheck` | RevocationCheck selects how far verification goes in establishing whether a signing certificate was revoked. |
+| `RevocationFetcher` | RevocationFetcher retrieves revocation material. |
+| `RevocationSource` | RevocationSource records where an answer came from. |
+| `RevocationState` | RevocationState is what a responder or a CRL says about a certificate. |
+| `RevocationStatus` | RevocationStatus is what the issuer says about a signing certificate. |
 | `RichTextBoxField` | RichTextBoxField is a text field that carries a rich-text value (RichText flag + /RV) in addition to its plain /V. |
 | `RotationAngle` | RotationAngle represents a valid PDF page rotation in clockwise degrees. |
 | `Row` | Row is a single row within a Table. |
@@ -642,6 +650,7 @@ stays free of network code.
 | `UnderlineAnnotation` | UnderlineAnnotation draws a horizontal line under text. |
 | `Usage` | Usage reports token counts when the provider returns them. |
 | `VAlign` | VAlign specifies vertical text alignment within a rectangle. |
+| `ValidationOptions` | ValidationOptions configures signature verification. |
 | `ValidationIssue` | ValidationIssue describes a single problem found in a PDF file. |
 | `ValidationReport` | ValidationReport is returned by Validate and summarises the structural integrity of a PDF. |
 | `WidgetAnnotation` | WidgetAnnotation is the read-only view of a form widget annotation surfaced through AnnotationCollection. |
