@@ -224,6 +224,110 @@ func TestCompressObjectsSigned(t *testing.T) {
 	}
 }
 
+// newTestSigner returns a fresh self-signed certificate + key pair for
+// signing tests, named cn.
+func newTestSigner(t *testing.T, cn string) (*x509.Certificate, *rsa.PrivateKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano() % 1_000_000),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert, key
+}
+
+// A revision appended to a compressed file keeps the file's kind of cross
+// reference: a stream after a stream. The earlier signature stays valid and
+// the later one covers the whole file.
+func TestIncrementalSignatureOnCompressedFile(t *testing.T) {
+	cert1, key1 := newTestSigner(t, "First")
+	doc := formDocument(t, 120)
+	if err := doc.Sign(SignOptions{Certificate: cert1, PrivateKey: key1}); err != nil {
+		t.Fatal(err)
+	}
+	first := saveCompressed(t, doc)
+
+	reopened, err := OpenStream(bytes.NewReader(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert2, key2 := newTestSigner(t, "Second")
+	if err := reopened.Sign(SignOptions{Certificate: cert2, PrivateKey: key2}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := reopened.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	second := buf.Bytes()
+
+	appended := second[len(first):]
+	if bytes.Contains(appended, []byte("\nxref\n")) {
+		t.Error("a classic xref section was appended to a file using cross-reference streams")
+	}
+	if !bytes.Contains(appended, []byte("/XRef")) {
+		t.Error("the appended revision carries no cross-reference stream")
+	}
+
+	final, err := OpenStream(bytes.NewReader(second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs, err := final.VerifySignatures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sigs) != 2 {
+		t.Fatalf("got %d signatures, want 2", len(sigs))
+	}
+	for _, s := range sigs {
+		if !s.Valid {
+			t.Errorf("signature %s is not valid: %v", s.FieldName, s.Err)
+		}
+	}
+}
+
+// An encrypted document signed on a compressed save is signed incrementally
+// on top of its own encrypted, compressed bytes; that revision must use a
+// cross-reference stream too, and the signature must hold.
+func TestSignEncryptedCompressedAppendsXRefStream(t *testing.T) {
+	cert, key := newTestSigner(t, "Encrypted Signer")
+	doc := formDocument(t, 120)
+	doc.SetEncryption(EncryptionOptions{UserPassword: "u", OwnerPassword: "o", Algorithm: EncryptionAlgAES256})
+	if err := doc.Sign(SignOptions{Certificate: cert, PrivateKey: key}); err != nil {
+		t.Fatal(err)
+	}
+	out := saveCompressed(t, doc)
+	if bytes.Contains(out, []byte("\nxref\n")) {
+		t.Error("a classic xref section appears in an encrypted, compressed, signed file")
+	}
+	reopened, err := OpenStreamWithPassword(bytes.NewReader(out), "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs, err := reopened.VerifySignatures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sigs) != 1 || !sigs[0].Valid {
+		t.Fatalf("signature does not hold: %+v", sigs)
+	}
+}
+
 func TestOptimizeReportsPackableObjects(t *testing.T) {
 	doc := formDocument(t, 30)
 	res, err := doc.Optimize(OptimizationOptions{CompressObjects: true})

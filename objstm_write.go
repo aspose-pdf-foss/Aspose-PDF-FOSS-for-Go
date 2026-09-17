@@ -259,3 +259,23 @@ func buildObjectStreamPDF(d *Document, asm *assembled) ([]byte, error) {
 	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOff)
 	return buf.Bytes(), nil
 }
+
+// encodeRevisionXRef encodes the rows of an appended revision (sorted by
+// number, all in use) as a cross-reference stream, grouping consecutive
+// numbers into /Index subsections.
+func encodeRevisionXRef(rows []xrefRow) (data []byte, w, index pdfArray) {
+	entries := make([]xrefStreamEntry, len(rows))
+	for i, r := range rows {
+		entries[i] = xrefStreamEntry{typ: 1, f2: r.off, f3: r.gen}
+	}
+	for i := 0; i < len(rows); {
+		j := i
+		for j+1 < len(rows) && rows[j+1].num == rows[j].num+1 {
+			j++
+		}
+		index = append(index, rows[i].num, j-i+1)
+		i = j + 1
+	}
+	data, w = encodeXRefEntries(entries)
+	return data, w, index
+}

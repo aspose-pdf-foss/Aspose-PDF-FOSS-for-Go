@@ -274,6 +274,36 @@ func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, enc
 	for i, e := range emit {
 		rows[i] = xrefRow{num: e.num, gen: e.gen, off: offsets[e.num]}
 	}
+
+	// A file whose last section is a cross-reference stream gets one too:
+	// readers generally accept a classic table appended after a stream, strict
+	// validators do not.
+	if isXRefStream(d.source, prevXref) {
+		xrefNum := size
+		size++
+		xrefOff := int64(buf.Len())
+		rows = append(rows, xrefRow{num: xrefNum, off: xrefOff})
+		data, w, index := encodeRevisionXRef(rows)
+		id0, id1 := d.incrementalID()
+		dict := pdfDict{
+			"/Type":  pdfName("/XRef"),
+			"/Size":  size,
+			"/W":     w,
+			"/Index": index,
+			"/Root":  pdfDirectRef{Num: d.catalogNum},
+			"/Prev":  int(prevXref),
+			"/ID":    pdfArray{pdfHexString(id0), pdfHexString(id1)},
+		}
+		if encState != nil && d.encryptObjNum > 0 {
+			dict["/Encrypt"] = pdfDirectRef{Num: d.encryptObjNum}
+		}
+		if err := writeObject(&buf, xrefNum, &pdfStream{Dict: dict, Data: data, Decoded: true}, identity, nil); err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF\n", xrefOff)
+		return buf.Bytes(), nil
+	}
+
 	xrefOff := int64(buf.Len())
 	writeIncrementalXref(&buf, rows)
 
