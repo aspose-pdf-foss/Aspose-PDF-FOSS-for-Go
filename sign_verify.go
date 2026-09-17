@@ -24,7 +24,15 @@ type SignatureVerification struct {
 	// intermediates a caller needs to build a path to a trust anchor. The
 	// signer certificate itself is not repeated here.
 	Chain []*x509.Certificate
-	Err   error // non-nil reason when Valid is false
+	// Revocation is what the issuer says about the signing certificate. It is
+	// nil unless ValidationOptions asked for a check. A revoked certificate
+	// does not make Valid false: Valid stays cryptographic, and what to do
+	// about revocation is the caller's policy.
+	Revocation *RevocationStatus
+	// LTVEnabled reports that the document carries everything needed to verify
+	// this signature offline. Mirrors Aspose.PDF for .NET's IsLtvEnabled.
+	LTVEnabled bool
+	Err        error // non-nil reason when Valid is false
 }
 
 // VerifySignatures verifies every digital signature in the document and
@@ -34,15 +42,45 @@ type SignatureVerification struct {
 // Certificate is returned so it can be checked against a trust store.
 //
 // Mirrors the intent of Aspose.PDF for .NET's PdfFileSignature.VerifySignature.
-func (d *Document) VerifySignatures() ([]SignatureVerification, error) {
+func (d *Document) VerifySignatures(opts ...ValidationOptions) ([]SignatureVerification, error) {
 	if len(d.source) == 0 {
 		return nil, fmt.Errorf("VerifySignatures: no source bytes (open the document from a file or stream)")
 	}
+	o := lastValidationOption(opts)
 	var out []SignatureVerification
 	for _, sf := range d.collectSignatureFields() {
-		out = append(out, verifyOneSignature(d.source, sf.name, sf.sig))
+		out = append(out, d.verifyOneSignatureWithOptions(sf, o))
 	}
 	return out, nil
+}
+
+// verifyOneSignatureWithOptions runs the cryptographic verification and, when
+// asked, the revocation check on top of it.
+func (d *Document) verifyOneSignatureWithOptions(sf sigFieldRef, o ValidationOptions) SignatureVerification {
+	res := verifyOneSignature(d.source, sf.name, sf.sig)
+	if res.Certificate == nil {
+		return res
+	}
+	issuer := issuerOf(res.Certificate, res.Chain)
+	if o.Revocation != RevocationNone {
+		res.Revocation = checkRevocation(res.Certificate, issuer, d.dssMaterial(), o)
+	}
+	res.LTVEnabled = d.hasLTVMaterial(res.Certificate, issuer)
+	return res
+}
+
+// issuerOf finds the certificate that signed cert among the ones travelling
+// with the signature. A self-signed certificate is its own issuer.
+func issuerOf(cert *x509.Certificate, chain []*x509.Certificate) *x509.Certificate {
+	for _, c := range chain {
+		if cert.CheckSignatureFrom(c) == nil {
+			return c
+		}
+	}
+	if cert.CheckSignatureFrom(cert) == nil {
+		return cert
+	}
+	return nil
 }
 
 // SignatureNames returns the field name of every signature in the document,
@@ -62,13 +100,14 @@ func (d *Document) SignatureNames() []string {
 // present but invalid comes back in the result, with the reason in Err —
 // there is nothing exceptional about a document failing to verify. Mirrors
 // Aspose.PDF for .NET's PdfFileSignature.VerifySignature(sigName).
-func (d *Document) VerifySignature(fieldName string) (SignatureVerification, error) {
+func (d *Document) VerifySignature(fieldName string, opts ...ValidationOptions) (SignatureVerification, error) {
 	if len(d.source) == 0 {
 		return SignatureVerification{}, fmt.Errorf("VerifySignature: no source bytes (open the document from a file or stream)")
 	}
+	o := lastValidationOption(opts)
 	for _, sf := range d.collectSignatureFields() {
 		if sf.name == fieldName {
-			return verifyOneSignature(d.source, sf.name, sf.sig), nil
+			return d.verifyOneSignatureWithOptions(sf, o), nil
 		}
 	}
 	return SignatureVerification{}, fmt.Errorf("VerifySignature: no signature field named %q", fieldName)

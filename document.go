@@ -61,6 +61,10 @@ type Document struct {
 	sign         *signConfig            // nil unless Sign() configured a digital signature
 	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
 	repair       RepairReport           // what had to be reconstructed to open the file; zero when it parsed as written
+	// revisionAppended marks a document whose source bytes already carry an
+	// appended revision built in memory (AddValidationInfo). Rebuilding such a
+	// document would drop that revision, so it is written back verbatim.
+	revisionAppended bool
 
 	// Captured at open time from the trailer, used by incremental save
 	// (signing an existing PDF without rewriting it). Zero for built docs.
@@ -599,6 +603,10 @@ func (d *Document) SetEncryption(opts EncryptionOptions) {
 
 // WriteTo writes the document to w. It implements io.WriterTo.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
+	if d.revisionAppended {
+		n, err := w.Write(d.source)
+		return int64(n), err
+	}
 	if len(d.pages) == 0 {
 		return 0, fmt.Errorf("document has no pages")
 	}

@@ -13,6 +13,19 @@ import (
 
 // buildDocumentPDF serializes d to a PDF byte slice.
 func buildDocumentPDF(d *Document) ([]byte, error) {
+	// A document whose source already carries an appended revision built in
+	// memory (AddValidationInfo) is written back verbatim: rebuilding it would
+	// drop the revision, and with it the /DSS.
+	if d.revisionAppended {
+		return d.source, nil
+	}
+
+	// SignOptions.LTV: sign first, then append the validation material as a
+	// further revision. It can only be tied to a signature that exists.
+	if d.sign != nil && d.sign.ltv {
+		return buildSignedWithLTV(d)
+	}
+
 	// Incremental signature: append a new revision to the original bytes
 	// rather than rewriting, so any earlier signature stays valid.
 	if d.sign != nil && d.sign.incremental {

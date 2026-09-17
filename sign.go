@@ -113,6 +113,14 @@ type SignOptions struct {
 	// and is auto-enabled when the document already contains a signature.
 	// Requires a document opened from an existing PDF (Open/OpenStream).
 	Incremental bool
+
+	// LTV appends a further revision carrying the long-term validation
+	// material (/DSS) once the signature is written, so the signature can
+	// still be verified after the certificate expires. It runs
+	// AddValidationInfo with RevocationOnline, so it needs network access at
+	// sign time; without a reachable responder only the certificates are
+	// embedded. Mirrors the intent of Aspose.PDF for .NET's LTV support.
+	LTV bool
 }
 
 // DigestAlgorithm is the hash a signature is computed with. Mirrors
@@ -210,6 +218,7 @@ type signConfig struct {
 	certify                         CertifyPermission
 	tsaURL                          string
 	incremental                     bool
+	ltv                             bool
 }
 
 // callbackSigner adapts a SignHash callback to crypto.Signer, so a remote
@@ -297,6 +306,7 @@ func (d *Document) Sign(opts SignOptions) error {
 		certify:     opts.Certify,
 		tsaURL:      opts.TimestampURL,
 		incremental: incremental,
+		ltv:         opts.LTV,
 	}
 	return nil
 }

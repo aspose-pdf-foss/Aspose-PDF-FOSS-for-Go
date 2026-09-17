@@ -188,6 +188,24 @@ func parseOCSPResponse(der []byte) (*ocspBasicResponse, *ocspResponseData, error
 	return &basic, &data, nil
 }
 
+// parseOCSPAny accepts either form the material comes in: the OCSPResponse a
+// responder sends over the wire, or the bare BasicOCSPResponse a /DSS /OCSPs
+// entry holds (ISO 32000-2 §12.8.4.3).
+func parseOCSPAny(der []byte) (*ocspBasicResponse, *ocspResponseData, error) {
+	if basic, data, err := parseOCSPResponse(der); err == nil {
+		return basic, data, nil
+	}
+	var basic ocspBasicResponse
+	if _, err := asn1.Unmarshal(der, &basic); err != nil {
+		return nil, nil, fmt.Errorf("ocsp: not a response: %w", err)
+	}
+	var data ocspResponseData
+	if _, err := asn1.Unmarshal(basic.TBSResponseData.FullBytes, &data); err != nil {
+		return nil, nil, fmt.Errorf("ocsp: parse response data: %w", err)
+	}
+	return &basic, &data, nil
+}
+
 // ocspSingleFor finds the entry answering about id. A response carrying only
 // other certificates says nothing about ours, which is an error rather than an
 // "unknown": it means the wrong responder was asked, or the wrong issuer was
