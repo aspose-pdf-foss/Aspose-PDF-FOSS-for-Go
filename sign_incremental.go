@@ -277,8 +277,13 @@ func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, enc
 
 	// A file whose last section is a cross-reference stream gets one too:
 	// readers generally accept a classic table appended after a stream, strict
-	// validators do not.
-	if isXRefStream(d.source, prevXref) {
+	// validators do not. isXRefStream alone is a negative test (true for
+	// anything that isn't the "xref" keyword), so a damaged classic-table file
+	// whose startxref is off by a few bytes would wrongly take this branch;
+	// sectionIsXRefStream confirms the bytes are really a /Type /XRef object,
+	// and the xref must not have been reconstructed by scanning (a rebuilt
+	// document has no real "last section" offset to inspect at all).
+	if !d.repair.XRefReconstructed && sectionIsXRefStream(d.source, prevXref) {
 		xrefNum := size
 		size++
 		xrefOff := int64(buf.Len())

@@ -83,6 +83,31 @@ func isXRefStream(data []byte, offset int64) bool {
 	return true
 }
 
+// sectionIsXRefStream reports whether the bytes at off are really a
+// cross-reference stream: an indirect object whose dictionary carries
+// /Type /XRef. Unlike isXRefStream — a cheap "not the xref keyword" test
+// used while walking a /Prev chain, where anything else is assumed to be a
+// stream — this fully parses the object, so a damaged file whose startxref
+// is off by a few bytes (landing on an ordinary object, or nothing at all)
+// is correctly reported as not a cross-reference stream instead of getting
+// one appended on top of a section a strict reader cannot parse. Used by
+// appendRevision to decide whether an appended incremental revision should
+// use a classic table or a stream, matching the previous section's kind.
+func sectionIsXRefStream(data []byte, off int64) bool {
+	if off < 0 || off >= int64(len(data)) {
+		return false
+	}
+	obj, err := parseIndirectObject(data, off)
+	if err != nil {
+		return false
+	}
+	st, ok := obj.Value.(*pdfStream)
+	if !ok {
+		return false
+	}
+	return dictGetName(st.Dict, "/Type") == "/XRef"
+}
+
 // parseXRefTable parses a traditional xref table and returns the trailer dict.
 func parseXRefTable(data []byte, offset int64, table *xrefTable) (pdfDict, error) {
 	l := newLexerAt(data, int(offset))
