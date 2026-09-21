@@ -18,6 +18,8 @@ developers coming from that library, and spec references throughout follow ISO 3
 and ISO 32000-2 (PDF 2.0). This project is not to be confused with `aspose-pdf-go-cpp` (a CGo
 wrapper around a native library) — it is 100% Go source, `go get` and cross-compile anywhere.
 
+CLA test
+
 ## Navigation
 
 - [At a Glance](#at-a-glance)
