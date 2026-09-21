@@ -994,3 +994,5 @@ The library also bundles the Arimo, Tinos, Cousine, and Carlito font families un
 Font License 1.1, used to render the PDF Standard-14 fonts (and Calibri) when no embedded or
 system font is available — see [fonts/LICENSE.txt](fonts/LICENSE.txt) (SPDX: `MIT AND OFL-1.1`
 for the distribution as a whole). The MIT license above covers the library's own code.
+
+CLA test
