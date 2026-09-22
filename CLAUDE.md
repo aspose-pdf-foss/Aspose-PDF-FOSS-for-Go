@@ -38,6 +38,7 @@ Pure Go library. No external dependencies. All PDF functionality is in the root 
 - `OpenWithPassword(path, password)` — opens an encrypted PDF, trying the password as both user and owner password; works on plain PDFs too
 - `OpenStreamWithPassword(r io.Reader, password)` — same as `OpenWithPassword` but reads from any `io.Reader`
 - `ErrEncrypted` — sentinel error returned by `Open`/`OpenStream` when the file is encrypted; check via `errors.Is(err, asposepdf.ErrEncrypted)`
+- `ErrInvalidPassword` — sentinel error returned by `OpenWithPassword`/`OpenStreamWithPassword` when the password matches neither the user nor the owner password; mirrors Aspose.PDF for .NET's `InvalidPasswordException`
 - `(*Document).PageCount()` — current page count
 - `(*Document).Pages()` — returns `[]*Page` live views of all pages
 - `(*Document).Page(n)` — returns a `*Page` live view of page n (1-based)
@@ -236,6 +237,7 @@ Pure Go library. No external dependencies. All PDF functionality is in the root 
 **`encrypt.go` / `decrypt.go` / `encrypt_aes.go` / `decrypt_aes.go` / `encrypt_aes256.go` / `decrypt_aes256.go`**
 - `Encrypt(inputPath, outputPath, userPassword, ownerPassword)` — top-level helper writes RC4-128-protected PDF (PDF 1.4 Standard Security Handler V=2 R=3). For AES, use `(*Document).SetEncryption(EncryptionOptions{...})`
 - `ErrEncrypted` — sentinel error from `Open`/`OpenStream` on encrypted input
+- `ErrInvalidPassword` — sentinel error from `OpenWithPassword`/`OpenStreamWithPassword` on a password matching neither `/U` nor `/O`. A decryption-setup failure is final in `openStreamCore` (wrapped as `encryptionSetupError`): xref reconstruction is never retried after one, and a reconstructed trailer carries `/Encrypt` from the primary trailer, the last `/XRef` stream, or a scanned security-handler dict, so an encrypted file never opens as plain
 - Decryption pipeline: `OpenWithPassword`/`OpenStreamWithPassword` parse `/Encrypt`, dispatch by `/V` (V=2 R=3 → RC4 path; V=4 R=4 → AES-128 path via `/CFM /AESV2`; V=5 R=6 → AES-256 path via `/CFM /AESV3` per ISO 32000-2). All paths share PKCS#7 helpers. For V≤4 password handling reuses Algorithms 2/5/7 (MD5-based); for V=5 R=6 password handling uses Algorithm 2.B (iterated SHA-256/384/512 hash chain). Per-object decryption uses Algorithm 1 (RC4) or 1.A (AES-128, with `"sAlT"` literal suffix in MD5 input); AES-256 uses the FEK directly (no per-object derivation). Stream `/Filter` chains are re-applied after decryption per PDF spec ordering (encrypt-after-filter)
 - `Permissions` struct — eight bool flags (AllowPrint, AllowModify, AllowCopy, AllowAnnotations, AllowFormFill, AllowAccessibility, AllowAssembly, AllowPrintHighRes); zero value denies everything. Adobe-convention bit packing per ISO 32000-1 §7.6.3.2 Table 22 with reserved bits 7-8 and 13-32 set high
 - `EncryptionOptions` struct — unified encryption configuration: UserPassword, OwnerPassword (empty → defaults to UserPassword), Permissions *Permissions (nil → grant all), Algorithm EncryptionAlgorithm (zero value → AES-128). Consumed by `(*Document).SetEncryption`

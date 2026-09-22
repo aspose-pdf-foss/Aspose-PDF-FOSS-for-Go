@@ -122,7 +122,8 @@ func OpenStream(r io.Reader) (*Document, error) {
 
 // OpenWithPassword opens a password-protected PDF file. Use Open for
 // unencrypted files. The password is tried as both user and owner
-// password; either unlocks the document for editing.
+// password; either unlocks the document for editing. Returns
+// ErrInvalidPassword if it matches neither.
 //
 // Edit-in-place: the original /O, /U, /P, and /ID bytes from the file
 // are preserved on the returned Document so a subsequent Save reuses them
@@ -200,9 +201,16 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 	// off-by-one xref subsection) — fall back to reconstructing the xref by
 	// scanning the file for object headers and retry. ErrEncrypted is not a
 	// failure to recover from: the file parsed fine, it just needs a password.
+	// Nor is a failure to set up decryption (wrong password, unsupported
+	// handler): /Encrypt was read, so the xref is sound, and a file with only
+	// a cross-reference stream has no `trailer` keyword for reconstruction to
+	// recover /Encrypt from — the retry would open the ciphertext as a plain
+	// document, whatever the password.
 	var firstErr error
+	var primaryTrailer pdfDict
 	if startOff, err := findStartXRef(data); err == nil {
 		if xref, trailer, perr := parseXRef(data, startOff); perr == nil {
+			primaryTrailer = trailer
 			doc, derr := buildFromXRef(data, xref, trailer, cred)
 			if derr == nil {
 				doc.source = data
@@ -210,6 +218,10 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 			}
 			if errors.Is(derr, ErrEncrypted) {
 				return nil, derr
+			}
+			var setupErr *encryptionSetupError
+			if errors.As(derr, &setupErr) {
+				return nil, setupErr.err
 			}
 			firstErr = derr
 		} else {
@@ -224,10 +236,24 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 	if rerr != nil {
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, rerr))
 	}
+	// The file's own trailer parsed but the document did not build from it
+	// (e.g. /Encrypt could not be fetched through a broken xref); its /Encrypt
+	// and /ID still describe the file, so carry them into the rebuilt trailer.
+	for _, k := range []string{"/Encrypt", "/ID"} {
+		if v, ok := primaryTrailer[k]; ok {
+			if _, has := trailer[k]; !has {
+				trailer[k] = v
+			}
+		}
+	}
 	doc, derr := buildFromXRef(data, xref, trailer, cred)
 	if derr != nil {
 		if errors.Is(derr, ErrEncrypted) {
 			return nil, derr
+		}
+		var setupErr *encryptionSetupError
+		if errors.As(derr, &setupErr) {
+			return nil, setupErr.err
 		}
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, derr))
 	}
@@ -281,7 +307,7 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, cred *openCred
 		}
 		state, err := buildDecryptState(encDict, trailer, cred)
 		if err != nil {
-			return nil, err
+			return nil, &encryptionSetupError{err: err}
 		}
 		raw.encState = state
 		raw.encryptObjNum = encRef.Num
