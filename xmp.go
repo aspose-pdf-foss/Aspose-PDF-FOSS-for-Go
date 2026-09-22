@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // XMP namespace URIs (ISO 16684-1 / Adobe XMP Specification).
@@ -324,6 +325,16 @@ func buildXMP(meta XMPMetadata) []byte {
 // share its bound prefix, so writeSimple never emits two different
 // namespaces under one XML prefix (which would silently merge them on the
 // next parse).
+//
+// The PDF/A and e-invoice namespaces this library writes are bound first, to
+// their canonical prefixes, before any other namespace is considered:
+// pdfaid is reserved for the PDF/A identification whether or not it is
+// present (a validator looks for pdfaid:part literally, so a foreign
+// namespace holding that prefix would hide the identification), and fx / zf
+// go to the Factur-X / ZUGFeRD namespaces when those are present. A
+// caller-supplied Prefix that is not a usable XML prefix (see
+// isUsableXMLPrefix) is ignored, so a bad hint degrades to an ns<N> prefix
+// instead of a packet that is not well-formed.
 func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[string]string) {
 	prefixOf = map[string]string{
 		nsDC:  "dc",
@@ -331,11 +342,34 @@ func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[stri
 		nsPDF: "pdf",
 	}
 	boundTo := map[string]string{
-		"dc":  nsDC,
-		"xmp": nsXMP,
-		"pdf": nsPDF,
-		"rdf": nsRDF,
-		"x":   nsXMPMeta,
+		"dc":     nsDC,
+		"xmp":    nsXMP,
+		"pdf":    nsPDF,
+		"rdf":    nsRDF,
+		"x":      nsXMPMeta,
+		"pdfaid": nsPDFAID,
+	}
+	present := map[string]bool{}
+	for _, p := range custom {
+		if p.Namespace != "" && p.Name != "" {
+			present[p.Namespace] = true
+		}
+	}
+	for _, c := range []struct{ ns, prefix string }{
+		{nsPDFAID, "pdfaid"},
+		{nsFacturX, "fx"},
+		{nsZUGFeRD2, "fx"},
+		{nsZUGFeRD1, "zf"},
+	} {
+		if !present[c.ns] {
+			continue
+		}
+		if owner := boundTo[c.prefix]; owner != "" && owner != c.ns {
+			continue // fx already went to Factur-X; ZUGFeRD 2.0 takes an ns<N> below
+		}
+		prefixOf[c.ns] = c.prefix
+		boundTo[c.prefix] = c.ns
+		order = append(order, c.ns)
 	}
 	next := 1
 	for _, p := range custom {
@@ -346,7 +380,7 @@ func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[stri
 			continue // already bound — a core namespace, or seen earlier in this loop
 		}
 		prefix := p.Prefix
-		if prefix == "" || (boundTo[prefix] != "" && boundTo[prefix] != p.Namespace) {
+		if !isUsableXMLPrefix(prefix) || (boundTo[prefix] != "" && boundTo[prefix] != p.Namespace) {
 			for {
 				prefix = fmt.Sprintf("ns%d", next)
 				next++
@@ -360,6 +394,28 @@ func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[stri
 		order = append(order, p.Namespace)
 	}
 	return order, prefixOf
+}
+
+// isUsableXMLPrefix reports whether s can be declared as a namespace prefix:
+// an XML NCName (Namespaces in XML 1.0 §3) that does not begin with "xml" in
+// any case — xml and xmlns are reserved outright, and every other name
+// starting with those letters is reserved for future standardisation.
+func isUsableXMLPrefix(s string) bool {
+	if s == "" || strings.HasPrefix(strings.ToLower(s), "xml") {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_' || unicode.IsLetter(r):
+		case i == 0:
+			return false
+		case r == '-' || r == '.' || r == 0xB7 || unicode.IsDigit(r) ||
+			unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Nd, r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // writeSimple emits "<tag>value</tag>" (XML-escaped) when value is non-empty.

@@ -5,6 +5,8 @@ package asposepdf
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -548,5 +550,178 @@ func TestConvertToPDFAUsesForeignExtensionSchemaPrefix(t *testing.T) {
 	}
 	if !strings.Contains(s, "<acme:Code>ABC123</acme:Code>") {
 		t.Errorf("acme:Code was not serialised under the schema's declared prefix:\n%s", s)
+	}
+}
+
+// --- Final review fixes ---
+
+// checkXMPWellFormed parses an XMP packet with encoding/xml and additionally
+// checks what that decoder tolerates but a strict XML parser rejects: a
+// duplicate attribute on one element, a namespace declaration whose prefix
+// is not an NCName, and a declaration of the reserved xml / xmlns prefixes.
+func checkXMPWellFormed(t *testing.T, raw []byte) {
+	t.Helper()
+	s := string(raw)
+	if strings.Contains(s, "xmlns:xml=") || strings.Contains(s, "xmlns:xmlns=") {
+		t.Errorf("packet declares a reserved xml/xmlns prefix:\n%s", s)
+	}
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			t.Fatalf("packet is not well-formed XML: %v\n%s", err, s)
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		seen := map[xml.Name]bool{}
+		for _, a := range se.Attr {
+			if seen[a.Name] {
+				t.Errorf("duplicate attribute %s:%s on <%s>:\n%s", a.Name.Space, a.Name.Local, se.Name.Local, s)
+			}
+			seen[a.Name] = true
+			if a.Name.Space == "xmlns" && !testIsNCName(a.Name.Local) {
+				t.Errorf("namespace prefix %q is not an NCName:\n%s", a.Name.Local, s)
+			}
+		}
+	}
+}
+
+// testIsNCName is an independent, ASCII-strict NCName check for the tests.
+func testIsNCName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+		case i > 0 && (r == '-' || r == '.' || (r >= '0' && r <= '9')):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// countXMPProperty counts the elements and attributes named space/local in a
+// packet (namespace declarations excluded).
+func countXMPProperty(t *testing.T, raw []byte, space, local string) int {
+	t.Helper()
+	n := 0
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return n
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if se.Name.Space == space && se.Name.Local == local {
+			n++
+		}
+		for _, a := range se.Attr {
+			if a.Name.Space == space && a.Name.Local == local {
+				n++
+			}
+		}
+	}
+}
+
+// foreignPrefixXMP is a packet carrying a foreign property and the extension
+// schema describing it, the schema declaring the given prefix (XML-escaped
+// into the element text) for its namespace.
+func foreignPrefixXMP(prefix string) string {
+	return `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:fgn="urn:example:foreign#">
+<fgn:Code>F-42</fgn:Code>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<pdfaExtension:schemas>
+<rdf:Bag>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Foreign Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:foreign#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>` + xmlEscape(prefix) + `</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>Code</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>A foreign code</pdfaProperty:description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:li>
+</rdf:Bag>
+</pdfaExtension:schemas>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+}
+
+// Important 1: a declared prefix is honoured only when it is a usable XML
+// prefix, and never takes pdfaid or (when Factur-X is written) fx.
+func TestForeignExtensionSchemaPrefixValidated(t *testing.T) {
+	for _, prefix := range []string{`a"b`, "a b", "1bad", "xml", "xmlns", "XmlFoo", "pdfaid", "fx"} {
+		t.Run(prefix, func(t *testing.T) {
+			doc := invoiceTestDoc(t)
+			if err := doc.SetXMPRaw([]byte(foreignPrefixXMP(prefix))); err != nil {
+				t.Fatal(err)
+			}
+			invoice := prefix == "fx"
+			if invoice {
+				if _, err := doc.AttachInvoice(ciiInvoice("urn:cen.eu:en16931:2017")); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := doc.ConvertToPDFA(PDFA3B); err != nil {
+				t.Fatal(err)
+			}
+			back := saveAndReopen(t, doc)
+			raw, err := back.XMPRaw()
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkXMPWellFormed(t, raw)
+			s := string(raw)
+			if !strings.Contains(s, `xmlns:pdfaid="`+nsPDFAID+`"`) || !strings.Contains(s, "<pdfaid:part>3</pdfaid:part>") {
+				t.Errorf("pdfaid is not written under the pdfaid prefix:\n%s", s)
+			}
+			if invoice && (!strings.Contains(s, `xmlns:fx="`+nsFacturX+`"`) || !strings.Contains(s, "<fx:DocumentType>")) {
+				t.Errorf("Factur-X is not written under the fx prefix:\n%s", s)
+			}
+			if n := countXMPProperty(t, raw, "urn:example:foreign#", "Code"); n != 1 {
+				t.Errorf("foreign property appears %d times, want 1:\n%s", n, s)
+			}
+			if r := back.ValidatePDFA(PDFA3B); hasRule(r, "XMP_PDFAID_MISSING") || hasRule(r, "XMP_MALFORMED") {
+				t.Errorf("reopened file: %+v", r.Issues)
+			}
+		})
+	}
+}
+
+// Important 1, defence in depth: SetXMP itself refuses an unusable prefix.
+func TestSetXMPRefusesInvalidPrefix(t *testing.T) {
+	for _, prefix := range []string{`a"b`, "a b", "1bad", "xml", "xmlns", "", "pdfaid"} {
+		doc := NewDocument(100, 100)
+		if err := doc.SetXMP(XMPMetadata{Custom: []XMPProperty{
+			{Namespace: "urn:example:x#", Prefix: prefix, Name: "P", Value: "v"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := doc.XMPRaw()
+		checkXMPWellFormed(t, raw)
+		if n := countXMPProperty(t, raw, "urn:example:x#", "P"); n != 1 {
+			t.Errorf("prefix %q: property appears %d times, want 1:\n%s", prefix, n, raw)
+		}
 	}
 }

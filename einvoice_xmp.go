@@ -166,7 +166,10 @@ func insertXMPDescriptions(packet string, blocks []string) string {
 // schema declares for its namespace against the prefix actually used on the
 // properties in that namespace, so a kept foreign schema's properties need
 // to be serialised under the prefix it names, not whatever generic prefix
-// bindCustomPrefixes would otherwise be free to pick.
+// bindCustomPrefixes would otherwise be free to pick. A declared prefix that
+// cannot be written as an XML namespace prefix (not an NCName, or starting
+// with "xml") is ignored: the schema is broken either way, and honouring it
+// would make the whole packet malformed.
 //
 // Each block is itself a well-formed, self-contained XML fragment (it
 // carries its own xmlns declarations), so it is parsed directly rather than
@@ -182,7 +185,7 @@ func extensionSchemaPrefixes(blocks []string) map[string]string {
 		dec := xml.NewDecoder(strings.NewReader(block))
 		var nsURI, prefix string
 		flush := func() {
-			if nsURI != "" && prefix != "" {
+			if nsURI != "" && isUsableXMLPrefix(prefix) {
 				out[nsURI] = prefix
 			}
 			nsURI, prefix = "", ""
