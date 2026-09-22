@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -366,6 +367,10 @@ func (d *Document) addSRGBOutputIntent() {
 // setPDFAMetadata writes an XMP packet carrying the pdfaid identifier for the
 // requested level, preserving existing XMP/Info-derived fields.
 func (d *Document) setPDFAMetadata(format PDFAFormat) error {
+	var extensions []string
+	if raw, err := d.XMPRaw(); err == nil && len(raw) > 0 {
+		extensions, _ = xmpExtensionBlocks(string(raw))
+	}
 	meta, _ := d.XMP()
 	info, _ := d.Info()
 	if meta.Title == "" {
@@ -380,10 +385,12 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 	if meta.CreatorTool == "" {
 		meta.CreatorTool = info.Creator
 	}
-	// Replace any existing pdfaid properties.
+	// Replace the pdfaid properties, and drop anything else in the PDF/A
+	// namespaces: extension schemas travel as whole blocks (below), never as
+	// loose properties.
 	var custom []XMPProperty
 	for _, p := range meta.Custom {
-		if p.Prefix != "pdfaid" {
+		if p.Prefix != "pdfaid" && !strings.HasPrefix(p.Namespace, nsPDFAPrefix) {
 			custom = append(custom, p)
 		}
 	}
@@ -392,7 +399,17 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
 	)
 	meta.Custom = custom
-	return d.SetXMP(meta)
+	if err := d.SetXMP(meta); err != nil {
+		return err
+	}
+	if len(extensions) == 0 {
+		return nil
+	}
+	raw, err := d.XMPRaw()
+	if err != nil {
+		return err
+	}
+	return d.SetXMPRaw([]byte(insertXMPDescriptions(string(raw), extensions)))
 }
 
 // srgbICCProfile builds a minimal but valid ICC v2.1 RGB display profile for the
