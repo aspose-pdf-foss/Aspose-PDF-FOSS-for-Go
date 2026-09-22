@@ -208,3 +208,39 @@ func TestDocumentSearchTextAcrossPages(t *testing.T) {
 		t.Errorf(`SearchText("alpha"): got %d matches (want 1 on page 1)`, len(only))
 	}
 }
+
+// A match rectangle is a text box: from the descender to the ascender, the
+// convention viewers use for highlight and redaction quads. It used to start
+// at the baseline, so the tails of g, y and p fell outside it.
+func TestSearchTextRectCoversDescenders(t *testing.T) {
+	doc := asposepdf.NewDocument(400, 200)
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const size = 20.0
+	if err := page.AddText("gypsy", asposepdf.TextStyle{Font: asposepdf.FontHelvetica, Size: size},
+		asposepdf.Rectangle{LLX: 20, LLY: 50, URX: 380, URY: 150}); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := page.ExtractTextWithLayout()
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("layout: %v, %d lines", err, len(lines))
+	}
+	baseline := lines[0].Fragments[0].Y
+
+	matches, err := page.SearchText("gypsy")
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("search: %v, %d matches", err, len(matches))
+	}
+	r := matches[0].Rect
+	// Helvetica: ascender 718, descender -207 (per 1000 em).
+	wantLow := baseline - 0.207*size
+	wantHigh := baseline + 0.718*size
+	if d := r.LLY - wantLow; d < -0.5 || d > 0.5 {
+		t.Errorf("Rect.LLY = %.2f, want the descender line %.2f (baseline %.2f)", r.LLY, wantLow, baseline)
+	}
+	if d := r.URY - wantHigh; d < -0.5 || d > 0.5 {
+		t.Errorf("Rect.URY = %.2f, want the ascender line %.2f (baseline %.2f)", r.URY, wantHigh, baseline)
+	}
+}

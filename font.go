@@ -68,6 +68,11 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 
 	// Resolve /FontDescriptor for bold/italic flags and ascent/descent.
 	resolveFontDescriptor(objects, fontDict, name, &fi)
+	if fi.ascent == 0 && fi.descent == 0 {
+		if a, d, ok := standard14VerticalMetrics(name); ok {
+			fi.ascent, fi.descent = a, d
+		}
+	}
 
 	// For Type0: toUnicode and known are already set above.
 	// Resolve descendant CIDFont for widths, then return.

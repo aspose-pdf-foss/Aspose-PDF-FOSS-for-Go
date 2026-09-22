@@ -322,8 +322,10 @@ func matchRect(frags []TextFragment, owner, local, runeCounts []int, r0, r1 int)
 			x0 = f.X + float64(li)/float64(n)*f.Width
 			x1 = f.X + float64(li+1)/float64(n)*f.Width
 		}
-		y0 := f.Y
-		y1 := f.Y + f.Height
+		// The text box: from the descender to the ascender, the convention
+		// viewers use for highlight and redaction quads.
+		y0 := f.Y + f.descent
+		y1 := y0 + f.Height
 		if !found {
 			minX, minY, maxX, maxY = x0, y0, x1, y1
 			found = true

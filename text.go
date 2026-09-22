@@ -114,6 +114,7 @@ type textFragment struct {
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize
+	descent     float64 // descent / 1000 * fontSize: how far the text box reaches below the baseline (≤ 0)
 	bold        bool
 	italic      bool
 	charSpacing float64
@@ -673,8 +674,10 @@ func (e *textExtractor) emitRune(r rune) {
 	if needNew {
 		e.flushFragment()
 		height := effectiveFontSize // fallback
+		descent := 0.0
 		if e.font.ascent != 0 || e.font.descent != 0 {
 			height = (e.font.ascent - e.font.descent) / 1000.0 * effectiveFontSize
+			descent = e.font.descent / 1000.0 * effectiveFontSize
 		}
 		frag := textFragment{
 			x:           x,
@@ -682,6 +685,7 @@ func (e *textExtractor) emitRune(r rune) {
 			fontName:    fontName,
 			fontSize:    effectiveFontSize,
 			height:      height,
+			descent:     descent,
 			bold:        e.font.bold,
 			italic:      e.font.italic,
 			charSpacing: e.charSpace,

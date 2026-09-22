@@ -30,6 +30,10 @@ type TextFragment struct {
 	// count of Text). Unexported: used by SearchText for precise sub-fragment
 	// match rectangles. Empty when positions were not recorded.
 	runeX []float64
+	// descent is how far the text box reaches below the baseline (≤ 0), so
+	// the box spans Y+descent .. Y+descent+Height. Unexported: used by
+	// SearchText and the comparer for match rectangles.
+	descent float64
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
@@ -178,6 +182,7 @@ func assembleLine(frags []textFragment) TextLine {
 			Color:       Color{R: f.colorR, G: f.colorG, B: f.colorB, A: 1},
 			Rotation:    f.rotation,
 			runeX:       f.runeX,
+			descent:     f.descent,
 		}
 		// Detect sub/superscript: smaller font with Y offset from baseline.
 		if f.fontSize < maxFontSize*0.85 {
