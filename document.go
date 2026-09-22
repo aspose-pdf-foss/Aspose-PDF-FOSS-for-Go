@@ -76,6 +76,7 @@ type Document struct {
 	docID         pdfArray // original trailer /ID (carried into the incremental trailer)
 	origSize      int      // original trailer /Size (new object numbers start here)
 	encryptObjNum int      // original /Encrypt object number (0 if unencrypted)
+	infoNum       int      // original trailer /Info object number (0 if none), repeated in appended trailers
 
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
@@ -354,6 +355,9 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, cred *openCred
 	}
 	if id, ok := trailer["/ID"].(pdfArray); ok {
 		doc.docID = id
+	}
+	if r, ok := trailer["/Info"].(pdfRef); ok {
+		doc.infoNum = r.Num
 	}
 	if sz := dictGetInt(trailer, "/Size"); sz > 0 {
 		doc.origSize = sz

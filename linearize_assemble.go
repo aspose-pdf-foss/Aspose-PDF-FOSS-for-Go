@@ -127,7 +127,10 @@ func (d *Document) assemble() (*assembled, error) {
 	}
 
 	header := "%PDF-1.4\n"
-	if d.encrypt != nil && d.encrypt.algorithm == EncryptionAlgAES256 {
+	// AES-256 (revision 6) is defined by ISO 32000-2. Decide from the state
+	// actually used, so a document opened from an AES-256 file and saved
+	// again keeps its PDF 2.0 header too.
+	if encState != nil && encState.algorithm == EncryptionAlgAES256 {
 		header = "%PDF-2.0\n"
 	}
 
