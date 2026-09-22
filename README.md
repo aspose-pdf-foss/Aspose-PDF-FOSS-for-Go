@@ -155,6 +155,12 @@ flowchart TD
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet).
+- **E-invoices (ZUGFeRD / Factur-X)** — `Document.AttachInvoice(xml)` turns a document into a hybrid
+  e-invoice: the CII XML is embedded as `factur-x.xml` with the associated-file relationship its
+  profile calls for, the Factur-X metadata and extension schema are written, and the document is
+  converted to PDF/A-3. `Document.Invoice()` extracts the invoice from incoming Factur-X and ZUGFeRD
+  2.x/1.0 files together with its profile. Attachments also gain PDF/A-3 associated-file
+  relationships (`EmbeddedFile.SetAFRelationship`).
 - **Rendering to raster images** — a pure-Go anti-aliased renderer with no third-party package
   dependencies of its own (its own rasterizer — no `golang.org/x/image`, no cgo) draws vector
   graphics, images (including CCITT fax, JBIG2, and JPEG2000 (`/JPXDecode`) scans), and text
@@ -438,6 +444,7 @@ stays free of network code.
 
 | Class | Description |
 |---|---|
+| `AFRelationship` | AFRelationship says how an embedded file relates to the document. |
 | `AIClient` | AIClient is the contract every copilot consumes: one call, one chat completion. |
 | `APIError` | APIError is returned when the AI endpoint answers with a non-2xx status. |
 | `Action` | Action is the common interface implemented by every concrete action type. |
@@ -525,6 +532,9 @@ stays free of network code.
 | `ImageStamp` | ImageStamp overlays a raster image (PNG or JPEG), stretched to fill Rect. |
 | `ImageToDocumentOptions` | ImageToDocumentOptions controls page sizing for ImageToDocument. |
 | `InkAnnotation` | InkAnnotation draws a series of free-form strokes — typically used to represent handwritten ink. |
+| `Invoice` | Invoice is an e-invoice found in a document. |
+| `InvoiceOptions` | InvoiceOptions configures AttachInvoice. |
+| `InvoiceProfile` | InvoiceProfile is the Factur-X / ZUGFeRD conformance level of an invoice. |
 | `JSONExportOptions` | JSONExportOptions controls (*Form).ExportJSON / WriteJSON. |
 | `JavaScriptAction` | JavaScriptAction holds a JavaScript snippet attached to an annotation. |
 | `JavaScriptCollection` | JavaScriptCollection is the document-level JavaScript store, backed by the /Catalog/Names/JavaScript name tree (ISO 32000-1 §7.7.4 / §8.5.1). |
