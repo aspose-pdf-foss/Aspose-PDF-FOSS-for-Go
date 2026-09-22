@@ -82,8 +82,6 @@ func (f *EmbeddedFile) SetAFRelationship(r AFRelationship) {
 
 // hasAFRelationship reports whether the file specification states a
 // relationship at all.
-//
-//nolint:unused // consumed by a later task in the e-invoice epic (pdf-go-t6s9), which checks PDF/A-3 conformance
 func (f *EmbeddedFile) hasAFRelationship() bool {
 	_, ok := f.filespec["/AFRelationship"].(pdfName)
 	return ok

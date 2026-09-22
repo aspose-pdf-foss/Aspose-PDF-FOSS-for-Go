@@ -165,3 +165,55 @@ func TestEmbeddedFileHasModDate(t *testing.T) {
 		t.Errorf("/Params /ModDate = %q, want a PDF date", md)
 	}
 }
+
+func hasRule(r *PDFAValidationReport, rule string) bool {
+	for _, is := range r.Issues {
+		if is.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPDFA3RequiresAssociatedFiles(t *testing.T) {
+	doc := NewDocument(200, 200)
+	if _, err := doc.EmbeddedFiles().AddFromStream("data.csv", strings.NewReader("1,2")); err != nil {
+		t.Fatal(err)
+	}
+	if !hasRule(doc.ValidatePDFA(PDFA3B), "EMBEDDED_FILE_NOT_ASSOCIATED") {
+		t.Error("PDF/A-3 accepted an attachment with no /AFRelationship")
+	}
+	if hasRule(doc.ValidatePDFA(PDFA2B), "EMBEDDED_FILE_NOT_ASSOCIATED") {
+		t.Error("the PDF/A-3 rule fired for PDF/A-2")
+	}
+}
+
+func TestConvertToPDFA3AssociatesAttachments(t *testing.T) {
+	doc := NewDocument(200, 200)
+	if _, err := doc.EmbeddedFiles().AddFromStream("plain.csv", strings.NewReader("1,2")); err != nil {
+		t.Fatal(err)
+	}
+	kept, _ := doc.EmbeddedFiles().AddFromStream("kept.txt", strings.NewReader("k"))
+	kept.SetAFRelationship(AFSource)
+
+	report, err := doc.ConvertToPDFA(PDFA3B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(report, "EMBEDDED_FILE_NOT_ASSOCIATED") {
+		t.Errorf("conversion left an unassociated attachment: %+v", report.Issues)
+	}
+	plain := doc.EmbeddedFiles().Get("plain.csv")
+	if !plain.hasAFRelationship() || plain.AFRelationship() != AFUnspecified {
+		t.Errorf("plain.csv relationship = %v (explicit %v), want an explicit Unspecified",
+			plain.AFRelationship(), plain.hasAFRelationship())
+	}
+	if got := doc.EmbeddedFiles().Get("kept.txt").AFRelationship(); got != AFSource {
+		t.Errorf("conversion changed an existing relationship to %v", got)
+	}
+	for _, f := range doc.EmbeddedFiles().All() {
+		if !doc.isAssociatedFile(f.ref) {
+			t.Errorf("%s is not listed in /AF after conversion", f.Name())
+		}
+	}
+}

@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
+	"time"
 )
 
 // nsPDFAID is the PDF/A identification XMP namespace (ISO 19005, AIIM).
@@ -49,6 +50,9 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.stripPDFAActions()
 	if format == PDFA1B {
 		d.removePDFAEmbeddedFiles()
+	}
+	if format.part() == 3 {
+		d.associatePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
 	d.generatePDFAAppearances()
@@ -228,6 +232,26 @@ func (d *Document) stripPDFAActions() {
 func (d *Document) removePDFAEmbeddedFiles() {
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		delete(names, "/EmbeddedFiles")
+	}
+}
+
+// associatePDFAEmbeddedFiles gives every attachment the association PDF/A-3
+// requires: an existing /AFRelationship is kept, a missing one becomes
+// Unspecified, and each file is listed in the catalog /AF with a /ModDate in
+// its parameters.
+func (d *Document) associatePDFAEmbeddedFiles() {
+	for _, f := range d.EmbeddedFiles().All() {
+		f.SetAFRelationship(f.AFRelationship())
+		if st := f.stream(); st != nil {
+			params, _ := st.Dict["/Params"].(pdfDict)
+			if params == nil {
+				params = pdfDict{}
+				st.Dict["/Params"] = params
+			}
+			if _, ok := params["/ModDate"]; !ok {
+				params["/ModDate"] = pdfDateString(time.Now())
+			}
+		}
 	}
 }
 

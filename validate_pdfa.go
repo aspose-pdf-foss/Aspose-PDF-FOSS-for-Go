@@ -98,6 +98,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckMetadata(r)
 	d.pdfaCheckFilters(format, r)
 	d.pdfaCheckEmbeddedFiles(format, r)
+	d.pdfaCheckAssociatedFiles(format, r)
 	d.pdfaCheckTagged(format, r)
 	return r
 }
@@ -571,6 +572,20 @@ func (d *Document) pdfaCheckEmbeddedFiles(format PDFAFormat, r *PDFAValidationRe
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		if _, ok := names["/EmbeddedFiles"]; ok {
 			r.add("EMBEDDED_FILES", "document has embedded files; PDF/A-1 prohibits file attachments (use PDF/A-3 for attachments)")
+		}
+	}
+}
+
+// pdfaCheckAssociatedFiles enforces ISO 19005-3 §6.8: every embedded file
+// states its relationship to the document and is listed in the catalog /AF.
+func (d *Document) pdfaCheckAssociatedFiles(format PDFAFormat, r *PDFAValidationReport) {
+	if format.part() != 3 {
+		return
+	}
+	for _, f := range d.EmbeddedFiles().All() {
+		if !f.hasAFRelationship() || !d.isAssociatedFile(f.ref) {
+			r.add("EMBEDDED_FILE_NOT_ASSOCIATED", fmt.Sprintf(
+				"embedded file %q has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", f.Name()))
 		}
 	}
 }
