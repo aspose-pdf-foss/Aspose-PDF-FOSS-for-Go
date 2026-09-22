@@ -54,7 +54,7 @@ func TestBuildDecryptStateV5R6_MissingCF(t *testing.T) {
 		"/Perms": string(bytes.Repeat([]byte{0x05}, 16)),
 		// /CF intentionally missing
 	}
-	if _, err := buildDecryptStateV5R6(encDict, "x"); err == nil {
+	if _, err := buildDecryptStateV5(encDict, "x", 6); err == nil {
 		t.Error("expected error for missing /CF")
 	}
 }
@@ -77,7 +77,7 @@ func TestBuildDecryptStateV5R6_WrongCFM(t *testing.T) {
 		"/StmF": pdfName("/StdCF"),
 		"/StrF": pdfName("/StdCF"),
 	}
-	if _, err := buildDecryptStateV5R6(encDict, "x"); err == nil {
+	if _, err := buildDecryptStateV5(encDict, "x", 6); err == nil {
 		t.Error("expected error for /CFM /AESV2 in V=5 dict")
 	}
 }
@@ -100,7 +100,7 @@ func TestBuildDecryptStateV5R6_MissingUE(t *testing.T) {
 		"/StmF": pdfName("/StdCF"),
 		"/StrF": pdfName("/StdCF"),
 	}
-	if _, err := buildDecryptStateV5R6(encDict, "x"); err == nil {
+	if _, err := buildDecryptStateV5(encDict, "x", 6); err == nil {
 		t.Error("expected error for missing /UE")
 	}
 }
@@ -128,7 +128,7 @@ func TestBuildDecryptStateV5R6_WrongPassword(t *testing.T) {
 		"/StmF": pdfName("/StdCF"),
 		"/StrF": pdfName("/StdCF"),
 	}
-	if _, err := buildDecryptStateV5R6(encDict, "wrong"); err == nil {
+	if _, err := buildDecryptStateV5(encDict, "wrong", 6); err == nil {
 		t.Error("expected error for wrong password")
 	}
 }
@@ -153,9 +153,9 @@ func TestBuildDecryptStateV5R6_CorrectPassword(t *testing.T) {
 		"/StmF": pdfName("/StdCF"),
 		"/StrF": pdfName("/StdCF"),
 	}
-	recovered, err := buildDecryptStateV5R6(encDict, "correct")
+	recovered, err := buildDecryptStateV5(encDict, "correct", 6)
 	if err != nil {
-		t.Fatalf("buildDecryptStateV5R6: %v", err)
+		t.Fatalf("buildDecryptStateV5: %v", err)
 	}
 	if !bytes.Equal(recovered.key, state.key) {
 		t.Error("recovered FEK differs from original")

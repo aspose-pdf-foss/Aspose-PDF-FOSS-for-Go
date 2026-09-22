@@ -386,12 +386,19 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		dict["/StmF"] = pdfName("/StdCF")
 		dict["/StrF"] = pdfName("/StdCF")
 	case EncryptionAlgAES256:
+		// A revision-5 file re-saved with its preserved state keeps /R 5:
+		// its /U and /O hashes are only valid under that revision.
 		dict["/V"] = 5
 		dict["/R"] = 6
+		if s.revision == 5 {
+			dict["/R"] = 5
+		}
 		dict["/Length"] = 256
 		dict["/OE"] = pdfHexString(s.ownerKeyEntry)
 		dict["/UE"] = pdfHexString(s.userKeyEntry)
-		dict["/Perms"] = pdfHexString(s.permsEntry)
+		if s.permsEntry != nil {
+			dict["/Perms"] = pdfHexString(s.permsEntry)
+		}
 		dict["/EncryptMetadata"] = true
 		dict["/CF"] = pdfDict{
 			"/StdCF": pdfDict{
