@@ -93,6 +93,65 @@ func TestRemovingAttachmentRemovesItFromAF(t *testing.T) {
 	}
 }
 
+// A file specification parsed from an existing PDF can sit directly in the
+// /Names/EmbeddedFiles array instead of through an indirect reference; two
+// handles onto the same direct dict both see ref.Num == 0 until one of them
+// promotes it. SetAFRelationship must not let the second handle promote
+// again and list the file twice in /AF.
+func TestSetAFRelationshipDoesNotDuplicateDirectFilespec(t *testing.T) {
+	doc := NewDocument(200, 200)
+	data := []byte("x")
+	embedded := &pdfStream{
+		Dict: pdfDict{
+			"/Type":    pdfName("/EmbeddedFile"),
+			"/Subtype": pdfName("/PlainText"),
+			"/Params":  pdfDict{"/Size": len(data)},
+			"/Length":  len(data),
+		},
+		Data:    data,
+		Decoded: false,
+	}
+	embedID := doc.nextID
+	doc.nextID++
+	doc.objects[embedID] = &pdfObject{Num: embedID, Value: embedded}
+
+	filespec := pdfDict{
+		"/Type": pdfName("/Filespec"),
+		"/F":    "x.txt",
+		"/UF":   "x.txt",
+		"/EF": pdfDict{
+			"/F":  pdfRef{Num: embedID},
+			"/UF": pdfRef{Num: embedID},
+		},
+	}
+	doc.namesDict()["/EmbeddedFiles"] = pdfDict{"/Names": pdfArray{"x.txt", filespec}}
+
+	a := doc.EmbeddedFiles().Get("x.txt")
+	b := doc.EmbeddedFiles().Get("x.txt")
+	if a.ref.Num != 0 || b.ref.Num != 0 {
+		t.Fatalf("test setup: want both handles to see a direct filespec (ref.Num == 0), got a=%d b=%d", a.ref.Num, b.ref.Num)
+	}
+
+	a.SetAFRelationship(AFData)
+	b.SetAFRelationship(AFSource)
+
+	n := catalogAFNums(doc)
+	if len(n) != 1 {
+		t.Fatalf("/AF = %v, want exactly one entry after two SetAFRelationship calls on the same direct filespec", n)
+	}
+
+	got := doc.EmbeddedFiles().Get("x.txt")
+	if got.ref.Num == 0 {
+		t.Fatal("name tree still points at a direct dictionary after promotion")
+	}
+	if got.ref.Num != n[0] {
+		t.Errorf("/AF entry %d does not match the name tree's object %d", n[0], got.ref.Num)
+	}
+	if rel := got.AFRelationship(); rel != AFSource {
+		t.Errorf("relationship = %v, want AFSource", rel)
+	}
+}
+
 // PDF/A-3 requires /ModDate in an embedded file's parameters.
 func TestEmbeddedFileHasModDate(t *testing.T) {
 	doc := NewDocument(200, 200)

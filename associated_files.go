@@ -66,7 +66,16 @@ func (f *EmbeddedFile) AFRelationship() AFRelationship {
 func (f *EmbeddedFile) SetAFRelationship(r AFRelationship) {
 	f.filespec["/AFRelationship"] = r.pdfName()
 	if f.ref.Num == 0 {
-		f.ref = f.doc.EmbeddedFiles().promote(f.name, f.filespec)
+		files := f.doc.EmbeddedFiles()
+		// Another handle onto the same direct file-specification dictionary
+		// may have already promoted it (e.g. a second Get() on a filespec
+		// parsed as a direct dict in the name tree) — reuse that object
+		// instead of promoting a duplicate and double-listing it in /AF.
+		if existing, ok := files.raw()[f.name].(pdfRef); ok {
+			f.ref = existing
+		} else {
+			f.ref = files.promote(f.name, f.filespec)
+		}
 	}
 	f.doc.addAssociatedFile(f.ref)
 }
