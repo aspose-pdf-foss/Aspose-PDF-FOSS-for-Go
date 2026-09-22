@@ -398,7 +398,7 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())},
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
 	)
-	meta.Custom = custom
+	meta.Custom = preferExtensionSchemaPrefixes(custom, extensions)
 	if err := d.SetXMP(meta); err != nil {
 		return err
 	}

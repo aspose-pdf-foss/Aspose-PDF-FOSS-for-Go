@@ -263,7 +263,7 @@ func (d *Document) setInvoiceXMP(fileName string, profile InvoiceProfile) error 
 		XMPProperty{Namespace: nsFacturX, Prefix: "fx", Name: "Version", Value: "1.0"},
 		XMPProperty{Namespace: nsFacturX, Prefix: "fx", Name: "ConformanceLevel", Value: profile.String()},
 	)
-	meta.Custom = custom
+	meta.Custom = preferExtensionSchemaPrefixes(custom, extensions)
 	if err := d.SetXMP(meta); err != nil {
 		return err
 	}

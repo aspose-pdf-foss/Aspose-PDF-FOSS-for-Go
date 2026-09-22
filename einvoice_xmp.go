@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"encoding/xml"
 	"strings"
 )
 
@@ -17,6 +18,10 @@ const (
 // nsPDFAPrefix covers the PDF/A metadata namespaces (identification and the
 // extension-schema vocabulary), all under one URI prefix.
 const nsPDFAPrefix = "http://www.aiim.org/pdfa/ns/"
+
+// nsPDFASchema is the pdfaSchema: element namespace used inside a PDF/A
+// extension-schema block (ISO 19005-1 Annex E) to describe one schema.
+const nsPDFASchema = "http://www.aiim.org/pdfa/ns/schema#"
 
 // xmpExtensionBlocks separates the top-level rdf:Description elements that
 // declare a PDF/A extension schema (pdfaExtension:schemas) from the rest of
@@ -150,6 +155,97 @@ func insertXMPDescriptions(packet string, blocks []string) string {
 		return packet
 	}
 	return packet[:i] + strings.Join(blocks, "\n") + "\n" + packet[i:]
+}
+
+// extensionSchemaPrefixes scans PDF/A extension-schema blocks (as
+// xmpExtensionBlocks returns them) for each schema's declared
+// pdfaSchema:namespaceURI / pdfaSchema:prefix pair — in either the element
+// form this library writes (facturXExtensionSchema) or a producer's
+// attribute form on the rdf:Description itself — and returns them as a
+// namespace URI → prefix map. A PDF/A validator compares the prefix a
+// schema declares for its namespace against the prefix actually used on the
+// properties in that namespace, so a kept foreign schema's properties need
+// to be serialised under the prefix it names, not whatever generic prefix
+// bindCustomPrefixes would otherwise be free to pick.
+//
+// Each block is itself a well-formed, self-contained XML fragment (it
+// carries its own xmlns declarations), so it is parsed directly rather than
+// scanned as text. A schema entry ends at the closing </rdf:li> or
+// </rdf:Description> that holds it — the same element whichever of this
+// library's rdf:li[rdf:parseType=Resource] shape or a nested
+// rdf:li/rdf:Description shape the block uses — at which point any
+// namespaceURI/prefix pair accumulated so far is committed and reset, so a
+// block naming several schemas resolves each independently.
+func extensionSchemaPrefixes(blocks []string) map[string]string {
+	out := map[string]string{}
+	for _, block := range blocks {
+		dec := xml.NewDecoder(strings.NewReader(block))
+		var nsURI, prefix string
+		flush := func() {
+			if nsURI != "" && prefix != "" {
+				out[nsURI] = prefix
+			}
+			nsURI, prefix = "", ""
+		}
+		for {
+			tok, err := dec.Token()
+			if err != nil {
+				break
+			}
+			switch t := tok.(type) {
+			case xml.StartElement:
+				if t.Name.Space == nsPDFASchema {
+					switch t.Name.Local {
+					case "namespaceURI":
+						s, _ := readPropValue(dec, t)
+						nsURI = strings.TrimSpace(s)
+						continue
+					case "prefix":
+						s, _ := readPropValue(dec, t)
+						prefix = strings.TrimSpace(s)
+						continue
+					}
+				}
+				for _, a := range t.Attr {
+					if a.Name.Space != nsPDFASchema {
+						continue
+					}
+					switch a.Name.Local {
+					case "namespaceURI":
+						nsURI = a.Value
+					case "prefix":
+						prefix = a.Value
+					}
+				}
+			case xml.EndElement:
+				if t.Name.Space == nsRDF && (t.Name.Local == "li" || t.Name.Local == "Description") {
+					flush()
+				}
+			}
+		}
+		flush()
+	}
+	return out
+}
+
+// preferExtensionSchemaPrefixes returns custom with each property's Prefix
+// overridden to the one its namespace's kept extension schema declares
+// (extensionSchemaPrefixes), when there is one; bindCustomPrefixes only
+// honours a Prefix when it doesn't collide, so this is what actually makes
+// a foreign schema's declared prefix win.
+func preferExtensionSchemaPrefixes(custom []XMPProperty, extensions []string) []XMPProperty {
+	prefixes := extensionSchemaPrefixes(extensions)
+	if len(prefixes) == 0 {
+		return custom
+	}
+	out := make([]XMPProperty, len(custom))
+	for i, p := range custom {
+		if pfx, ok := prefixes[p.Namespace]; ok {
+			p.Prefix = pfx
+		}
+		out[i] = p
+	}
+	return out
 }
 
 // facturXExtensionSchema declares the fx: properties to PDF/A validators,

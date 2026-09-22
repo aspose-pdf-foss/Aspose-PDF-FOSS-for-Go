@@ -492,3 +492,61 @@ func TestConvertToPDFAKeepsNestedForeignExtensionSchema(t *testing.T) {
 		t.Fatalf("XMP() failed on the converted packet: %v", err)
 	}
 }
+
+// --- Fix round 2 ---
+
+// Ruled addition B: a kept foreign extension schema declares its own
+// namespace's prefix (pdfaSchema:namespaceURI + pdfaSchema:prefix); the
+// property in that namespace must be re-serialised under that declared
+// prefix — not whatever generic prefix bindCustomPrefixes would otherwise
+// pick — because a PDF/A validator compares the two.
+func TestConvertToPDFAUsesForeignExtensionSchemaPrefix(t *testing.T) {
+	doc := invoiceTestDoc(t)
+	packet := `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:acme="urn:example:acme#">
+<acme:Code>ABC123</acme:Code>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<pdfaExtension:schemas>
+<rdf:Bag>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Acme Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>Code</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>An ACME code</pdfaProperty:description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:li>
+</rdf:Bag>
+</pdfaExtension:schemas>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ConvertToPDFA(PDFA3B); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := doc.XMPRaw()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `xmlns:acme="urn:example:acme#"`) {
+		t.Errorf("the foreign schema's own declared prefix was not used for its namespace:\n%s", s)
+	}
+	if !strings.Contains(s, "<acme:Code>ABC123</acme:Code>") {
+		t.Errorf("acme:Code was not serialised under the schema's declared prefix:\n%s", s)
+	}
+}

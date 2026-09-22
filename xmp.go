@@ -11,11 +11,12 @@ import (
 
 // XMP namespace URIs (ISO 16684-1 / Adobe XMP Specification).
 const (
-	nsRDF   = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-	nsDC    = "http://purl.org/dc/elements/1.1/"
-	nsXMP   = "http://ns.adobe.com/xap/1.0/"
-	nsPDF   = "http://ns.adobe.com/pdf/1.3/"
-	nsXMPMM = "http://ns.adobe.com/xap/1.0/mm/"
+	nsRDF     = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	nsDC      = "http://purl.org/dc/elements/1.1/"
+	nsXMP     = "http://ns.adobe.com/xap/1.0/"
+	nsPDF     = "http://ns.adobe.com/pdf/1.3/"
+	nsXMPMM   = "http://ns.adobe.com/xap/1.0/mm/"
+	nsXMPMeta = "adobe:ns:meta/" // the x: prefix on the packet's own <x:xmpmeta> root
 )
 
 // XMPProperty is a single simple (string-valued) XMP property in an
@@ -237,7 +238,7 @@ func buildXMP(meta XMPMetadata) []byte {
 	// marker; build it from the rune so the Go source stays BOM-free.
 	bom := string(rune(0xFEFF))
 	b.WriteString("<?xpacket begin=\"" + bom + "\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
-	b.WriteString(`<x:xmpmeta xmlns:x="adobe:ns:meta/">` + "\n")
+	b.WriteString(`<x:xmpmeta xmlns:x="` + nsXMPMeta + `">` + "\n")
 	b.WriteString(`  <rdf:RDF xmlns:rdf="` + nsRDF + `">` + "\n")
 
 	// Namespace declarations: always declare the three core schemas plus
@@ -296,26 +297,53 @@ func buildXMP(meta XMPMetadata) []byte {
 }
 
 // bindCustomPrefixes assigns exactly one serialisation prefix per distinct
-// namespace among meta.Custom, in first-seen order. Each namespace's own
-// properties' Prefix is used when possible; if it is empty, or already bound
-// to a *different* namespace — two custom properties can legitimately hint
-// the same prefix (xmlPrefixHint falls back to a generic "ns" for any
-// namespace it does not specifically recognise, and even two distinct
-// recognised namespaces can share a hint, e.g. Factur-X and ZUGFeRD 2.0 both
-// prefer "fx") — a fresh prefix ("ns1", "ns2", …, skipping any already in
-// use) is allocated instead. Properties sharing a namespace always share its
-// bound prefix, so writeSimple never emits two different namespaces under
-// one XML prefix (which would silently merge them on the next parse).
+// namespace among meta.Custom, in first-seen order. order lists only the
+// namespaces that still need an xmlns declaration written — the three core
+// namespaces buildXMP declares unconditionally (dc, xmp, pdf) are pre-bound
+// in prefixOf but never added to order, so a custom property that happens to
+// land in one of them (e.g. pdf:PDFVersion, which this library does not
+// model but Acrobat/Word both write, so addCustom classifies it as Custom
+// with Namespace nsPDF) reuses that declaration instead of emitting
+// xmlns:pdf a second time on the same rdf:Description — a duplicate
+// attribute, not well-formed XML, even though Go's own encoding/xml
+// tolerates reading it back.
+//
+// Each namespace's own properties' Prefix is used when possible; if it is
+// empty, or already bound to a *different* namespace, a fresh prefix ("ns1",
+// "ns2", …, skipping any already in use) is allocated instead. This covers
+// two custom properties that legitimately hint the same prefix
+// (xmlPrefixHint falls back to a generic "ns" for any namespace it does not
+// specifically recognise, and even two distinct recognised namespaces can
+// share a hint, e.g. Factur-X and ZUGFeRD 2.0 both prefer "fx") — and it is
+// also why "rdf" and "x" are pre-bound here to sentinel namespaces: they are
+// the packet skeleton's own prefixes (rdf:RDF/rdf:Description, x:xmpmeta),
+// and rebinding either to a custom namespace would desynchronise the
+// resolved meaning of the packet's own structural elements from what the
+// rest of buildXMP assumes (parseXMP would then fail to even recognise the
+// rdf:Description it is looking for). Properties sharing a namespace always
+// share its bound prefix, so writeSimple never emits two different
+// namespaces under one XML prefix (which would silently merge them on the
+// next parse).
 func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[string]string) {
-	prefixOf = map[string]string{}
-	boundTo := map[string]string{"dc": nsDC, "xmp": nsXMP, "pdf": nsPDF}
+	prefixOf = map[string]string{
+		nsDC:  "dc",
+		nsXMP: "xmp",
+		nsPDF: "pdf",
+	}
+	boundTo := map[string]string{
+		"dc":  nsDC,
+		"xmp": nsXMP,
+		"pdf": nsPDF,
+		"rdf": nsRDF,
+		"x":   nsXMPMeta,
+	}
 	next := 1
 	for _, p := range custom {
 		if p.Namespace == "" || p.Name == "" {
 			continue
 		}
 		if _, ok := prefixOf[p.Namespace]; ok {
-			continue
+			continue // already bound — a core namespace, or seen earlier in this loop
 		}
 		prefix := p.Prefix
 		if prefix == "" || (boundTo[prefix] != "" && boundTo[prefix] != p.Namespace) {
