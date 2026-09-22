@@ -145,6 +145,10 @@ func (d *Document) assemble() (*assembled, error) {
 	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
 	if outlinesRef.Num != 0 {
 		catOut["/Outlines"] = outlinesRef
+	} else if d.outlinesRoot != nil {
+		// The outline tree was loaded and emptied: the parsed /Outlines the
+		// catalog still names would bring every removed bookmark back.
+		delete(catOut, "/Outlines")
 	}
 	if ndTreeRef.Num != 0 {
 		catOut["/Names"] = ndNamesDictRef

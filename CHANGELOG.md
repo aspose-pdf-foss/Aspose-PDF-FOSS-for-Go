@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Optimize` / `RemoveUnusedObjects` deleted content reachable only from the catalog** — the default optimization preset treated everything no page referenced as garbage, so it dropped XMP metadata, the tagged-PDF structure tree, embedded files and document JavaScript, layers no page uses, output intents, and bookmarks that had not been loaded through `Outlines()` — while the saved catalog still pointed at them. The catalog is now a root of the reachability walk too. The walk skips what the writer rebuilds anyway (the old page-tree node, whose number a reopened file reuses, and a bookmark tree already replaced in memory), so nothing stale is kept alive either.
+- **Removing every bookmark did not remove them** — once all outline entries had been removed through `Outlines()`, the saved catalog still named the parsed outline tree, and every bookmark came back on reopen.
 - **Re-saving an encrypted document kept the wrong security handler** — a document opened from an RC4-40 file and saved again was written with a revision-3 dictionary around its 40-bit key, so it no longer opened with its password; one opened from an AES-256 file lost its `%PDF-2.0` header. The handler, key length and header now come from the state actually in use.
 - **Incremental revisions dropped the document information** — a signature or `AddValidationInfo` appended to an existing file wrote a trailer without `/Info`, and since readers consult only the newest trailer, the title, author and other metadata disappeared. The original `/Info` is now named again in every appended trailer.
 

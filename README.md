@@ -206,10 +206,11 @@ flowchart TD
   drawing canvas in glyph space, so a symbol drawn with the vector API becomes a real font
   character whose text still extracts and searches (an embedded `ToUnicode` CMap carries the
   mapping); `Document.RemoveUnusedObjects()` deletes
-  every object unreachable from any page and returns the removed count on its own, or fold that
+  every object that neither a page nor the document catalog uses (metadata, bookmarks,
+  attachments and the structure tree are kept) and returns the removed count on its own, or fold that
   same cleanup into a larger pass with the unified `Document.Optimize` pass
   (`DefaultOptimizationOptions()` is the safe, lossless preset — remove unused objects, subset
-  fonts, Flate-compress and dedupe streams; opt into lossy image recompression via
+  fonts, Flate-compress and dedupe streams, pack objects into object streams; opt into lossy image recompression via
   `OptimizationOptions.Images`) or the image-only `Document.OptimizeImages(OptimizeImageOptions)`
   pass (max DPI downscaling, JPEG quality, and PNG→JPEG conversion); reduce file size further with
   `Document.SaveLinearized`/`WriteToLinearized` (linearized/fast-web-view output per ISO 32000-1
