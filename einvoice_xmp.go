@@ -3,7 +3,6 @@
 package asposepdf
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -19,23 +18,125 @@ const (
 // extension-schema vocabulary), all under one URI prefix.
 const nsPDFAPrefix = "http://www.aiim.org/pdfa/ns/"
 
-// reXMPDescription matches one rdf:Description element. The extension
-// schemas this library writes contain no nested rdf:Description (their
-// structures use rdf:parseType="Resource"), so a non-greedy match is exact
-// for them.
-var reXMPDescription = regexp.MustCompile(`(?s)<rdf:Description\b.*?</rdf:Description>\s*`)
-
-// xmpExtensionBlocks separates the rdf:Description elements that declare PDF/A
-// extension schemas from the rest of an XMP packet.
+// xmpExtensionBlocks separates the top-level rdf:Description elements that
+// declare a PDF/A extension schema (pdfaExtension:schemas) from the rest of
+// an XMP packet.
+//
+// This is a small hand-written scanner rather than a regular expression
+// because an rdf:Description can legitimately nest further rdf:Description
+// elements — this library's own facturXExtensionSchema does not (it uses
+// rdf:li rdf:parseType="Resource" throughout), but a schema written by
+// another producer may hold its bag entries as
+// <rdf:li><rdf:Description>…</rdf:Description></rdf:li>. A non-greedy regex
+// stops at the first </rdf:Description>, truncating such a block mid
+// structure; xmpExtensionBlocks instead tracks nesting depth so each
+// top-level Description is extracted whole. A self-closing
+// <rdf:Description … /> (the form Ghostscript writes for a bare pdfaid
+// identification) does not open a nesting level and is never merged into a
+// following block.
 func xmpExtensionBlocks(packet string) (blocks []string, rest string) {
-	rest = reXMPDescription.ReplaceAllStringFunc(packet, func(m string) string {
-		if strings.Contains(m, "pdfaExtension:schemas") {
-			blocks = append(blocks, strings.TrimSpace(m))
-			return ""
+	var out strings.Builder
+	i := 0
+	for i < len(packet) {
+		open := strings.Index(packet[i:], "<rdf:Description")
+		if open < 0 {
+			out.WriteString(packet[i:])
+			return blocks, out.String()
 		}
-		return m
-	})
-	return blocks, rest
+		open += i
+		nameEnd := open + len("<rdf:Description")
+		if nameEnd >= len(packet) || !isXMLTagBoundary(packet[nameEnd]) {
+			// Not actually this element (e.g. a hypothetical
+			// <rdf:DescriptionX>) — copy one byte and keep scanning.
+			out.WriteString(packet[i : open+1])
+			i = open + 1
+			continue
+		}
+		end, ok := descriptionBlockEnd(packet, open)
+		if !ok {
+			// Unterminated element: not well-formed XML either way: leave
+			// the remainder untouched rather than guess.
+			out.WriteString(packet[i:])
+			return blocks, out.String()
+		}
+		// Trailing whitespace is consumed with the block (mirrors the \s*
+		// tail the previous regex-based implementation matched), so a
+		// removed block does not leave a blank line behind in rest.
+		wsEnd := end
+		for wsEnd < len(packet) && isXMLSpace(packet[wsEnd]) {
+			wsEnd++
+		}
+		if strings.Contains(packet[open:end], "pdfaExtension:schemas") {
+			blocks = append(blocks, strings.TrimSpace(packet[open:end]))
+		} else {
+			out.WriteString(packet[open:wsEnd])
+		}
+		i = wsEnd
+	}
+	return blocks, out.String()
+}
+
+// descriptionBlockEnd finds the index just past the closing tag that matches
+// the <rdf:Description (self-closing or not) starting at open, counting
+// nested rdf:Description elements so a block containing further
+// rdf:Description children is captured whole. Returns ok=false when the
+// element is never closed before the packet ends.
+func descriptionBlockEnd(packet string, open int) (end int, ok bool) {
+	tagEnd, selfClosing, ok := parseDescriptionOpenTag(packet, open)
+	if !ok {
+		return 0, false
+	}
+	if selfClosing {
+		return tagEnd, true
+	}
+	depth := 1
+	i := tagEnd
+	for i < len(packet) {
+		switch {
+		case strings.HasPrefix(packet[i:], "</rdf:Description>"):
+			depth--
+			i += len("</rdf:Description>")
+			if depth == 0 {
+				return i, true
+			}
+		case strings.HasPrefix(packet[i:], "<rdf:Description") &&
+			i+len("<rdf:Description") < len(packet) && isXMLTagBoundary(packet[i+len("<rdf:Description")]):
+			te, sc, ok := parseDescriptionOpenTag(packet, i)
+			if !ok {
+				return 0, false
+			}
+			if !sc {
+				depth++
+			}
+			i = te
+		default:
+			i++
+		}
+	}
+	return 0, false
+}
+
+// parseDescriptionOpenTag parses the <rdf:Description ...> opening tag (or
+// its self-closing form <rdf:Description .../>) starting at i, returning the
+// index just past its closing '>' and whether it is self-closing.
+func parseDescriptionOpenTag(packet string, i int) (end int, selfClosing bool, ok bool) {
+	gt := strings.IndexByte(packet[i:], '>')
+	if gt < 0 {
+		return 0, false, false
+	}
+	gt += i
+	selfClosing = gt > i && packet[gt-1] == '/'
+	return gt + 1, selfClosing, true
+}
+
+// isXMLTagBoundary reports whether c can follow a tag name, i.e. the match
+// is the whole name and not just a prefix of a longer one.
+func isXMLTagBoundary(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' || c == '/'
+}
+
+func isXMLSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
 // insertXMPDescriptions puts rdf:Description elements back into a packet,

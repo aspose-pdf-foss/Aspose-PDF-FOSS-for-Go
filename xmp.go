@@ -11,10 +11,11 @@ import (
 
 // XMP namespace URIs (ISO 16684-1 / Adobe XMP Specification).
 const (
-	nsRDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-	nsDC  = "http://purl.org/dc/elements/1.1/"
-	nsXMP = "http://ns.adobe.com/xap/1.0/"
-	nsPDF = "http://ns.adobe.com/pdf/1.3/"
+	nsRDF   = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	nsDC    = "http://purl.org/dc/elements/1.1/"
+	nsXMP   = "http://ns.adobe.com/xap/1.0/"
+	nsPDF   = "http://ns.adobe.com/pdf/1.3/"
+	nsXMPMM = "http://ns.adobe.com/xap/1.0/mm/"
 )
 
 // XMPProperty is a single simple (string-valued) XMP property in an
@@ -240,18 +241,17 @@ func buildXMP(meta XMPMetadata) []byte {
 	b.WriteString(`  <rdf:RDF xmlns:rdf="` + nsRDF + `">` + "\n")
 
 	// Namespace declarations: always declare the three core schemas plus
-	// any distinct custom-property namespaces.
+	// one prefix per distinct custom-property namespace (bindCustomPrefixes
+	// resolves any collision, e.g. two custom properties that both hint the
+	// same prefix, so two namespaces are never serialised under one).
 	nsDecls := []string{
 		`xmlns:dc="` + nsDC + `"`,
 		`xmlns:xmp="` + nsXMP + `"`,
 		`xmlns:pdf="` + nsPDF + `"`,
 	}
-	seenPrefix := map[string]bool{"dc": true, "xmp": true, "pdf": true}
-	for _, p := range meta.Custom {
-		if p.Prefix != "" && p.Namespace != "" && !seenPrefix[p.Prefix] {
-			nsDecls = append(nsDecls, `xmlns:`+p.Prefix+`="`+p.Namespace+`"`)
-			seenPrefix[p.Prefix] = true
-		}
+	nsOrder, prefixOf := bindCustomPrefixes(meta.Custom)
+	for _, ns := range nsOrder {
+		nsDecls = append(nsDecls, `xmlns:`+prefixOf[ns]+`="`+ns+`"`)
 	}
 	b.WriteString(`    <rdf:Description rdf:about=""` + "\n")
 	for i, decl := range nsDecls {
@@ -280,10 +280,10 @@ func buildXMP(meta XMPMetadata) []byte {
 	writeSimple(&b, "xmp:MetadataDate", meta.MetadataDate)
 	writeSimple(&b, "pdf:Producer", meta.Producer)
 	for _, p := range meta.Custom {
-		if p.Prefix == "" || p.Name == "" {
+		if p.Namespace == "" || p.Name == "" {
 			continue
 		}
-		writeSimple(&b, p.Prefix+":"+p.Name, p.Value)
+		writeSimple(&b, prefixOf[p.Namespace]+":"+p.Name, p.Value)
 	}
 
 	b.WriteString("    </rdf:Description>\n")
@@ -293,6 +293,45 @@ func buildXMP(meta XMPMetadata) []byte {
 	// in place; keep it modest here.
 	b.WriteString(`<?xpacket end="w"?>`)
 	return []byte(b.String())
+}
+
+// bindCustomPrefixes assigns exactly one serialisation prefix per distinct
+// namespace among meta.Custom, in first-seen order. Each namespace's own
+// properties' Prefix is used when possible; if it is empty, or already bound
+// to a *different* namespace — two custom properties can legitimately hint
+// the same prefix (xmlPrefixHint falls back to a generic "ns" for any
+// namespace it does not specifically recognise, and even two distinct
+// recognised namespaces can share a hint, e.g. Factur-X and ZUGFeRD 2.0 both
+// prefer "fx") — a fresh prefix ("ns1", "ns2", …, skipping any already in
+// use) is allocated instead. Properties sharing a namespace always share its
+// bound prefix, so writeSimple never emits two different namespaces under
+// one XML prefix (which would silently merge them on the next parse).
+func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[string]string) {
+	prefixOf = map[string]string{}
+	boundTo := map[string]string{"dc": nsDC, "xmp": nsXMP, "pdf": nsPDF}
+	next := 1
+	for _, p := range custom {
+		if p.Namespace == "" || p.Name == "" {
+			continue
+		}
+		if _, ok := prefixOf[p.Namespace]; ok {
+			continue
+		}
+		prefix := p.Prefix
+		if prefix == "" || (boundTo[prefix] != "" && boundTo[prefix] != p.Namespace) {
+			for {
+				prefix = fmt.Sprintf("ns%d", next)
+				next++
+				if boundTo[prefix] == "" {
+					break
+				}
+			}
+		}
+		prefixOf[p.Namespace] = prefix
+		boundTo[prefix] = p.Namespace
+		order = append(order, p.Namespace)
+	}
+	return order, prefixOf
 }
 
 // writeSimple emits "<tag>value</tag>" (XML-escaped) when value is non-empty.
@@ -515,7 +554,9 @@ func addCustom(m *XMPMetadata, space, local, value string, seen map[string]bool)
 
 // xmlPrefixHint derives a serialisation prefix for a custom property.
 // encoding/xml does not surface the original prefix, so fall back to a
-// short synthetic one when the namespace is unknown.
+// short synthetic one for a namespace this library specifically writes
+// elsewhere (so a round trip through XMP()/SetXMP keeps its conventional
+// prefix), else a generic one that bindCustomPrefixes will make unique.
 func xmlPrefixHint(space string) string {
 	switch space {
 	case nsDC:
@@ -524,6 +565,14 @@ func xmlPrefixHint(space string) string {
 		return "xmp"
 	case nsPDF:
 		return "pdf"
+	case nsFacturX, nsZUGFeRD2:
+		return "fx"
+	case nsZUGFeRD1:
+		return "zf"
+	case nsPDFAID:
+		return "pdfaid"
+	case nsXMPMM:
+		return "xmpMM"
 	}
 	return "ns"
 }

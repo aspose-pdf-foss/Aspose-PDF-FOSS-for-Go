@@ -155,6 +155,50 @@ func TestXMPClear(t *testing.T) {
 	}
 }
 
+// TestXMPCustomPrefixCollisionKeepsNamespacesSeparate: two custom properties
+// whose caller-supplied Prefix collides (as happens after a round trip
+// through XMP(), which synthesises a generic prefix for any namespace it
+// doesn't specifically recognise) must still serialise into two distinct
+// XML namespaces, not merge under whichever one was declared first.
+func TestXMPCustomPrefixCollisionKeepsNamespacesSeparate(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	want := pdf.XMPMetadata{Custom: []pdf.XMPProperty{
+		{Namespace: "urn:example:one#", Prefix: "ns", Name: "Foo", Value: "foo-value"},
+		{Namespace: "urn:example:two#", Prefix: "ns", Name: "Bar", Value: "bar-value"},
+	}}
+	if err := doc.SetXMP(want); err != nil {
+		t.Fatalf("SetXMP: %v", err)
+	}
+	back := saveAndReopenXMP(t, doc)
+	meta, err := back.XMP()
+	if err != nil {
+		t.Fatalf("XMP: %v", err)
+	}
+	got := map[string]string{}
+	for _, p := range meta.Custom {
+		got[p.Namespace+"|"+p.Name] = p.Value
+	}
+	if got["urn:example:one#|Foo"] != "foo-value" {
+		t.Errorf("urn:example:one#|Foo = %q, want %q; custom = %+v", got["urn:example:one#|Foo"], "foo-value", meta.Custom)
+	}
+	if got["urn:example:two#|Bar"] != "bar-value" {
+		t.Errorf("urn:example:two#|Bar = %q, want %q; custom = %+v", got["urn:example:two#|Bar"], "bar-value", meta.Custom)
+	}
+}
+
+func saveAndReopenXMP(t *testing.T, doc *pdf.Document) *pdf.Document {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	back, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	return back
+}
+
 // TestSyncInfoToXMP maps the /Info dictionary into the XMP packet.
 func TestSyncInfoToXMP(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)

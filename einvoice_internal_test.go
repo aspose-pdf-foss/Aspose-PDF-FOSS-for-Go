@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -338,4 +339,156 @@ func TestInvoiceReadsOlderGenerations(t *testing.T) {
 			t.Errorf("got standard %q profile %v", inv.Standard, inv.Profile)
 		}
 	})
+}
+
+// --- Fix round 1 ---
+
+// Finding 1: a document that already carries a foreign custom XMP namespace
+// (xmpMM:DocumentID, the way Word/Acrobat write it) must not have its
+// namespace stolen by the Factur-X properties AttachInvoice adds — each
+// namespace round-trips (through AttachInvoice's own XMP() re-read and
+// ConvertToPDFA's setPDFAMetadata XMP() re-read) under its own prefix.
+func TestAttachInvoicePreservesForeignNamespace(t *testing.T) {
+	doc := invoiceTestDoc(t)
+	if err := doc.SetXMP(XMPMetadata{Custom: []XMPProperty{
+		{Namespace: "http://ns.adobe.com/xap/1.0/mm/", Prefix: "xmpMM", Name: "DocumentID", Value: "uuid:1234"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.AttachInvoice(ciiInvoice("urn:cen.eu:en16931:2017")); err != nil {
+		t.Fatal(err)
+	}
+	back := saveAndReopen(t, doc)
+	raw, err := back.XMPRaw()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `xmlns:fx="`+nsFacturX+`"`) {
+		t.Errorf("fx: is not bound to the Factur-X namespace:\n%s", s)
+	}
+	if !strings.Contains(s, "<fx:DocumentType>") && !strings.Contains(s, "fx:DocumentType=") {
+		t.Errorf("Factur-X properties were not serialised under fx:\n%s", s)
+	}
+
+	meta, err := back.XMP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawMM bool
+	for _, p := range meta.Custom {
+		if p.Namespace == "http://ns.adobe.com/xap/1.0/mm/" && p.Name == "DocumentID" {
+			sawMM = true
+			if p.Value != "uuid:1234" {
+				t.Errorf("xmpMM:DocumentID value = %q, want %q", p.Value, "uuid:1234")
+			}
+		}
+	}
+	if !sawMM {
+		t.Errorf("xmpMM:DocumentID was lost or merged into another namespace; custom = %+v", meta.Custom)
+	}
+
+	inv, err := back.Invoice()
+	if err != nil || inv == nil {
+		t.Fatalf("Invoice() = %v, %v", inv, err)
+	}
+	if inv.Version != "1.0" {
+		t.Errorf("Invoice().Version = %q, want %q (fx:Version must not have landed in the xmpMM namespace)", inv.Version, "1.0")
+	}
+}
+
+// nestedForeignExtensionXMP is a hand-written packet like a real producer
+// might emit: a Ghostscript-style self-closing rdf:Description carrying the
+// pdfaid identification, followed by a PDF/A extension-schema block whose
+// bag entries use nested rdf:Description elements (rather than this
+// library's own rdf:li[rdf:parseType=Resource] style) to hold the schema and
+// property records.
+const nestedForeignExtensionXMP = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="3" pdfaid:conformance="B"/>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<pdfaExtension:schemas>
+<rdf:Bag>
+<rdf:li>
+<rdf:Description>
+<pdfaSchema:schema>Foreign Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:foreign#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>fgn</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li>
+<rdf:Description>
+<pdfaProperty:name>Custom</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>A foreign property</pdfaProperty:description>
+</rdf:Description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:Description>
+</rdf:li>
+</rdf:Bag>
+</pdfaExtension:schemas>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+
+// Finding 2, part 1: xmpExtensionBlocks must extract the foreign extension
+// block whole — including its nested rdf:Description entries — and must not
+// swallow the preceding self-closing rdf:Description into it.
+func TestXMPExtensionBlocksNestedDescription(t *testing.T) {
+	blocks, rest := xmpExtensionBlocks(nestedForeignExtensionXMP)
+	if len(blocks) != 1 {
+		t.Fatalf("got %d extension blocks, want 1: %v", len(blocks), blocks)
+	}
+	block := blocks[0]
+	if n, m := strings.Count(block, "<rdf:Description"), strings.Count(block, "</rdf:Description>"); n != m {
+		t.Errorf("extracted block is not balanced (%d opens, %d closes):\n%s", n, m, block)
+	}
+	if !strings.Contains(block, "Foreign Schema") || !strings.Contains(block, "urn:example:foreign#") ||
+		!strings.Contains(block, "A foreign property") {
+		t.Errorf("extension block is truncated:\n%s", block)
+	}
+	if strings.Contains(rest, "Foreign Schema") {
+		t.Error("extension block content leaked into rest")
+	}
+	if !strings.Contains(rest, `pdfaid:part="3"`) {
+		t.Error("the preceding self-closing rdf:Description was swallowed into the extension block")
+	}
+}
+
+// Finding 2, part 2: ConvertToPDFA must carry the foreign extension block
+// through as well-formed XML, without truncating it.
+func TestConvertToPDFAKeepsNestedForeignExtensionSchema(t *testing.T) {
+	doc := invoiceTestDoc(t)
+	if err := doc.SetXMPRaw([]byte(nestedForeignExtensionXMP)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ConvertToPDFA(PDFA3B); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := doc.XMPRaw()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if n := strings.Count(s, "Foreign Schema"); n != 1 {
+		t.Errorf("foreign extension schema appears %d times, want 1:\n%s", n, s)
+	}
+
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		if _, err := dec.Token(); err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("resulting XMP packet is not well-formed XML: %v\n%s", err, s)
+		}
+	}
+	if _, err := doc.XMP(); err != nil {
+		t.Fatalf("XMP() failed on the converted packet: %v", err)
+	}
 }
