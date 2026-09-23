@@ -72,7 +72,16 @@ func xmpExtensionBlocks(packet string) (blocks []string, rest string) {
 			wsEnd++
 		}
 		if strings.Contains(packet[open:end], "pdfaExtension:schemas") {
-			blocks = append(blocks, strings.TrimSpace(packet[open:end]))
+			block, remainder := splitExtensionDescription(packet[open:end])
+			blocks = append(blocks, strings.TrimSpace(block))
+			if remainder != "" {
+				// The element also held ordinary properties: they stay in
+				// rest so the caller's rebuilt packet carries them exactly
+				// once (the block travels separately and must not repeat
+				// them).
+				out.WriteString(remainder)
+				out.WriteString(packet[end:wsEnd])
+			}
 		} else {
 			out.WriteString(packet[open:wsEnd])
 		}
@@ -81,12 +90,141 @@ func xmpExtensionBlocks(packet string) (blocks []string, rest string) {
 	return blocks, out.String()
 }
 
+// splitExtensionDescription takes one rdf:Description element holding a
+// pdfaExtension:schemas element and returns the block to carry across a
+// metadata rewrite and, when the element also held ordinary properties, the
+// rdf:Description that holds those alone.
+//
+// A producer may put pdfaid, dc:title, its own custom properties and its
+// extension schemas in a single rdf:Description. Carrying such an element
+// whole would reinsert those properties beside the ones the rewritten packet
+// already states — two pdfaid:part values, two dc:title elements — so only
+// the schemas element travels, in a fresh rdf:Description carrying the
+// xmlns declarations it uses. An element that holds nothing but the schemas
+// is returned unchanged.
+func splitExtensionDescription(elem string) (block, remainder string) {
+	tagEnd, selfClosing, ok := parseDescriptionOpenTag(elem, 0)
+	if !ok || selfClosing || !strings.HasSuffix(elem, "</rdf:Description>") {
+		return elem, ""
+	}
+	openTag := elem[:tagEnd]
+	content := elem[tagEnd : len(elem)-len("</rdf:Description>")]
+
+	start := strings.Index(content, "<pdfaExtension:schemas")
+	if start < 0 {
+		return elem, ""
+	}
+	closeTag := "</pdfaExtension:schemas>"
+	stop := strings.Index(content[start:], closeTag)
+	if stop < 0 {
+		return elem, ""
+	}
+	stop += start + len(closeTag)
+	schemas := content[start:stop]
+	rest := strings.TrimSpace(content[:start] + content[stop:])
+	if rest == "" && !descriptionHasProperties(openTag) {
+		return elem, "" // nothing but the schemas: keep the element as it is
+	}
+	return buildExtensionDescription(openTag, schemas), openTag + "\n" + rest + "\n</rdf:Description>"
+}
+
+// descriptionHasProperties reports whether an rdf:Description opening tag
+// carries properties as attributes (the abbreviated form), as opposed to
+// only namespace declarations and rdf:about.
+func descriptionHasProperties(openTag string) bool {
+	for _, a := range xmlTagAttributes(openTag) {
+		if a.name == "rdf:about" || a.name == "xmlns" || strings.HasPrefix(a.name, "xmlns:") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// buildExtensionDescription wraps a pdfaExtension:schemas element in a fresh
+// rdf:Description, declaring the namespace prefixes the element uses out of
+// those the original opening tag declared. rdf is always declared: each
+// block is parsed on its own (extensionSchemaPrefixes) and its rdf:Bag /
+// rdf:li structure has to resolve there too.
+func buildExtensionDescription(openTag, schemas string) string {
+	var b strings.Builder
+	b.WriteString(`<rdf:Description rdf:about=""`)
+	declared := false
+	for _, a := range xmlTagAttributes(openTag) {
+		prefix, ok := strings.CutPrefix(a.name, "xmlns:")
+		if !ok || !strings.Contains(schemas, prefix+":") {
+			continue
+		}
+		if prefix == "rdf" {
+			declared = true
+		}
+		b.WriteString(" " + a.name + `="` + a.value + `"`)
+	}
+	if !declared {
+		b.WriteString(` xmlns:rdf="` + nsRDF + `"`)
+	}
+	b.WriteString(">\n" + strings.TrimSpace(schemas) + "\n</rdf:Description>")
+	return b.String()
+}
+
+type xmlAttr struct{ name, value string }
+
+// xmlTagAttributes reads the name="value" pairs of an opening tag. Values may
+// be single- or double-quoted; entities are left as they are, since the
+// attributes are copied verbatim into another tag.
+func xmlTagAttributes(tag string) []xmlAttr {
+	var out []xmlAttr
+	i := 0
+	// Skip "<name".
+	for i < len(tag) && !isXMLSpace(tag[i]) {
+		i++
+	}
+	for i < len(tag) {
+		for i < len(tag) && isXMLSpace(tag[i]) {
+			i++
+		}
+		start := i
+		for i < len(tag) && tag[i] != '=' && !isXMLSpace(tag[i]) && tag[i] != '>' && tag[i] != '/' {
+			i++
+		}
+		name := tag[start:i]
+		if name == "" || i >= len(tag) || tag[i] != '=' {
+			return out
+		}
+		i++ // '='
+		if i >= len(tag) || (tag[i] != '"' && tag[i] != '\'') {
+			return out
+		}
+		quote := tag[i]
+		i++
+		vStart := i
+		for i < len(tag) && tag[i] != quote {
+			i++
+		}
+		if i >= len(tag) {
+			return out
+		}
+		out = append(out, xmlAttr{name: name, value: tag[vStart:i]})
+		i++
+	}
+	return out
+}
+
 // descriptionBlockEnd finds the index just past the closing tag that matches
 // the <rdf:Description (self-closing or not) starting at open, counting
 // nested rdf:Description elements so a block containing further
 // rdf:Description children is captured whole. Returns ok=false when the
 // element is never closed before the packet ends.
 func descriptionBlockEnd(packet string, open int) (end int, ok bool) {
+	return xmlElementEnd(packet, open, "rdf:Description")
+}
+
+// xmlElementEnd finds the index just past the closing tag matching the
+// element of the given qualified name (self-closing or not) that starts at
+// open, counting nested elements of the same name. Returns ok=false when the
+// element is never closed before the text ends.
+func xmlElementEnd(packet string, open int, name string) (end int, ok bool) {
+	openTag, closeTag := "<"+name, "</"+name+">"
 	tagEnd, selfClosing, ok := parseDescriptionOpenTag(packet, open)
 	if !ok {
 		return 0, false
@@ -98,14 +236,14 @@ func descriptionBlockEnd(packet string, open int) (end int, ok bool) {
 	i := tagEnd
 	for i < len(packet) {
 		switch {
-		case strings.HasPrefix(packet[i:], "</rdf:Description>"):
+		case strings.HasPrefix(packet[i:], closeTag):
 			depth--
-			i += len("</rdf:Description>")
+			i += len(closeTag)
 			if depth == 0 {
 				return i, true
 			}
-		case strings.HasPrefix(packet[i:], "<rdf:Description") &&
-			i+len("<rdf:Description") < len(packet) && isXMLTagBoundary(packet[i+len("<rdf:Description")]):
+		case strings.HasPrefix(packet[i:], openTag) &&
+			i+len(openTag) < len(packet) && isXMLTagBoundary(packet[i+len(openTag)]):
 			te, sc, ok := parseDescriptionOpenTag(packet, i)
 			if !ok {
 				return 0, false
@@ -119,6 +257,58 @@ func descriptionBlockEnd(packet string, open int) (end int, ok bool) {
 		}
 	}
 	return 0, false
+}
+
+// dropInvoiceSchemaEntries removes from an extension-schema block the schema
+// entries describing one of the hybrid-invoice namespaces, keeping every
+// other producer's entry in the same bag; ok reports whether anything is
+// left to keep.
+//
+// An earlier generation's metadata is replaced, not accumulated: a ZUGFeRD
+// 2.0 file upgraded to Factur-X would otherwise carry two schemas declaring
+// the prefix fx, for two different namespaces. Filtering whole blocks would
+// be wrong in the other direction — a producer may describe its own schema
+// in the same rdf:Bag as the invoice one, and that entry has to survive.
+func dropInvoiceSchemaEntries(block string) (string, bool) {
+	var out strings.Builder
+	kept := 0
+	i := 0
+	for i < len(block) {
+		open := strings.Index(block[i:], "<rdf:li")
+		if open < 0 {
+			out.WriteString(block[i:])
+			break
+		}
+		open += i
+		if nameEnd := open + len("<rdf:li"); nameEnd >= len(block) || !isXMLTagBoundary(block[nameEnd]) {
+			out.WriteString(block[i : open+1])
+			i = open + 1
+			continue
+		}
+		end, ok := xmlElementEnd(block, open, "rdf:li")
+		if !ok {
+			out.WriteString(block[i:]) // not well-formed: leave it alone
+			break
+		}
+		out.WriteString(block[i:open])
+		if !isInvoiceSchemaEntry(block[open:end]) {
+			out.WriteString(block[open:end])
+			kept++
+		}
+		i = end
+	}
+	return out.String(), kept > 0
+}
+
+// isInvoiceSchemaEntry reports whether an extension-schema entry describes
+// one of the hybrid-invoice namespaces.
+func isInvoiceSchemaEntry(entry string) bool {
+	for _, ns := range []string{nsFacturX, nsZUGFeRD2, nsZUGFeRD1} {
+		if strings.Contains(entry, ns) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseDescriptionOpenTag parses the <rdf:Description ...> opening tag (or

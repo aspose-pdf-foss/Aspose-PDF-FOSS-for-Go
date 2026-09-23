@@ -5,7 +5,9 @@ package asposepdf
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"unicode"
 )
@@ -657,8 +659,34 @@ func xmlPrefixHint(space string) string {
 		return "pdfaid"
 	case nsXMPMM:
 		return "xmpMM"
+	case "http://ns.adobe.com/photoshop/1.0/":
+		return "photoshop"
+	case "http://ns.adobe.com/xap/1.0/rights/":
+		return "xmpRights"
+	case "http://ns.adobe.com/xap/1.0/t/pg/":
+		return "xmpTPg"
+	case "http://ns.adobe.com/tiff/1.0/":
+		return "tiff"
+	case "http://ns.adobe.com/exif/1.0/":
+		return "exif"
+	case "http://ns.adobe.com/pdfx/1.3/":
+		return "pdfx"
 	}
 	return "ns"
+}
+
+// xmpWellFormed reports whether a raw XMP packet parses as XML. PDF/A
+// requires a parsable packet, and a producer that assembled one by string
+// surgery can leave it broken — ValidatePDFA reports that as XMP_MALFORMED
+// rather than silently reading past it with the regexes above.
+func xmpWellFormed(raw []byte) bool {
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		_, err := dec.Token()
+		if err != nil {
+			return errors.Is(err, io.EOF)
+		}
+	}
 }
 
 // appendUnique appends v to list if not already present.

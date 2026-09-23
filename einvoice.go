@@ -242,8 +242,10 @@ func (d *Document) setInvoiceXMP(fileName string, profile InvoiceProfile) error 
 	if raw, err := d.XMPRaw(); err == nil && len(raw) > 0 {
 		blocks, _ := xmpExtensionBlocks(string(raw))
 		for _, b := range blocks {
-			if !strings.Contains(b, nsFacturX) {
-				extensions = append(extensions, b) // another producer's schema: keep it
+			// Any earlier invoice generation's schema entry goes; other
+			// producers' entries in the same bag stay.
+			if kept, ok := dropInvoiceSchemaEntries(b); ok {
+				extensions = append(extensions, kept)
 			}
 		}
 	}

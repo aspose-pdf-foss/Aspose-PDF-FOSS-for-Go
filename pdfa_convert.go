@@ -49,7 +49,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.RemoveEncryption()
 	d.stripPDFAActions()
-	if format == PDFA1B {
+	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
 	}
 	if format.part() == 3 {
@@ -228,11 +228,44 @@ func (d *Document) stripPDFAActions() {
 	}
 }
 
-// removePDFAEmbeddedFiles drops the /Names/EmbeddedFiles name tree (PDF/A-1
-// prohibits file attachments).
+// removePDFAEmbeddedFiles drops the /Names/EmbeddedFiles name tree and the
+// catalog /AF array (PDF/A-1 prohibits file attachments). Both are needed:
+// /AF keeps its file specifications — and through them the embedded file
+// streams — reachable, so dropping only the name tree would leave the
+// attachment in the saved file, merely harder to find.
 func (d *Document) removePDFAEmbeddedFiles() {
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		delete(names, "/EmbeddedFiles")
+	}
+	delete(d.catalog, "/AF")
+
+	// Detaching the entries leaves the file specifications and their embedded
+	// file streams in the object set, so the writer would still put the
+	// attachment's bytes in the saved file. Drop the ones nothing references
+	// any more — a filespec still reached from a page (a file-attachment
+	// annotation) keeps its stream.
+	reachable := collectReachableIDs(d.objects, d.pages)
+	for key, v := range d.catalog {
+		if catalogKeyRebuiltByWriter(d, key) {
+			continue
+		}
+		markReachable(d.objects, v, reachable)
+	}
+	for num, obj := range d.objects {
+		if reachable[num] {
+			continue
+		}
+		var dict pdfDict
+		switch v := obj.Value.(type) {
+		case pdfDict:
+			dict = v
+		case *pdfStream:
+			dict = v.Dict
+		}
+		switch dictGetName(dict, "/Type") {
+		case "/Filespec", "/EmbeddedFile":
+			delete(d.objects, num)
+		}
 	}
 }
 

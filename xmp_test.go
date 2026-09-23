@@ -336,3 +336,41 @@ func TestSyncInfoToXMP(t *testing.T) {
 		t.Errorf("CreateDate = %q, want ISO 8601 from PDF date", got.CreateDate)
 	}
 }
+
+// Common predefined namespaces keep their conventional prefix through an
+// XMP()/SetXMP round trip.
+func TestXMPPredefinedNamespacePrefixes(t *testing.T) {
+	doc := pdf.NewDocument(100, 100)
+	packet := `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:pdfx="http://ns.adobe.com/pdfx/1.3/" xmlns:xmpTPg="http://ns.adobe.com/xap/1.0/t/pg/">
+<photoshop:ColorMode>3</photoshop:ColorMode>
+<xmpRights:Marked>True</xmpRights:Marked>
+<tiff:Orientation>1</tiff:Orientation>
+<exif:ColorSpace>1</exif:ColorSpace>
+<pdfx:Company>Acme</pdfx:Company>
+<xmpTPg:NPages>1</xmpTPg:NPages>
+</rdf:Description></rdf:RDF></x:xmpmeta>`
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := doc.XMP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetXMP(meta); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := doc.XMPRaw()
+	for _, want := range []string{
+		"<photoshop:ColorMode>3</photoshop:ColorMode>",
+		"<xmpRights:Marked>True</xmpRights:Marked>",
+		"<tiff:Orientation>1</tiff:Orientation>",
+		"<exif:ColorSpace>1</exif:ColorSpace>",
+		"<pdfx:Company>Acme</pdfx:Company>",
+		"<xmpTPg:NPages>1</xmpTPg:NPages>",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("missing %s:\n%s", want, raw)
+		}
+	}
+}

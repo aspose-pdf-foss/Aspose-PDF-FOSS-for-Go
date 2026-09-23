@@ -217,3 +217,74 @@ func TestConvertToPDFA3AssociatesAttachments(t *testing.T) {
 		}
 	}
 }
+
+// Final review, Important 3: converting an e-invoice to PDF/A-1 removes the
+// attachment completely — name tree, catalog /AF and the file itself.
+func TestConvertToPDFA1RemovesAssociatedFiles(t *testing.T) {
+	for _, format := range []PDFAFormat{PDFA1B, PDFA1A} {
+		t.Run(format.String(), func(t *testing.T) {
+			doc := invoiceTestDoc(t)
+			if _, err := doc.AttachInvoice(ciiInvoice("urn:cen.eu:en16931:2017")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := doc.ConvertToPDFA(format); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := doc.catalog["/AF"]; ok {
+				t.Error("catalog /AF survived the conversion")
+			}
+			for _, obj := range doc.objects {
+				if st, ok := obj.Value.(*pdfStream); ok && dictGetName(st.Dict, "/Type") == "/EmbeddedFile" {
+					if bytes.Contains(st.Data, []byte("CrossIndustryInvoice")) {
+						t.Errorf("the invoice XML is still in object %d", obj.Num)
+					}
+				}
+			}
+			var buf bytes.Buffer
+			if _, err := doc.WriteTo(&buf); err != nil {
+				t.Fatal(err)
+			}
+			back, err := OpenStream(bytes.NewReader(buf.Bytes()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := back.catalog["/AF"]; ok {
+				t.Error("the saved file has a catalog /AF")
+			}
+			if n := back.EmbeddedFiles().Count(); n != 0 {
+				t.Errorf("the saved file has %d attachments", n)
+			}
+			for _, obj := range back.objects {
+				var d pdfDict
+				switch v := obj.Value.(type) {
+				case pdfDict:
+					d = v
+				case *pdfStream:
+					d = v.Dict
+				}
+				if typ := dictGetName(d, "/Type"); typ == "/EmbeddedFile" || typ == "/Filespec" {
+					t.Errorf("object %d (%s) survived in the saved file", obj.Num, typ)
+				}
+			}
+			if r := back.ValidatePDFA(format); hasRule(r, "EMBEDDED_FILES") {
+				t.Errorf("reopened file still reports EMBEDDED_FILES: %+v", r.Issues)
+			}
+		})
+	}
+}
+
+// The EMBEDDED_FILES rule sees a catalog /AF, and applies to PDF/A-1a too.
+func TestPDFA1FlagsAssociatedFiles(t *testing.T) {
+	doc := invoiceTestDoc(t)
+	if _, err := doc.AttachInvoice(ciiInvoice("urn:cen.eu:en16931:2017")); err != nil {
+		t.Fatal(err)
+	}
+	if names, ok := resolveRefToDict(doc.objects, doc.catalog["/Names"]); ok {
+		delete(names, "/EmbeddedFiles") // only /AF is left
+	}
+	for _, format := range []PDFAFormat{PDFA1B, PDFA1A} {
+		if !hasRule(doc.ValidatePDFA(format), "EMBEDDED_FILES") {
+			t.Errorf("%v: a catalog /AF was not reported", format)
+		}
+	}
+}

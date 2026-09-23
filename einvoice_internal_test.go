@@ -725,3 +725,165 @@ func TestSetXMPRefusesInvalidPrefix(t *testing.T) {
 		}
 	}
 }
+
+// Important 2: an extension schema sharing an rdf:Description with other
+// properties is carried alone; the siblings are not duplicated.
+func TestConvertToPDFAExtractsSchemasFromSharedDescription(t *testing.T) {
+	packet := `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:acme="urn:example:acme#" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#" acme:Mode="fast">
+<pdfaid:part>2</pdfaid:part>
+<pdfaid:conformance>B</pdfaid:conformance>
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">Shared</rdf:li></rdf:Alt></dc:title>
+<acme:Code>ABC123</acme:Code>
+<pdfaExtension:schemas>
+<rdf:Bag>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Acme Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>Code</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>An ACME code</pdfaProperty:description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:li>
+</rdf:Bag>
+</pdfaExtension:schemas>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+	doc := invoiceTestDoc(t)
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ConvertToPDFA(PDFA3B); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := doc.XMPRaw()
+	checkXMPWellFormed(t, raw)
+	s := string(raw)
+	for _, c := range []struct {
+		space, local string
+	}{
+		{nsPDFAID, "part"}, {nsPDFAID, "conformance"}, {nsDC, "title"},
+		{"urn:example:acme#", "Code"}, {"urn:example:acme#", "Mode"},
+		{"http://www.aiim.org/pdfa/ns/extension/", "schemas"},
+	} {
+		if n := countXMPProperty(t, raw, c.space, c.local); n != 1 {
+			t.Errorf("%s%s appears %d times, want 1:\n%s", c.space, c.local, n, s)
+		}
+	}
+	if !strings.Contains(s, "<pdfaid:part>3</pdfaid:part>") {
+		t.Errorf("pdfaid:part is not 3:\n%s", s)
+	}
+	if !strings.Contains(s, "Acme Extension Schema") {
+		t.Errorf("the extension schema was lost:\n%s", s)
+	}
+}
+
+// Important 4: an older invoice generation's schema entry is replaced even
+// when it shares a bag with another producer's schema, which is kept.
+func TestAttachInvoiceReplacesOlderSchemaEntry(t *testing.T) {
+	packet := `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:zf2="urn:zugferd:pdfa:CrossIndustryDocument:invoice:2p0#" xmlns:acme="urn:example:acme#">
+<zf2:DocumentType>INVOICE</zf2:DocumentType>
+<zf2:ConformanceLevel>EN 16931</zf2:ConformanceLevel>
+<acme:Code>ABC123</acme:Code>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<pdfaExtension:schemas>
+<rdf:Bag>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>ZUGFeRD PDFA Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:zugferd:pdfa:CrossIndustryDocument:invoice:2p0#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>fx</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>DocumentType</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>INVOICE</pdfaProperty:description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:li>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Acme Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+<pdfaSchema:property>
+<rdf:Seq>
+<rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>Code</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>An ACME code</pdfaProperty:description>
+</rdf:li>
+</rdf:Seq>
+</pdfaSchema:property>
+</rdf:li>
+</rdf:Bag>
+</pdfaExtension:schemas>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+	doc := invoiceTestDoc(t)
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.AttachInvoice(ciiInvoice("urn:cen.eu:en16931:2017")); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := doc.XMPRaw()
+	checkXMPWellFormed(t, raw)
+	s := string(raw)
+	if n := strings.Count(s, "<pdfaSchema:namespaceURI>"+nsFacturX+"</pdfaSchema:namespaceURI>"); n != 1 {
+		t.Errorf("Factur-X schema entry appears %d times, want 1:\n%s", n, s)
+	}
+	if strings.Contains(s, "<pdfaSchema:namespaceURI>"+nsZUGFeRD2) {
+		t.Errorf("the ZUGFeRD 2.0 schema entry was kept:\n%s", s)
+	}
+	if n := strings.Count(s, "Acme Extension Schema"); n != 1 {
+		t.Errorf("the acme schema entry appears %d times, want 1:\n%s", n, s)
+	}
+	if n := countXMPProperty(t, raw, "urn:example:acme#", "Code"); n != 1 {
+		t.Errorf("acme:Code appears %d times, want 1:\n%s", n, s)
+	}
+	if strings.Contains(s, nsZUGFeRD2) {
+		t.Errorf("ZUGFeRD 2.0 properties survived:\n%s", s)
+	}
+	if !strings.Contains(s, `xmlns:acme="urn:example:acme#"`) {
+		t.Errorf("acme lost its declared prefix:\n%s", s)
+	}
+}
+
+// Minor 3: a packet that is not well-formed XML is reported.
+func TestValidatePDFAReportsMalformedXMP(t *testing.T) {
+	doc := invoiceTestDoc(t)
+	if _, err := doc.ConvertToPDFA(PDFA2B); err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(doc.ValidatePDFA(PDFA2B), "XMP_MALFORMED") {
+		t.Fatal("a well-formed packet was reported as malformed")
+	}
+	raw, _ := doc.XMPRaw()
+	broken := strings.Replace(string(raw), "</rdf:Description>", "</rdf:Descriptio>", 1)
+	if err := doc.SetXMPRaw([]byte(broken)); err != nil {
+		t.Fatal(err)
+	}
+	if !hasRule(doc.ValidatePDFA(PDFA2B), "XMP_MALFORMED") {
+		t.Error("a malformed packet was not reported")
+	}
+}
