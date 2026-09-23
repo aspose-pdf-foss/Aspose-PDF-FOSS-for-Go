@@ -151,12 +151,15 @@ func exportFieldJSON(fld Field, opt JSONExportOptions) (jsonFieldOut, bool) {
 // applyFieldJSON sets one field from its parsed JSON entry, dispatching on the
 // target field's concrete type (authoritative over the JSON "type" tag).
 func applyFieldJSON(fld Field, jf jsonFieldIn) error {
-	if tb, ok := asTextField(fld); ok {
+	if _, ok := asTextField(fld); ok {
 		s, err := jsonAsString(jf.Value)
 		if err != nil {
 			return err
 		}
-		return tb.SetValue(s)
+		// Dispatch through the Field interface (see form_fdf.go's
+		// applyFormValues for why) so BarcodeField's SetValue override
+		// validates the value against its symbology.
+		return fld.SetValue(s)
 	}
 	switch x := fld.(type) {
 	case *ComboBoxField:

@@ -816,6 +816,8 @@ func fieldFromNode(n *fieldNode) Field {
 	case "/Tx":
 		tb := TextBoxField{fieldBase{node: n}}
 		switch {
+		case barcodeSymbologyFromDict(n.dict) != BarcodeSymbologyUnknown:
+			return &BarcodeField{tb}
 		case n.ff&fieldFlagFileSelect != 0:
 			return &FileSelectBoxField{tb}
 		case n.ff&fieldFlagRichText != 0:

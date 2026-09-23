@@ -245,6 +245,8 @@ func textFieldJSONType(f Field) string {
 		return "number"
 	case FormFieldTypeDate:
 		return "date"
+	case FormFieldTypeBarcode:
+		return "barcode"
 	}
 	return "text"
 }
@@ -265,6 +267,8 @@ func asTextField(f Field) (*TextBoxField, bool) {
 	case *NumberField:
 		return &x.TextBoxField, true
 	case *DateField:
+		return &x.TextBoxField, true
+	case *BarcodeField:
 		return &x.TextBoxField, true
 	}
 	return nil, false

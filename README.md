@@ -131,7 +131,9 @@ flowchart TD
 - **AcroForms** — read, and build from scratch every standard field type with
   `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton` (plus
   the typed password/file-select/rich-text/number/date variants — behavior flags exposed as `/Ff`
-  on the underlying field dictionary) and remove one with `RemoveField`; `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
+  on the underlying field dictionary) and remove one with `RemoveField`; `AddBarcodeField` draws
+  Code128 or QR symbols in place of text, encoded by this library's own pure-Go encoders (no
+  external dependency); `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
   and `(*ButtonField).SetAppearance` gives push buttons distinct normal/rollover/down captions
   and an icon; field values round-trip as typed JSON, FDF, and XFDF for template-fill and
   Acrobat-interoperable data interchange.
@@ -696,6 +698,11 @@ stays free of network code.
 
 ### Forms (AcroForm)
 
+- `Form.AddBarcodeField(pageNum, rect, name, symbology, value)` draws a Code128 or QR barcode in
+  place of text (`form.AddBarcodeField(1, rect, "sku", pdf.BarcodeQR, "https://example.com/sku/123")`);
+  `(*BarcodeField).Symbology()`/`SetSymbology()` read/change the encoding, and `SetValue` validates
+  the new value encodes under the current symbology before writing it. Both encoders are pure Go,
+  with no external dependency.
 - Field values containing non-ASCII characters are encoded as UTF-16BE with a BOM. `Form.Export/
   ImportJSON` round-trips every field as typed JSON keyed by full name (checkbox → bool, list box
   → array); `Form.Export/ImportFDF` and `Form.Export/ImportXFDF` provide the same round-trip in

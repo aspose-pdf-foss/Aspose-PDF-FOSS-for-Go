@@ -50,8 +50,12 @@ func formValues(fld Field) (kind string, values []string, asName, ok bool) {
 // formValues), dispatching on the field's concrete type. A checkbox is "on"
 // unless the value is empty or "Off"; a list box selects every matching option.
 func applyFormValues(fld Field, values []string) error {
-	if tb, ok := asTextField(fld); ok {
-		return tb.SetValue(first(values))
+	if _, ok := asTextField(fld); ok {
+		// Dispatch through the Field interface, not the embedded
+		// *TextBoxField, so a type that overrides SetValue (BarcodeField
+		// validates the value against its symbology) actually runs its
+		// override instead of the plain text-field setter.
+		return fld.SetValue(first(values))
 	}
 	switch x := fld.(type) {
 	case *ComboBoxField:

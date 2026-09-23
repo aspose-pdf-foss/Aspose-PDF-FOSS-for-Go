@@ -29,6 +29,10 @@ func regenerateWidgetAppearance(form *Form, widget pdfDict) {
 	ft := widgetFieldType(form, widget)
 	switch ft {
 	case "/Tx":
+		if barcodeSymbologyFromDict(widget) != BarcodeSymbologyUnknown {
+			setWidgetAPN(form.doc, widget, generateBarcodeFieldAppearance(form, widget), "")
+			return
+		}
 		setWidgetAPN(form.doc, widget, generateTextFieldAppearance(form, widget), "")
 	case "/Btn":
 		ff := widgetFieldFlags(form, widget)

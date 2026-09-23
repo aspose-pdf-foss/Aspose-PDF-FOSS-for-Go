@@ -383,6 +383,21 @@ func ExampleForm_AddTextField() {
 	// Output: ACME Corp
 }
 
+// Draw a QR code in place of text: the widget's value is the encoded text,
+// so it reads/writes exactly like any other field.
+func ExampleForm_AddBarcodeField() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+	field, err := form.AddBarcodeField(1, pdf.Rectangle{LLX: 50, LLY: 650, URX: 150, URY: 750},
+		"sku", pdf.BarcodeQR, "https://example.com/sku/123")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(field.Symbology() == pdf.BarcodeQR, field.Value())
+	// Output: true https://example.com/sku/123
+}
+
 // Generate a paginated document with the flow layout: headings, paragraphs
 // and tables are laid out top-to-bottom with automatic page breaks.
 func ExampleDocument_NewFlow() {
