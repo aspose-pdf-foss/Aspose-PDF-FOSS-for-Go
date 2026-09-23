@@ -572,3 +572,22 @@ func ExampleDocument_SetPageLabels() {
 	fmt.Println(p2.Label(), p3.Label())
 	// Output: ii 1
 }
+
+// Rasterize only the pages that actually use transparency (here, a
+// semi-transparent fill), leaving every other page fully vector.
+func ExampleDocument_FlattenTransparency() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	fill := pdf.Color{R: 1, G: 0, B: 0, A: 0.5}
+	if err := page.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 780},
+		pdf.ShapeStyle{FillColor: &fill}); err != nil {
+		log.Fatal(err)
+	}
+
+	n, err := doc.FlattenTransparency()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("pages flattened:", n)
+	// Output: pages flattened: 1
+}

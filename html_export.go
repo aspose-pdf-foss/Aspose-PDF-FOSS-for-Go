@@ -479,7 +479,7 @@ func writeHTMLPage(w io.Writer, p *Page, num int, lines []TextLine, ctx *htmlWri
 	} else {
 		// Background raster: the full page in faithful mode, the glyph-less
 		// graphics in text mode — inlined or externalized per ResourceWriter.
-		img, err := p.renderImage(RenderOptions{DPI: ctx.dpi}, ctx.mode == HTMLModeText, ctx.interactive)
+		img, err := p.renderImage(RenderOptions{DPI: ctx.dpi}, ctx.mode == HTMLModeText, ctx.interactive, false)
 		if err != nil {
 			return err
 		}

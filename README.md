@@ -847,7 +847,11 @@ stays free of network code.
   Symbol or ZapfDingbats from a face registered through `AddFontFile`/`AddFontFolder` — adds a
   pure-Go sRGB ICC OutputIntent, and writes a `pdfaid` XMP packet, then returns a report of
   whatever still fails. Across a 1,000-document corpus, 97% convert to a clean report; confirm
-  full conformance with a dedicated validator such as veraPDF.
+  full conformance with a dedicated validator such as veraPDF. `ConvertToPDFA` does not flatten
+  transparency (a `TRANSPARENCY` finding for PDF/A-1 stays unresolved) — call
+  `Document.FlattenTransparency()` separately first: it rasterizes only the pages that actually
+  use a transparency group, soft mask, non-Normal blend mode, or alpha < 1, leaving every other
+  page fully vector.
 - `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) prerequisites: a Tagged PDF with
   `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, a displayed title, alternate text on
   every figure/formula, and accessibility not blocked by encryption.
@@ -950,10 +954,15 @@ stays free of network code.
   Indic, Khmer, Myanmar, and Hangul reordering shapers and vertical text are not implemented.
 - `ConvertToPDFA` embeds a font only when a face is available to it: Symbol and ZapfDingbats need
   one registered through `AddFontFile`/`AddFontFolder` (no metric-compatible clone is bundled),
-  and a composite font needs the matching face installed. It does not flatten PDF/A-1
-  transparency or draw appearances for icon annotations (sticky notes, file attachments), and a
-  font whose licensing bits forbid embedding is left alone. Confirm full conformance with a
-  dedicated validator such as veraPDF.
+  and a composite font needs the matching face installed. It does not flatten transparency itself
+  (call `Document.FlattenTransparency()` before converting to PDF/A-1) or draw appearances for
+  icon annotations (sticky notes, file attachments), and a font whose licensing bits forbid
+  embedding is left alone. Confirm full conformance with a dedicated validator such as veraPDF.
+- `FlattenTransparency` only looks at a page's content stream and `/Resources` graph; an
+  annotation's own opacity or the transparency inside its `/AP` appearance stream is untouched —
+  flatten annotations into page content first (`Annotation.Flatten()`/`Form.Flatten()`) if that
+  also needs to go. It also only rasterizes whole pages, not just the transparent region within
+  one, so a flattened page's text is no longer extractable.
 - The built-in renderer does not support mesh shadings (PDF shading types 4-7); other shading
   types, patterns, and blend modes render normally.
 - `ConvertToGrayscale` maps device colours, images, and shadings/patterns to their luminance grey
