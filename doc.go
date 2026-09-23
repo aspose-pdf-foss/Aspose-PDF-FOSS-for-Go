@@ -295,6 +295,17 @@ func collectReachableIDs(objects map[int]*pdfObject, roots []*pdfObject) map[int
 	visited := make(map[int]bool)
 	for _, root := range roots {
 		visited[root.Num] = true
+		// A page's own /Parent names the old page-tree node, which the writer
+		// replaces; on a reopened file its number is free and the next new
+		// object takes it, so following it would keep that object alive.
+		if dict, ok := root.Value.(pdfDict); ok {
+			for k, v := range dict {
+				if k != "/Parent" {
+					markReachable(objects, v, visited)
+				}
+			}
+			continue
+		}
 		markReachable(objects, root.Value, visited)
 	}
 	return visited

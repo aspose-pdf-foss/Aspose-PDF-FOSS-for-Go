@@ -383,6 +383,21 @@ func ExampleForm_AddTextField() {
 	// Output: ACME Corp
 }
 
+// Draw a QR code in place of text: the widget's value is the encoded text,
+// so it reads/writes exactly like any other field.
+func ExampleForm_AddBarcodeField() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+	field, err := form.AddBarcodeField(1, pdf.Rectangle{LLX: 50, LLY: 650, URX: 150, URY: 750},
+		"sku", pdf.BarcodeQR, "https://example.com/sku/123")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(field.Symbology() == pdf.BarcodeQR, field.Value())
+	// Output: true https://example.com/sku/123
+}
+
 // Generate a paginated document with the flow layout: headings, paragraphs
 // and tables are laid out top-to-bottom with automatic page breaks.
 func ExampleDocument_NewFlow() {
@@ -556,4 +571,23 @@ func ExampleDocument_SetPageLabels() {
 	p3, _ := doc.Page(3)
 	fmt.Println(p2.Label(), p3.Label())
 	// Output: ii 1
+}
+
+// Rasterize only the pages that actually use transparency (here, a
+// semi-transparent fill), leaving every other page fully vector.
+func ExampleDocument_FlattenTransparency() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	fill := pdf.Color{R: 1, G: 0, B: 0, A: 0.5}
+	if err := page.DrawRectangle(pdf.Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 780},
+		pdf.ShapeStyle{FillColor: &fill}); err != nil {
+		log.Fatal(err)
+	}
+
+	n, err := doc.FlattenTransparency()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("pages flattened:", n)
+	// Output: pages flattened: 1
 }

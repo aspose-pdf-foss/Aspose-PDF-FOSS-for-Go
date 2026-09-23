@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // EmbeddedFiles is the document's collection of attached (embedded) files —
@@ -33,6 +34,7 @@ type EmbeddedFile struct {
 	doc      *Document
 	name     string
 	filespec pdfDict
+	ref      pdfRef // the file specification object; Num 0 when it is a direct dictionary
 }
 
 // Names returns the attachment names (name-tree keys), lexicographically sorted.
@@ -65,7 +67,8 @@ func (e *EmbeddedFiles) Get(name string) *EmbeddedFile {
 	if !ok {
 		return nil
 	}
-	return &EmbeddedFile{doc: e.doc, name: name, filespec: fs}
+	ref, _ := val.(pdfRef)
+	return &EmbeddedFile{doc: e.doc, name: name, filespec: fs, ref: ref}
 }
 
 // All returns every attachment, in sorted-name order.
@@ -102,11 +105,20 @@ func (e *EmbeddedFiles) AddFromStream(name string, r io.Reader) (*EmbeddedFile, 
 }
 
 func (e *EmbeddedFiles) addBytes(name string, data []byte) (*EmbeddedFile, error) {
+	return e.addBytesWith(name, data, detectMIMEType(name), "")
+}
+
+// addBytesWith embeds data under name with an explicit MIME type and
+// description, replacing an attachment of the same name.
+func (e *EmbeddedFiles) addBytesWith(name string, data []byte, mimeType, description string) (*EmbeddedFile, error) {
 	if name == "" {
 		return nil, fmt.Errorf("EmbeddedFiles: attachment name must not be empty")
 	}
-	fsID := e.doc.buildEmbeddedFilespec(data, name, detectMIMEType(name), "")
 	raw := e.raw()
+	if old, ok := raw[name].(pdfRef); ok {
+		e.doc.removeAssociatedFile(old)
+	}
+	fsID := e.doc.buildEmbeddedFilespec(data, name, mimeType, description)
 	raw[name] = pdfRef{Num: fsID}
 	e.writeBack(raw)
 	return e.Get(name), nil
@@ -116,8 +128,12 @@ func (e *EmbeddedFiles) addBytes(name string, data []byte) (*EmbeddedFile, error
 // orphaned objects are reclaimed by RemoveUnusedObjects.
 func (e *EmbeddedFiles) Remove(name string) bool {
 	raw := e.raw()
-	if _, ok := raw[name]; !ok {
+	v, ok := raw[name]
+	if !ok {
 		return false
+	}
+	if r, isRef := v.(pdfRef); isRef {
+		e.doc.removeAssociatedFile(r)
 	}
 	delete(raw, name)
 	e.writeBack(raw)
@@ -125,7 +141,14 @@ func (e *EmbeddedFiles) Remove(name string) bool {
 }
 
 // Clear removes every attachment.
-func (e *EmbeddedFiles) Clear() { e.writeBack(map[string]pdfValue{}) }
+func (e *EmbeddedFiles) Clear() {
+	for _, v := range e.raw() {
+		if r, ok := v.(pdfRef); ok {
+			e.doc.removeAssociatedFile(r)
+		}
+	}
+	e.writeBack(map[string]pdfValue{})
+}
 
 // raw walks /Catalog/Names/EmbeddedFiles into a name → raw /Filespec value map,
 // preserving the existing object references.
@@ -172,6 +195,18 @@ func (e *EmbeddedFiles) writeBack(raw map[string]pdfValue) {
 		arr = append(arr, n, raw[n])
 	}
 	nd["/EmbeddedFiles"] = pdfDict{"/Names": arr}
+}
+
+// promote stores a direct file-specification dictionary as its own object
+// and repoints the name tree at it, so the catalog's /AF can reference it.
+func (e *EmbeddedFiles) promote(name string, fs pdfDict) pdfRef {
+	num := e.doc.nextID
+	e.doc.nextID++
+	e.doc.objects[num] = &pdfObject{Num: num, Value: fs}
+	raw := e.raw()
+	raw[name] = pdfRef{Num: num}
+	e.writeBack(raw)
+	return pdfRef{Num: num}
 }
 
 // --- EmbeddedFile accessors ---
@@ -267,7 +302,7 @@ func (d *Document) buildEmbeddedFilespec(data []byte, name, mimeType, descriptio
 		Dict: pdfDict{
 			"/Type":    pdfName("/EmbeddedFile"),
 			"/Subtype": pdfName("/" + escapePDFName(mimeType)),
-			"/Params":  pdfDict{"/Size": len(data)},
+			"/Params":  pdfDict{"/Size": len(data), "/ModDate": pdfDateString(time.Now())},
 			"/Length":  len(data),
 		},
 		Data:    data,

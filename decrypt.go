@@ -76,6 +76,16 @@ func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*
 // revision-r algorithms with a keyLen-byte key, and returns an encryptState
 // whose document key is ready to derive per-object keys for decryption.
 // r is 2 (original 40-bit handler) or 3 (RC4 with /Length-bit key).
+// rc4AlgorithmForRevision names the RC4 handler a parsed /Encrypt uses, so a
+// document opened from such a file is written back with the same handler:
+// revision 2 is the original 40-bit scheme, revision 3 the 128-bit one.
+func rc4AlgorithmForRevision(r int) EncryptionAlgorithm {
+	if r == 2 {
+		return EncryptionAlgRC4_40
+	}
+	return EncryptionAlgRC4_128
+}
+
 func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, keyLen int) (*encryptState, error) {
 	filter := dictGetName(encDict, "/Filter")
 	if filter != "/Standard" {
@@ -122,7 +132,7 @@ func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, 
 	if verifyUserPasswordR(password, oBytes, uBytes, fileID, permissions, r, keyLen) {
 		key := computeEncKeyR(password, oBytes, permissions, fileID, r, keyLen)
 		return &encryptState{
-			algorithm:   EncryptionAlgRC4_128,
+			algorithm:   rc4AlgorithmForRevision(r),
 			key:         key,
 			fileID:      fileID,
 			ownerEntry:  oBytes,
@@ -135,7 +145,7 @@ func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, 
 		if verifyUserPasswordR(userPwd, oBytes, uBytes, fileID, permissions, r, keyLen) {
 			key := computeEncKeyR(userPwd, oBytes, permissions, fileID, r, keyLen)
 			return &encryptState{
-				algorithm:   EncryptionAlgRC4_128,
+				algorithm:   rc4AlgorithmForRevision(r),
 				key:         key,
 				fileID:      fileID,
 				ownerEntry:  oBytes,
@@ -212,7 +222,7 @@ func decryptObject(obj *pdfObject, state *encryptState) error {
 		return nil
 	}
 	switch state.algorithm {
-	case EncryptionAlgRC4_128:
+	case EncryptionAlgRC4_128, EncryptionAlgRC4_40:
 		key := state.objectKey(obj.Num)
 		obj.Value = decryptValue(obj.Value, key)
 		return nil

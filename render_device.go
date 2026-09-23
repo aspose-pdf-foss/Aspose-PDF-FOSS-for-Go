@@ -47,19 +47,18 @@ func intersectRects(a, b Rectangle) Rectangle {
 // renderer does not yet support is skipped rather than erroring, so a page
 // always produces an image.
 func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
-	return p.renderImage(opts, false, false)
+	return p.renderImage(opts, false, false, false)
 }
 
-// renderImage is RenderImage with the HTML exporter's internal switches:
-// suppressText skips glyph painting (text-clip accumulation for Tr 4-7 still
-// works), producing the graphics-only background the visible-text mode
-// layers real text over; hideFormWidgets skips convertible form-field
-// widget appearances (replaced by real HTML controls in interactive-forms
-// mode). Both live in html_export.go / html_export_forms.go.
-func (p *Page) renderImage(opts RenderOptions, suppressText, hideFormWidgets bool) (image.Image, error) {
+// renderBox returns the region RenderImage rasterizes: the CropBox
+// intersected with the MediaBox per ISO 32000-1 §7.7.3.3 (a stray CropBox
+// larger than the page would otherwise shrink the content into a corner of
+// an oversized canvas), falling back to the plain MediaBox when the
+// intersection is degenerate.
+func (p *Page) renderBox() (Rectangle, error) {
 	box, err := p.CropBox()
 	if err != nil {
-		return nil, fmt.Errorf("render: %w", err)
+		return Rectangle{}, err
 	}
 	if mb, mbErr := p.MediaBox(); mbErr == nil {
 		if ix := intersectRects(box, mb); ix.URX > ix.LLX && ix.URY > ix.LLY {
@@ -67,6 +66,23 @@ func (p *Page) renderImage(opts RenderOptions, suppressText, hideFormWidgets boo
 		} else {
 			box = mb
 		}
+	}
+	return box, nil
+}
+
+// renderImage is RenderImage with the HTML exporter's/FlattenTransparency's
+// internal switches: suppressText skips glyph painting (text-clip
+// accumulation for Tr 4-7 still works), producing the graphics-only
+// background the visible-text mode layers real text over; hideFormWidgets
+// skips convertible form-field widget appearances (replaced by real HTML
+// controls in interactive-forms mode); skipAnnotations skips the whole
+// annotation pass (flatten_transparency.go — the replacement raster covers
+// page content only). Live in html_export.go / html_export_forms.go /
+// flatten_transparency.go.
+func (p *Page) renderImage(opts RenderOptions, suppressText, hideFormWidgets, skipAnnotations bool) (image.Image, error) {
+	box, err := p.renderBox()
+	if err != nil {
+		return nil, fmt.Errorf("render: %w", err)
 	}
 	scale := opts.dpi() / 72.0
 	base, w, h := deviceMatrix(box, scale, p.Rotation())
@@ -80,6 +96,7 @@ func (p *Page) renderImage(opts RenderOptions, suppressText, hideFormWidgets boo
 	rd := newRenderer(p, img, w, h, base)
 	rd.suppressText = suppressText
 	rd.hideFormWidgets = hideFormWidgets
+	rd.skipAnnotations = skipAnnotations
 	rd.run()
 	return img, nil
 }

@@ -374,3 +374,29 @@ func standard14WidthAlias(name string) (string, bool) {
 	}
 	return "", false
 }
+
+// standard14VerticalMetrics returns the ascender and descender (1/1000 em,
+// descender negative) of a Standard-14 face, from its AFM. A non-embedded
+// Standard-14 font has no /FontDescriptor, so without these the text box of
+// its glyphs fell back to the whole em above the baseline. Symbol and
+// ZapfDingbats have no Ascender/Descender in their AFMs; their font bounding
+// box stands in. Metric-compatible aliases (Arial, Times New Roman, Courier
+// New) resolve as they do for widths.
+func standard14VerticalMetrics(name string) (ascent, descent float64, ok bool) {
+	switch name {
+	case "/Helvetica", "/Helvetica-Bold", "/Helvetica-Oblique", "/Helvetica-BoldOblique":
+		return 718, -207, true
+	case "/Times-Roman", "/Times-Bold", "/Times-Italic", "/Times-BoldItalic":
+		return 683, -217, true
+	case "/Courier", "/Courier-Bold", "/Courier-Oblique", "/Courier-BoldOblique":
+		return 629, -157, true
+	case "/Symbol":
+		return 1010, -293, true
+	case "/ZapfDingbats":
+		return 820, -143, true
+	}
+	if canon, found := standard14WidthAlias(name); found {
+		return standard14VerticalMetrics(canon)
+	}
+	return 0, 0, false
+}

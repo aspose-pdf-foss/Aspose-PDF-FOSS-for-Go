@@ -155,6 +155,149 @@ func TestXMPClear(t *testing.T) {
 	}
 }
 
+// TestXMPCustomPrefixCollisionKeepsNamespacesSeparate: two custom properties
+// whose caller-supplied Prefix collides (as happens after a round trip
+// through XMP(), which synthesises a generic prefix for any namespace it
+// doesn't specifically recognise) must still serialise into two distinct
+// XML namespaces, not merge under whichever one was declared first.
+func TestXMPCustomPrefixCollisionKeepsNamespacesSeparate(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	want := pdf.XMPMetadata{Custom: []pdf.XMPProperty{
+		{Namespace: "urn:example:one#", Prefix: "ns", Name: "Foo", Value: "foo-value"},
+		{Namespace: "urn:example:two#", Prefix: "ns", Name: "Bar", Value: "bar-value"},
+	}}
+	if err := doc.SetXMP(want); err != nil {
+		t.Fatalf("SetXMP: %v", err)
+	}
+	back := saveAndReopenXMP(t, doc)
+	meta, err := back.XMP()
+	if err != nil {
+		t.Fatalf("XMP: %v", err)
+	}
+	got := map[string]string{}
+	for _, p := range meta.Custom {
+		got[p.Namespace+"|"+p.Name] = p.Value
+	}
+	if got["urn:example:one#|Foo"] != "foo-value" {
+		t.Errorf("urn:example:one#|Foo = %q, want %q; custom = %+v", got["urn:example:one#|Foo"], "foo-value", meta.Custom)
+	}
+	if got["urn:example:two#|Bar"] != "bar-value" {
+		t.Errorf("urn:example:two#|Bar = %q, want %q; custom = %+v", got["urn:example:two#|Bar"], "bar-value", meta.Custom)
+	}
+}
+
+// TestXMPCorePDFNamespaceDeclaredOnce: a pdf: property this library does not
+// model (e.g. pdf:PDFVersion, which Acrobat/Word write) lands in Custom with
+// Namespace nsPDF and Prefix "pdf" (xmlPrefixHint). buildXMP already
+// declares xmlns:pdf unconditionally for the core pdf:Producer field; the
+// custom-namespace binding must recognise that and not declare it a second
+// time on the same rdf:Description, which is not well-formed XML (duplicate
+// attribute) even though Go's own encoding/xml tolerates reading it back.
+func TestXMPCorePDFNamespaceDeclaredOnce(t *testing.T) {
+	packet := `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:pdf="http://ns.adobe.com/pdf/1.3/"
+      pdf:Producer="Acme PDF 2.0"
+      pdf:PDFVersion="1.7"
+      xmp:CreateDate="2025-01-02T03:04:05Z">
+   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Hi</rdf:li></rdf:Alt></dc:title>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+	doc := pdf.NewDocument(595, 842)
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatalf("SetXMPRaw: %v", err)
+	}
+	meta, err := doc.XMP()
+	if err != nil {
+		t.Fatalf("XMP: %v", err)
+	}
+	// Round-trip through SetXMP, as ConvertToPDFA's setPDFAMetadata and
+	// AttachInvoice's setInvoiceXMP both do when they re-read and rewrite
+	// the packet.
+	if err := doc.SetXMP(meta); err != nil {
+		t.Fatalf("SetXMP: %v", err)
+	}
+	raw, err := doc.XMPRaw()
+	if err != nil {
+		t.Fatalf("XMPRaw: %v", err)
+	}
+	s := string(raw)
+	if n := strings.Count(s, "xmlns:pdf="); n != 1 {
+		t.Errorf("xmlns:pdf= appears %d times, want 1:\n%s", n, s)
+	}
+	if n := strings.Count(s, "xmlns:dc="); n != 1 {
+		t.Errorf("xmlns:dc= appears %d times, want 1:\n%s", n, s)
+	}
+	if n := strings.Count(s, "xmlns:xmp="); n != 1 {
+		t.Errorf("xmlns:xmp= appears %d times, want 1:\n%s", n, s)
+	}
+	if !strings.Contains(s, "<pdf:PDFVersion>1.7</pdf:PDFVersion>") {
+		t.Errorf("pdf:PDFVersion did not survive the round trip under the pdf: prefix:\n%s", s)
+	}
+}
+
+// TestXMPReservesRDFAndXPrefixes: a custom property whose caller-supplied
+// Prefix is "rdf" or "x" (the packet skeleton's own prefixes, for rdf:RDF /
+// rdf:Description and x:xmpmeta) must not have those prefixes rebound to a
+// different namespace — that would desynchronise the meaning of the
+// packet's own structural elements from what the rest of buildXMP assumes.
+func TestXMPReservesRDFAndXPrefixes(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	want := pdf.XMPMetadata{Custom: []pdf.XMPProperty{
+		{Namespace: "urn:example:one#", Prefix: "rdf", Name: "Foo", Value: "foo-value"},
+		{Namespace: "urn:example:two#", Prefix: "x", Name: "Bar", Value: "bar-value"},
+	}}
+	if err := doc.SetXMP(want); err != nil {
+		t.Fatalf("SetXMP: %v", err)
+	}
+	raw, err := doc.XMPRaw()
+	if err != nil {
+		t.Fatalf("XMPRaw: %v", err)
+	}
+	s := string(raw)
+	if strings.Contains(s, `xmlns:rdf="urn:example:one#"`) {
+		t.Errorf("the rdf: prefix was rebound to a custom namespace:\n%s", s)
+	}
+	if strings.Contains(s, `xmlns:x="urn:example:two#"`) {
+		t.Errorf("the x: prefix was rebound to a custom namespace:\n%s", s)
+	}
+
+	back := saveAndReopenXMP(t, doc)
+	meta, err := back.XMP()
+	if err != nil {
+		t.Fatalf("XMP: %v", err)
+	}
+	got := map[string]string{}
+	for _, p := range meta.Custom {
+		got[p.Namespace+"|"+p.Name] = p.Value
+	}
+	if got["urn:example:one#|Foo"] != "foo-value" {
+		t.Errorf("urn:example:one#|Foo = %q, want %q; custom = %+v", got["urn:example:one#|Foo"], "foo-value", meta.Custom)
+	}
+	if got["urn:example:two#|Bar"] != "bar-value" {
+		t.Errorf("urn:example:two#|Bar = %q, want %q; custom = %+v", got["urn:example:two#|Bar"], "bar-value", meta.Custom)
+	}
+}
+
+func saveAndReopenXMP(t *testing.T, doc *pdf.Document) *pdf.Document {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	back, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	return back
+}
+
 // TestSyncInfoToXMP maps the /Info dictionary into the XMP packet.
 func TestSyncInfoToXMP(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
@@ -191,5 +334,43 @@ func TestSyncInfoToXMP(t *testing.T) {
 	}
 	if got.CreateDate != "2026-05-29T12:00:00Z" {
 		t.Errorf("CreateDate = %q, want ISO 8601 from PDF date", got.CreateDate)
+	}
+}
+
+// Common predefined namespaces keep their conventional prefix through an
+// XMP()/SetXMP round trip.
+func TestXMPPredefinedNamespacePrefixes(t *testing.T) {
+	doc := pdf.NewDocument(100, 100)
+	packet := `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:pdfx="http://ns.adobe.com/pdfx/1.3/" xmlns:xmpTPg="http://ns.adobe.com/xap/1.0/t/pg/">
+<photoshop:ColorMode>3</photoshop:ColorMode>
+<xmpRights:Marked>True</xmpRights:Marked>
+<tiff:Orientation>1</tiff:Orientation>
+<exif:ColorSpace>1</exif:ColorSpace>
+<pdfx:Company>Acme</pdfx:Company>
+<xmpTPg:NPages>1</xmpTPg:NPages>
+</rdf:Description></rdf:RDF></x:xmpmeta>`
+	if err := doc.SetXMPRaw([]byte(packet)); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := doc.XMP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.SetXMP(meta); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := doc.XMPRaw()
+	for _, want := range []string{
+		"<photoshop:ColorMode>3</photoshop:ColorMode>",
+		"<xmpRights:Marked>True</xmpRights:Marked>",
+		"<tiff:Orientation>1</tiff:Orientation>",
+		"<exif:ColorSpace>1</exif:ColorSpace>",
+		"<pdfx:Company>Acme</pdfx:Company>",
+		"<xmpTPg:NPages>1</xmpTPg:NPages>",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("missing %s:\n%s", want, raw)
+		}
 	}
 }

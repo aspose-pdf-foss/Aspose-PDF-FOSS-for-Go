@@ -412,6 +412,11 @@ func buildEncryptDict(s *encryptState) pdfDict {
 	default: // EncryptionAlgRC4_128
 		dict["/V"] = 2
 		dict["/R"] = 3
+		// Revision 3 allows any key length from 40 to 128 bits; a document
+		// opened from such a file keeps its key, so say how long it is.
+		if n := len(s.key); n > 0 && n < 16 {
+			dict["/Length"] = n * 8
+		}
 	}
 	return dict
 }

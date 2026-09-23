@@ -131,7 +131,9 @@ flowchart TD
 - **AcroForms** — read, and build from scratch every standard field type with
   `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton` (plus
   the typed password/file-select/rich-text/number/date variants — behavior flags exposed as `/Ff`
-  on the underlying field dictionary) and remove one with `RemoveField`; `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
+  on the underlying field dictionary) and remove one with `RemoveField`; `AddBarcodeField` draws
+  Code128 or QR symbols in place of text, encoded by this library's own pure-Go encoders (no
+  external dependency); `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
   and `(*ButtonField).SetAppearance` gives push buttons distinct normal/rollover/down captions
   and an icon; field values round-trip as typed JSON, FDF, and XFDF for template-fill and
   Acrobat-interoperable data interchange.
@@ -155,6 +157,12 @@ flowchart TD
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet).
+- **E-invoices (ZUGFeRD / Factur-X)** — `Document.AttachInvoice(xml)` turns a document into a hybrid
+  e-invoice: the CII XML is embedded as `factur-x.xml` with the associated-file relationship its
+  profile calls for, the Factur-X metadata and extension schema are written, and the document is
+  converted to PDF/A-3. `Document.Invoice()` extracts the invoice from incoming Factur-X and ZUGFeRD
+  2.x/1.0 files together with its profile. Attachments also gain PDF/A-3 associated-file
+  relationships (`EmbeddedFile.SetAFRelationship`).
 - **Rendering to raster images** — a pure-Go anti-aliased renderer with no third-party package
   dependencies of its own (its own rasterizer — no `golang.org/x/image`, no cgo) draws vector
   graphics, images (including CCITT fax, JBIG2, and JPEG2000 (`/JPXDecode`) scans), and text
@@ -206,10 +214,11 @@ flowchart TD
   drawing canvas in glyph space, so a symbol drawn with the vector API becomes a real font
   character whose text still extracts and searches (an embedded `ToUnicode` CMap carries the
   mapping); `Document.RemoveUnusedObjects()` deletes
-  every object unreachable from any page and returns the removed count on its own, or fold that
+  every object that neither a page nor the document catalog uses (metadata, bookmarks,
+  attachments and the structure tree are kept) and returns the removed count on its own, or fold that
   same cleanup into a larger pass with the unified `Document.Optimize` pass
   (`DefaultOptimizationOptions()` is the safe, lossless preset — remove unused objects, subset
-  fonts, Flate-compress and dedupe streams; opt into lossy image recompression via
+  fonts, Flate-compress and dedupe streams, pack objects into object streams; opt into lossy image recompression via
   `OptimizationOptions.Images`) or the image-only `Document.OptimizeImages(OptimizeImageOptions)`
   pass (max DPI downscaling, JPEG quality, and PNG→JPEG conversion); reduce file size further with
   `Document.SaveLinearized`/`WriteToLinearized` (linearized/fast-web-view output per ISO 32000-1
@@ -437,6 +446,7 @@ stays free of network code.
 
 | Class | Description |
 |---|---|
+| `AFRelationship` | AFRelationship says how an embedded file relates to the document. |
 | `AIClient` | AIClient is the contract every copilot consumes: one call, one chat completion. |
 | `APIError` | APIError is returned when the AI endpoint answers with a non-2xx status. |
 | `Action` | Action is the common interface implemented by every concrete action type. |
@@ -524,6 +534,9 @@ stays free of network code.
 | `ImageStamp` | ImageStamp overlays a raster image (PNG or JPEG), stretched to fill Rect. |
 | `ImageToDocumentOptions` | ImageToDocumentOptions controls page sizing for ImageToDocument. |
 | `InkAnnotation` | InkAnnotation draws a series of free-form strokes — typically used to represent handwritten ink. |
+| `Invoice` | Invoice is an e-invoice found in a document. |
+| `InvoiceOptions` | InvoiceOptions configures AttachInvoice. |
+| `InvoiceProfile` | InvoiceProfile is the Factur-X / ZUGFeRD conformance level of an invoice. |
 | `JSONExportOptions` | JSONExportOptions controls (*Form).ExportJSON / WriteJSON. |
 | `JavaScriptAction` | JavaScriptAction holds a JavaScript snippet attached to an annotation. |
 | `JavaScriptCollection` | JavaScriptCollection is the document-level JavaScript store, backed by the /Catalog/Names/JavaScript name tree (ISO 32000-1 §7.7.4 / §8.5.1). |
@@ -685,6 +698,11 @@ stays free of network code.
 
 ### Forms (AcroForm)
 
+- `Form.AddBarcodeField(pageNum, rect, name, symbology, value)` draws a Code128 or QR barcode in
+  place of text (`form.AddBarcodeField(1, rect, "sku", pdf.BarcodeQR, "https://example.com/sku/123")`);
+  `(*BarcodeField).Symbology()`/`SetSymbology()` read/change the encoding, and `SetValue` validates
+  the new value encodes under the current symbology before writing it. Both encoders are pure Go,
+  with no external dependency.
 - Field values containing non-ASCII characters are encoded as UTF-16BE with a BOM. `Form.Export/
   ImportJSON` round-trips every field as typed JSON keyed by full name (checkbox → bool, list box
   → array); `Form.Export/ImportFDF` and `Form.Export/ImportXFDF` provide the same round-trip in
@@ -829,7 +847,11 @@ stays free of network code.
   Symbol or ZapfDingbats from a face registered through `AddFontFile`/`AddFontFolder` — adds a
   pure-Go sRGB ICC OutputIntent, and writes a `pdfaid` XMP packet, then returns a report of
   whatever still fails. Across a 1,000-document corpus, 97% convert to a clean report; confirm
-  full conformance with a dedicated validator such as veraPDF.
+  full conformance with a dedicated validator such as veraPDF. `ConvertToPDFA` does not flatten
+  transparency (a `TRANSPARENCY` finding for PDF/A-1 stays unresolved) — call
+  `Document.FlattenTransparency()` separately first: it rasterizes only the pages that actually
+  use a transparency group, soft mask, non-Normal blend mode, or alpha < 1, leaving every other
+  page fully vector.
 - `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) prerequisites: a Tagged PDF with
   `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, a displayed title, alternate text on
   every figure/formula, and accessibility not blocked by encryption.
@@ -932,10 +954,15 @@ stays free of network code.
   Indic, Khmer, Myanmar, and Hangul reordering shapers and vertical text are not implemented.
 - `ConvertToPDFA` embeds a font only when a face is available to it: Symbol and ZapfDingbats need
   one registered through `AddFontFile`/`AddFontFolder` (no metric-compatible clone is bundled),
-  and a composite font needs the matching face installed. It does not flatten PDF/A-1
-  transparency or draw appearances for icon annotations (sticky notes, file attachments), and a
-  font whose licensing bits forbid embedding is left alone. Confirm full conformance with a
-  dedicated validator such as veraPDF.
+  and a composite font needs the matching face installed. It does not flatten transparency itself
+  (call `Document.FlattenTransparency()` before converting to PDF/A-1) or draw appearances for
+  icon annotations (sticky notes, file attachments), and a font whose licensing bits forbid
+  embedding is left alone. Confirm full conformance with a dedicated validator such as veraPDF.
+- `FlattenTransparency` only looks at a page's content stream and `/Resources` graph; an
+  annotation's own opacity or the transparency inside its `/AP` appearance stream is untouched —
+  flatten annotations into page content first (`Annotation.Flatten()`/`Form.Flatten()`) if that
+  also needs to go. It also only rasterizes whole pages, not just the transparent region within
+  one, so a flattened page's text is no longer extractable.
 - The built-in renderer does not support mesh shadings (PDF shading types 4-7); other shading
   types, patterns, and blend modes render normally.
 - `ConvertToGrayscale` maps device colours, images, and shadings/patterns to their luminance grey

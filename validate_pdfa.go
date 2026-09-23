@@ -98,6 +98,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckMetadata(r)
 	d.pdfaCheckFilters(format, r)
 	d.pdfaCheckEmbeddedFiles(format, r)
+	d.pdfaCheckAssociatedFiles(format, r)
 	d.pdfaCheckTagged(format, r)
 	return r
 }
@@ -137,6 +138,9 @@ func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 	if err != nil || len(raw) == 0 {
 		r.add("XMP_MISSING", "no XMP metadata packet (/Catalog/Metadata); PDF/A requires one carrying the pdfaid identifier")
 		return
+	}
+	if !xmpWellFormed(raw) {
+		r.add("XMP_MALFORMED", "the XMP metadata packet is not well-formed XML; PDF/A requires a parsable XMP packet")
 	}
 	s := string(raw)
 	part := xmpPDFAPart(s)
@@ -565,12 +569,32 @@ func pdfaFilterHas(v pdfValue, name string) bool {
 }
 
 func (d *Document) pdfaCheckEmbeddedFiles(format PDFAFormat, r *PDFAValidationReport) {
-	if format != PDFA1B {
+	if format.part() != 1 {
 		return // PDF/A-2 allows PDF/A attachments; PDF/A-3 allows any
 	}
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		if _, ok := names["/EmbeddedFiles"]; ok {
 			r.add("EMBEDDED_FILES", "document has embedded files; PDF/A-1 prohibits file attachments (use PDF/A-3 for attachments)")
+			return
+		}
+	}
+	// An attachment also reaches the file through the catalog /AF array
+	// alone, without a name-tree entry (an associated file).
+	if len(d.resolveArray(d.catalog["/AF"])) > 0 {
+		r.add("EMBEDDED_FILES", "catalog /AF lists associated files; PDF/A-1 prohibits file attachments (use PDF/A-3 for attachments)")
+	}
+}
+
+// pdfaCheckAssociatedFiles enforces ISO 19005-3 §6.8: every embedded file
+// states its relationship to the document and is listed in the catalog /AF.
+func (d *Document) pdfaCheckAssociatedFiles(format PDFAFormat, r *PDFAValidationReport) {
+	if format.part() != 3 {
+		return
+	}
+	for _, f := range d.EmbeddedFiles().All() {
+		if !f.hasAFRelationship() || !d.isAssociatedFile(f.ref) {
+			r.add("EMBEDDED_FILE_NOT_ASSOCIATED", fmt.Sprintf(
+				"embedded file %q has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", f.Name()))
 		}
 	}
 }

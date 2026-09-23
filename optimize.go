@@ -14,7 +14,8 @@ import (
 // lossless preset. Mirrors Aspose.PDF for .NET's OptimizationOptions consumed
 // by Document.OptimizeResources.
 type OptimizationOptions struct {
-	// RemoveUnusedObjects drops objects unreachable from any page.
+	// RemoveUnusedObjects drops objects that neither a page nor the
+	// document catalog uses.
 	RemoveUnusedObjects bool
 	// SubsetFonts rebuilds embedded TrueType fonts to the glyphs used.
 	SubsetFonts bool

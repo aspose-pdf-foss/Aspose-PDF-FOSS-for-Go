@@ -76,6 +76,7 @@ type Document struct {
 	docID         pdfArray // original trailer /ID (carried into the incremental trailer)
 	origSize      int      // original trailer /Size (new object numbers start here)
 	encryptObjNum int      // original /Encrypt object number (0 if unencrypted)
+	infoNum       int      // original trailer /Info object number (0 if none), repeated in appended trailers
 
 	// embeddedFonts lists every TTF loaded via LoadFont, in load order, so
 	// (*Document).SubsetFonts can walk them and shrink each /FontFile2 to
@@ -355,6 +356,9 @@ func buildFromXRef(data []byte, xref *xrefTable, trailer pdfDict, cred *openCred
 	if id, ok := trailer["/ID"].(pdfArray); ok {
 		doc.docID = id
 	}
+	if r, ok := trailer["/Info"].(pdfRef); ok {
+		doc.infoNum = r.Num
+	}
 	if sz := dictGetInt(trailer, "/Size"); sz > 0 {
 		doc.origSize = sz
 	}
@@ -444,8 +448,11 @@ func (d *Document) Append(others ...*Document) {
 // the number of objects removed.
 func (d *Document) RemoveUnusedObjects() int {
 	reachable := collectReachableIDs(d.objects, d.pages)
-	if d.catalog != nil {
-		markReachable(d.objects, pdfValue(d.catalog), reachable)
+	for key, v := range d.catalog {
+		if catalogKeyRebuiltByWriter(d, key) {
+			continue
+		}
+		markReachable(d.objects, v, reachable)
 	}
 
 	removed := 0
@@ -456,6 +463,23 @@ func (d *Document) RemoveUnusedObjects() int {
 		}
 	}
 	return removed
+}
+
+// catalogKeyRebuiltByWriter reports whether the writer replaces a catalog
+// entry rather than copying it, so what the parsed value points at is not in
+// use. /Pages always: the page tree is rebuilt from d.pages, and its old
+// object number is free for reuse on a reopened file — following it would
+// keep whatever new object took the number. /Outlines once the outline tree
+// has been loaded into memory: the writer then builds a fresh tree from it,
+// and the parsed one is dead weight.
+func catalogKeyRebuiltByWriter(d *Document, key string) bool {
+	switch key {
+	case "/Pages":
+		return true
+	case "/Outlines":
+		return d.outlinesRoot != nil
+	}
+	return false
 }
 
 // SetPassword configures the document to be encrypted when saved.

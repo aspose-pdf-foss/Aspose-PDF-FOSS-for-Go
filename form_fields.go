@@ -54,6 +54,7 @@ const (
 	FormFieldTypeRichText
 	FormFieldTypeNumber
 	FormFieldTypeDate
+	FormFieldTypeBarcode
 )
 
 // FieldType returns the concrete kind of f. Convenience helper for
@@ -82,6 +83,8 @@ func FieldType(f Field) FormFieldType {
 		return FormFieldTypeNumber
 	case *DateField:
 		return FormFieldTypeDate
+	case *BarcodeField:
+		return FormFieldTypeBarcode
 	}
 	return FormFieldTypeUnknown
 }

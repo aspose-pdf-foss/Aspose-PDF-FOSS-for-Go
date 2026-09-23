@@ -5,16 +5,21 @@ package asposepdf
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"unicode"
 )
 
 // XMP namespace URIs (ISO 16684-1 / Adobe XMP Specification).
 const (
-	nsRDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-	nsDC  = "http://purl.org/dc/elements/1.1/"
-	nsXMP = "http://ns.adobe.com/xap/1.0/"
-	nsPDF = "http://ns.adobe.com/pdf/1.3/"
+	nsRDF     = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	nsDC      = "http://purl.org/dc/elements/1.1/"
+	nsXMP     = "http://ns.adobe.com/xap/1.0/"
+	nsPDF     = "http://ns.adobe.com/pdf/1.3/"
+	nsXMPMM   = "http://ns.adobe.com/xap/1.0/mm/"
+	nsXMPMeta = "adobe:ns:meta/" // the x: prefix on the packet's own <x:xmpmeta> root
 )
 
 // XMPProperty is a single simple (string-valued) XMP property in an
@@ -236,22 +241,21 @@ func buildXMP(meta XMPMetadata) []byte {
 	// marker; build it from the rune so the Go source stays BOM-free.
 	bom := string(rune(0xFEFF))
 	b.WriteString("<?xpacket begin=\"" + bom + "\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n")
-	b.WriteString(`<x:xmpmeta xmlns:x="adobe:ns:meta/">` + "\n")
+	b.WriteString(`<x:xmpmeta xmlns:x="` + nsXMPMeta + `">` + "\n")
 	b.WriteString(`  <rdf:RDF xmlns:rdf="` + nsRDF + `">` + "\n")
 
 	// Namespace declarations: always declare the three core schemas plus
-	// any distinct custom-property namespaces.
+	// one prefix per distinct custom-property namespace (bindCustomPrefixes
+	// resolves any collision, e.g. two custom properties that both hint the
+	// same prefix, so two namespaces are never serialised under one).
 	nsDecls := []string{
 		`xmlns:dc="` + nsDC + `"`,
 		`xmlns:xmp="` + nsXMP + `"`,
 		`xmlns:pdf="` + nsPDF + `"`,
 	}
-	seenPrefix := map[string]bool{"dc": true, "xmp": true, "pdf": true}
-	for _, p := range meta.Custom {
-		if p.Prefix != "" && p.Namespace != "" && !seenPrefix[p.Prefix] {
-			nsDecls = append(nsDecls, `xmlns:`+p.Prefix+`="`+p.Namespace+`"`)
-			seenPrefix[p.Prefix] = true
-		}
+	nsOrder, prefixOf := bindCustomPrefixes(meta.Custom)
+	for _, ns := range nsOrder {
+		nsDecls = append(nsDecls, `xmlns:`+prefixOf[ns]+`="`+ns+`"`)
 	}
 	b.WriteString(`    <rdf:Description rdf:about=""` + "\n")
 	for i, decl := range nsDecls {
@@ -280,10 +284,10 @@ func buildXMP(meta XMPMetadata) []byte {
 	writeSimple(&b, "xmp:MetadataDate", meta.MetadataDate)
 	writeSimple(&b, "pdf:Producer", meta.Producer)
 	for _, p := range meta.Custom {
-		if p.Prefix == "" || p.Name == "" {
+		if p.Namespace == "" || p.Name == "" {
 			continue
 		}
-		writeSimple(&b, p.Prefix+":"+p.Name, p.Value)
+		writeSimple(&b, prefixOf[p.Namespace]+":"+p.Name, p.Value)
 	}
 
 	b.WriteString("    </rdf:Description>\n")
@@ -293,6 +297,127 @@ func buildXMP(meta XMPMetadata) []byte {
 	// in place; keep it modest here.
 	b.WriteString(`<?xpacket end="w"?>`)
 	return []byte(b.String())
+}
+
+// bindCustomPrefixes assigns exactly one serialisation prefix per distinct
+// namespace among meta.Custom, in first-seen order. order lists only the
+// namespaces that still need an xmlns declaration written — the three core
+// namespaces buildXMP declares unconditionally (dc, xmp, pdf) are pre-bound
+// in prefixOf but never added to order, so a custom property that happens to
+// land in one of them (e.g. pdf:PDFVersion, which this library does not
+// model but Acrobat/Word both write, so addCustom classifies it as Custom
+// with Namespace nsPDF) reuses that declaration instead of emitting
+// xmlns:pdf a second time on the same rdf:Description — a duplicate
+// attribute, not well-formed XML, even though Go's own encoding/xml
+// tolerates reading it back.
+//
+// Each namespace's own properties' Prefix is used when possible; if it is
+// empty, or already bound to a *different* namespace, a fresh prefix ("ns1",
+// "ns2", …, skipping any already in use) is allocated instead. This covers
+// two custom properties that legitimately hint the same prefix
+// (xmlPrefixHint falls back to a generic "ns" for any namespace it does not
+// specifically recognise, and even two distinct recognised namespaces can
+// share a hint, e.g. Factur-X and ZUGFeRD 2.0 both prefer "fx") — and it is
+// also why "rdf" and "x" are pre-bound here to sentinel namespaces: they are
+// the packet skeleton's own prefixes (rdf:RDF/rdf:Description, x:xmpmeta),
+// and rebinding either to a custom namespace would desynchronise the
+// resolved meaning of the packet's own structural elements from what the
+// rest of buildXMP assumes (parseXMP would then fail to even recognise the
+// rdf:Description it is looking for). Properties sharing a namespace always
+// share its bound prefix, so writeSimple never emits two different
+// namespaces under one XML prefix (which would silently merge them on the
+// next parse).
+//
+// The PDF/A and e-invoice namespaces this library writes are bound first, to
+// their canonical prefixes, before any other namespace is considered:
+// pdfaid is reserved for the PDF/A identification whether or not it is
+// present (a validator looks for pdfaid:part literally, so a foreign
+// namespace holding that prefix would hide the identification), and fx / zf
+// go to the Factur-X / ZUGFeRD namespaces when those are present. A
+// caller-supplied Prefix that is not a usable XML prefix (see
+// isUsableXMLPrefix) is ignored, so a bad hint degrades to an ns<N> prefix
+// instead of a packet that is not well-formed.
+func bindCustomPrefixes(custom []XMPProperty) (order []string, prefixOf map[string]string) {
+	prefixOf = map[string]string{
+		nsDC:  "dc",
+		nsXMP: "xmp",
+		nsPDF: "pdf",
+	}
+	boundTo := map[string]string{
+		"dc":     nsDC,
+		"xmp":    nsXMP,
+		"pdf":    nsPDF,
+		"rdf":    nsRDF,
+		"x":      nsXMPMeta,
+		"pdfaid": nsPDFAID,
+	}
+	present := map[string]bool{}
+	for _, p := range custom {
+		if p.Namespace != "" && p.Name != "" {
+			present[p.Namespace] = true
+		}
+	}
+	for _, c := range []struct{ ns, prefix string }{
+		{nsPDFAID, "pdfaid"},
+		{nsFacturX, "fx"},
+		{nsZUGFeRD2, "fx"},
+		{nsZUGFeRD1, "zf"},
+	} {
+		if !present[c.ns] {
+			continue
+		}
+		if owner := boundTo[c.prefix]; owner != "" && owner != c.ns {
+			continue // fx already went to Factur-X; ZUGFeRD 2.0 takes an ns<N> below
+		}
+		prefixOf[c.ns] = c.prefix
+		boundTo[c.prefix] = c.ns
+		order = append(order, c.ns)
+	}
+	next := 1
+	for _, p := range custom {
+		if p.Namespace == "" || p.Name == "" {
+			continue
+		}
+		if _, ok := prefixOf[p.Namespace]; ok {
+			continue // already bound — a core namespace, or seen earlier in this loop
+		}
+		prefix := p.Prefix
+		if !isUsableXMLPrefix(prefix) || (boundTo[prefix] != "" && boundTo[prefix] != p.Namespace) {
+			for {
+				prefix = fmt.Sprintf("ns%d", next)
+				next++
+				if boundTo[prefix] == "" {
+					break
+				}
+			}
+		}
+		prefixOf[p.Namespace] = prefix
+		boundTo[prefix] = p.Namespace
+		order = append(order, p.Namespace)
+	}
+	return order, prefixOf
+}
+
+// isUsableXMLPrefix reports whether s can be declared as a namespace prefix:
+// an XML NCName (Namespaces in XML 1.0 §3) that does not begin with "xml" in
+// any case — xml and xmlns are reserved outright, and every other name
+// starting with those letters is reserved for future standardisation.
+func isUsableXMLPrefix(s string) bool {
+	if s == "" || strings.HasPrefix(strings.ToLower(s), "xml") {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_' || unicode.IsLetter(r):
+		case i == 0:
+			return false
+		case r == '-' || r == '.' || r == 0xB7 || unicode.IsDigit(r) ||
+			unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Nd, r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // writeSimple emits "<tag>value</tag>" (XML-escaped) when value is non-empty.
@@ -515,7 +640,9 @@ func addCustom(m *XMPMetadata, space, local, value string, seen map[string]bool)
 
 // xmlPrefixHint derives a serialisation prefix for a custom property.
 // encoding/xml does not surface the original prefix, so fall back to a
-// short synthetic one when the namespace is unknown.
+// short synthetic one for a namespace this library specifically writes
+// elsewhere (so a round trip through XMP()/SetXMP keeps its conventional
+// prefix), else a generic one that bindCustomPrefixes will make unique.
 func xmlPrefixHint(space string) string {
 	switch space {
 	case nsDC:
@@ -524,8 +651,44 @@ func xmlPrefixHint(space string) string {
 		return "xmp"
 	case nsPDF:
 		return "pdf"
+	case nsFacturX, nsZUGFeRD2:
+		return "fx"
+	case nsZUGFeRD1:
+		return "zf"
+	case nsPDFAID:
+		return "pdfaid"
+	case nsXMPMM:
+		return "xmpMM"
+	case "http://ns.adobe.com/photoshop/1.0/":
+		return "photoshop"
+	case "http://ns.adobe.com/xap/1.0/rights/":
+		return "xmpRights"
+	case "http://ns.adobe.com/xap/1.0/t/pg/":
+		return "xmpTPg"
+	case "http://ns.adobe.com/tiff/1.0/":
+		return "tiff"
+	case "http://ns.adobe.com/exif/1.0/":
+		return "exif"
+	case "http://ns.adobe.com/pdfx/1.3/":
+		return "pdfx"
 	}
 	return "ns"
+}
+
+// xmpWellFormed reports whether a raw XMP packet parses as XML. PDF/A
+// requires a parsable packet, and a producer that assembled one by string
+// surgery can leave it broken — ValidatePDFA reports that as XMP_MALFORMED
+// rather than silently reading past it with the regexes above.
+func xmpWellFormed(raw []byte) bool {
+	// A packet is padded after its trailer, conventionally with spaces but
+	// sometimes with NULs, which are not XML characters.
+	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimRight(raw, "\x00 \t\r\n")))
+	for {
+		_, err := dec.Token()
+		if err != nil {
+			return errors.Is(err, io.EOF)
+		}
+	}
 }
 
 // appendUnique appends v to list if not already present.

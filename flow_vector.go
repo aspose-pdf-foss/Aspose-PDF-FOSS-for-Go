@@ -164,7 +164,7 @@ func vectorGraphicBlocks(p *Page, exclude, textRects, tableRects []Rectangle) ([
 	// One full render serves every cluster on the page: text INSIDE a
 	// cluster belongs to the picture (chart labels), and the caller removes
 	// the corresponding paragraphs from the flow.
-	frame, err := p.renderImage(RenderOptions{DPI: vecRenderDPI}, false, false)
+	frame, err := p.renderImage(RenderOptions{DPI: vecRenderDPI}, false, false, false)
 	if err != nil {
 		return nil, nil, nil
 	}

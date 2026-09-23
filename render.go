@@ -87,6 +87,13 @@ type renderer struct {
 	// mode replaces them with real HTML controls (html_export_forms.go).
 	hideFormWidgets bool
 
+	// skipAnnotations skips the whole annotation pass. Used by
+	// FlattenTransparency (flatten_transparency.go): the replacement raster
+	// covers page content only, so annotations keep rendering live from
+	// /Annots exactly as before — baking them into the raster too would
+	// double them.
+	skipAnnotations bool
+
 	// knockout is set on the sub-renderer of a knockout transparency group
 	// (/Group /K true): vector paints replace the accumulated backdrop within
 	// their coverage instead of compositing over it (render_group.go).
@@ -152,7 +159,9 @@ func (rd *renderer) run() {
 	// replaces the suppressed glyphs in the HTML text layer) does not cover
 	// annotation appearance streams, so their text must stay in the raster.
 	rd.suppressText = false
-	rd.renderAnnotations()
+	if !rd.skipAnnotations {
+		rd.renderAnnotations()
+	}
 }
 
 // dmat returns the current user-space → device matrix.

@@ -5,6 +5,8 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // nsPDFAID is the PDF/A identification XMP namespace (ISO 19005, AIIM).
@@ -47,8 +49,11 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.RemoveEncryption()
 	d.stripPDFAActions()
-	if format == PDFA1B {
+	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
+	}
+	if format.part() == 3 {
+		d.associatePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
 	d.generatePDFAAppearances()
@@ -223,11 +228,64 @@ func (d *Document) stripPDFAActions() {
 	}
 }
 
-// removePDFAEmbeddedFiles drops the /Names/EmbeddedFiles name tree (PDF/A-1
-// prohibits file attachments).
+// removePDFAEmbeddedFiles drops the /Names/EmbeddedFiles name tree and the
+// catalog /AF array (PDF/A-1 prohibits file attachments). Both are needed:
+// /AF keeps its file specifications — and through them the embedded file
+// streams — reachable, so dropping only the name tree would leave the
+// attachment in the saved file, merely harder to find.
 func (d *Document) removePDFAEmbeddedFiles() {
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		delete(names, "/EmbeddedFiles")
+	}
+	delete(d.catalog, "/AF")
+
+	// Detaching the entries leaves the file specifications and their embedded
+	// file streams in the object set, so the writer would still put the
+	// attachment's bytes in the saved file. Drop the ones nothing references
+	// any more — a filespec still reached from a page (a file-attachment
+	// annotation) keeps its stream.
+	reachable := collectReachableIDs(d.objects, d.pages)
+	for key, v := range d.catalog {
+		if catalogKeyRebuiltByWriter(d, key) {
+			continue
+		}
+		markReachable(d.objects, v, reachable)
+	}
+	for num, obj := range d.objects {
+		if reachable[num] {
+			continue
+		}
+		var dict pdfDict
+		switch v := obj.Value.(type) {
+		case pdfDict:
+			dict = v
+		case *pdfStream:
+			dict = v.Dict
+		}
+		switch dictGetName(dict, "/Type") {
+		case "/Filespec", "/EmbeddedFile":
+			delete(d.objects, num)
+		}
+	}
+}
+
+// associatePDFAEmbeddedFiles gives every attachment the association PDF/A-3
+// requires: an existing /AFRelationship is kept, a missing one becomes
+// Unspecified, and each file is listed in the catalog /AF with a /ModDate in
+// its parameters.
+func (d *Document) associatePDFAEmbeddedFiles() {
+	for _, f := range d.EmbeddedFiles().All() {
+		f.SetAFRelationship(f.AFRelationship())
+		if st := f.stream(); st != nil {
+			params, _ := st.Dict["/Params"].(pdfDict)
+			if params == nil {
+				params = pdfDict{}
+				st.Dict["/Params"] = params
+			}
+			if _, ok := params["/ModDate"]; !ok {
+				params["/ModDate"] = pdfDateString(time.Now())
+			}
+		}
 	}
 }
 
@@ -342,6 +400,10 @@ func (d *Document) addSRGBOutputIntent() {
 // setPDFAMetadata writes an XMP packet carrying the pdfaid identifier for the
 // requested level, preserving existing XMP/Info-derived fields.
 func (d *Document) setPDFAMetadata(format PDFAFormat) error {
+	var extensions []string
+	if raw, err := d.XMPRaw(); err == nil && len(raw) > 0 {
+		extensions, _ = xmpExtensionBlocks(string(raw))
+	}
 	meta, _ := d.XMP()
 	info, _ := d.Info()
 	if meta.Title == "" {
@@ -356,10 +418,12 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 	if meta.CreatorTool == "" {
 		meta.CreatorTool = info.Creator
 	}
-	// Replace any existing pdfaid properties.
+	// Replace the pdfaid properties, and drop anything else in the PDF/A
+	// namespaces: extension schemas travel as whole blocks (below), never as
+	// loose properties.
 	var custom []XMPProperty
 	for _, p := range meta.Custom {
-		if p.Prefix != "pdfaid" {
+		if p.Prefix != "pdfaid" && !strings.HasPrefix(p.Namespace, nsPDFAPrefix) {
 			custom = append(custom, p)
 		}
 	}
@@ -367,8 +431,18 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())},
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
 	)
-	meta.Custom = custom
-	return d.SetXMP(meta)
+	meta.Custom = preferExtensionSchemaPrefixes(custom, extensions)
+	if err := d.SetXMP(meta); err != nil {
+		return err
+	}
+	if len(extensions) == 0 {
+		return nil
+	}
+	raw, err := d.XMPRaw()
+	if err != nil {
+		return err
+	}
+	return d.SetXMPRaw([]byte(insertXMPDescriptions(string(raw), extensions)))
 }
 
 // srgbICCProfile builds a minimal but valid ICC v2.1 RGB display profile for the

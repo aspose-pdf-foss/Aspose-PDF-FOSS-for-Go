@@ -302,6 +302,9 @@ func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, enc
 		if encState != nil && d.encryptObjNum > 0 {
 			dict["/Encrypt"] = pdfDirectRef{Num: d.encryptObjNum}
 		}
+		if d.infoNum > 0 {
+			dict["/Info"] = pdfDirectRef{Num: d.infoNum}
+		}
 		if err := writeObject(&buf, xrefNum, &pdfStream{Dict: dict, Data: data, Decoded: true}, identity, nil); err != nil {
 			return nil, err
 		}
@@ -316,6 +319,11 @@ func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, enc
 	buf.WriteString("trailer\n<<")
 	fmt.Fprintf(&buf, " /Size %d", size)
 	fmt.Fprintf(&buf, " /Root %d 0 R", d.catalogNum)
+	// The newest trailer is the one readers consult, so the document
+	// information dictionary has to be named again or it silently vanishes.
+	if d.infoNum > 0 {
+		fmt.Fprintf(&buf, " /Info %d 0 R", d.infoNum)
+	}
 	fmt.Fprintf(&buf, " /Prev %d", prevXref)
 	// Repeat /Encrypt so the newest trailer still marks the file encrypted; the
 	// original /Encrypt object is untouched in the preserved source bytes.
