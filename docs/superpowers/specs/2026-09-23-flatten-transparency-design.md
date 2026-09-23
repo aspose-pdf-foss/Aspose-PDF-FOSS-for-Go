@@ -90,14 +90,19 @@ For each page that needs flattening:
    drops the alpha channel automatically — `createImageXObject` then
    creates no `/SMask`, so no transparency is reintroduced by the fix
    itself.
-3. Replace the page's `/Resources` with a fresh empty dict, then call
-   `p.addSVGImageXObject(pngBytes, ImageFormatPNG)` (image_add.go — despite
-   the name, a general "register this image data as an XObject and return
-   its resource name" helper, no content ops emitted) to register the
-   image into that fresh dict.
-4. Build one content stream: `q W 0 0 H cm /ImN Do Q` where `W,H` are the
-   MediaBox width/height and the `cm` also translates for a nonzero
-   MediaBox origin (`LLX LLY`), then `replacePageContents(p, data)`
+3. Build the image XObject (`createImageXObject`, image_add.go — the same
+   helper `AddImage` uses) and register it into `doc.objects` directly,
+   *without* touching the page dict yet. Only once that has fully
+   succeeded: replace the page's `/Resources` with a fresh dict holding
+   just this one image, and delete any page-level `/Group` (its content
+   has been rasterized away — nothing left to group; missed in an earlier
+   version, caught by code review — see `TestFlattenTransparencyClearsPageGroup`).
+   This ordering means a failure anywhere in step 2-3 leaves the page
+   completely untouched, rather than with `/Resources` already wiped but
+   `/Contents` still referencing names that no longer exist.
+4. Build one content stream: `q W 0 0 H cm /Im0 Do Q` where `W,H` are the
+   render-box width/height and the `cm` also translates for a nonzero
+   box origin (`LLX LLY`), then `replacePageContents(p, data)`
    (redact_apply.go:135 — already does "allocate one new stream object,
    point `/Contents` at it", reused verbatim) to swap it in.
 5. Leave `/Annots`, `/MediaBox`, `/CropBox`, etc. untouched.
@@ -130,6 +135,20 @@ unrelated pre-existing orphans.
   is still present in `Page.Annotations()` afterward.
 - Return count matches the number of pages actually rasterized.
 - Round-trips through Save+Open.
+- A page-level `/Group` (not producible through the public drawing API —
+  `ShapeStyle.Color.A < 1` only ever produces a resource-level ExtGState
+  `/ca` — so this pokes the page dict directly in an internal test): must
+  be detected, rasterized, *and cleared*, and a second `FlattenTransparency`
+  call on the same document must then flatten 0 pages (idempotency). Added
+  after code review caught that an earlier version detected and rasterized
+  such a page but left `/Group` in place, so `ValidatePDFA` kept flagging
+  `TRANSPARENCY` and every repeated call re-flattened the page forever.
+- A rotated page's replacement raster renders the same as the same page
+  rotated but never flattened (small-tolerance byte diff, not exact
+  equality — see the code comment on `renderContentForFlatten` for why
+  exact equality isn't the right bar). Originally verified only by an ad
+  hoc visual check outside the test suite; added as an automated
+  regression test after code review flagged the gap.
 
 ## Follow-ups (not required for this bead)
 

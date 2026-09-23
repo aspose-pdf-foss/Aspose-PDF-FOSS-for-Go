@@ -4,6 +4,7 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"image"
 	"testing"
 
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
@@ -206,6 +207,24 @@ func TestFlattenTransparencyPagesOption(t *testing.T) {
 	_ = p1
 }
 
+func TestFlattenTransparencyPagesOptionIncludes(t *testing.T) {
+	doc := buildTransparentPageDoc(t)
+	// Restrict to page 1 (the one with transparency) explicitly.
+	n, err := doc.FlattenTransparency(pdf.FlattenTransparencyOptions{Pages: []int{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("got %d, want 1 (page 1 has transparency)", n)
+	}
+	r := doc.ValidatePDFA(pdf.PDFA1B)
+	for _, iss := range r.Issues {
+		if iss.Rule == "TRANSPARENCY" {
+			t.Errorf("TRANSPARENCY issue still present: %s", iss.Message)
+		}
+	}
+}
+
 func TestFlattenTransparencyOutOfRangePage(t *testing.T) {
 	doc := buildTransparentPageDoc(t)
 	if _, err := doc.FlattenTransparency(pdf.FlattenTransparencyOptions{Pages: []int{99}}); err == nil {
@@ -236,5 +255,92 @@ func TestFlattenTransparencyRoundTrip(t *testing.T) {
 	}
 	if !hasNonWhitePixel(t, p1) {
 		t.Error("flattened page lost its content across a Save+Open round trip")
+	}
+}
+
+// TestFlattenTransparencyPreservesRotation guards renderContentForFlatten's
+// deliberate choice to rasterize in the page's own unrotated coordinate
+// space rather than the rotated space RenderImage normally produces (see
+// flatten_transparency.go): a rotated page's replacement image must render
+// the same way as the same page rotated but never flattened, not
+// double-rotated or un-rotated. Previously verified only by an ad hoc
+// visual check outside the test suite; this pins it down as an automated
+// regression test.
+//
+// The comparison is a small-tolerance byte diff, not exact equality:
+// deviceMatrix rounds the embed-time pixel dimensions (roundPx) and the
+// image is then rescaled to the box's exact point dimensions on redisplay,
+// so a few tenths of a percent of bytes legitimately differ at content
+// edges from ordinary sub-pixel resampling — the same thing any
+// rasterize-then-redisplay pipeline does, not a defect. A real
+// double-rotation/flip/translation bug differs everywhere (empirically
+// >50% of bytes for this fixture), nowhere close to the threshold below.
+func TestFlattenTransparencyPreservesRotation(t *testing.T) {
+	const dpi = 150
+	build := func(t *testing.T) *pdf.Document {
+		t.Helper()
+		doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+		p, err := doc.Page(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fill := pdf.Color{R: 0, G: 0.4, B: 1, A: 0.5}
+		if err := p.DrawCircle(pdf.Point{X: 200, Y: 700}, 80, pdf.ShapeStyle{FillColor: &fill}); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.AddText("ROTATION TEST", pdf.TextStyle{Size: 24},
+			pdf.Rectangle{LLX: 50, LLY: 400, URX: 500, URY: 440}); err != nil {
+			t.Fatal(err)
+		}
+		if err := doc.Rotate(pdf.Rotate90, 1); err != nil {
+			t.Fatal(err)
+		}
+		return doc
+	}
+
+	reference := build(t)
+	pRef, err := reference.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantImg, err := pRef.RenderImage(pdf.RenderOptions{DPI: dpi})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flattenedDoc := build(t)
+	if _, err := flattenedDoc.FlattenTransparency(pdf.FlattenTransparencyOptions{DPI: dpi}); err != nil {
+		t.Fatal(err)
+	}
+	pFlat, err := flattenedDoc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotImg, err := pFlat.RenderImage(pdf.RenderOptions{DPI: dpi})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantRGBA, ok1 := wantImg.(*image.RGBA)
+	gotRGBA, ok2 := gotImg.(*image.RGBA)
+	if !ok1 || !ok2 {
+		t.Fatalf("expected *image.RGBA from RenderImage, got %T / %T", wantImg, gotImg)
+	}
+	if wantRGBA.Bounds() != gotRGBA.Bounds() {
+		t.Fatalf("bounds differ: %v vs %v", wantRGBA.Bounds(), gotRGBA.Bounds())
+	}
+
+	diffBytes := 0
+	for i := range wantRGBA.Pix {
+		d := int(wantRGBA.Pix[i]) - int(gotRGBA.Pix[i])
+		if d != 0 {
+			diffBytes++
+		}
+	}
+	fraction := float64(diffBytes) / float64(len(wantRGBA.Pix))
+	const maxDiffFraction = 0.02 // generous; observed baseline is ~0.001
+	if fraction > maxDiffFraction {
+		t.Errorf("flattened rotated page differs from the unflattened original in %.3f%% of bytes (want <%.0f%%) — rotation may have been baked in twice, lost, or otherwise mis-transformed",
+			fraction*100, maxDiffFraction*100)
 	}
 }

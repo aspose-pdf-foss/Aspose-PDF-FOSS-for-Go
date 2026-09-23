@@ -126,9 +126,16 @@ func pageNeedsTransparencyFlatten(objects map[int]*pdfObject, pageDict pdfDict) 
 
 // flattenTransparency rasterizes p's content (not its annotations, which
 // keep rendering live from /Annots) into one opaque image at dpi, replaces
-// /Resources with a fresh dict holding just that image, and replaces
-// /Contents with a single stream that draws it over the page's render box
-// (CropBox intersected with MediaBox — the same region RenderImage covers).
+// /Resources with a fresh dict holding just that image, drops any
+// page-level transparency group (its content has been rasterized away, so
+// there is nothing left to group), and replaces /Contents with a single
+// stream that draws the image over the page's render box (CropBox
+// intersected with MediaBox — the same region RenderImage covers).
+//
+// Everything that can fail (rendering, PNG encoding, building the image
+// XObject) happens before the page dict is touched at all, so a failure
+// partway through never leaves the page with /Resources already wiped but
+// /Contents still referencing names that no longer exist.
 func (p *Page) flattenTransparency(dpi float64) error {
 	img, box, err := p.renderContentForFlatten(dpi)
 	if err != nil {
@@ -140,21 +147,36 @@ func (p *Page) flattenTransparency(dpi float64) error {
 		return fmt.Errorf("asposepdf: FlattenTransparency: encode raster: %w", err)
 	}
 
+	// A rasterized page is always fully opaque (image.RGBA.Opaque() is true
+	// by construction), so Go's PNG encoder drops the alpha channel and
+	// createImageXObject never returns a soft mask here in practice — but
+	// register one if it somehow did, rather than silently dropping it.
+	imgStream, smaskStream, err := createImageXObject(buf.Bytes(), ImageFormatPNG)
+	if err != nil {
+		return fmt.Errorf("asposepdf: FlattenTransparency: embed raster: %w", err)
+	}
+	if smaskStream != nil {
+		smaskID := p.doc.nextID
+		p.doc.nextID++
+		p.doc.objects[smaskID] = &pdfObject{Num: smaskID, Value: smaskStream}
+		imgStream.Dict["/SMask"] = pdfRef{Num: smaskID}
+	}
+	imgID := p.doc.nextID
+	p.doc.nextID++
+	p.doc.objects[imgID] = &pdfObject{Num: imgID, Value: imgStream}
+
 	pageDict := p.pageDict()
 	if pageDict == nil {
 		return fmt.Errorf("asposepdf: FlattenTransparency: page has no dict")
 	}
-	pageDict["/Resources"] = pdfDict{}
-
-	resName, _, _, err := p.addSVGImageXObject(buf.Bytes(), ImageFormatPNG)
-	if err != nil {
-		return fmt.Errorf("asposepdf: FlattenTransparency: embed raster: %w", err)
-	}
 
 	w := box.URX - box.LLX
 	h := box.URY - box.LLY
-	ops := fmt.Sprintf("q\n%s 0 0 %s %s %s cm\n%s Do\nQ\n",
-		formatFloat(w), formatFloat(h), formatFloat(box.LLX), formatFloat(box.LLY), resName)
+	ops := fmt.Sprintf("q\n%s 0 0 %s %s %s cm\n/Im0 Do\nQ\n",
+		formatFloat(w), formatFloat(h), formatFloat(box.LLX), formatFloat(box.LLY))
+
+	pageDict["/Resources"] = pdfDict{"/XObject": pdfDict{"/Im0": pdfRef{Num: imgID}}}
+	delete(pageDict, "/Group")
 	return replacePageContents(p, []byte(ops))
 }
 
