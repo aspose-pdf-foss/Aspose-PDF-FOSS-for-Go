@@ -680,7 +680,9 @@ func xmlPrefixHint(space string) string {
 // surgery can leave it broken — ValidatePDFA reports that as XMP_MALFORMED
 // rather than silently reading past it with the regexes above.
 func xmpWellFormed(raw []byte) bool {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	// A packet is padded after its trailer, conventionally with spaces but
+	// sometimes with NULs, which are not XML characters.
+	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimRight(raw, "\x00 \t\r\n")))
 	for {
 		_, err := dec.Token()
 		if err != nil {

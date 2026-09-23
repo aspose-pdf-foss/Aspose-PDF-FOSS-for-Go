@@ -57,6 +57,7 @@ func xmpExtensionBlocks(packet string) (blocks []string, rest string) {
 			i = open + 1
 			continue
 		}
+		out.WriteString(packet[i:open]) // the packet skeleton around the element
 		end, ok := descriptionBlockEnd(packet, open)
 		if !ok {
 			// Unterminated element: not well-formed XML either way: leave
@@ -75,10 +76,8 @@ func xmpExtensionBlocks(packet string) (blocks []string, rest string) {
 			block, remainder := splitExtensionDescription(packet[open:end])
 			blocks = append(blocks, strings.TrimSpace(block))
 			if remainder != "" {
-				// The element also held ordinary properties: they stay in
-				// rest so the caller's rebuilt packet carries them exactly
-				// once (the block travels separately and must not repeat
-				// them).
+				// The element also held ordinary properties: the block
+				// carries the schemas alone, so those stay here in rest.
 				out.WriteString(remainder)
 				out.WriteString(packet[end:wsEnd])
 			}
@@ -149,22 +148,41 @@ func descriptionHasProperties(openTag string) bool {
 func buildExtensionDescription(openTag, schemas string) string {
 	var b strings.Builder
 	b.WriteString(`<rdf:Description rdf:about=""`)
-	declared := false
+	declared := map[string]bool{}
 	for _, a := range xmlTagAttributes(openTag) {
 		prefix, ok := strings.CutPrefix(a.name, "xmlns:")
 		if !ok || !strings.Contains(schemas, prefix+":") {
 			continue
 		}
-		if prefix == "rdf" {
-			declared = true
-		}
-		b.WriteString(" " + a.name + `="` + a.value + `"`)
+		declared[prefix] = true
+		b.WriteString(" " + a.name + `="` + escapeXMLAttr(a.value) + `"`)
 	}
-	if !declared {
-		b.WriteString(` xmlns:rdf="` + nsRDF + `"`)
+	// A packet may declare these on rdf:RDF or x:xmpmeta rather than on the
+	// element itself, and the block has to stand on its own: it is parsed
+	// alone (extensionSchemaPrefixes) and reinserted elsewhere in the packet.
+	for _, known := range []struct{ prefix, uri string }{
+		{"rdf", nsRDF},
+		{"pdfaExtension", nsPDFAPrefix + "extension/"},
+		{"pdfaSchema", nsPDFAPrefix + "schema#"},
+		{"pdfaProperty", nsPDFAPrefix + "property#"},
+		{"pdfaType", nsPDFAPrefix + "type#"},
+		{"pdfaField", nsPDFAPrefix + "field#"},
+	} {
+		if !declared[known.prefix] &&
+			(known.prefix == "rdf" || strings.Contains(schemas, known.prefix+":")) {
+			b.WriteString(` xmlns:` + known.prefix + `="` + known.uri + `"`)
+		}
 	}
 	b.WriteString(">\n" + strings.TrimSpace(schemas) + "\n</rdf:Description>")
 	return b.String()
+}
+
+// escapeXMLAttr escapes a quote that could not appear literally in a
+// double-quoted attribute value — the value may have come from a
+// single-quoted one. Entities are left as they are: the value is copied from
+// valid XML, so an ampersand in it already starts one.
+func escapeXMLAttr(v string) string {
+	return strings.ReplaceAll(v, `"`, "&quot;")
 }
 
 type xmlAttr struct{ name, value string }
@@ -271,7 +289,7 @@ func xmlElementEnd(packet string, open int, name string) (end int, ok bool) {
 // in the same rdf:Bag as the invoice one, and that entry has to survive.
 func dropInvoiceSchemaEntries(block string) (string, bool) {
 	var out strings.Builder
-	kept := 0
+	seen, kept := 0, 0
 	i := 0
 	for i < len(block) {
 		open := strings.Index(block[i:], "<rdf:li")
@@ -288,27 +306,69 @@ func dropInvoiceSchemaEntries(block string) (string, bool) {
 		end, ok := xmlElementEnd(block, open, "rdf:li")
 		if !ok {
 			out.WriteString(block[i:]) // not well-formed: leave it alone
+			seen = 0                   // nothing was really recognised: keep the block
 			break
 		}
 		out.WriteString(block[i:open])
+		seen++
 		if !isInvoiceSchemaEntry(block[open:end]) {
 			out.WriteString(block[open:end])
 			kept++
 		}
 		i = end
 	}
-	return out.String(), kept > 0
+	// A block whose entries this scanner does not recognise at all (an
+	// rdf:_1 container, an unterminated element) is kept whole rather than
+	// dropped: leaving a foreign schema in place is harmless, while losing
+	// it would leave that producer's properties undeclared.
+	return out.String(), kept > 0 || seen == 0
 }
 
 // isInvoiceSchemaEntry reports whether an extension-schema entry describes
-// one of the hybrid-invoice namespaces.
+// one of the hybrid-invoice namespaces. The namespace is matched where it is
+// declared — as the pdfaSchema:namespaceURI element or attribute — not
+// anywhere in the entry, so another producer's schema is not deleted for
+// merely naming Factur-X in a property description.
 func isInvoiceSchemaEntry(entry string) bool {
-	for _, ns := range []string{nsFacturX, nsZUGFeRD2, nsZUGFeRD1} {
-		if strings.Contains(entry, ns) {
+	for _, declared := range schemaEntryNamespaces(entry) {
+		switch declared {
+		case nsFacturX, nsZUGFeRD2, nsZUGFeRD1:
 			return true
 		}
 	}
 	return false
+}
+
+// schemaEntryNamespaces returns the values a schema entry gives for
+// pdfaSchema:namespaceURI, in either the element form this library writes or
+// the attribute form a producer may use.
+func schemaEntryNamespaces(entry string) []string {
+	const key = "pdfaSchema:namespaceURI"
+	var out []string
+	for i := 0; ; {
+		at := strings.Index(entry[i:], key)
+		if at < 0 {
+			return out
+		}
+		at += i + len(key)
+		i = at
+		if at >= len(entry) {
+			return out
+		}
+		switch entry[at] {
+		case '>': // <pdfaSchema:namespaceURI>value</…>
+			if stop := strings.IndexByte(entry[at:], '<'); stop > 0 {
+				out = append(out, strings.TrimSpace(entry[at+1:at+stop]))
+			}
+		case '=': // pdfaSchema:namespaceURI="value"
+			rest := strings.TrimLeft(entry[at+1:], " \t\r\n")
+			if len(rest) > 0 && (rest[0] == '"' || rest[0] == '\'') {
+				if stop := strings.IndexByte(rest[1:], rest[0]); stop >= 0 {
+					out = append(out, strings.TrimSpace(rest[1:1+stop]))
+				}
+			}
+		}
+	}
 }
 
 // parseDescriptionOpenTag parses the <rdf:Description ...> opening tag (or
@@ -347,6 +407,13 @@ func insertXMPDescriptions(packet string, blocks []string) string {
 	return packet[:i] + strings.Join(blocks, "\n") + "\n" + packet[i:]
 }
 
+// xmpBlockWrapperOpen binds the prefixes an extension-schema block may have
+// left to an ancestor, so a block can be parsed on its own. A block that
+// declares them itself shadows these bindings.
+const xmpBlockWrapperOpen = `<xmpwrap xmlns:rdf="` + nsRDF +
+	`" xmlns:pdfaExtension="` + nsPDFAPrefix + `extension/" xmlns:pdfaSchema="` + nsPDFAPrefix +
+	`schema#" xmlns:pdfaProperty="` + nsPDFAPrefix + `property#">`
+
 // extensionSchemaPrefixes scans PDF/A extension-schema blocks (as
 // xmpExtensionBlocks returns them) for each schema's declared
 // pdfaSchema:namespaceURI / pdfaSchema:prefix pair — in either the element
@@ -372,7 +439,13 @@ func insertXMPDescriptions(packet string, blocks []string) string {
 func extensionSchemaPrefixes(blocks []string) map[string]string {
 	out := map[string]string{}
 	for _, block := range blocks {
-		dec := xml.NewDecoder(strings.NewReader(block))
+		// A block carried unchanged from another producer's packet often
+		// leaves xmlns:rdf to an ancestor, and parsed on its own its
+		// rdf:li/rdf:Description ends would then resolve to the literal
+		// prefix rather than the RDF namespace — the per-entry flush below
+		// would never fire and a block naming several schemas would yield
+		// one pair. Supply the binding rather than match on the prefix.
+		dec := xml.NewDecoder(strings.NewReader(xmpBlockWrapperOpen + block + `</xmpwrap>`))
 		var nsURI, prefix string
 		flush := func() {
 			if nsURI != "" && isUsableXMLPrefix(prefix) {

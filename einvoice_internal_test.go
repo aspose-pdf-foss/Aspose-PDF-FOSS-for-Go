@@ -887,3 +887,67 @@ func TestValidatePDFAReportsMalformedXMP(t *testing.T) {
 		t.Error("a malformed packet was not reported")
 	}
 }
+
+// A foreign extension schema is kept when it merely names an invoice
+// namespace in prose, and when its bag uses a container shape this scanner
+// does not recognise — losing it would leave that producer's properties
+// undeclared, which is the violation the block exists to prevent.
+func TestDropInvoiceSchemaEntriesKeepsForeignSchemas(t *testing.T) {
+	mentions := `<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Acme Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">
+<pdfaProperty:name>Code</pdfaProperty:name>
+<pdfaProperty:valueType>Text</pdfaProperty:valueType>
+<pdfaProperty:category>external</pdfaProperty:category>
+<pdfaProperty:description>Mirrors ` + nsFacturX + ` semantics</pdfaProperty:description>
+</rdf:li></rdf:Seq></pdfaSchema:property>
+</rdf:li></rdf:Bag></pdfaExtension:schemas></rdf:Description>`
+	unrecognised := `<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#">
+<pdfaExtension:schemas><rdf:Bag><rdf:_1 rdf:parseType="Resource">
+<pdfaSchema:schema>Acme Extension Schema</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+</rdf:_1></rdf:Bag></pdfaExtension:schemas></rdf:Description>`
+	for name, block := range map[string]string{"mentions-facturx": mentions, "unrecognised-container": unrecognised} {
+		t.Run(name, func(t *testing.T) {
+			out, ok := dropInvoiceSchemaEntries(block)
+			if !ok {
+				t.Fatalf("the block was dropped entirely:\n%s", block)
+			}
+			if !strings.Contains(out, "Acme Extension Schema") {
+				t.Errorf("the acme schema entry was removed:\n%s", out)
+			}
+		})
+	}
+	// An invoice entry is still recognised through its declared namespace.
+	if _, ok := dropInvoiceSchemaEntries(facturXExtensionSchema); ok {
+		t.Error("the Factur-X block was kept")
+	}
+}
+
+// A schema block declaring its prefixes on an ancestor still resolves every
+// schema it names: the block is parsed with those bindings supplied.
+func TestExtensionSchemaPrefixesWithInheritedDeclarations(t *testing.T) {
+	block := `<rdf:Description rdf:about="">
+<pdfaExtension:schemas><rdf:Bag>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Acme</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:acme#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>acme</pdfaSchema:prefix>
+</rdf:li>
+<rdf:li rdf:parseType="Resource">
+<pdfaSchema:schema>Beta</pdfaSchema:schema>
+<pdfaSchema:namespaceURI>urn:example:beta#</pdfaSchema:namespaceURI>
+<pdfaSchema:prefix>beta</pdfaSchema:prefix>
+</rdf:li>
+</rdf:Bag></pdfaExtension:schemas></rdf:Description>`
+	got := extensionSchemaPrefixes([]string{block})
+	for ns, want := range map[string]string{"urn:example:acme#": "acme", "urn:example:beta#": "beta"} {
+		if got[ns] != want {
+			t.Errorf("%s resolved to %q, want %q (all: %v)", ns, got[ns], want, got)
+		}
+	}
+}
