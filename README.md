@@ -682,6 +682,10 @@ stays free of network code.
   with the Adobe convention (reserved bits set high). In `EncryptionOptions`, `Permissions` is a
   pointer so `nil` means "grant all", distinguishing that default from an explicit
   `&Permissions{}`, which denies everything.
+- `OpenWithPassword` reads Standard-handler files encrypted with RC4-40 (R2), RC4 (R3),
+  AES-128 (R4, `/AESV2`) and AES-256 in both revision 6 and Acrobat 9's revision 5, and returns
+  `ErrInvalidPassword` when the password matches neither the user nor the owner password.
+  Writing always uses revision 6 for AES-256.
 - `EncryptionOptions.Recipients` switches to the public-key security handler (ISO 32000-1
   §7.6.4): the document is sealed for a list of X.509 certificates — each with optional
   per-recipient `Permissions`, which a password cannot express — and opened with

@@ -74,6 +74,27 @@ func hashV5R6(password, salt, extra []byte) []byte {
 	return K[0:32]
 }
 
+// hashV5R5 computes the revision-5 password hash of Adobe's Supplement to
+// ISO 32000, BaseVersion 1.7, ExtensionLevel 3, §3.5.2: a single
+// SHA-256(password || salt || extra), with the same inputs as hashV5R6.
+// Read-only — this library writes revision 6, whose iterated hash replaced
+// this one in ISO 32000-2.
+func hashV5R5(password, salt, extra []byte) []byte {
+	h := sha256.New()
+	h.Write(password)
+	h.Write(salt)
+	h.Write(extra)
+	return h.Sum(nil)
+}
+
+// hashV5 dispatches to the password hash of security-handler revision r.
+func hashV5(r int, password, salt, extra []byte) []byte {
+	if r == 5 {
+		return hashV5R5(password, salt, extra)
+	}
+	return hashV5R6(password, salt, extra)
+}
+
 // encryptBytesAES256 encrypts plaintext under the document's File
 // Encryption Key (FEK) using AES-256-CBC with PKCS#7 padding and a
 // random 16-byte IV prepended. V=5 R=6 has no per-object key derivation

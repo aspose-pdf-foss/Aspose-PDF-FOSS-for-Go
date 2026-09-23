@@ -208,6 +208,7 @@ type encryptState struct {
 	ownerKeyEntry []byte              // AES-256 only: 32 bytes (/OE); zero for others
 	permsEntry    []byte              // AES-256 only: 16 bytes (/Perms); zero for others
 	permissions   int32               // /P value propagated to /Encrypt dict
+	revision      int                 // AES-256 only: /R read from the file (5 or 6); zero = 6, what we write
 	// plainMetadata records a parsed /EncryptMetadata false: the document's
 	// /Metadata stream is then stored unencrypted and must not be decrypted.
 	// Zero value = metadata is encrypted, which is what this library writes.
