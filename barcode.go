@@ -121,6 +121,10 @@ func (f *Form) AddBarcodeField(pageNum int, rect Rectangle, name string, symbolo
 	}
 	fld, err := f.addTextFieldConfigured(pageNum, rect, name, func(dict pdfDict) {
 		dict[barcodeMarkerKey] = pdfDict{"/Symb": barcodeSymbologyName(symbology)}
+		// Unlike the sibling extra field types (form_fields_extra.go), which
+		// start with an empty /V and expect a separate SetValue call, this
+		// sets /V directly: a barcode field is useless without an initial
+		// value, and it's already validated above.
 		dict["/V"] = encodeFormString(value)
 	})
 	if err != nil {

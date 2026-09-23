@@ -75,6 +75,15 @@ func TestBarcodeFieldRejectsUnencodableValue(t *testing.T) {
 	if err := bc.SetValue("héllo"); err != nil {
 		t.Errorf("QR should accept non-ASCII text: %v", err)
 	}
+
+	// The reverse direction: switching a QR field holding a non-ASCII value
+	// back to Code128 must be rejected too, leaving the symbology unchanged.
+	if err := bc.SetSymbology(pdf.BarcodeCode128); err == nil {
+		t.Error("expected an error switching to Code128 while holding a non-ASCII value")
+	}
+	if bc.Symbology() != pdf.BarcodeQR {
+		t.Error("symbology changed despite a rejected SetSymbology call")
+	}
 }
 
 func TestBarcodeFieldEmptyValueError(t *testing.T) {

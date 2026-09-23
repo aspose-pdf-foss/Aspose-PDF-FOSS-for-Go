@@ -122,24 +122,30 @@ func decodeQRModules(t *testing.T, mat barcodeModules) []byte {
 	placeAlignmentPatterns(m, version)
 	copy(m.bits, raw) // overwrite synthetic function pixels with the actual scanned image; m.reserved is unaffected
 
-	bit := func(r, c int) bool { return m.bits[m.idx(r, c)] }
+	// Format-info extraction is written independently from writeFormatInfo,
+	// against the (x, y) = (column, row) module-coordinate convention a
+	// reference implementation documents, rather than by mirroring that
+	// function's (row, col) calls — a self-mirroring reader here is exactly
+	// what let an earlier, fully transposed writeFormatInfo pass every
+	// test while writing every format bit to the wrong physical module.
+	xy := func(x, y int) bool { return m.bits[m.idx(y, x)] } // (col, row) -> stored (row, col)
 	fmtBits := 0
 	for i := 0; i <= 5; i++ {
-		if bit(8, i) {
+		if xy(8, i) {
 			fmtBits |= 1 << uint(i)
 		}
 	}
-	if bit(8, 7) {
+	if xy(8, 7) {
 		fmtBits |= 1 << 6
 	}
-	if bit(8, 8) {
+	if xy(8, 8) {
 		fmtBits |= 1 << 7
 	}
-	if bit(7, 8) {
+	if xy(7, 8) {
 		fmtBits |= 1 << 8
 	}
 	for i := 9; i <= 14; i++ {
-		if bit(14-i, 8) {
+		if xy(14-i, 8) {
 			fmtBits |= 1 << uint(i)
 		}
 	}

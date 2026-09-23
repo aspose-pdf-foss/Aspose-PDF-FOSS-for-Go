@@ -438,27 +438,31 @@ func qrVersionBits(version int) int {
 
 // writeFormatInfo writes the (unmasked-position) format-info bits into both
 // copies around the top-left finder pattern, plus the fixed always-dark
-// module (ISO/IEC 18004 Figure 25).
+// module (ISO/IEC 18004 Figure 25). Position mapping cross-checked against
+// a reference implementation's (x, y) = (column, row) module coordinates —
+// an earlier version of this function had every coordinate pair transposed
+// (row/col swapped) except the two positions a transpose can't move, which
+// a self-mirroring test round-trip could not catch (see barcode_qr_test.go).
 func writeFormatInfo(m *qrMatrix, mask int) {
 	bits := qrFormatBits(mask)
 	size := m.size
 	bit := func(i int) bool { return (bits>>uint(i))&1 != 0 }
 
 	for i := 0; i <= 5; i++ {
-		m.set(8, i, bit(i))
+		m.set(i, 8, bit(i))
 	}
-	m.set(8, 7, bit(6))
+	m.set(7, 8, bit(6))
 	m.set(8, 8, bit(7))
-	m.set(7, 8, bit(8))
+	m.set(8, 7, bit(8))
 	for i := 9; i <= 14; i++ {
-		m.set(14-i, 8, bit(i))
+		m.set(8, 14-i, bit(i))
 	}
 
 	for i := 0; i <= 7; i++ {
-		m.set(size-1-i, 8, bit(i))
+		m.set(8, size-1-i, bit(i))
 	}
 	for i := 8; i <= 14; i++ {
-		m.set(8, size-15+i, bit(i))
+		m.set(size-15+i, 8, bit(i))
 	}
 
 	m.set(size-8, 8, true) // always-dark module (overrides bit 7's copy-B slot)

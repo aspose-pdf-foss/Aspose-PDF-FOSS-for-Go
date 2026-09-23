@@ -39,6 +39,11 @@ func generateBarcodeFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 	symbology := barcodeSymbologyFromDict(widget)
 	mat, err := renderBarcodeModules(symbology, value)
 	if err != nil {
+		// Every public setter (AddBarcodeField, SetValue, SetSymbology)
+		// validates value against symbology before writing /V or the
+		// marker, so this is unreachable through the public API. It stays
+		// a silent chrome-only fallback, not a panic, only in case /V or
+		// the private marker was edited directly on the parsed dict.
 		return makeFormXObject(b.Bytes(), Rectangle{URX: width, URY: height})
 	}
 	_, inkColor, _ := parseDA(dictGetString(widget, "/DA"))
