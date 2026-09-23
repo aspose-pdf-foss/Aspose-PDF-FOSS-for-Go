@@ -124,7 +124,7 @@ func buildDecryptStateV5R6(encDict pdfDict, password string) (*encryptState, err
 		fek, ok = tryOwnerPasswordV5R6(pwBytes, U, O, OE)
 	}
 	if !ok {
-		return nil, fmt.Errorf("invalid password")
+		return nil, ErrInvalidPassword
 	}
 
 	// 5. Verify /Perms tamper-detection.
