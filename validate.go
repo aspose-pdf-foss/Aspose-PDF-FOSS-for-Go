@@ -326,7 +326,11 @@ func collectPagesNodes(doc *rawDocument, ref pdfValue, out map[int]bool) {
 	if !ok {
 		return
 	}
-	arr, ok := kids.(pdfArray)
+	resolved, err := doc.resolve(kids) // /Kids may be an indirect reference
+	if err != nil {
+		return
+	}
+	arr, ok := resolved.(pdfArray)
 	if !ok {
 		return
 	}
@@ -524,7 +528,11 @@ func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error 
 		if !ok {
 			return fmt.Errorf("Pages node missing /Kids")
 		}
-		arr, ok := kids.(pdfArray)
+		resolvedKids, err := d.resolve(kids) // /Kids may be an indirect reference
+		if err != nil {
+			return fmt.Errorf("/Kids: %w", err)
+		}
+		arr, ok := resolvedKids.(pdfArray)
 		if !ok {
 			return fmt.Errorf("/Kids is not an array")
 		}
