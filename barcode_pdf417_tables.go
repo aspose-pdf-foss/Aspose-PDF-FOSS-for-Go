@@ -7,8 +7,9 @@ package asposepdf
 // pdf417Codewords is the PDF417 codeword-to-bar-pattern table (ISO/IEC 15438
 // Annex A): [cluster][codeword] -> 17 module bits, most significant bit first,
 // 1 = bar. Extracted mechanically from the table in ZXing's PDF417.java
-// (Apache-2.0; see the Third-Party Notices section of README.md) and structurally verified by
-// the generator and by barcode_pdf417_test.go.
+// (Apache-2.0; see third_party/PDF417-TABLE-NOTICE.txt), matched against zint's
+// independent copy, and structurally verified by the generator and by
+// barcode_pdf417_test.go.
 var pdf417Codewords = [3][929]uint32{
 	{
 		0x1d5c0, 0x1eaf0, 0x1f57c, 0x1d4e0, 0x1ea78, 0x1f53e, 0x1a8c0, 0x1d470,

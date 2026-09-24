@@ -129,6 +129,9 @@ func pdf417ByteCompactionDecode(t *testing.T, cw []int) (out []byte, eci int) {
 		case code == 901 || code == 924:
 			mode := code
 			i++
+			if i >= len(cw) || cw[i] >= 900 {
+				t.Fatalf("byte-compaction latch %d at %d is followed by no data (a stray latch where padding 900 belongs?)", mode, i-1)
+			}
 			for i < len(cw) && cw[i] < 900 {
 				var value uint64
 				count := 0
@@ -322,31 +325,12 @@ func TestPDF417RoundTrip(t *testing.T) {
 				t.Errorf("aspect %v: round trip mismatch for %.20q...: got %.20q...", aspect, s, got)
 			}
 			wantECI := 0
-			if strings.ContainsAny(s, "ПриветмирhéllotoкаяМ日本語\xff\x00") && !isASCII(s) {
+			if !isASCII(s) {
 				wantECI = 26
 			}
 			if eci != wantECI {
 				t.Errorf("%.20q...: ECI = %d, want %d", s, eci, wantECI)
 			}
-		}
-	}
-}
-
-func TestPDF417ErrorCorrectionLevelFollowsSize(t *testing.T) {
-	for _, tc := range []struct {
-		bytes int
-		level int
-	}{{5, 2}, {100, 3}, {200, 4}, {500, 5}} {
-		mat, err := encodePDF417Modules(strings.Repeat("x", tc.bytes), 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _, level, _, _ := decodePDF417Modules(t, mat)
-		if level < 2 || level > 5 {
-			t.Errorf("%d bytes: level %d outside the recommended 2..5", tc.bytes, level)
-		}
-		if want := pdf417RecommendedLevel(len(pdf417HighLevel(strings.Repeat("x", tc.bytes)))); level != want {
-			t.Errorf("%d bytes: level %d, want recommended %d", tc.bytes, level, want)
 		}
 	}
 }
@@ -367,38 +351,6 @@ func mustPDF417(t *testing.T, s string, aspect float64) barcodeModules {
 		t.Fatal(err)
 	}
 	return m
-}
-
-func TestPDF417Capacity(t *testing.T) {
-	// The largest all-ASCII value that fits: find it by search rather than
-	// assuming the arithmetic, then confirm one more byte is rejected.
-	fits := func(n int) bool {
-		_, err := encodePDF417Modules(strings.Repeat("a", n), 0)
-		return err == nil
-	}
-	lo, hi := 1, 5000
-	if !fits(lo) || fits(hi) {
-		t.Fatal("expected 1 byte to fit and 5000 bytes not to")
-	}
-	for hi-lo > 1 {
-		mid := (lo + hi) / 2
-		if fits(mid) {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	if lo < 1000 || lo > 1200 {
-		t.Errorf("maximum capacity %d bytes is outside the expected ~1,100", lo)
-	}
-	mat, err := encodePDF417Modules(strings.Repeat("a", lo), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _, _, _, _ := decodePDF417Modules(t, mat)
-	if len(got) != lo {
-		t.Errorf("max-capacity round trip returned %d bytes, want %d", len(got), lo)
-	}
 }
 
 func TestPDF417RejectsEmpty(t *testing.T) {

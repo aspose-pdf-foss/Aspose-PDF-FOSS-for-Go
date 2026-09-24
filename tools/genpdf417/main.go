@@ -76,8 +76,9 @@ func main() {
 	fmt.Println("// pdf417Codewords is the PDF417 codeword-to-bar-pattern table (ISO/IEC 15438")
 	fmt.Println("// Annex A): [cluster][codeword] -> 17 module bits, most significant bit first,")
 	fmt.Println("// 1 = bar. Extracted mechanically from the table in ZXing's PDF417.java")
-	fmt.Println("// (Apache-2.0, see THIRD_PARTY notice in README) and structurally verified by")
-	fmt.Println("// the generator and by barcode_pdf417_test.go.")
+	fmt.Println("// (Apache-2.0; see third_party/PDF417-TABLE-NOTICE.txt), matched against zint's")
+	fmt.Println("// independent copy, and structurally verified by the generator and by")
+	fmt.Println("// barcode_pdf417_test.go.")
 	fmt.Println("var pdf417Codewords = [3][929]uint32{")
 	for c := 0; c < 3; c++ {
 		fmt.Println("\t{")

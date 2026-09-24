@@ -139,7 +139,7 @@ func pdf417Rows(m, k, c int) int {
 // width:height ratio — 17c+69+2·quiet modules over 3·rows+2·quiet — is
 // closest to aspect (0 → 3:1).
 func pdf417Dimensions(m, k int, aspect float64) (cols, rows int, err error) {
-	if aspect <= 0 {
+	if !(aspect > 0) || math.IsInf(aspect, 0) { // also catches NaN
 		aspect = pdf417DefaultAspect
 	}
 	best := math.Inf(1)
@@ -175,18 +175,24 @@ func encodePDF417Modules(value string, aspect float64) (barcodeModules, error) {
 	high := pdf417HighLevel(value)
 	m := len(high)
 
-	level := pdf417RecommendedLevel(m)
-	for level >= 0 && m+1+pdf417ECCount(level) > pdf417MaxCodewords {
-		level--
+	// Start from ISO's recommended security level and step down only as far
+	// as needed for the symbol to fit. "Fits" means a real layout exists, not
+	// just m+1+k <= 929: when the total is exactly 929 (prime) no cols x rows
+	// product with cols <= 30 reaches it, yet one level lower would fit.
+	var cols, rows, k, level int
+	found := false
+	for level = pdf417RecommendedLevel(m); level >= 0; level-- {
+		k = pdf417ECCount(level)
+		if m+1+k > pdf417MaxCodewords {
+			continue
+		}
+		if c, r, err := pdf417Dimensions(m, k, aspect); err == nil {
+			cols, rows, found = c, r, true
+			break
+		}
 	}
-	if level < 0 {
+	if !found {
 		return barcodeModules{}, fmt.Errorf("asposepdf: PDF417 barcode value too large (%d bytes)", len(value))
-	}
-	k := pdf417ECCount(level)
-
-	cols, rows, err := pdf417Dimensions(m, k, aspect)
-	if err != nil {
-		return barcodeModules{}, err
 	}
 
 	pad := 0
