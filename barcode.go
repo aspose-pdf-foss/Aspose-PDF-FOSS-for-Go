@@ -15,11 +15,8 @@ import "fmt"
 // fieldFromNode reclassify the type on reopen — the same trick
 // NumberField/DateField play with their format JavaScript action.
 //
-// v1 supports two symbologies (BarcodeCode128, BarcodeQR); PDF417 is
-// tracked separately (see CLAUDE.md/beads) because a correct encoder needs
-// a large (2787-entry) codeword-to-bar-pattern lookup table this library
-// cannot safely hand-transcribe without a reference decoder to check it
-// against.
+// Three symbologies are supported: BarcodeCode128, BarcodeQR and
+// BarcodePDF417 (barcode_pdf417.go).
 
 // BarcodeSymbology identifies which barcode encoding a BarcodeField draws.
 type BarcodeSymbology int
@@ -33,6 +30,13 @@ const (
 	// (ISO/IEC 18004), error-correction level M, version chosen
 	// automatically (1-40).
 	BarcodeQR
+	// BarcodePDF417 encodes arbitrary text as its UTF-8 bytes in PDF417
+	// byte compaction (ISO/IEC 15438), with an ECI 000026 designator when
+	// the text is not pure ASCII. The error-correction level follows ISO's
+	// recommendation for the data size and the column count is chosen to
+	// approach the widget rectangle's proportions. Up to 929 codewords
+	// (roughly 1,100 bytes) fit in one symbol.
+	BarcodePDF417
 )
 
 func barcodeSymbologyName(s BarcodeSymbology) pdfName {
@@ -41,6 +45,8 @@ func barcodeSymbologyName(s BarcodeSymbology) pdfName {
 		return "/Code128"
 	case BarcodeQR:
 		return "/QR"
+	case BarcodePDF417:
+		return "/PDF417"
 	}
 	return "/Unknown"
 }
@@ -51,6 +57,8 @@ func barcodeSymbologyFromName(n pdfName) BarcodeSymbology {
 		return BarcodeCode128
 	case "/QR":
 		return BarcodeQR
+	case "/PDF417":
+		return BarcodePDF417
 	}
 	return BarcodeSymbologyUnknown
 }
@@ -80,22 +88,29 @@ func barcodeSymbologyFromDict(dict pdfDict) BarcodeSymbology {
 type barcodeModules struct {
 	Cols, Rows int
 	Bits       []bool // len == Cols*Rows
-	// Square marks a 2-D symbology (QR): the appearance generator scales it
-	// uniformly and centres it. A linear symbology (Code128, Rows==1)
-	// instead stretches to the widget's full height.
-	Square bool
+	// Uniform marks a 2-D symbology (QR, PDF417) whose module aspect ratio
+	// must be preserved: the appearance generator scales it uniformly to the
+	// largest size that fits and centres it. A linear symbology (Code128,
+	// Rows==1) instead stretches to the widget's full height.
+	Uniform bool
 }
 
 // renderBarcodeModules encodes value under the given symbology. Returns an
 // error for an unknown/unset symbology or a value that symbology cannot
 // encode (checked before any field mutation by AddBarcodeField/SetValue/
-// SetSymbology, so a rejected call leaves the field unchanged).
-func renderBarcodeModules(s BarcodeSymbology, value string) (barcodeModules, error) {
+// SetSymbology, so a rejected call leaves the field unchanged). aspect is
+// the target width:height of the rendered symbol (0 = no preference); only
+// symbologies whose shape is adjustable (PDF417) use it, and validation
+// callers that only need the error pass 0 — whether a value fits never
+// depends on aspect.
+func renderBarcodeModules(s BarcodeSymbology, value string, aspect float64) (barcodeModules, error) {
 	switch s {
 	case BarcodeCode128:
 		return encodeCode128Modules(value)
 	case BarcodeQR:
 		return encodeQRModules(value)
+	case BarcodePDF417:
+		return encodePDF417Modules(value, aspect)
 	default:
 		return barcodeModules{}, fmt.Errorf("asposepdf: unknown barcode symbology %d", s)
 	}
@@ -112,11 +127,11 @@ func renderBarcodeModules(s BarcodeSymbology, value string) (barcodeModules, err
 type BarcodeField struct{ TextBoxField }
 
 // AddBarcodeField adds a barcode field: value is the text encoded into the
-// symbol (a URL or short text for QR; printable ASCII for Code128), and
+// symbol (a URL or short text for QR/PDF417; printable ASCII for Code128), and
 // symbology selects the encoding. Errors (without creating the field) if
 // value cannot be encoded under symbology.
 func (f *Form) AddBarcodeField(pageNum int, rect Rectangle, name string, symbology BarcodeSymbology, value string) (*BarcodeField, error) {
-	if _, err := renderBarcodeModules(symbology, value); err != nil {
+	if _, err := renderBarcodeModules(symbology, value, 0); err != nil {
 		return nil, err
 	}
 	fld, err := f.addTextFieldConfigured(pageNum, rect, name, func(dict pdfDict) {
@@ -148,7 +163,7 @@ func (bc *BarcodeField) SetSymbology(s BarcodeSymbology) error {
 	if bc.node == nil {
 		return errFieldDetached
 	}
-	if _, err := renderBarcodeModules(s, bc.Value()); err != nil {
+	if _, err := renderBarcodeModules(s, bc.Value(), 0); err != nil {
 		return err
 	}
 	bc.node.dict[barcodeMarkerKey] = pdfDict{"/Symb": barcodeSymbologyName(s)}
@@ -163,7 +178,7 @@ func (bc *BarcodeField) SetValue(value string) error {
 	if bc.node == nil {
 		return errFieldDetached
 	}
-	if _, err := renderBarcodeModules(bc.Symbology(), value); err != nil {
+	if _, err := renderBarcodeModules(bc.Symbology(), value, 0); err != nil {
 		return err
 	}
 	return bc.TextBoxField.SetValue(value)

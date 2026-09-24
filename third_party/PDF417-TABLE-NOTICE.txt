@@ -1,0 +1,16 @@
+PDF417 codeword table (barcode_pdf417_tables.go)
+================================================
+
+The table mapping each PDF417 codeword to its 17-module bar/space pattern
+(3 clusters x 929 codewords) is defined by ISO/IEC 15438:2001 Annex A. The
+copy in barcode_pdf417_tables.go was extracted mechanically (tools/genpdf417)
+from the table in ZXing's PDF417.java, whose header reads:
+
+    Copyright 2009 ZXing authors
+    Licensed under the Apache License, Version 2.0
+
+and was then verified against the independently developed copy in zint
+(libzint, backend/pdf417_tabs.h): all 2,787 entries are identical.
+
+The full text of the Apache License, Version 2.0, is in APACHE-2.0.txt in this
+directory. No other ZXing or zint code is included in this library.

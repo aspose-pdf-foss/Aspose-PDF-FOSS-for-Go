@@ -37,7 +37,7 @@ func generateBarcodeFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 	}
 
 	symbology := barcodeSymbologyFromDict(widget)
-	mat, err := renderBarcodeModules(symbology, value)
+	mat, err := renderBarcodeModules(symbology, value, width/height)
 	if err != nil {
 		// Every public setter (AddBarcodeField, SetValue, SetSymbology)
 		// validates value against symbology before writing /V or the
@@ -54,22 +54,22 @@ func generateBarcodeFieldAppearance(form *Form, widget pdfDict) *pdfStream {
 
 // drawBarcodeMatrix paints mat's dark modules as filled rectangles.
 // Horizontally-adjacent dark modules within a row are merged into a single
-// rectangle to keep the content stream compact. A linear (Square==false)
-// matrix stretches to the widget's full height; a square one (QR) scales
-// uniformly to the largest size that fits and is centred.
+// rectangle to keep the content stream compact. A linear (Uniform==false)
+// matrix stretches to fill the widget; a uniform one (QR, PDF417) scales to
+// the largest size that fits with its module aspect preserved, centred.
 func drawBarcodeMatrix(b *appearanceBuilder, mat barcodeModules, width, height float64, color Color) {
 	if mat.Cols <= 0 || mat.Rows <= 0 {
 		return
 	}
 	var moduleW, moduleH, offX, offY float64
-	if mat.Square {
-		size := math.Min(width, height) / float64(mat.Cols)
+	if mat.Uniform {
+		size := math.Min(width/float64(mat.Cols), height/float64(mat.Rows))
 		moduleW, moduleH = size, size
 		offX = (width - size*float64(mat.Cols)) / 2
 		offY = (height - size*float64(mat.Rows)) / 2
 	} else {
 		moduleW = width / float64(mat.Cols)
-		moduleH = height
+		moduleH = height / float64(mat.Rows)
 	}
 
 	b.PushState()

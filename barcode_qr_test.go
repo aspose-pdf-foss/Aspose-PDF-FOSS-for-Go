@@ -95,7 +95,7 @@ func readQRDataBits(m *qrMatrix) []bool {
 // de-interleaving, and payload framing are written fresh.
 func decodeQRModules(t *testing.T, mat barcodeModules) []byte {
 	t.Helper()
-	if !mat.Square {
+	if !mat.Uniform {
 		t.Fatal("decodeQRModules: matrix is not square (QR)")
 	}
 	const quiet = 4

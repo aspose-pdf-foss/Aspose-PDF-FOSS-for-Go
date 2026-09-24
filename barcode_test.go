@@ -214,3 +214,59 @@ func TestBarcodeFieldRenders(t *testing.T) {
 		t.Error("rendered page has no dark pixels — barcode did not paint")
 	}
 }
+
+func TestBarcodeFieldPDF417(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+	rect := pdf.Rectangle{LLX: 50, LLY: 600, URX: 350, URY: 700}
+	bc, err := form.AddBarcodeField(1, rect, "pdf417", pdf.BarcodePDF417, "Привет, мир — héllo 日本語")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bc.Symbology() != pdf.BarcodePDF417 {
+		t.Errorf("Symbology() = %v, want BarcodePDF417", bc.Symbology())
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := out.Form().Field("pdf417").(*pdf.BarcodeField)
+	if !ok {
+		t.Fatalf("reopened field is %T, want *BarcodeField", out.Form().Field("pdf417"))
+	}
+	if got.Symbology() != pdf.BarcodePDF417 || got.Value() != "Привет, мир — héllo 日本語" {
+		t.Errorf("reopened: symbology=%v value=%q", got.Symbology(), got.Value())
+	}
+	page, err := out.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNonWhitePixel(t, page) {
+		t.Error("PDF417 field did not paint")
+	}
+}
+
+func TestBarcodeFieldPDF417RejectsOversize(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.Form()
+	rect := pdf.Rectangle{LLX: 50, LLY: 600, URX: 350, URY: 700}
+	huge := string(bytes.Repeat([]byte("x"), 5000))
+	if _, err := form.AddBarcodeField(1, rect, "big", pdf.BarcodePDF417, huge); err == nil {
+		t.Error("expected an error for a value too large for one PDF417 symbol")
+	}
+	bc, err := form.AddBarcodeField(1, rect, "ok", pdf.BarcodePDF417, "small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bc.SetValue(huge); err == nil {
+		t.Error("expected SetValue to reject an oversize value")
+	}
+	if bc.Value() != "small" {
+		t.Errorf("value changed despite rejected SetValue: %q", bc.Value())
+	}
+}

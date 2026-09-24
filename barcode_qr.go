@@ -605,5 +605,5 @@ func qrMatrixToModules(m *qrMatrix) barcodeModules {
 			}
 		}
 	}
-	return barcodeModules{Cols: total, Rows: total, Bits: bits, Square: true}
+	return barcodeModules{Cols: total, Rows: total, Bits: bits, Uniform: true}
 }

@@ -132,7 +132,7 @@ flowchart TD
   `AddTextField`/`AddCheckbox`/`AddRadioGroup`/`AddComboBox`/`AddListBox`/`AddPushButton` (plus
   the typed password/file-select/rich-text/number/date variants — behavior flags exposed as `/Ff`
   on the underlying field dictionary) and remove one with `RemoveField`; `AddBarcodeField` draws
-  Code128 or QR symbols in place of text, encoded by this library's own pure-Go encoders (no
+  Code128, QR, or PDF417 symbols in place of text, encoded by this library's own pure-Go encoders (no
   external dependency); `Field.SetStyle`/`Style()` control widget appearance (border, background, font),
   and `(*ButtonField).SetAppearance` gives push buttons distinct normal/rollover/down captions
   and an icon; field values round-trip as typed JSON, FDF, and XFDF for template-fill and
@@ -698,11 +698,11 @@ stays free of network code.
 
 ### Forms (AcroForm)
 
-- `Form.AddBarcodeField(pageNum, rect, name, symbology, value)` draws a Code128 or QR barcode in
+- `Form.AddBarcodeField(pageNum, rect, name, symbology, value)` draws a Code128, QR, or PDF417 barcode in
   place of text (`form.AddBarcodeField(1, rect, "sku", pdf.BarcodeQR, "https://example.com/sku/123")`);
   `(*BarcodeField).Symbology()`/`SetSymbology()` read/change the encoding, and `SetValue` validates
-  the new value encodes under the current symbology before writing it. Both encoders are pure Go,
-  with no external dependency.
+  the new value encodes under the current symbology before writing it. All three encoders are pure
+  Go, with no external dependency; a PDF417 symbol picks its column count to match the rectangle.
 - Field values containing non-ASCII characters are encoded as UTF-16BE with a BOM. `Form.Export/
   ImportJSON` round-trips every field as typed JSON keyed by full name (checkbox → bool, list box
   → array); `Form.Export/ImportFDF` and `Form.Export/ImportXFDF` provide the same round-trip in
@@ -1009,7 +1009,9 @@ The compiled library links against nothing but the Go standard library, and ever
 — is implemented from scratch within the module. It bundles Latin-subset copies of four
 metric-compatible open fonts (Arimo, Tinos, Cousine, and Carlito), used to render the PDF
 Standard-14 fonts and Calibri when no embedded or system font is available, licensed under the
-SIL Open Font License 1.1 — see [fonts/LICENSE.txt](fonts/LICENSE.txt).
+SIL Open Font License 1.1 — see [fonts/LICENSE.txt](fonts/LICENSE.txt). The PDF417 codeword-to-bar
+table (defined by ISO/IEC 15438 Annex A) was extracted from ZXing (Apache License 2.0) and verified
+against zint — see [third_party/PDF417-TABLE-NOTICE.txt](third_party/PDF417-TABLE-NOTICE.txt).
 
 ## License
 
