@@ -73,6 +73,7 @@ const (
 	destLandscape = "section.landscape"
 	destVector    = "section.vector"
 	destFlatten   = "section.flatten"
+	destBarcode   = "section.barcode"
 	destFlow      = "section.flow"
 	destConvert   = "section.convert"
 	destRender    = "section.render"
@@ -143,6 +144,11 @@ func main() {
 	flattenPage, _ := doc.Page(doc.PageCount())
 	addFlattenDemo(doc, flattenPage)
 
+	// Barcode fields — Code128 / QR / PDF417 as live AcroForm fields.
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	barcodePage, _ := doc.Page(doc.PageCount())
+	addBarcodeShowcase(doc, barcodePage)
+
 	// Flow Layout & Floats — "Giants of Physics", a two-column tribute laid out
 	// entirely by the document-generator flow engine (NewFlow): a portrait,
 	// heading, prose, a formula card and a pull-quote per column, split with a
@@ -181,6 +187,7 @@ func main() {
 		{destLandscape, "Annual Sales — 12 Month Trend", "landscape", landscapePage},
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
+		{destBarcode, "Barcode Fields", "form", barcodePage},
 		{destFlow, "Flow Layout — Giants of Physics", "flow", flowPage},
 		{destConvert, "Document Conversion", "convert", convertPage},
 		{destRender, "Rendering & Imposition", "image", renderPage},
@@ -829,6 +836,131 @@ func addFormFields(doc *pdf.Document, page *pdf.Page) {
 	// HTML exporter's InteractiveForms mode turns the button into a working
 	// <button type="submit"> because of it.
 	submit.SetAction(pdf.NewSubmitFormAction("https://httpbin.org/post", nil, 0))
+}
+
+// ---------------------------------------------------------------------
+// Barcode fields — Code128 / QR / PDF417
+// ---------------------------------------------------------------------
+
+// addBarcodeShowcase draws three cards, one per symbology, each holding a REAL
+// AcroForm barcode field (Form.AddBarcodeField) — not an image — beside a short
+// description and the call that produced it. The encoders are this library's
+// own pure-Go code; the appearance streams are ordinary vector rectangles, so
+// the symbols stay razor sharp at any zoom and re-encode on Field.SetValue.
+// Bar colour and background go through Field.SetStyle like any other field.
+func addBarcodeShowcase(doc *pdf.Document, page *pdf.Page) {
+	form := doc.Form()
+	pageNum := page.Number()
+
+	sectionHeader(page,
+		"Barcode Fields",
+		"Code128  •  QR  •  PDF417  •  pure-Go encoders  •  live form fields  •  styled via Field.SetStyle")
+
+	deja, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		log.Fatalf("barcodes: load DejaVu: %v", err)
+	}
+
+	const (
+		left, right = 50.0, 545.0
+		visX0       = 62.0  // visual column
+		visW        = 240.0 // visual column width
+		txtX0       = 318.0 // text column
+		txtX1       = 533.0
+		labelH      = 24.0
+	)
+	navy := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	green := &pdf.Color{R: 0.05, G: 0.36, B: 0.22, A: 1}
+	white := &pdf.Color{R: 1, G: 1, B: 1, A: 1}
+	cardBG := &pdf.Color{R: 0.985, G: 0.985, B: 0.995, A: 1}
+	cardBorder := &pdf.Color{R: 0.83, G: 0.85, B: 0.92, A: 1}
+	codeBG := &pdf.Color{R: 0.93, G: 0.94, B: 0.97, A: 1}
+	body := pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, LineSpacing: 1.3,
+		Color: &pdf.Color{R: 0.25, G: 0.25, B: 0.30, A: 1}}
+
+	card := func(top, h float64, label string) pdf.Rectangle {
+		outer := pdf.Rectangle{LLX: left, LLY: top - h, URX: right, URY: top}
+		mustVector(page.DrawRoundedRectangle(outer, 6, pdf.ShapeStyle{
+			FillColor: cardBG,
+			LineStyle: pdf.LineStyle{Width: 0.5, Color: cardBorder},
+		}))
+		mustText(page.AddText(label, pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 11, Color: navy},
+			pdf.Rectangle{LLX: outer.LLX + 12, LLY: outer.URY - labelH - 2, URX: outer.URX - 12, URY: outer.URY - 4}))
+		return outer
+	}
+	// codeBox paints a grey snippet panel sized to its lines and draws them one
+	// by one — AddText strips leading spaces when it wraps, so indentation is
+	// applied as an explicit x offset (Courier advances 0.6 em per glyph).
+	// bottom is the panel's lower edge; the panel grows upward.
+	codeBox := func(bottom float64, lines ...string) {
+		const size, lead, pad = 7.0, 9.5, 5.0
+		h := float64(len(lines))*lead + 2*pad
+		mustVector(page.DrawRoundedRectangle(
+			pdf.Rectangle{LLX: txtX0, LLY: bottom, URX: txtX1, URY: bottom + h}, 4,
+			pdf.ShapeStyle{FillColor: codeBG}))
+		for i, line := range lines {
+			trimmed := strings.TrimLeft(line, " ")
+			indent := float64(len(line)-len(trimmed)) * size * 0.6
+			y := bottom + h - pad - float64(i+1)*lead + 2.2
+			mustText(page.AddText(trimmed, pdf.TextStyle{
+				Font: pdf.FontCourier, Size: size,
+				Color: &pdf.Color{R: 0.15, G: 0.20, B: 0.45, A: 1},
+			}, pdf.Rectangle{LLX: txtX0 + 8 + indent, LLY: y, URX: txtX1 - 4, URY: y + lead}))
+		}
+	}
+	addField := func(rect pdf.Rectangle, name string, sym pdf.BarcodeSymbology, value string, ink *pdf.Color) {
+		f, err := form.AddBarcodeField(pageNum, rect, name, sym, value)
+		if err != nil {
+			log.Fatalf("barcode %s: %v", name, err)
+		}
+		mustErr(f.SetStyle(pdf.FieldStyle{TextColor: ink, BackgroundColor: white}))
+	}
+
+	// --- QR ----------------------------------------------------------
+	const repoURL = "https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
+	c := card(705, 200, "QR Code   •   ISO/IEC 18004   •   pdf.BarcodeQR")
+	addField(centeredRect(pdf.Rectangle{LLX: visX0, LLY: c.LLY + 10, URX: visX0 + visW, URY: c.URY - labelH - 4}, 150, 150),
+		"BarcodeQR", pdf.BarcodeQR, repoURL, navy)
+	mustText(page.AddText("The field's value — here this repository's URL — encoded as a QR symbol: byte mode, error correction M, version chosen automatically (1–40). Point a phone at it.",
+		body, pdf.Rectangle{LLX: txtX0, LLY: c.URY - labelH - 66, URX: txtX1, URY: c.URY - labelH - 2}))
+	codeBox(c.LLY+14,
+		"f, _ := form.AddBarcodeField(pg, rect, \"repo\",",
+		"    pdf.BarcodeQR, repoURL)",
+		"f.SetStyle(pdf.FieldStyle{",
+		"    TextColor: navy, BackgroundColor: white})")
+
+	// --- Code 128 ----------------------------------------------------
+	const sku = "ASPOSE-PDF-FOSS-2026"
+	c = card(c.LLY-14, 140, "Code 128   •   ISO/IEC 15417   •   pdf.BarcodeCode128")
+	addField(pdf.Rectangle{LLX: visX0, LLY: c.LLY + 34, URX: visX0 + visW, URY: c.LLY + 92}, "BarcodeCode128", pdf.BarcodeCode128, sku, nil)
+	mustText(page.AddText(sku, pdf.TextStyle{Font: pdf.FontCourierBold, Size: 10, HAlign: pdf.HAlignCenter,
+		Color: &pdf.Color{R: 0.2, G: 0.2, B: 0.25, A: 1}},
+		pdf.Rectangle{LLX: visX0, LLY: c.LLY + 14, URX: visX0 + visW, URY: c.LLY + 30}))
+	mustText(page.AddText("Code Set B: every printable ASCII character, check digit computed for you. The line under the bars is ordinary page text.",
+		body, pdf.Rectangle{LLX: txtX0, LLY: c.URY - labelH - 50, URX: txtX1, URY: c.URY - labelH - 2}))
+	codeBox(c.LLY+14,
+		"form.AddBarcodeField(pg, rect, \"sku\",",
+		"    pdf.BarcodeCode128, sku)")
+
+	// --- PDF417 ------------------------------------------------------
+	const invoice = "Инвойс 2026-0924 · Итого 133,00 € · Aspose.PDF for Go"
+	c = card(c.LLY-14, 200, "PDF417   •   ISO/IEC 15438   •   pdf.BarcodePDF417")
+	addField(centeredRect(pdf.Rectangle{LLX: visX0, LLY: c.LLY + 40, URX: visX0 + visW, URY: c.URY - labelH - 4}, visW, 112),
+		"BarcodePDF417", pdf.BarcodePDF417, invoice, green)
+	mustText(page.AddText(invoice, pdf.TextStyle{Font: deja, Size: 7.5, HAlign: pdf.HAlignCenter,
+		Color: &pdf.Color{R: 0.3, G: 0.3, B: 0.35, A: 1}},
+		pdf.Rectangle{LLX: visX0 - 6, LLY: c.LLY + 12, URX: visX0 + visW + 6, URY: c.LLY + 34}))
+	mustText(page.AddText("A stacked symbol for bigger payloads. UTF-8 text travels behind an ECI designator — note the Cyrillic and the €. Security level and column count are chosen to fit the rectangle.",
+		body, pdf.Rectangle{LLX: txtX0, LLY: c.URY - labelH - 76, URX: txtX1, URY: c.URY - labelH - 2}))
+	codeBox(c.LLY+14,
+		"form.AddBarcodeField(pg, rect, \"inv\",",
+		"    pdf.BarcodePDF417, invoice)")
+
+	size, _ := page.Size()
+	mustText(page.AddText("Fields stay live  ·  SetValue re-encodes and re-validates  ·  SetSymbology switches encoding  ·  values export via ExportJSON / FDF / XFDF  ·  Field.Flatten bakes them into static content",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 9, Color: &pdf.Color{R: 0.5, G: 0.5, B: 0.55, A: 1},
+			HAlign: pdf.HAlignCenter, LineSpacing: 1.3},
+		pdf.Rectangle{LLX: 30, LLY: c.LLY - 40, URX: size.Width - 30, URY: c.LLY - 8}))
 }
 
 // ---------------------------------------------------------------------
