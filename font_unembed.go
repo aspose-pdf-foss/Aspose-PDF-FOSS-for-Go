@@ -81,8 +81,10 @@ func unembedWidthsMatch(objects map[int]*pdfObject, dict pdfDict, target string)
 // metric-equivalent → bundled clone — the same path a document that was
 // never embedded in the first place already takes). The FontDescriptor keeps
 // every other entry (/Flags, /FontBBox, /Ascent, …) — only the font-program
-// keys (/FontFile, /FontFile2, /FontFile3, and /Length1-3 which describe
-// only FontFile's own segmentation) are removed. Composite (Type0/CID) and
+// keys are removed: /FontFile, /FontFile2, /FontFile3, and (defensively,
+// though ISO 32000-1 Table 126 places them on the /FontFile stream's own
+// dict, not the FontDescriptor — a non-conformant producer occasionally puts
+// them here instead) /Length1-3. Composite (Type0/CID) and
 // Type3 fonts are out of scope — Standard-14 is Latin-only, so there is no
 // substitute story for a CID-keyed font; Symbol/ZapfDingbats are excluded by
 // unembedTargetName for the same reason. Lossy in the sense Aspose.PDF for

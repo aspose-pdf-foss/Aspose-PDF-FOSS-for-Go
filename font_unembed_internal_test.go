@@ -57,6 +57,46 @@ func attachFontToPage(p *Page, fontID int) {
 	fonts["/F1"] = pdfRef{Num: fontID}
 }
 
+// addSimpleEmbeddedFontRange is like addSimpleEmbeddedFont but with an
+// explicit non-zero /FirstChar — every other fixture in this file uses 0,
+// under which code:=firstChar+i and code:=i-firstChar are mathematically
+// identical, so a fixture at /FirstChar 0 alone cannot prove the offset
+// arithmetic's direction is right, only that some direction was applied.
+func addSimpleEmbeddedFontRange(d *Document, baseFont string, firstChar, lastChar int, widths [256]float64) int {
+	arr := make(pdfArray, lastChar-firstChar+1)
+	for i := range arr {
+		arr[i] = int(widths[firstChar+i])
+	}
+	fontFileID := d.addObject(&pdfStream{Dict: pdfDict{"/Length": 4}, Data: []byte{0, 0, 0, 0}})
+	descID := d.addObject(pdfDict{"/Type": pdfName("/FontDescriptor"), "/FontFile2": pdfRef{Num: fontFileID}})
+	return d.addObject(pdfDict{
+		"/Type": pdfName("/Font"), "/Subtype": pdfName("/TrueType"),
+		"/BaseFont": pdfName(baseFont), "/FirstChar": firstChar, "/LastChar": lastChar,
+		"/Widths": arr, "/Encoding": pdfName("/WinAnsiEncoding"),
+		"/FontDescriptor": pdfRef{Num: descID},
+	})
+}
+
+// addSimpleEmbeddedFontIndirectWidths is like addSimpleEmbeddedFont but
+// stores /Widths as an indirect reference to a separate array object — legal
+// per ISO 32000-1 §7.3.10 (any dict/array value may be indirect) and the
+// same form pdfaFontEmbedded's sibling checks resolve via resolveRefToArray.
+func addSimpleEmbeddedFontIndirectWidths(d *Document, baseFont string, widths [256]float64) int {
+	arr := make(pdfArray, 256)
+	for i, w := range widths {
+		arr[i] = int(w)
+	}
+	widthsID := d.addObject(arr)
+	fontFileID := d.addObject(&pdfStream{Dict: pdfDict{"/Length": 4}, Data: []byte{0, 0, 0, 0}})
+	descID := d.addObject(pdfDict{"/Type": pdfName("/FontDescriptor"), "/FontFile2": pdfRef{Num: fontFileID}})
+	return d.addObject(pdfDict{
+		"/Type": pdfName("/Font"), "/Subtype": pdfName("/TrueType"),
+		"/BaseFont": pdfName(baseFont), "/FirstChar": 0, "/LastChar": 255,
+		"/Widths": pdfRef{Num: widthsID}, "/Encoding": pdfName("/WinAnsiEncoding"),
+		"/FontDescriptor": pdfRef{Num: descID},
+	})
+}
+
 func fontHasFontFile2(d *Document, fontID int) bool {
 	dict := d.objects[fontID].Value.(pdfDict)
 	fd, ok := resolveRefToDict(d.objects, dict["/FontDescriptor"])
@@ -149,6 +189,57 @@ func TestUnembedFontsWidthMismatchKept(t *testing.T) {
 	}
 	if !fontHasFontFile2(d, id) {
 		t.Error("/FontFile2 removed despite a width mismatch with Helvetica's AFM")
+	}
+}
+
+// TestUnembedFontsNonZeroFirstChar: a font whose /Widths only covers a
+// sub-range (/FirstChar 32, the printable-ASCII convention) still matches
+// Helvetica's AFM at the codes it actually carries. At /FirstChar 0 the
+// correct code:=firstChar+i and a sign-flipped code:=i-firstChar produce
+// identical results, so this is the fixture that actually pins the offset's
+// direction, not just its presence.
+func TestUnembedFontsNonZeroFirstChar(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	id := addSimpleEmbeddedFontRange(d, "/ArialMT", 32, 126, helveticaWidths)
+	if n := d.unembedFonts(); n != 1 {
+		t.Fatalf("unembedFonts() = %d, want 1 (a /FirstChar 32 Arial still matches Helvetica's AFM over 32-126)", n)
+	}
+	if fontHasFontFile2(d, id) {
+		t.Error("/FontFile2 survived unembedding a /FirstChar 32 font")
+	}
+}
+
+// TestUnembedFontsIndirectWidthsRejectsMismatch: /Widths as an indirect
+// reference (legal per ISO 32000-1 §7.3.10) must actually be resolved and
+// compared, not silently treated as absent. A font dict's /Widths that
+// resolves to a genuinely mismatched array must still be rejected — if the
+// indirection weren't followed, the comparison would see no array at all and
+// fall into the "no /Widths → presumed match" branch, wrongly unembedding a
+// font whose real widths (once resolved) disagree with Helvetica's AFM.
+func TestUnembedFontsIndirectWidthsRejectsMismatch(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	widths := helveticaWidths
+	widths['A'] += 200
+	id := addSimpleEmbeddedFontIndirectWidths(d, "/ArialMT", widths)
+	if n := d.unembedFonts(); n != 0 {
+		t.Fatalf("unembedFonts() = %d, want 0 (indirect /Widths must be resolved and checked, not skipped)", n)
+	}
+	if !fontHasFontFile2(d, id) {
+		t.Error("/FontFile2 removed despite a width mismatch behind an indirect /Widths reference")
+	}
+}
+
+// TestUnembedFontsIndirectWidthsAccepted: the matching counterpart —
+// confirms an indirect /Widths that genuinely agrees with the AFM table
+// still leads to unembedding (the resolution path isn't just conservative).
+func TestUnembedFontsIndirectWidthsAccepted(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	id := addSimpleEmbeddedFontIndirectWidths(d, "/ArialMT", helveticaWidths)
+	if n := d.unembedFonts(); n != 1 {
+		t.Fatalf("unembedFonts() = %d, want 1 for a matching indirect /Widths", n)
+	}
+	if fontHasFontFile2(d, id) {
+		t.Error("/FontFile2 survived unembedding with a matching indirect /Widths reference")
 	}
 }
 
