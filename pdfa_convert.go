@@ -26,9 +26,13 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 //   - adds an sRGB ICC OutputIntent (so device colours are colour-managed);
 //   - writes an XMP packet carrying the pdfaid identifier (synced from /Info).
 //
+//   - rasterizes any page using transparency for PDF/A-1 (FlattenTransparency,
+//     which PDF/A-1 forbids outright; PDF/A-2 and -3 permit it and are left
+//     alone).
+//
 // Symbol and ZapfDingbats have no Latin substitute and remain a reported
-// violation; composite (Type0/CJK) and Type3 fonts, and PDF/A-1 transparency,
-// are not auto-fixed. The returned report lists any remaining issues; when
+// violation; composite (Type0/CJK) and Type3 fonts are not auto-fixed. The
+// returned report lists any remaining issues; when
 // Conformant is true the document satisfies the checks in ValidatePDFA. Mirrors
 // the intent of Aspose.PDF for .NET's Document.Convert(PdfFormat).
 //
@@ -51,6 +55,12 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.stripPDFAActions()
 	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
+		// PDF/A-1 forbids transparency outright (ISO 19005-1); flatten it away
+		// before the font pass below, so a rasterized page's now-unused fonts
+		// are not embedded for nothing.
+		if _, err := d.FlattenTransparency(); err != nil {
+			return nil, fmt.Errorf("ConvertToPDFA: flatten transparency: %w", err)
+		}
 	}
 	if format.part() == 3 {
 		d.associatePDFAEmbeddedFiles()

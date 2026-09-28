@@ -178,6 +178,79 @@ func TestConvertToPDFAStripsJavaScript(t *testing.T) {
 	}
 }
 
+// TestConvertToPDFA1FlattensTransparency: PDF/A-1 forbids transparency
+// outright, so ConvertToPDFA(PDFA1B) must clear TRANSPARENCY on its own —
+// without a separate FlattenTransparency call — and the fully-conformant
+// report must survive a Save/Open round-trip.
+func TestConvertToPDFA1FlattensTransparency(t *testing.T) {
+	doc := buildTransparentPageDoc(t)
+
+	before := doc.ValidatePDFA(pdf.PDFA1B)
+	if !hasRule(before, "TRANSPARENCY") {
+		t.Fatal("setup: expected TRANSPARENCY before conversion")
+	}
+
+	rep, err := doc.ConvertToPDFA(pdf.PDFA1B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(rep, "TRANSPARENCY") {
+		t.Errorf("TRANSPARENCY still reported after ConvertToPDFA(PDFA1B): %+v", rep.Issues)
+	}
+	if !rep.Conformant {
+		t.Errorf("not conformant after conversion: %+v", rep.Issues)
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt := out.ValidatePDFA(pdf.PDFA1B); !rt.Conformant {
+		t.Errorf("not conformant after round-trip: %+v", rt.Issues)
+	}
+}
+
+// TestConvertToPDFA2KeepsTransparency: PDF/A-2 and -3 permit transparency, so
+// ConvertToPDFA must not rasterize pages for them — the page stays vector and
+// its text stays extractable.
+func TestConvertToPDFA2KeepsTransparency(t *testing.T) {
+	doc := buildTransparentPageDoc(t)
+
+	rep, err := doc.ConvertToPDFA(pdf.PDFA2B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(rep, "TRANSPARENCY") {
+		t.Error("PDF/A-2 permits transparency; TRANSPARENCY should not be reported")
+	}
+
+	p2, err := doc.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt, err := p2.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txt != "plain opaque text" {
+		t.Errorf("page 2 text lost/changed — page appears to have been rasterized despite PDF/A-2 permitting transparency: %q", txt)
+	}
+}
+
+// TestValidatePDFA1AFlagsTransparency: PDF/A-1a is still PDF/A-1 (ISO
+// 19005-1) and forbids transparency exactly like PDF/A-1b — the checker
+// used to gate this rule on == PDFA1B specifically, so it silently skipped
+// PDFA1A.
+func TestValidatePDFA1AFlagsTransparency(t *testing.T) {
+	doc := buildTransparentPageDoc(t)
+	rep := doc.ValidatePDFA(pdf.PDFA1A)
+	if !hasRule(rep, "TRANSPARENCY") {
+		t.Error("expected TRANSPARENCY when validating a transparent page as PDF/A-1a")
+	}
+}
+
 // TestSRGBICCProfileStructure sanity-checks the generated ICC profile header.
 func TestSRGBICCProfileStructure(t *testing.T) {
 	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)

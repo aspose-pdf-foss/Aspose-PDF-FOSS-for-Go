@@ -406,7 +406,7 @@ func pdfaStreamBytes(s *pdfStream) []byte {
 }
 
 func (d *Document) pdfaCheckTransparency(format PDFAFormat, r *PDFAValidationReport) {
-	if format != PDFA1B {
+	if format.part() != 1 {
 		return // PDF/A-2 and -3 allow transparency
 	}
 	for _, obj := range d.objects {
@@ -539,7 +539,7 @@ func (d *Document) pdfaCheckMetadata(r *PDFAValidationReport) {
 }
 
 func (d *Document) pdfaCheckFilters(format PDFAFormat, r *PDFAValidationReport) {
-	if format != PDFA1B {
+	if format.part() != 1 {
 		return // LZWDecode is permitted in PDF/A-2 and -3
 	}
 	for _, obj := range d.objects {
