@@ -145,6 +145,15 @@ func (c *AnnotationCollection) Delete(a Annotation) bool {
 	if base.objID == 0 || base.attachedPage != c.page.pageObj() {
 		return false
 	}
+	// A file-attachment annotation's filespec may be listed in the catalog
+	// /AF (SetAFRelationship, PDF/A-3) — that listing is itself a GC root, so
+	// deleting only the annotation would leave the filespec (and its
+	// EmbeddedFile stream) reachable and orphaned in the saved file forever.
+	if fa, ok := a.(*FileAttachmentAnnotation); ok {
+		if ref, fs := fa.resolveFilespecRef(); fs != nil {
+			c.page.doc.removeAssociatedFile(ref)
+		}
+	}
 	// Splice out of /Annots (preserves indirect-ref form if used).
 	removeAnnotFromPage(c.page.doc.objects, c.page.pageObj(), base.objID)
 	delete(c.page.doc.objects, base.objID)

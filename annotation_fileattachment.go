@@ -228,19 +228,54 @@ func (a *FileAttachmentAnnotation) SetFileDescription(s string) {
 
 // resolveFilespec returns the /Filespec dict referenced by /FS, or nil.
 func (a *FileAttachmentAnnotation) resolveFilespec() pdfDict {
+	_, fs := a.resolveFilespecRef()
+	return fs
+}
+
+// resolveFilespecRef returns both the /FS reference and the dict it points
+// at (zero ref / nil dict if there is no embedded file yet).
+func (a *FileAttachmentAnnotation) resolveFilespecRef() (pdfRef, pdfDict) {
 	ref, ok := a.dict["/FS"].(pdfRef)
 	if !ok {
-		return nil
+		return pdfRef{}, nil
 	}
 	obj, ok := a.doc.objects[ref.Num]
 	if !ok {
-		return nil
+		return pdfRef{}, nil
 	}
 	fs, ok := obj.Value.(pdfDict)
 	if !ok {
-		return nil
+		return pdfRef{}, nil
 	}
-	return fs
+	return ref, fs
+}
+
+// AFRelationship reports how the attached file relates to the document; a
+// file with no /AFRelationship (including an annotation with no attachment
+// yet) reports AFUnspecified. Mirrors EmbeddedFile.AFRelationship.
+func (a *FileAttachmentAnnotation) AFRelationship() AFRelationship {
+	_, fs := a.resolveFilespecRef()
+	if fs == nil {
+		return AFUnspecified
+	}
+	n, _ := fs["/AFRelationship"].(pdfName)
+	return afRelationshipFromName(n)
+}
+
+// SetAFRelationship records how the attached file relates to the document
+// and lists its file specification in the catalog's /AF array — both of
+// which PDF/A-3 requires of every embedded file (ISO 19005-3 §6.8), and a
+// page-pinned FileAttachmentAnnotation's filespec is otherwise invisible to
+// that rule (pdfaCheckAssociatedFiles only walked the document-level
+// EmbeddedFiles name tree before pdf-go-tdx5). A no-op if the annotation has
+// no attached file yet — call it after SetFile/SetFileFromStream.
+func (a *FileAttachmentAnnotation) SetAFRelationship(r AFRelationship) {
+	ref, fs := a.resolveFilespecRef()
+	if fs == nil {
+		return
+	}
+	fs["/AFRelationship"] = r.pdfName()
+	a.doc.addAssociatedFile(ref)
 }
 
 // resolveEmbeddedFile follows /FS/EF/F to the /EmbeddedFile stream, or nil.

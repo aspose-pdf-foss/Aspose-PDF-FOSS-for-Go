@@ -182,6 +182,95 @@ func TestFileAttachmentSetFileRoundTrip(t *testing.T) {
 	}
 }
 
+// TestFileAttachmentAFRelationship covers pdf-go-tdx5: an
+// AFRelationship set before attaching the annotation to a page survives a
+// Save/Open round-trip, and PDF/A-3 validation stops flagging
+// EMBEDDED_FILE_NOT_ASSOCIATED once it's set.
+func TestFileAttachmentAFRelationship(t *testing.T) {
+	path := makeTestTextFile(t, "invoice line items")
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 100, Y: 700})
+	if err := fa.SetFile(path); err != nil {
+		t.Fatalf("SetFile: %v", err)
+	}
+	if got := fa.AFRelationship(); got != pdf.AFUnspecified {
+		t.Errorf("AFRelationship before SetAFRelationship = %v, want AFUnspecified", got)
+	}
+	fa.SetAFRelationship(pdf.AFData)
+	if got := fa.AFRelationship(); got != pdf.AFData {
+		t.Errorf("AFRelationship = %v, want AFData", got)
+	}
+	if err := page.Annotations().Add(fa); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	before := doc.ValidatePDFA(pdf.PDFA3B)
+	if hasRule(before, "EMBEDDED_FILE_NOT_ASSOCIATED") {
+		t.Fatal("EMBEDDED_FILE_NOT_ASSOCIATED wrongly reported after SetAFRelationship")
+	}
+
+	var buf bytes.Buffer
+	doc.WriteTo(&buf)
+	doc2, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fa2 := doc2.Pages()[0].Annotations().At(0).(*pdf.FileAttachmentAnnotation)
+	if got := fa2.AFRelationship(); got != pdf.AFData {
+		t.Errorf("AFRelationship after round-trip = %v, want AFData", got)
+	}
+	if rt := doc2.ValidatePDFA(pdf.PDFA3B); hasRule(rt, "EMBEDDED_FILE_NOT_ASSOCIATED") {
+		t.Errorf("EMBEDDED_FILE_NOT_ASSOCIATED after round-trip: %+v", rt.Issues)
+	}
+}
+
+// TestFileAttachmentAFRelationshipNoFile: setting a relationship before any
+// file is attached is a documented no-op, not a panic.
+func TestFileAttachmentAFRelationshipNoFile(t *testing.T) {
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 100, Y: 700})
+	fa.SetAFRelationship(pdf.AFSource) // no file yet — must not panic
+	if got := fa.AFRelationship(); got != pdf.AFUnspecified {
+		t.Errorf("AFRelationship with no file = %v, want AFUnspecified", got)
+	}
+}
+
+// TestPDFA1FlagsFileAttachmentAnnotation: PDF/A-1 forbids attachments
+// wherever they're reachable from, including a page annotation that never
+// touches the catalog /AF or /Names/EmbeddedFiles (pdf-go-tdx5).
+func TestPDFA1FlagsFileAttachmentAnnotation(t *testing.T) {
+	path := makeTestTextFile(t, "attachment")
+	doc := pdf.NewDocument(595, 842)
+	page, _ := doc.Page(1)
+	fa := pdf.NewFileAttachmentAnnotation(page, pdf.Point{X: 100, Y: 700})
+	if err := fa.SetFile(path); err != nil {
+		t.Fatalf("SetFile: %v", err)
+	}
+	if err := page.Annotations().Add(fa); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	rep := doc.ValidatePDFA(pdf.PDFA1B)
+	if !hasRule(rep, "EMBEDDED_FILES") {
+		t.Error("expected EMBEDDED_FILES for a page-pinned file-attachment annotation under PDF/A-1")
+	}
+
+	// ConvertToPDFA(PDFA1B) must actually strip the attachment, not just
+	// report it — same fix, the repair side.
+	crep, err := doc.ConvertToPDFA(pdf.PDFA1B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(crep, "EMBEDDED_FILES") {
+		t.Errorf("EMBEDDED_FILES still reported after ConvertToPDFA(PDFA1B): %+v", crep.Issues)
+	}
+	if fa.HasFile() {
+		t.Error("annotation still reports HasFile after ConvertToPDFA(PDFA1B) stripped the attachment")
+	}
+}
+
 func TestFileAttachmentSetFileFromStream(t *testing.T) {
 	doc := pdf.NewDocument(595, 842)
 	page, _ := doc.Page(1)

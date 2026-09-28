@@ -582,11 +582,20 @@ func (d *Document) pdfaCheckEmbeddedFiles(format PDFAFormat, r *PDFAValidationRe
 	// alone, without a name-tree entry (an associated file).
 	if len(d.resolveArray(d.catalog["/AF"])) > 0 {
 		r.add("EMBEDDED_FILES", "catalog /AF lists associated files; PDF/A-1 prohibits file attachments (use PDF/A-3 for attachments)")
+		return
+	}
+	// A page-pinned FileAttachmentAnnotation reaches its file through the
+	// page's own /Annots, never through the catalog at all (pdf-go-tdx5).
+	if len(d.pdfaFileAttachmentAnnotations()) > 0 {
+		r.add("EMBEDDED_FILES", "a page has a file-attachment annotation; PDF/A-1 prohibits file attachments (use PDF/A-3 for attachments)")
 	}
 }
 
 // pdfaCheckAssociatedFiles enforces ISO 19005-3 §6.8: every embedded file
-// states its relationship to the document and is listed in the catalog /AF.
+// states its relationship to the document and is listed in the catalog /AF —
+// both the document-level EmbeddedFiles name tree and every page-pinned
+// FileAttachmentAnnotation (pdf-go-tdx5: the latter was invisible to this
+// rule before, since it only walked the name tree).
 func (d *Document) pdfaCheckAssociatedFiles(format PDFAFormat, r *PDFAValidationReport) {
 	if format.part() != 3 {
 		return
@@ -597,4 +606,26 @@ func (d *Document) pdfaCheckAssociatedFiles(format PDFAFormat, r *PDFAValidation
 				"embedded file %q has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", f.Name()))
 		}
 	}
+	for _, fa := range d.pdfaFileAttachmentAnnotations() {
+		ref, fs := fa.resolveFilespecRef()
+		if _, hasRel := fs["/AFRelationship"].(pdfName); !hasRel || !d.isAssociatedFile(ref) {
+			r.add("EMBEDDED_FILE_NOT_ASSOCIATED", fmt.Sprintf(
+				"file-attachment annotation %q has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", fa.FileName()))
+		}
+	}
+}
+
+// pdfaFileAttachmentAnnotations returns every FileAttachmentAnnotation across
+// all pages that has an embedded file (an annotation with no attachment yet
+// has no filespec to associate).
+func (d *Document) pdfaFileAttachmentAnnotations() []*FileAttachmentAnnotation {
+	var out []*FileAttachmentAnnotation
+	for _, p := range d.Pages() {
+		for _, a := range p.Annotations().All() {
+			if fa, ok := a.(*FileAttachmentAnnotation); ok && fa.HasFile() {
+				out = append(out, fa)
+			}
+		}
+	}
+	return out
 }

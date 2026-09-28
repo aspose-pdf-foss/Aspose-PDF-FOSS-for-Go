@@ -201,6 +201,19 @@ func TestConvertToPDFA1FlattensTransparency(t *testing.T) {
 		t.Errorf("not conformant after conversion: %+v", rep.Issues)
 	}
 
+	// Direct, black-box confirmation that page 1 was actually rasterized
+	// (not just that the TRANSPARENCY rule happens to be silent) — the
+	// complement of TestConvertToPDFA2KeepsTransparency's ==0 check.
+	p1, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imgs, err := p1.ImageInfos(); err != nil {
+		t.Fatal(err)
+	} else if len(imgs) != 1 {
+		t.Errorf("page 1 has %d image(s) after ConvertToPDFA(PDFA1B), want 1 (rasterized)", len(imgs))
+	}
+
 	var buf bytes.Buffer
 	doc.WriteTo(&buf)
 	out, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
@@ -213,10 +226,28 @@ func TestConvertToPDFA1FlattensTransparency(t *testing.T) {
 }
 
 // TestConvertToPDFA2KeepsTransparency: PDF/A-2 and -3 permit transparency, so
-// ConvertToPDFA must not rasterize pages for them — the page stays vector and
-// its text stays extractable.
+// ConvertToPDFA must not rasterize pages for them. The interesting page here
+// is page 1 (the one buildTransparentPageDoc actually gives transparency to,
+// via an alpha-filled rectangle) — checking only page 2 (always opaque,
+// never a flatten candidate either way) would pass even if page 1 got
+// rasterized, since pdfaCheckTransparency itself already gates on
+// format.part()==1 and would report no TRANSPARENCY regardless of whether
+// flattening ran. ImageInfos is the direct, black-box signal that
+// rasterization did or didn't happen: a vector-drawn rectangle contributes no
+// image; a flattened page would gain exactly one full-page raster.
 func TestConvertToPDFA2KeepsTransparency(t *testing.T) {
 	doc := buildTransparentPageDoc(t)
+	p1, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := p1.ImageInfos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("setup: page 1 already has %d image(s), want 0 (vector rectangle only)", len(before))
+	}
 
 	rep, err := doc.ConvertToPDFA(pdf.PDFA2B)
 	if err != nil {
@@ -224,6 +255,14 @@ func TestConvertToPDFA2KeepsTransparency(t *testing.T) {
 	}
 	if hasRule(rep, "TRANSPARENCY") {
 		t.Error("PDF/A-2 permits transparency; TRANSPARENCY should not be reported")
+	}
+
+	after, err := p1.ImageInfos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 0 {
+		t.Errorf("page 1 gained %d image(s) — it was rasterized despite PDF/A-2 permitting transparency", len(after))
 	}
 
 	p2, err := doc.Page(2)
@@ -236,6 +275,22 @@ func TestConvertToPDFA2KeepsTransparency(t *testing.T) {
 	}
 	if txt != "plain opaque text" {
 		t.Errorf("page 2 text lost/changed — page appears to have been rasterized despite PDF/A-2 permitting transparency: %q", txt)
+	}
+}
+
+// TestConvertToPDFA1AFlattensTransparency: the flatten step is shared by both
+// PDF/A-1 conformance letters (format.part()==1), so PDFA1A must also clear
+// TRANSPARENCY end-to-end through ConvertToPDFA, not just via ValidatePDFA.
+// The document isn't tagged, so Conformant stays false (NOT_TAGGED etc.) —
+// only TRANSPARENCY specifically is asserted gone.
+func TestConvertToPDFA1AFlattensTransparency(t *testing.T) {
+	doc := buildTransparentPageDoc(t)
+	rep, err := doc.ConvertToPDFA(pdf.PDFA1A)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRule(rep, "TRANSPARENCY") {
+		t.Errorf("TRANSPARENCY still reported after ConvertToPDFA(PDFA1A): %+v", rep.Issues)
 	}
 }
 
