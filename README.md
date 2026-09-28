@@ -218,8 +218,10 @@ flowchart TD
   attachments and the structure tree are kept) and returns the removed count on its own, or fold that
   same cleanup into a larger pass with the unified `Document.Optimize` pass
   (`DefaultOptimizationOptions()` is the safe, lossless preset — remove unused objects, subset
-  fonts, Flate-compress and dedupe streams, pack objects into object streams; opt into lossy image recompression via
-  `OptimizationOptions.Images`) or the image-only `Document.OptimizeImages(OptimizeImageOptions)`
+  fonts, Flate-compress and dedupe streams, pack objects into object streams; opt into lossy image
+  recompression via `OptimizationOptions.Images`, or into dropping a Helvetica/Times/Courier font's
+  own embedded program via `OptimizationOptions.UnembedFonts`) or the image-only
+  `Document.OptimizeImages(OptimizeImageOptions)`
   pass (max DPI downscaling, JPEG quality, and PNG→JPEG conversion); reduce file size further with
   `Document.SaveLinearized`/`WriteToLinearized` (linearized/fast-web-view output per ISO 32000-1
   Annex F, so viewers can render page 1 before the whole file downloads), or `ConvertToGrayscale`.

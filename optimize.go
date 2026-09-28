@@ -19,6 +19,12 @@ type OptimizationOptions struct {
 	RemoveUnusedObjects bool
 	// SubsetFonts rebuilds embedded TrueType fonts to the glyphs used.
 	SubsetFonts bool
+	// UnembedFonts drops the embedded program from a simple font whose name
+	// and metrics match a Helvetica/Times/Courier Standard-14 face, relying
+	// on the renderer's substitution instead. Opt-in: unlike the other
+	// options this can change how the document looks in a viewer whose
+	// installed substitute differs from what was embedded.
+	UnembedFonts bool
 	// CompressStreams Flate-compresses source streams stored uncompressed
 	// (lossless).
 	CompressStreams bool
@@ -38,6 +44,7 @@ type OptimizationOptions struct {
 type OptimizationResult struct {
 	RemovedObjects      int
 	SubsettedFonts      int
+	UnembeddedFonts     int
 	OptimizedImages     int
 	CompressedStreams   int
 	DeduplicatedStreams int
@@ -64,8 +71,9 @@ func DefaultOptimizationOptions() OptimizationOptions {
 // of what changed. Call before Save/WriteTo. Mirrors Aspose.PDF for .NET's
 // Document.OptimizeResources(OptimizationOptions).
 //
-// Order: images → fonts → compress streams → dedupe streams → remove unused
-// objects (so anything a transform orphans is reclaimed last).
+// Order: images → fonts (unembed, then subset what's left embedded) →
+// compress streams → dedupe streams → remove unused objects (so anything a
+// transform orphans is reclaimed last).
 func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error) {
 	var res OptimizationResult
 	if opts.Images != nil {
@@ -74,6 +82,9 @@ func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error
 			return res, fmt.Errorf("optimize: %w", err)
 		}
 		res.OptimizedImages = n
+	}
+	if opts.UnembedFonts {
+		res.UnembeddedFonts = d.unembedFonts()
 	}
 	if opts.SubsetFonts {
 		n, err := d.SubsetFonts()
