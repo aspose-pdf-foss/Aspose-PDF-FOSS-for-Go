@@ -14,9 +14,13 @@
 //	page 7+ — Multi-page Sales Report (overflow, repeating headers, RowSpan/ColSpan)
 //	page N  — Landscape wide chart (uses pdf.PageFormatA4.Landscape())
 //	page N+1 — Vector graphics showcase (every Draw* method, inline SVG)
-//	page N+2… — Flattening, Flow Layout, Document Conversion (TableAbsorber
-//	           grid over the bill page + its real Markdown export), and the
-//	           Rendering & Imposition meta page
+//	page N+2… — Form/Annotation Flattening, Barcode Fields (Code128/QR/PDF417),
+//	           Transparency Flattening (before/after renders + live ValidatePDFA
+//	           calls), Stamps (Text/Image/PageNumber/PdfPageStamp), Document
+//	           Comparison (word-level diff rendered from both marked-up sides),
+//	           Flow Layout, Document Conversion (TableAbsorber grid over the
+//	           bill page + its real Markdown export), and the Rendering &
+//	           Imposition meta page
 //
 // Cross-cutting features:
 //   - Page labels: roman (i, ii) for front matter, decimal restarting at 1 for body
@@ -74,6 +78,9 @@ const (
 	destVector    = "section.vector"
 	destFlatten   = "section.flatten"
 	destBarcode   = "section.barcode"
+	destTrans     = "section.transparency"
+	destStamps    = "section.stamps"
+	destCompare   = "section.compare"
 	destFlow      = "section.flow"
 	destConvert   = "section.convert"
 	destRender    = "section.render"
@@ -149,6 +156,24 @@ func main() {
 	barcodePage, _ := doc.Page(doc.PageCount())
 	addBarcodeShowcase(doc, barcodePage)
 
+	// Transparency flattening — before/after renders of the same scratch
+	// page, proving FlattenTransparency preserves how it looks.
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	transPage, _ := doc.Page(doc.PageCount())
+	addTransparencyShowcase(doc, transPage)
+
+	// Stamps — TextStamp / ImageStamp / PageNumberStamp / PdfPageStamp,
+	// applied for real onto this page via Page.AddStamp.
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	stampsPage, _ := doc.Page(doc.PageCount())
+	addStampsShowcase(doc, stampsPage)
+
+	// Document comparison — two short "contract" documents diffed word by
+	// word, both marked-up sides rendered side by side.
+	mustAddPage(doc.AddBlankPageFromFormat(pdf.PageFormatA4))
+	comparePage, _ := doc.Page(doc.PageCount())
+	addComparisonShowcase(doc, comparePage)
+
 	// Flow Layout & Floats — "Giants of Physics", a two-column tribute laid out
 	// entirely by the document-generator flow engine (NewFlow): a portrait,
 	// heading, prose, a formula card and a pull-quote per column, split with a
@@ -188,6 +213,9 @@ func main() {
 		{destVector, "Vector Graphics", "vector", vectorPage},
 		{destFlatten, "Form & Annotation Flattening", "flatten", flattenPage},
 		{destBarcode, "Barcode Fields", "form", barcodePage},
+		{destTrans, "Transparency Flattening", "flatten", transPage},
+		{destStamps, "Stamps", "annotations", stampsPage},
+		{destCompare, "Document Comparison", "redaction", comparePage},
 		{destFlow, "Flow Layout — Giants of Physics", "flow", flowPage},
 		{destConvert, "Document Conversion", "convert", convertPage},
 		{destRender, "Rendering & Imposition", "image", renderPage},
@@ -1045,6 +1073,332 @@ func addFlattenDemo(doc *pdf.Document, page *pdf.Page) {
 }
 
 // ---------------------------------------------------------------------
+// Transparency Flattening (Document.FlattenTransparency)
+// ---------------------------------------------------------------------
+
+// addTransparencyShowcase renders a small scratch page carrying real PDF
+// transparency (three alpha-blended, overlapping circles — Color.A < 1,
+// which goes through an ExtGState /ca) before and after
+// Document.FlattenTransparency, placing both renders side by side. The two
+// images come out pixel-for-pixel the same — preserving how the page looks
+// is the whole point — but only the "after" page is a single opaque raster
+// with no /Group, /SMask, or /ca left for PDF/A-1's TRANSPARENCY rule to
+// catch, which the ValidatePDFA calls below actually verify rather than
+// just claim.
+func addTransparencyShowcase(doc *pdf.Document, page *pdf.Page) {
+	size, _ := page.Size()
+	sectionHeader(page,
+		"Transparency Flattening",
+		"Document.FlattenTransparency  •  before/after, pixel for pixel")
+
+	mustText(page.AddText(
+		"PDF/A-1 (ISO 19005-1) forbids transparency outright — no alpha, no blend modes, no soft masks. FlattenTransparency finds exactly the pages that use it and rasterizes only those into one opaque image; a page with none is left completely untouched, still vector and searchable.",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, Color: &pdf.Color{R: 0.35, G: 0.35, B: 0.4, A: 1}, LineSpacing: 1.4, HAlign: pdf.HAlignCenter},
+		pdf.Rectangle{LLX: 60, LLY: size.Height - 175, URX: size.Width - 60, URY: size.Height - 125}))
+
+	demo := pdf.NewDocument(260, 260)
+	dp, err := demo.Page(1)
+	if err != nil {
+		log.Fatalf("transparency demo page: %v", err)
+	}
+	mustVector(dp.DrawRectangle(pdf.Rectangle{LLX: 0, LLY: 0, URX: 260, URY: 260},
+		pdf.ShapeStyle{FillColor: &pdf.Color{R: 1, G: 1, B: 1, A: 1}}))
+	red := &pdf.Color{R: 0.92, G: 0.24, B: 0.24, A: 0.6}
+	green := &pdf.Color{R: 0.16, G: 0.68, B: 0.34, A: 0.6}
+	blue := &pdf.Color{R: 0.18, G: 0.40, B: 0.88, A: 0.6}
+	mustVector(dp.DrawCircle(pdf.Point{X: 108, Y: 152}, 60, pdf.ShapeStyle{FillColor: red}))
+	mustVector(dp.DrawCircle(pdf.Point{X: 152, Y: 152}, 60, pdf.ShapeStyle{FillColor: green}))
+	mustVector(dp.DrawCircle(pdf.Point{X: 130, Y: 112}, 60, pdf.ShapeStyle{FillColor: blue}))
+	mustText(dp.AddText("three ExtGState /ca fills", pdf.TextStyle{
+		Font: pdf.FontHelveticaOblique, Size: 9, Color: &pdf.Color{R: 0.45, G: 0.45, B: 0.45, A: 1}, HAlign: pdf.HAlignCenter,
+	}, pdf.Rectangle{LLX: 10, LLY: 10, URX: 250, URY: 24}))
+
+	before := demo.ValidatePDFA(pdf.PDFA1B)
+	beforeThumb := renderPageThumb(dp, "Before — vector, transparent")
+
+	n, err := demo.FlattenTransparency()
+	if err != nil {
+		log.Fatalf("FlattenTransparency: %v", err)
+	}
+	after := demo.ValidatePDFA(pdf.PDFA1B)
+	afterThumb := renderPageThumb(dp, "After — rasterized, opaque")
+
+	hasIssue := func(r *pdf.PDFAValidationReport, rule string) bool {
+		for _, iss := range r.Issues {
+			if iss.Rule == rule {
+				return true
+			}
+		}
+		return false
+	}
+	statusWord := func(flagged bool) string {
+		if flagged {
+			return "TRANSPARENCY reported"
+		}
+		return "clean"
+	}
+
+	const panelW, panelH, gap = 250.0, 250.0, 30.0
+	leftX := (size.Width - (2*panelW + gap)) / 2
+	topY := size.Height - 210
+	border := &pdf.Color{R: 0.72, G: 0.72, B: 0.74, A: 1}
+	for i, th := range []impThumb{beforeThumb, afterThumb} {
+		x := leftX + float64(i)*(panelW+gap)
+		rect := pdf.Rectangle{LLX: x, LLY: topY - panelH, URX: x + panelW, URY: topY}
+		mustVector(page.AddImageFromStream(bytes.NewReader(th.img), rect))
+		mustVector(page.DrawRectangle(rect, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 0.8, Color: border}}))
+		mustText(page.AddText(th.label, pdf.TextStyle{
+			Font: pdf.FontHelveticaBold, Size: 10.5, Color: &pdf.Color{R: 0.2, G: 0.2, B: 0.25, A: 1}, HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: x, LLY: topY - panelH - 18, URX: x + panelW, URY: topY - panelH - 3}))
+	}
+	panelsBottom := topY - panelH
+
+	status := fmt.Sprintf("ValidatePDFA(PDFA1B):  before = %s   after = %s   (%d page flattened)",
+		statusWord(hasIssue(before, "TRANSPARENCY")), statusWord(hasIssue(after, "TRANSPARENCY")), n)
+	mustText(page.AddText(status, pdf.TextStyle{
+		Font: pdf.FontCourierBold, Size: 9, Color: &pdf.Color{R: 0.12, G: 0.42, B: 0.22, A: 1}, HAlign: pdf.HAlignCenter,
+	}, pdf.Rectangle{LLX: 55, LLY: panelsBottom - 48, URX: size.Width - 55, URY: panelsBottom - 34}))
+
+	drawCodeBox(page, 90, size.Width-90, panelsBottom-105,
+		"before := doc.ValidatePDFA(pdf.PDFA1B) // TRANSPARENCY",
+		"n, _ := doc.FlattenTransparency()",
+		"after := doc.ValidatePDFA(pdf.PDFA1B)  // clean")
+}
+
+// ---------------------------------------------------------------------
+// Stamps — TextStamp / ImageStamp / PageNumberStamp / PdfPageStamp
+// ---------------------------------------------------------------------
+
+// renderApprovalSeal draws a small circular "APPROVED" badge on a scratch
+// page and rasterizes it, so the ImageStamp demo has a genuine stamp-shaped
+// image to work with instead of reaching for an unrelated photo asset.
+func renderApprovalSeal() []byte {
+	d := pdf.NewDocument(140, 140)
+	p, _ := d.Page(1)
+	green := &pdf.Color{R: 0.10, G: 0.55, B: 0.25, A: 1}
+	mustVector(p.DrawCircle(pdf.Point{X: 70, Y: 70}, 60, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 5, Color: green}}))
+	mustVector(p.DrawCircle(pdf.Point{X: 70, Y: 70}, 48, pdf.ShapeStyle{
+		LineStyle: pdf.LineStyle{Width: 1.5, Color: green, DashPattern: []float64{3, 3}},
+	}))
+	mustText(p.AddText("APPROVED", pdf.TextStyle{
+		Font: pdf.FontHelveticaBold, Size: 15, Color: green, HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+	}, pdf.Rectangle{LLX: 10, LLY: 62, URX: 130, URY: 90}))
+	mustText(p.AddText("Aspose.PDF FOSS", pdf.TextStyle{
+		Font: pdf.FontHelvetica, Size: 6.5, Color: green, HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+	}, pdf.Rectangle{LLX: 10, LLY: 47, URX: 130, URY: 60}))
+	var buf bytes.Buffer
+	if err := p.RenderPNG(&buf, pdf.RenderOptions{DPI: 200}); err != nil {
+		log.Fatalf("render approval seal: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// buildLetterheadDoc builds a tiny one-page "letterhead" document — the
+// source PdfPageStamp imports a page from, demonstrating that a stamp can
+// come from a document entirely separate from the one it's applied to.
+func buildLetterheadDoc() *pdf.Document {
+	d := pdf.NewDocument(320, 90)
+	p, _ := d.Page(1)
+	navy := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	mustVector(p.DrawRectangle(pdf.Rectangle{LLX: 0, LLY: 0, URX: 320, URY: 90}, pdf.ShapeStyle{FillColor: navy}))
+	mustText(p.AddText("Aspose.PDF FOSS for Go", pdf.TextStyle{
+		Font: pdf.FontHelveticaBold, Size: 17, Color: &pdf.Color{R: 1, G: 1, B: 1, A: 1},
+		HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+	}, pdf.Rectangle{LLX: 10, LLY: 25, URX: 310, URY: 65}))
+	return d
+}
+
+// addStampsShowcase draws four "document" mockups, each carrying one of the
+// four Stamp types applied directly onto this real showcase page via
+// Page.AddStamp — not a mock-up rendered elsewhere, the genuine call.
+func addStampsShowcase(doc *pdf.Document, page *pdf.Page) {
+	size, _ := page.Size()
+	sectionHeader(page,
+		"Stamps",
+		"TextStamp  •  ImageStamp  •  PageNumberStamp  •  PdfPageStamp")
+
+	mustText(page.AddText(
+		"A Stamp overlays — or, with Background, underlays — content on a page: text, a raster image, the current page number, or a whole page imported from another document. Every stamp shares Rect / HAlign / VAlign, Opacity and RotateAngle (pivoting about the Rect's centre).",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, Color: &pdf.Color{R: 0.35, G: 0.35, B: 0.4, A: 1}, LineSpacing: 1.4, HAlign: pdf.HAlignCenter},
+		pdf.Rectangle{LLX: 60, LLY: size.Height - 175, URX: size.Width - 60, URY: size.Height - 125}))
+
+	navy := &pdf.Color{R: 0.15, G: 0.20, B: 0.55, A: 1}
+	cardBorder := &pdf.Color{R: 0.80, G: 0.80, B: 0.83, A: 1}
+	lineGrey := &pdf.Color{R: 0.86, G: 0.86, B: 0.88, A: 1}
+
+	// mockCard draws a small "document" backdrop — a white bordered rect
+	// with a few grey bars standing in for text — the neutral content each
+	// stamp is applied over.
+	mockCard := func(rect pdf.Rectangle) {
+		mustVector(page.DrawRectangle(rect, pdf.ShapeStyle{
+			FillColor: &pdf.Color{R: 1, G: 1, B: 1, A: 1},
+			LineStyle: pdf.LineStyle{Width: 0.8, Color: cardBorder},
+		}))
+		lineY := rect.URY - 22
+		for i := 0; i < 6; i++ {
+			w := rect.URX - rect.LLX - 24
+			if i%3 == 2 {
+				w *= 0.55
+			}
+			mustVector(page.DrawLine(
+				pdf.Point{X: rect.LLX + 14, Y: lineY}, pdf.Point{X: rect.LLX + 14 + w, Y: lineY},
+				pdf.LineStyle{Width: 3, Color: lineGrey}))
+			lineY -= 11
+		}
+	}
+	caption := func(rect pdf.Rectangle, title, code string) {
+		mustText(page.AddText(title, pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 11, Color: navy},
+			pdf.Rectangle{LLX: rect.LLX, LLY: rect.LLY - 18, URX: rect.URX, URY: rect.LLY - 2}))
+		mustText(page.AddText(code, pdf.TextStyle{
+			Font: pdf.FontCourier, Size: 7.5, Color: &pdf.Color{R: 0.4, G: 0.4, B: 0.45, A: 1},
+		}, pdf.Rectangle{LLX: rect.LLX, LLY: rect.LLY - 33, URX: rect.URX, URY: rect.LLY - 19}))
+	}
+
+	const cardW, cardH, gapX, gapY = 210.0, 175.0, 55.0, 68.0
+	leftX := (size.Width - (2*cardW + gapX)) / 2
+	topY := size.Height - 210
+	rectAt := func(col, row int) pdf.Rectangle {
+		x := leftX + float64(col)*(cardW+gapX)
+		y := topY - float64(row)*(cardH+gapY)
+		return pdf.Rectangle{LLX: x, LLY: y - cardH, URX: x + cardW, URY: y}
+	}
+
+	// 1. TextStamp — a diagonal translucent "CONFIDENTIAL" watermark. The
+	// stamp rect is deliberately wider than the card so the bold caption
+	// bleeds past its edges, the way a real rubber-stamp watermark does.
+	r1 := rectAt(0, 0)
+	mockCard(r1)
+	ts := pdf.NewTextStamp("CONFIDENTIAL", pdf.TextStyle{
+		Font: pdf.FontHelveticaBold, Size: 24, Color: &pdf.Color{R: 0.75, G: 0.1, B: 0.1, A: 1},
+		HAlign: pdf.HAlignCenter, VAlign: pdf.VAlignMiddle,
+	})
+	ts.Rect = centeredRect(r1, cardW*1.25, 50)
+	ts.RotateAngle = 22
+	ts.Opacity = 0.45
+	mustErr(page.AddStamp(ts))
+	caption(r1, "TextStamp", `pdf.NewTextStamp("CONFIDENTIAL", style)`)
+
+	// 2. ImageStamp — a rendered seal PNG, stamped in the corner.
+	r2 := rectAt(1, 0)
+	mockCard(r2)
+	imgStamp, err := pdf.NewImageStampFromStream(bytes.NewReader(renderApprovalSeal()))
+	if err != nil {
+		log.Fatalf("new image stamp: %v", err)
+	}
+	// Wide enough to fully cover the mock lines' right end (URX-10), so no
+	// stray grey stub pokes out past the seal's edge.
+	imgStamp.Rect = pdf.Rectangle{LLX: r2.URX - 88, LLY: r2.URY - 88, URX: r2.URX - 6, URY: r2.URY - 8}
+	imgStamp.RotateAngle = -8
+	mustErr(page.AddStamp(imgStamp))
+	caption(r2, "ImageStamp", `pdf.NewImageStampFromStream(r)`)
+
+	// 3. PageNumberStamp — bottom-right corner; {0}/{1} are THIS real page's
+	// own number and this document's real page count, not mock values.
+	r3 := rectAt(0, 1)
+	mockCard(r3)
+	pns := pdf.NewPageNumberStamp("Page {0} of {1}", pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, Color: navy})
+	pns.Rect = pdf.Rectangle{LLX: r3.LLX + 10, LLY: r3.LLY + 10, URX: r3.URX - 10, URY: r3.LLY + 26}
+	pns.HAlign = pdf.HAlignRight
+	mustErr(page.AddStamp(pns))
+	caption(r3, "PageNumberStamp", `pdf.NewPageNumberStamp(fmt, style)`)
+
+	// 4. PdfPageStamp — a page imported from an entirely separate document.
+	r4 := rectAt(1, 1)
+	mockCard(r4)
+	letterhead := buildLetterheadDoc()
+	pps, err := pdf.NewPdfPageStamp(letterhead, 1)
+	if err != nil {
+		log.Fatalf("new pdf page stamp: %v", err)
+	}
+	pps.Rect = pdf.Rectangle{LLX: r4.LLX + 10, LLY: r4.URY - 55, URX: r4.URX - 10, URY: r4.URY - 10}
+	mustErr(page.AddStamp(pps))
+	caption(r4, "PdfPageStamp", `pdf.NewPdfPageStamp(letterheadDoc, 1)`)
+}
+
+// ---------------------------------------------------------------------
+// Document Comparison
+// ---------------------------------------------------------------------
+
+// addComparisonShowcase compares two short "contract" documents word by
+// word and renders BOTH marked-up sides — the source with deletions struck
+// through, the destination with insertions highlighted — so a flat raster
+// shows the whole diff without needing a viewer's comments panel to read a
+// caret's carried-away text.
+func addComparisonShowcase(doc *pdf.Document, page *pdf.Page) {
+	size, _ := page.Size()
+	sectionHeader(page,
+		"Document Comparison",
+		"CompareDocumentsPageByPage  •  word-level diff as real annotations")
+
+	mustText(page.AddText(
+		"CompareDocumentsPageByPage (or CompareFlatDocuments, treating each document as one continuous text) tokenizes both sides into words and runs a Myers diff. SaveMarkup writes a copy of either side annotated with the result — highlights for insertions, strikeouts for deletions, carets carrying the text that moved.",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 10, Color: &pdf.Color{R: 0.35, G: 0.35, B: 0.4, A: 1}, LineSpacing: 1.4, HAlign: pdf.HAlignCenter},
+		pdf.Rectangle{LLX: 55, LLY: size.Height - 185, URX: size.Width - 55, URY: size.Height - 125}))
+
+	const contractA = "This Service Agreement is entered into between Acme Corp and Globex Inc. The initial term is twelve months, renewing automatically each year. Support requests are answered within two business days. Payment is due within thirty days of invoice."
+	const contractB = "This Service Agreement is entered into between Acme Corp and Initech LLC. The initial term is twelve months, renewing automatically each year. Support requests are answered within one business day. Payment is due within fifteen days of invoice, with a two percent late fee."
+
+	buildDoc := func(text string) *pdf.Document {
+		d := pdf.NewDocument(380, 230)
+		p, _ := d.Page(1)
+		mustText(p.AddText(text, pdf.TextStyle{Font: pdf.FontTimesRoman, Size: 11, LineSpacing: 1.5},
+			pdf.Rectangle{LLX: 20, LLY: 20, URX: 360, URY: 210}))
+		return d
+	}
+	docA := buildDoc(contractA)
+	docB := buildDoc(contractB)
+
+	result, err := pdf.CompareDocumentsPageByPage(docA, docB)
+	if err != nil {
+		log.Fatalf("compare documents: %v", err)
+	}
+	stats := result.Statistics()
+
+	renderMarkup := func(side pdf.DiffMarkupSide, label string) impThumb {
+		var buf bytes.Buffer
+		if err := result.WriteMarkup(&buf, pdf.DiffMarkupOptions{Side: side}); err != nil {
+			log.Fatalf("write markup: %v", err)
+		}
+		marked, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+		if err != nil {
+			log.Fatalf("open markup: %v", err)
+		}
+		mp, err := marked.Page(1)
+		if err != nil {
+			log.Fatalf("markup page: %v", err)
+		}
+		return renderPageThumb(mp, label)
+	}
+	srcThumb := renderMarkup(pdf.DiffMarkupSource, "Source  —  deletions struck through")
+	dstThumb := renderMarkup(pdf.DiffMarkupDestination, "Destination  —  insertions highlighted")
+
+	const panelW, panelH, gap = 225.0, 143.0, 25.0
+	leftX := (size.Width - (2*panelW + gap)) / 2
+	topY := size.Height - 235
+	border := &pdf.Color{R: 0.72, G: 0.72, B: 0.74, A: 1}
+	for i, th := range []impThumb{srcThumb, dstThumb} {
+		x := leftX + float64(i)*(panelW+gap)
+		rect := pdf.Rectangle{LLX: x, LLY: topY - panelH, URX: x + panelW, URY: topY}
+		mustVector(page.AddImageFromStream(bytes.NewReader(th.img), rect))
+		mustVector(page.DrawRectangle(rect, pdf.ShapeStyle{LineStyle: pdf.LineStyle{Width: 0.8, Color: border}}))
+		mustText(page.AddText(th.label, pdf.TextStyle{
+			Font: pdf.FontHelveticaBold, Size: 9.5, Color: &pdf.Color{R: 0.2, G: 0.2, B: 0.25, A: 1}, HAlign: pdf.HAlignCenter,
+		}, pdf.Rectangle{LLX: x, LLY: topY - panelH - 16, URX: x + panelW, URY: topY - panelH - 2}))
+	}
+
+	stat := fmt.Sprintf("Statistics(): %d words unchanged · %d inserted · %d deleted · %d page(s) changed",
+		stats.EqualWords, stats.InsertedWords, stats.DeletedWords, len(stats.ChangedPages))
+	mustText(page.AddText(stat, pdf.TextStyle{
+		Font: pdf.FontCourierBold, Size: 9, Color: &pdf.Color{R: 0.15, G: 0.35, B: 0.55, A: 1}, HAlign: pdf.HAlignCenter,
+	}, pdf.Rectangle{LLX: 55, LLY: topY - panelH - 46, URX: size.Width - 55, URY: topY - panelH - 32}))
+
+	drawCodeBox(page, 90, size.Width-90, 90,
+		"result, _ := pdf.CompareDocumentsPageByPage(a, b)",
+		"result.WriteMarkup(w, pdf.DiffMarkupOptions{",
+		"    Side: pdf.DiffMarkupDestination})")
+}
+
+// ---------------------------------------------------------------------
 // Flow Layout — "Giants of Physics"
 //
 // A two-column tribute laid out entirely by the document-generator flow
@@ -1507,6 +1861,28 @@ func centeredRect(outer pdf.Rectangle, w, h float64) pdf.Rectangle {
 	cx := (outer.LLX + outer.URX) / 2
 	cy := (outer.LLY + outer.URY) / 2
 	return pdf.Rectangle{LLX: cx - w/2, LLY: cy - h/2, URX: cx + w/2, URY: cy + h/2}
+}
+
+// drawCodeBox paints a grey monospace snippet panel between x0 and x1, sized
+// to its lines and growing upward from bottom. AddText strips leading spaces
+// when it wraps, so each line's indentation is drawn as an explicit x offset
+// (Courier advances ~0.6 em per glyph) rather than left in the string.
+func drawCodeBox(page *pdf.Page, x0, x1, bottom float64, lines ...string) {
+	const size, lead, pad = 8.0, 11.0, 6.0
+	h := float64(len(lines))*lead + 2*pad
+	bg := &pdf.Color{R: 0.93, G: 0.94, B: 0.97, A: 1}
+	mustVector(page.DrawRoundedRectangle(
+		pdf.Rectangle{LLX: x0, LLY: bottom, URX: x1, URY: bottom + h}, 4,
+		pdf.ShapeStyle{FillColor: bg}))
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		indent := float64(len(line)-len(trimmed)) * size * 0.6
+		y := bottom + h - pad - float64(i+1)*lead + 2.5
+		mustText(page.AddText(trimmed, pdf.TextStyle{
+			Font: pdf.FontCourier, Size: size,
+			Color: &pdf.Color{R: 0.15, G: 0.20, B: 0.45, A: 1},
+		}, pdf.Rectangle{LLX: x0 + 10 + indent, LLY: y, URX: x1 - 6, URY: y + lead}))
+	}
 }
 
 // ---------------------------------------------------------------------
@@ -2256,7 +2632,7 @@ func addTOC(doc *pdf.Document, page *pdf.Page, sections []section) {
 			Size:  13,
 			Color: &pdf.Color{R: 0.1, G: 0.1, B: 0.15, A: 1},
 		},
-		LineSpacing: 2.4, // roomy rows, matching the original 32pt spacing
+		LineSpacing: 2.15, // 17 entries now — tightened just enough to keep them on one page
 	}); err != nil {
 		log.Fatalf("AddTOC: %v", err)
 	}
