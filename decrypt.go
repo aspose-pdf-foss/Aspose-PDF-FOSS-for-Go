@@ -13,6 +13,21 @@ import (
 // OpenStreamWithPassword to supply a user or owner password.
 var ErrEncrypted = errors.New("PDF is encrypted; use OpenWithPassword")
 
+// ErrInvalidPassword is returned by OpenWithPassword / OpenStreamWithPassword
+// when the supplied password matches neither the user nor the owner password
+// of the file. Mirrors Aspose.PDF for .NET's InvalidPasswordException.
+var ErrInvalidPassword = errors.New("invalid password")
+
+// encryptionSetupError wraps a failure to set up decryption for a file whose
+// /Encrypt dictionary was read — a wrong password, an unsupported handler, a
+// tampered /Perms. openStreamCore treats it as final rather than retrying
+// through xref reconstruction, which cannot make the password right and
+// would only risk opening the ciphertext as a plain document.
+type encryptionSetupError struct{ err error }
+
+func (e *encryptionSetupError) Error() string { return e.err.Error() }
+func (e *encryptionSetupError) Unwrap() error { return e.err }
+
 // buildDecryptState parses an /Encrypt dict and returns the per-document
 // encryption state for decryption. Dispatches by /V and /R: V=2 R=3 →
 // RC4-128 Standard Security Handler; V=4 R=4 → AES-128 via /CFM /AESV2.
@@ -155,7 +170,7 @@ func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, 
 		}
 	}
 
-	return nil, fmt.Errorf("invalid password")
+	return nil, ErrInvalidPassword
 }
 
 // recoverUserPasswordFromOwnerR is the revision-aware form of

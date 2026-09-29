@@ -9,6 +9,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -38,12 +39,17 @@ func ExampleOpenWithPassword() {
 		log.Fatal(err)
 	}
 
-	doc, err := pdf.OpenStreamWithPassword(&buf, "secret")
+	if _, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "guess"); errors.Is(err, pdf.ErrInvalidPassword) {
+		fmt.Println("wrong password rejected")
+	}
+	doc, err := pdf.OpenStreamWithPassword(bytes.NewReader(buf.Bytes()), "secret")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("opened:", doc.PageCount(), "pages")
-	// Output: opened: 1 pages
+	// Output:
+	// wrong password rejected
+	// opened: 1 pages
 }
 
 // Create a blank A4 document in memory.
