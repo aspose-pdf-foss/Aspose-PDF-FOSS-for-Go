@@ -282,7 +282,7 @@ func spreadPaneSizes(srcDoc, dstDoc *Document, pageNum int) (left, right PageSiz
 		right = left
 	}
 	if left == (PageSize{}) {
-		left = PageSize{Width: PageFormatA4.Width, Height: PageFormatA4.Height}
+		left = PageSize(PageFormatA4)
 		right = left
 	}
 	return left, right, nil
