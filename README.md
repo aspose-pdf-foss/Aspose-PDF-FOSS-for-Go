@@ -197,7 +197,11 @@ flowchart TD
   changed between two PDFs word by word, with the page and rectangle of every difference;
   `ComparisonResult.SaveMarkup` writes a copy of either document in which insertions are
   highlighted, deletions struck out and removed text kept in the annotation note, so a reviewer
-  reads the change list in any PDF viewer. Mirrors Aspose.PDF for .NET's `TextPdfComparer`.
+  reads the change list in any PDF viewer. `GraphicalPdfComparer.GetDifference` catches what the
+  word comparer can't — moved or edited graphics, font substitution — by rasterizing both pages and
+  diffing pixels, reporting a changed-pixel ratio and a difference image; `SideBySideComparePages`/
+  `SideBySideCompareDocuments` lay the marked-up before/after side by side in one vector spread PDF.
+  Mirrors Aspose.PDF for .NET's `TextPdfComparer`, `GraphicalPdfComparer` and `SideBySidePdfComparer`.
 - **AI copilots** — the `ai` subpackage adds document summarization (`SummaryCopilot`), OCR of
   scanned pages with a `MakeSearchable` pipeline that writes recognized text back as an invisible,
   selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
