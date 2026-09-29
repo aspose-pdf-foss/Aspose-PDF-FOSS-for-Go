@@ -129,7 +129,11 @@ func walkPageTreeRec(objects map[int]*pdfObject, nodeVal pdfValue, inherited inh
 
 	// A node with a /Kids array is an intermediate node (even if /Type is
 	// missing or wrong); recurse into each kid, skipping any that fail.
-	if kids, ok := nodeDict["/Kids"].(pdfArray); ok {
+	//
+	// /Kids may itself be an indirect reference (ISO 32000-1 §7.3.10 allows
+	// any dictionary value to be one); Oracle Reports emits page trees this
+	// way, so resolve before asserting.
+	if kids, ok := resolveRefToArray(objects, nodeDict["/Kids"]); ok {
 		for _, kid := range kids {
 			walkPageTreeRec(objects, kid, inherited, result, visited, depth+1)
 		}
