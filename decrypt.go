@@ -30,7 +30,8 @@ func (e *encryptionSetupError) Unwrap() error { return e.err }
 
 // buildDecryptState parses an /Encrypt dict and returns the per-document
 // encryption state for decryption. Dispatches by /V and /R: V=2 R=3 →
-// RC4-128 Standard Security Handler; V=4 R=4 → AES-128 via /CFM /AESV2.
+// RC4-128 Standard Security Handler; V=4 R=4 → AES-128 via /CFM /AESV2;
+// V=5 R=5 or R=6 → AES-256 via /CFM /AESV3.
 func buildDecryptState(encDict pdfDict, trailer pdfDict, cred *openCredentials) (*encryptState, error) {
 	state, err := buildDecryptStateFor(encDict, trailer, cred)
 	if err != nil {
@@ -73,8 +74,8 @@ func buildDecryptStateFor(encDict pdfDict, trailer pdfDict, cred *openCredential
 		return buildDecryptStateRC4(encDict, trailer, password, 3, keyLen)
 	case v == 4 && r == 4:
 		return buildDecryptStateV4R4(encDict, trailer, password)
-	case v == 5 && r == 6:
-		return buildDecryptStateV5R6(encDict, password) // trailer/ID not used for V=5 R=6
+	case v == 5 && (r == 5 || r == 6):
+		return buildDecryptStateV5(encDict, password, r) // trailer/ID not used for V=5
 	default:
 		return nil, fmt.Errorf("unsupported security handler V=%d R=%d", v, r)
 	}
