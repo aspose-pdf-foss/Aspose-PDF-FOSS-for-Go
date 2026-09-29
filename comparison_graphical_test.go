@@ -120,6 +120,28 @@ func TestGraphicalPdfComparerThreshold(t *testing.T) {
 	}
 }
 
+// TestGraphicalPdfComparerNegativeThreshold: a negative Threshold must clamp
+// to 0, not invert the "ignore small changes" contract. Without the clamp,
+// `distance > threshold` is true even for IDENTICAL pixels (0 > a negative
+// number), so this pins the fix against identical pages, not just changed
+// ones — the strongest form of the regression this could cause.
+func TestGraphicalPdfComparerNegativeThreshold(t *testing.T) {
+	red := pdf.Color{R: 1, A: 1}
+	rect := pdf.Rectangle{LLX: 20, LLY: 20, URX: 100, URY: 100}
+	p1 := rectPage(t, 200, 200, rect, red)
+	p2 := rectPage(t, 200, 200, rect, red)
+
+	c := &pdf.GraphicalPdfComparer{Threshold: -10}
+	diff, err := c.GetDifference(p1, p2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.HasDifferences() {
+		t.Errorf("Threshold=-10 on identical pages: HasDifferences() = true (%d px), want false — a negative threshold must clamp to 0, not flag every pixel",
+			diff.DifferentPixels())
+	}
+}
+
 // TestGraphicalPdfComparerMismatchedSizes: pages of different sizes must not
 // panic, and the extra area on the larger page must count as different
 // (compared against white, the padding fill).

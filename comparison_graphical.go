@@ -61,6 +61,21 @@ func (c *GraphicalPdfComparer) color() Color {
 	return c.Color
 }
 
+// threshold clamps Threshold to its documented [0,100] range: a negative
+// value would otherwise make newImagesDifference's `distance > threshold`
+// check true for identical pixels too (distance 0 > a negative number),
+// inverting the field's "ignore small changes" contract.
+func (c *GraphicalPdfComparer) threshold() float64 {
+	switch {
+	case c.Threshold < 0:
+		return 0
+	case c.Threshold > 100:
+		return 100
+	default:
+		return c.Threshold
+	}
+}
+
 // GetDifference rasterizes both pages at Resolution and compares them pixel
 // by pixel. Mirrors GraphicalPdfComparer.GetDifference.
 func (c *GraphicalPdfComparer) GetDifference(page1, page2 *Page) (*ImagesDifference, error) {
@@ -76,7 +91,7 @@ func (c *GraphicalPdfComparer) GetDifference(page1, page2 *Page) (*ImagesDiffere
 	if err != nil {
 		return nil, fmt.Errorf("GetDifference: render page2: %w", err)
 	}
-	return newImagesDifference(img1, img2, c.Threshold), nil
+	return newImagesDifference(img1, img2, c.threshold()), nil
 }
 
 // ComparePagesToImage renders the two pages' difference (DifferenceToImage
@@ -102,10 +117,13 @@ func (c *GraphicalPdfComparer) WritePagesToImage(page1, page2 *Page, w io.Writer
 
 // CompareDocumentsToPdf compares every page pair by index (mirroring
 // CompareDocumentsPageByPage's pairing; the longer document's tail pages are
-// compared against a blank page of the same size, so a page added or removed
-// still reports 100% different rather than erroring) and writes a new PDF
-// with one page per pair: the difference image full-page, captioned with the
-// changed-pixel ratio. Mirrors GraphicalPdfComparer.CompareDocumentsToPdf.
+// compared against a blank white page of the same size, so a page added or
+// removed reports whatever fraction of it isn't blank/white as different,
+// rather than erroring — a page that is itself mostly white reports a
+// correspondingly small ratio despite being a genuine page-count change)
+// and writes a new PDF with one page per pair: the difference image
+// full-page, captioned with the changed-pixel ratio. Mirrors
+// GraphicalPdfComparer.CompareDocumentsToPdf.
 func (c *GraphicalPdfComparer) CompareDocumentsToPdf(doc1, doc2 *Document, outputPath string) error {
 	var buf bytes.Buffer
 	if err := c.WriteDocumentsToPdf(doc1, doc2, &buf); err != nil {
@@ -185,7 +203,7 @@ func (c *GraphicalPdfComparer) pairDifference(doc1, doc2 *Document, pageNum int)
 	case img2 == nil:
 		img2 = blankWhiteImage(img1.Bounds())
 	}
-	return newImagesDifference(img1, img2, c.Threshold), nil
+	return newImagesDifference(img1, img2, c.threshold()), nil
 }
 
 func blankWhiteImage(b image.Rectangle) image.Image {
