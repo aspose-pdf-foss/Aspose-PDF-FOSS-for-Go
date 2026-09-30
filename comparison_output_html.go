@@ -91,6 +91,8 @@ func cssColor(c Color) string {
 	return fmt.Sprintf("rgba(%d,%d,%d,%.3g)", r, g, bl, c.A)
 }
 
+// colorByte clamps a Color channel in [0,1] to a CSS byte value. Shared with
+// html_export.go's htmlColor.
 func colorByte(v float64) int {
 	if v < 0 {
 		v = 0

@@ -273,6 +273,14 @@ func TestComparisonResultPagesFlatMode(t *testing.T) {
 	}
 }
 
+// TestComparisonResultPagesPageByPageMode checks Pages() against the actual
+// expected diff content per page, not just against PageOperations — in
+// page-by-page mode Pages() is currently a bare `return r.pages`, the same
+// backing slice PageOperations indexes into, so comparing the two only
+// proves they don't disagree with themselves; it would stay green even if
+// Pages() returned the wrong data entirely, as long as PageOperations agreed
+// with it. Asserting on the words a real comparison should produce catches
+// that class of regression too.
 func TestComparisonResultPagesPageByPageMode(t *testing.T) {
 	d1 := buildComparisonDoc(t, "alpha", "gamma")
 	d2 := buildComparisonDoc(t, "alpha", "delta")
@@ -284,11 +292,25 @@ func TestComparisonResultPagesPageByPageMode(t *testing.T) {
 	if len(pages) != 2 {
 		t.Fatalf("Pages() = %d pages, want 2", len(pages))
 	}
-	for i, pageOps := range pages {
-		want := res.PageOperations(i + 1)
-		if len(pageOps) != len(want) {
-			t.Errorf("Pages()[%d] has %d ops, PageOperations(%d) has %d", i, len(pageOps), i+1, len(want))
+	hasWord := func(ops []pdf.DiffOperation, op pdf.Operation, text string) bool {
+		for _, o := range ops {
+			if o.Operation == op && o.Text == text {
+				return true
+			}
 		}
+		return false
+	}
+	for _, op := range pages[0] {
+		if op.Operation != pdf.OperationEqual || op.Text != "alpha" {
+			t.Errorf("Pages()[0] = %+v, page 1 should be all-equal (\"alpha\" on both sides)", pages[0])
+			break
+		}
+	}
+	if !hasWord(pages[1], pdf.OperationDelete, "gamma") {
+		t.Errorf("Pages()[1] = %+v, missing the deleted word %q", pages[1], "gamma")
+	}
+	if !hasWord(pages[1], pdf.OperationInsert, "delta") {
+		t.Errorf("Pages()[1] = %+v, missing the inserted word %q", pages[1], "delta")
 	}
 }
 

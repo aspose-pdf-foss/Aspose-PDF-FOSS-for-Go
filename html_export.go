@@ -704,16 +704,7 @@ func substituteFontFor(family string, bold, italic bool) Font {
 // htmlColor formats a Color as a CSS hex colour (alpha ignored — extracted
 // text colour is always opaque).
 func htmlColor(c Color) string {
-	to255 := func(v float64) int {
-		if v <= 0 {
-			return 0
-		}
-		if v >= 1 {
-			return 255
-		}
-		return int(v*255 + 0.5)
-	}
-	return fmt.Sprintf("#%02x%02x%02x", to255(c.R), to255(c.G), to255(c.B))
+	return fmt.Sprintf("#%02x%02x%02x", colorByte(c.R), colorByte(c.G), colorByte(c.B))
 }
 
 // writeHTMLLinks emits one positioned <a> per link annotation the export can
