@@ -34,7 +34,7 @@ func TestTaggedLinkObjectReferenceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := linkElem.AddObjectReference(p, link); err != nil {
+	if err := linkElem.AddObjectReference(link); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +92,7 @@ func TestAddObjectReferenceComposesWithBareAddChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	elem := tc.Root().AddChild(pdf.StructLink)
-	if err := elem.AddObjectReference(p, link); err != nil {
+	if err := elem.AddObjectReference(link); err != nil {
 		t.Fatal(err)
 	}
 	if rep := doc.ValidatePDFUA(); !rep.Conformant {

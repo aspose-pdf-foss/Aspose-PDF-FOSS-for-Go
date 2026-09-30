@@ -188,9 +188,12 @@ func (e *StructElement) AddChild(t StructType) *StructElement {
 }
 
 // newChild creates and registers a structure element of type t as a child of
-// e, without initializing /K — the caller sets it (a child array for
-// AddChild, an object reference for AddObjectReference, an MCID for
-// TagContent).
+// e, without initializing /K — AddChild is its only caller, and sets /K to
+// an empty array right after. Factored out so a future caller needing a
+// bare, unregistered-/K element (TagContent and AddObjectReference don't:
+// TagContent builds its own leaf dict directly since it also needs /Pg, and
+// AddObjectReference operates on an already-existing element) doesn't have
+// to duplicate the object-registration boilerplate.
 func (e *StructElement) newChild(t StructType) *StructElement {
 	dict := pdfDict{
 		"/Type": pdfName("/StructElem"),
@@ -228,21 +231,28 @@ func (e *StructElement) addKidRef(ref pdfValue) {
 // a /Link structure element uses to point at its LinkAnnotation, so
 // assistive technology can associate the two (also valid for any other
 // annotation type, e.g. bringing a Widget into reading order). annot must
-// already be attached to page (via (*AnnotationCollection).Add) before
-// calling this; it gains a /StructParent entry pointing back at e.
+// already be attached to a page (via (*AnnotationCollection).Add) before
+// calling this — /Pg is read from that attachment, not asked of the caller,
+// so it can never disagree with where the annotation actually lives. annot
+// gains a /StructParent entry pointing back at e; an annotation already
+// referenced by another structure element is rejected; each annotation is
+// meant to appear in the reading order exactly once.
 //
 // Composes with the existing primitives rather than replacing them: a link
 // whose visible text is itself tagged calls this on the element TagContent
 // returned; a link with no separately-tagged visible text (e.g. an image
 // link tagged as /Figure elsewhere) calls it on a bare AddChild(StructLink).
-func (e *StructElement) AddObjectReference(page *Page, annot Annotation) error {
+func (e *StructElement) AddObjectReference(annot Annotation) error {
 	base := annot.annotationBaseRef()
-	if base.objID == 0 {
-		return fmt.Errorf("AddObjectReference: annotation must be added to the page (Annotations().Add) first")
+	if base.objID == 0 || base.attachedPage == nil {
+		return fmt.Errorf("AddObjectReference: annotation must be added to a page (Annotations().Add) first")
+	}
+	if _, tagged := base.dict["/StructParent"]; tagged {
+		return fmt.Errorf("AddObjectReference: annotation is already referenced by a structure element")
 	}
 	objr := pdfDict{
 		"/Type": pdfName("/OBJR"),
-		"/Pg":   pdfRef{Num: page.pageObj().Num},
+		"/Pg":   pdfRef{Num: base.attachedPage.Num},
 		"/Obj":  pdfRef{Num: base.objID},
 	}
 	e.addKidRef(objr)
