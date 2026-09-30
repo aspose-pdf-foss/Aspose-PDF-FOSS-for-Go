@@ -44,7 +44,40 @@ const (
 	StructTD       StructType = "/TD"
 	StructTHead    StructType = "/THead"
 	StructTBody    StructType = "/TBody"
+	StructTFoot    StructType = "/TFoot"
 	StructLink     StructType = "/Link"
+	// StructAnnot wraps content associated with an annotation other than a
+	// link (e.g. a comment's visible marker).
+	StructAnnot StructType = "/Annot"
+	// StructForm marks a form field's visible representation as part of the
+	// reading order — distinct from the AcroForm field itself.
+	StructForm StructType = "/Form"
+	// StructBibEntry is one entry in a bibliography.
+	StructBibEntry StructType = "/BibEntry"
+	// StructBlockQuote is a block-level (multi-paragraph) quotation, as
+	// opposed to StructQuote's inline one.
+	StructBlockQuote StructType = "/BlockQuote"
+	// StructIndex is a sequence of entries in a back-of-book index.
+	StructIndex StructType = "/Index"
+	// StructTOC is a table of contents; its entries are StructTOCI.
+	StructTOC StructType = "/TOC"
+	// StructTOCI is one table-of-contents entry, typically containing a
+	// StructLink (AddObjectReference) to its target.
+	StructTOCI StructType = "/TOCI"
+	// StructNonStruct groups content that carries no useful structural
+	// meaning of its own without excluding it from the tree entirely (unlike
+	// TagArtifact, which removes content from the tree).
+	StructNonStruct StructType = "/NonStruct"
+	// StructPrivate is application-specific content a generic reader can
+	// ignore the internal structure of, but should not discard.
+	StructPrivate StructType = "/Private"
+	// StructReference is a citation to content elsewhere in the document.
+	StructReference StructType = "/Reference"
+	// StructRuby and StructWarichu are East Asian typography annotations
+	// (ISO 32000-2): a ruby gloss above/beside base text, and interlinear
+	// (two-line) annotation text respectively.
+	StructRuby    StructType = "/Ruby"
+	StructWarichu StructType = "/Warichu"
 )
 
 // TaggedContent is the facade for authoring a Tagged PDF (ISO 32000-1 §14.8): it
@@ -59,8 +92,15 @@ type TaggedContent struct {
 
 	// Per-page bookkeeping for the /ParentTree number tree.
 	pages    map[int]*pageStructInfo // page index → info
-	nextSP   int                     // next /StructParents index
+	nextSP   int                     // next /StructParents / /StructParent index (shared key space)
 	nextMCID map[int]int             // page index → next MCID
+	// objRefs holds one entry per annotation associated with the structure
+	// tree via AddObjectReference: the /StructParent index assigned to that
+	// annotation maps directly to a reference to the owning structure
+	// element (not an array, unlike a page's /StructParents entry) — the two
+	// kinds of entry share one /ParentTree number tree, distinguished only by
+	// the shape of their value.
+	objRefs map[int]pdfValue
 }
 
 type pageStructInfo struct {
@@ -89,6 +129,7 @@ func (d *Document) TaggedContent() *TaggedContent {
 		doc:      d,
 		pages:    map[int]*pageStructInfo{},
 		nextMCID: map[int]int{},
+		objRefs:  map[int]pdfValue{},
 	}
 
 	// Document root structure element.
@@ -141,11 +182,20 @@ func (tc *TaggedContent) SetLanguage(lang string) {
 // returns it. Use it for containers (Sect, Table, TR, TD, L, LI, …) that hold
 // other elements rather than wrapping content directly.
 func (e *StructElement) AddChild(t StructType) *StructElement {
+	child := e.newChild(t)
+	child.dict["/K"] = pdfArray{}
+	return child
+}
+
+// newChild creates and registers a structure element of type t as a child of
+// e, without initializing /K — the caller sets it (a child array for
+// AddChild, an object reference for AddObjectReference, an MCID for
+// TagContent).
+func (e *StructElement) newChild(t StructType) *StructElement {
 	dict := pdfDict{
 		"/Type": pdfName("/StructElem"),
 		"/S":    pdfName(string(t)),
 		"/P":    pdfRef{Num: e.objID},
-		"/K":    pdfArray{},
 	}
 	id := e.tc.doc.addObject(dict)
 	e.addKidRef(pdfRef{Num: id})
@@ -171,6 +221,39 @@ func (e *StructElement) addKidRef(ref pdfValue) {
 	default:
 		e.dict["/K"] = pdfArray{k, ref}
 	}
+}
+
+// AddObjectReference ties e directly to annot via an Object Reference
+// (/OBJR, ISO 32000-1 §14.7.4.4) rather than marked content — the mechanism
+// a /Link structure element uses to point at its LinkAnnotation, so
+// assistive technology can associate the two (also valid for any other
+// annotation type, e.g. bringing a Widget into reading order). annot must
+// already be attached to page (via (*AnnotationCollection).Add) before
+// calling this; it gains a /StructParent entry pointing back at e.
+//
+// Composes with the existing primitives rather than replacing them: a link
+// whose visible text is itself tagged calls this on the element TagContent
+// returned; a link with no separately-tagged visible text (e.g. an image
+// link tagged as /Figure elsewhere) calls it on a bare AddChild(StructLink).
+func (e *StructElement) AddObjectReference(page *Page, annot Annotation) error {
+	base := annot.annotationBaseRef()
+	if base.objID == 0 {
+		return fmt.Errorf("AddObjectReference: annotation must be added to the page (Annotations().Add) first")
+	}
+	objr := pdfDict{
+		"/Type": pdfName("/OBJR"),
+		"/Pg":   pdfRef{Num: page.pageObj().Num},
+		"/Obj":  pdfRef{Num: base.objID},
+	}
+	e.addKidRef(objr)
+
+	tc := e.tc
+	idx := tc.nextSP
+	tc.nextSP++
+	base.dict["/StructParent"] = idx
+	tc.objRefs[idx] = pdfRef{Num: e.objID}
+	tc.rebuildParentTree()
+	return nil
 }
 
 // TagContent draws a block of page content (everything the draw callback emits)
@@ -240,20 +323,27 @@ func (tc *TaggedContent) pageInfo(pageIndex int, pageDict pdfDict) *pageStructIn
 	return info
 }
 
-// rebuildParentTree writes the /ParentTree /Nums from the per-page arrays, keyed
-// by /StructParents index in ascending order.
+// rebuildParentTree writes the /ParentTree /Nums, keyed by /StructParents (a
+// page's MCID array) or /StructParent (a single annotation's direct owning
+// element, from AddObjectReference) index, in ascending order — the two
+// kinds of entry share one number tree and one index space, distinguished
+// only by the shape of their value.
 func (tc *TaggedContent) rebuildParentTree() {
-	idx := make([]int, 0, len(tc.pages))
-	for i := range tc.pages {
-		idx = append(idx, i)
+	type entry struct {
+		idx int
+		val pdfValue
 	}
-	sort.Slice(idx, func(a, b int) bool {
-		return tc.pages[idx[a]].structParent < tc.pages[idx[b]].structParent
-	})
+	entries := make([]entry, 0, len(tc.pages)+len(tc.objRefs))
+	for _, info := range tc.pages {
+		entries = append(entries, entry{info.structParent, info.kids})
+	}
+	for idx, ref := range tc.objRefs {
+		entries = append(entries, entry{idx, ref})
+	}
+	sort.Slice(entries, func(a, b int) bool { return entries[a].idx < entries[b].idx })
 	nums := pdfArray{}
-	for _, i := range idx {
-		info := tc.pages[i]
-		nums = append(nums, info.structParent, info.kids)
+	for _, e := range entries {
+		nums = append(nums, e.idx, e.val)
 	}
 	if obj, ok := tc.doc.objects[tc.parentNum]; ok {
 		if d, ok := obj.Value.(pdfDict); ok {

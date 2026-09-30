@@ -151,8 +151,10 @@ flowchart TD
   presentation mode — so viewers show a navigable table instead of a plain attachment list, and
   the cover page still opens anywhere.
 - **Tagged PDF and PDF/UA accessibility** — `Document.TaggedContent()` builds a logical structure
-  tree as content is drawn (`TagContent`, `AddTaggedTable`, `AddTaggedList`), and
-  `Document.ValidatePDFUA()` reports the PDF/UA-1 prerequisites still missing.
+  tree as content is drawn (`TagContent`, `AddTaggedTable`, `AddTaggedList`), links and other
+  annotations join the tree via `StructElement.AddObjectReference` (an `/OBJR` to the annotation
+  itself, not marked content), and `Document.ValidatePDFUA()` reports the PDF/UA-1 prerequisites
+  still missing.
 - **PDF/A and structural validation** — `Validate` checks structural integrity;
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
@@ -877,6 +879,9 @@ stays free of network code.
   call (repeating header rows become `/TH`); `AddTaggedList` does the same for bulleted/numbered
   lists. Decoration (headers, footers, page numbers) is marked as an artifact so it stays out of
   the structure tree.
+- `StructElement.AddObjectReference` associates a structure element directly with an annotation via
+  an `/OBJR` (ISO 32000-1 §14.7.4.4) instead of marked content — the way a `/Link` element points at
+  its `LinkAnnotation` — and composes with `AddChild`/`TagContent` rather than replacing them.
 
 ### Rendering to Images
 
