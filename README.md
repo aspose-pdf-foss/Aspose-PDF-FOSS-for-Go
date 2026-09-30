@@ -201,7 +201,11 @@ flowchart TD
   word comparer can't — moved or edited graphics, font substitution — by rasterizing both pages and
   diffing pixels, reporting a changed-pixel ratio and a difference image; `SideBySideComparePages`/
   `SideBySideCompareDocuments` lay the marked-up before/after side by side in one vector spread PDF.
-  Mirrors Aspose.PDF for .NET's `TextPdfComparer`, `GraphicalPdfComparer` and `SideBySidePdfComparer`.
+  `HTMLDiffOutputGenerator`/`JSONDiffOutputGenerator`/`MarkdownDiffOutputGenerator`/
+  `PDFDiffOutputGenerator` serialize the same differences as an HTML fragment, JSON, GFM Markdown, or
+  a generated, colored PDF report. Mirrors Aspose.PDF for .NET's `TextPdfComparer`,
+  `GraphicalPdfComparer`, `SideBySidePdfComparer` and the `Aspose.Pdf.Comparison.OutputGenerator`
+  namespace.
 - **AI copilots** — the `ai` subpackage adds document summarization (`SummaryCopilot`), OCR of
   scanned pages with a `MakeSearchable` pipeline that writes recognized text back as an invisible,
   selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
