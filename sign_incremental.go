@@ -4,7 +4,6 @@ package asposepdf
 
 import (
 	"bytes"
-	"crypto/md5"
 	"fmt"
 	"sort"
 	"strconv"
@@ -421,25 +420,10 @@ func (d *Document) uniqueSignatureFieldName() string {
 }
 
 // incrementalID returns the two /ID elements for the appended trailer,
-// reusing the original file identity when present and deriving one otherwise.
+// reusing the original file identity when present and deriving one otherwise
+// from the original source bytes.
 func (d *Document) incrementalID() ([]byte, []byte) {
-	get := func(v pdfValue) []byte {
-		switch s := v.(type) {
-		case pdfHexString:
-			return []byte(s)
-		case string:
-			return []byte(s)
-		}
-		return nil
-	}
-	if len(d.docID) == 2 {
-		id0, id1 := get(d.docID[0]), get(d.docID[1])
-		if id0 != nil && id1 != nil {
-			return id0, id1
-		}
-	}
-	sum := md5.Sum(d.source)
-	return sum[:], sum[:]
+	return d.documentFileID(d.source)
 }
 
 // lastStartxref returns the byte offset referenced by the file's final

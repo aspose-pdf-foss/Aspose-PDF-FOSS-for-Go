@@ -251,6 +251,9 @@ func buildObjectStreamPDF(d *Document, asm *assembled) ([]byte, error) {
 	if encState != nil {
 		dict["/Encrypt"] = pdfDirectRef{Num: asm.encryptObjID}
 		dict["/ID"] = pdfArray{pdfHexString(encState.fileID), pdfHexString(encState.fileID)}
+	} else {
+		id0, id1 := d.documentFileID(buf.Bytes())
+		dict["/ID"] = pdfArray{pdfHexString(id0), pdfHexString(id1)}
 	}
 	// The cross-reference stream is never encrypted (ISO 32000-1 §7.5.8.2).
 	if err := writeObject(&buf, xrefNum, &pdfStream{Dict: dict, Data: data, Decoded: true}, identity, nil); err != nil {

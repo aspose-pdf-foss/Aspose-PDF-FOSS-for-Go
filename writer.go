@@ -5,11 +5,40 @@ package asposepdf
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/md5"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+// documentFileID returns the two /ID elements for a fresh (non-incremental)
+// trailer: the original file's /ID when the document was opened from one
+// (ISO 32000-1 §14.4's "permanent identifier" is kept across a re-save that
+// way), otherwise a deterministic pair derived by hashing body — the bytes
+// already written for this save — so repeated saves of the same in-memory
+// content get the same /ID rather than omitting one, as PDF/A requires
+// (ISO 19005-2 §6.1.3). Shared with incrementalID, which passes the
+// original source bytes instead of a freshly-built body.
+func (d *Document) documentFileID(body []byte) ([]byte, []byte) {
+	get := func(v pdfValue) []byte {
+		switch s := v.(type) {
+		case pdfHexString:
+			return []byte(s)
+		case string:
+			return []byte(s)
+		}
+		return nil
+	}
+	if len(d.docID) == 2 {
+		id0, id1 := get(d.docID[0]), get(d.docID[1])
+		if id0 != nil && id1 != nil {
+			return id0, id1
+		}
+	}
+	sum := md5.Sum(body)
+	return sum[:], sum[:]
+}
 
 // buildDocumentPDF serializes d to a PDF byte slice.
 func buildDocumentPDF(d *Document) ([]byte, error) {
@@ -155,6 +184,13 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		writeHexBytes(&buf, encState.fileID)
 		buf.WriteString(" ")
 		writeHexBytes(&buf, encState.fileID)
+		buf.WriteString("]\n")
+	} else {
+		id0, id1 := d.documentFileID(buf.Bytes())
+		buf.WriteString("/ID [")
+		writeHexBytes(&buf, id0)
+		buf.WriteString(" ")
+		writeHexBytes(&buf, id1)
 		buf.WriteString("]\n")
 	}
 	buf.WriteString(">>\n")
