@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	pdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
@@ -134,47 +135,78 @@ func TestOptimizeCompressesUncompressedContent(t *testing.T) {
 	}
 }
 
-// BenchmarkOptimizeManyAddTextCalls reproduces GitHub issue #9: a page built
-// from many small AddText calls, each of which replaces /Contents with a
+// buildManyAddTextDoc reproduces GitHub issue #9's repro shape: 20 pages,
+// 200 AddText calls each. Every call replaces a page's /Contents with a
 // fresh object holding the whole concatenated content
 // ((*Page).appendToContentStream), leaving every earlier copy dead in the
-// object table. Before the fix, RemoveDuplicateStreams (and CompressStreams)
-// hashed/scanned every one of those dead copies before RemoveUnusedObjects
-// ever got a chance to clear them away; Optimize's doc comment now explains
-// why a pre-pass avoids that. Run with
-// `go test -bench BenchmarkOptimizeManyAddTextCalls -benchtime=5x -run NONE .`
-// to see the effect directly (the reporter measured roughly 25x on this
-// exact shape before the fix).
-func BenchmarkOptimizeManyAddTextCalls(b *testing.B) {
-	build := func() *pdf.Document {
-		doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
-		font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
-		if err != nil {
-			b.Fatal(err)
-		}
-		for p := 1; p <= 20; p++ {
-			if p > 1 {
-				if err := doc.AddBlankPageFromFormat(pdf.PageFormatA4); err != nil {
-					b.Fatal(err)
-				}
-			}
-			page, err := doc.Page(p)
-			if err != nil {
-				b.Fatal(err)
-			}
-			for i := 0; i < 200; i++ {
-				y, x := 800-float64(i%50)*15, 50+float64(i/50)*120
-				if err := page.AddText(fmt.Sprintf("cell %d/%d", p, i), pdf.TextStyle{Font: font, Size: 8},
-					pdf.Rectangle{LLX: x, LLY: y - 12, URX: x + 110, URY: y}); err != nil {
-					b.Fatal(err)
-				}
-			}
-		}
-		return doc
+// object table — the root cause the pre-pass in Optimize's doc comment
+// addresses.
+func buildManyAddTextDoc(t testing.TB) *pdf.Document {
+	t.Helper()
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
 	}
+	for p := 1; p <= 20; p++ {
+		if p > 1 {
+			if err := doc.AddBlankPageFromFormat(pdf.PageFormatA4); err != nil {
+				t.Fatal(err)
+			}
+		}
+		page, err := doc.Page(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 200; i++ {
+			y, x := 800-float64(i%50)*15, 50+float64(i/50)*120
+			if err := page.AddText(fmt.Sprintf("cell %d/%d", p, i), pdf.TextStyle{Font: font, Size: 8},
+				pdf.Rectangle{LLX: x, LLY: y - 12, URX: x + 110, URY: y}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return doc
+}
 
+// TestOptimizeManyAddTextCallsStaysFast is a loose-timing regression guard
+// for the performance side of GitHub issue #9: TestOptimizeRemovedObjects
+// CountsBothPasses (optimize_internal_test.go) only pins the RemovedObjects
+// accumulation arithmetic, not that the pre-pass actually runs before
+// RemoveDuplicateStreams/CompressStreams get to it — a regression that
+// deleted the pre-pass block entirely while leaving the final pass's +=
+// untouched would keep that test green (confirmed by mutation-testing during
+// review). This asserts Optimize finishes within a generous bound on the
+// issue's own reproduction shape: on the machine this was written on, the
+// fix measures ~70ms and the regressed code ~2.5s: a 2s budget leaves wide
+// margin on both sides (room for a much slower CI machine on the fast path,
+// while still falling well short of the slow path) rather than trying to
+// assert a precise number.
+func TestOptimizeManyAddTextCallsStaysFast(t *testing.T) {
+	doc := buildManyAddTextDoc(t)
+	start := time.Now()
+	if _, err := doc.Optimize(pdf.OptimizationOptions{RemoveUnusedObjects: true, SubsetFonts: true, RemoveDuplicateStreams: true}); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("Optimize took %v on a 20-page/200-AddText-calls-per-page document, want well under 2s -- "+
+			"the RemoveUnusedObjects pre-pass may have regressed (GitHub issue #9)", elapsed)
+	}
+}
+
+// BenchmarkOptimizeManyAddTextCalls is TestOptimizeManyAddTextCallsStaysFast's
+// precise-timing counterpart: run with
+// `go test -bench BenchmarkOptimizeManyAddTextCalls -benchtime=5x -run NONE .`
+// to see the actual speedup (the reporter measured roughly 25x on this exact
+// shape before the fix).
+func BenchmarkOptimizeManyAddTextCalls(b *testing.B) {
+	// A benchmark function's timer is already running on entry, so without
+	// this the first iteration's buildManyAddTextDoc (untimed on every later
+	// iteration, since each one ends with b.StopTimer()) would leak into the
+	// very first measurement.
+	b.StopTimer()
 	for i := 0; i < b.N; i++ {
-		doc := build()
+		doc := buildManyAddTextDoc(b)
 		b.StartTimer()
 		if _, err := doc.Optimize(pdf.OptimizationOptions{RemoveUnusedObjects: true, SubsetFonts: true, RemoveDuplicateStreams: true}); err != nil {
 			b.Fatal(err)
