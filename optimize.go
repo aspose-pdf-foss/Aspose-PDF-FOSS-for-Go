@@ -71,11 +71,30 @@ func DefaultOptimizationOptions() OptimizationOptions {
 // of what changed. Call before Save/WriteTo. Mirrors Aspose.PDF for .NET's
 // Document.OptimizeResources(OptimizationOptions).
 //
-// Order: images → fonts (unembed, then subset what's left embedded) →
-// compress streams → dedupe streams → remove unused objects (so anything a
-// transform orphans is reclaimed last).
+// Order: remove unused objects (a pre-pass, see below) → images → fonts
+// (unembed, then subset what's left embedded) → compress streams → dedupe
+// streams → remove unused objects again (so anything a transform orphans is
+// reclaimed last). RemovedObjects reports the sum of both passes.
+//
+// The pre-pass exists because every (*Page).AddText call (and every table
+// cell) replaces a page's /Contents with a brand-new stream object holding
+// the whole concatenated content (image_add.go's appendToContentStream) —
+// the old one is left dead in d.objects, with nothing referencing it any
+// more. On a page built from many small AddText calls this means many dead
+// copies piling up, which RemoveDuplicateStreams and CompressStreams would
+// otherwise both walk and hash/compress for nothing before the final pass
+// clears them away — on a 20-page, 200-calls-per-page document this made
+// Optimize ~25x slower for no change in the end result. Running the same
+// removal once at the very start avoids that wasted work; it changes nothing
+// about which objects survive Optimize overall, only when the already-dead
+// ones are noticed, since nothing later in this method can make a genuinely
+// unreachable object reachable again. Reported with a clear reproduction and
+// a correct diagnosis by Kare-ino (GitHub issue #9) — thank you.
 func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error) {
 	var res OptimizationResult
+	if opts.RemoveUnusedObjects {
+		res.RemovedObjects += d.RemoveUnusedObjects()
+	}
 	if opts.Images != nil {
 		n, err := d.OptimizeImages(*opts.Images)
 		if err != nil {
@@ -100,7 +119,7 @@ func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error
 		res.DeduplicatedStreams = d.removeDuplicateStreams()
 	}
 	if opts.RemoveUnusedObjects {
-		res.RemovedObjects = d.RemoveUnusedObjects()
+		res.RemovedObjects += d.RemoveUnusedObjects()
 	}
 	if opts.CompressObjects {
 		d.compressObjects = true

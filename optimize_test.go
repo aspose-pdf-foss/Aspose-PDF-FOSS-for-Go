@@ -4,6 +4,7 @@ package asposepdf_test
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -130,6 +131,55 @@ func TestOptimizeCompressesUncompressedContent(t *testing.T) {
 	pages, _ := reopened.ExtractText()
 	if !strings.Contains(strings.Join(pages, ""), "Hello world.") {
 		t.Error("text lost after compression")
+	}
+}
+
+// BenchmarkOptimizeManyAddTextCalls reproduces GitHub issue #9: a page built
+// from many small AddText calls, each of which replaces /Contents with a
+// fresh object holding the whole concatenated content
+// ((*Page).appendToContentStream), leaving every earlier copy dead in the
+// object table. Before the fix, RemoveDuplicateStreams (and CompressStreams)
+// hashed/scanned every one of those dead copies before RemoveUnusedObjects
+// ever got a chance to clear them away; Optimize's doc comment now explains
+// why a pre-pass avoids that. Run with
+// `go test -bench BenchmarkOptimizeManyAddTextCalls -benchtime=5x -run NONE .`
+// to see the effect directly (the reporter measured roughly 25x on this
+// exact shape before the fix).
+func BenchmarkOptimizeManyAddTextCalls(b *testing.B) {
+	build := func() *pdf.Document {
+		doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+		font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+		if err != nil {
+			b.Fatal(err)
+		}
+		for p := 1; p <= 20; p++ {
+			if p > 1 {
+				if err := doc.AddBlankPageFromFormat(pdf.PageFormatA4); err != nil {
+					b.Fatal(err)
+				}
+			}
+			page, err := doc.Page(p)
+			if err != nil {
+				b.Fatal(err)
+			}
+			for i := 0; i < 200; i++ {
+				y, x := 800-float64(i%50)*15, 50+float64(i/50)*120
+				if err := page.AddText(fmt.Sprintf("cell %d/%d", p, i), pdf.TextStyle{Font: font, Size: 8},
+					pdf.Rectangle{LLX: x, LLY: y - 12, URX: x + 110, URY: y}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		}
+		return doc
+	}
+
+	for i := 0; i < b.N; i++ {
+		doc := build()
+		b.StartTimer()
+		if _, err := doc.Optimize(pdf.OptimizationOptions{RemoveUnusedObjects: true, SubsetFonts: true, RemoveDuplicateStreams: true}); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
 	}
 }
 

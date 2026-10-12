@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -81,6 +82,45 @@ func TestRemoveDuplicateStreams(t *testing.T) {
 	}
 	if ref, ok := hd["/A"].(pdfRef); !ok || ref.Num != a {
 		t.Errorf("holder /A = %v; want ref to keeper %d", hd["/A"], a)
+	}
+}
+
+// TestOptimizeRemovedObjectsCountsBothPasses pins GitHub issue #9's fix: the
+// pre-pass Optimize now runs at its start (to avoid RemoveDuplicateStreams
+// and CompressStreams hashing/scanning dead content-stream copies
+// appendToContentStream leaves behind, see Optimize's doc comment) must have
+// its removed-count ADDED to the final pass's, not overwritten by it. With
+// only RemoveUnusedObjects enabled here, the pre-pass removes every dead
+// copy and the final pass then finds nothing left — a `res.RemovedObjects =
+// d.RemoveUnusedObjects()` on the final call (instead of +=) would silently
+// report 0 removed even though real garbage was cleared.
+func TestOptimizeRemovedObjectsCountsBothPasses(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	p, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each call replaces /Contents with a brand-new object; the previous one
+	// is left dead. 6 calls -> 5 dead copies for the pre-pass to clear.
+	for i := 0; i < 6; i++ {
+		if err := p.AddText(fmt.Sprintf("line %d", i), TextStyle{Size: 10},
+			Rectangle{LLX: 50, LLY: float64(700 - i*20), URX: 300, URY: float64(720 - i*20)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	before := len(doc.objects)
+	res, err := doc.Optimize(OptimizationOptions{RemoveUnusedObjects: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := len(doc.objects)
+
+	if got, want := before-after, res.RemovedObjects; got != want {
+		t.Errorf("Optimize actually removed %d objects (before=%d after=%d) but reported RemovedObjects=%d", got, before, after, want)
+	}
+	if res.RemovedObjects < 5 {
+		t.Errorf("RemovedObjects = %d, want at least 5 (the dead content-stream copies)", res.RemovedObjects)
 	}
 }
 
