@@ -97,7 +97,13 @@ func TestWriteToFileIDStableAcrossResaves(t *testing.T) {
 // TestWriteToPreservesFileIDAcrossReopen: ISO 32000-1 §14.4 treats the first
 // /ID element as a permanent identifier for the file's lineage. Re-saving a
 // document opened from an existing (unencrypted) file must keep it rather
-// than minting a fresh one every time.
+// than minting a fresh one every time — including after real content changes,
+// which is the only way to tell this apart from the content-hash fallback
+// coincidentally reproducing the same value: a no-op reopen+resave of
+// unchanged content would still match even without the reuse branch at all,
+// since buildDocumentPDF is itself deterministic (found by mutation-testing
+// the fix during review — an earlier version of this test only did a no-op
+// resave and stayed green with the reuse branch deleted).
 func TestWriteToPreservesFileIDAcrossReopen(t *testing.T) {
 	var original bytes.Buffer
 	if _, err := textOnlyDoc(t, "original").WriteTo(&original); err != nil {
@@ -107,6 +113,17 @@ func TestWriteToPreservesFileIDAcrossReopen(t *testing.T) {
 
 	reopened, err := pdf.OpenStream(bytes.NewReader(original.Bytes()))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A real content mutation, not a no-op resave: without this, the
+	// content-hash fallback could reproduce the same ID by coincidence even
+	// if the d.docID reuse branch were missing entirely.
+	page, err := reopened.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := page.AddText("a whole new paragraph that changes every byte downstream",
+		pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12}, pdf.Rectangle{LLX: 50, LLY: 600, URX: 545, URY: 650}); err != nil {
 		t.Fatal(err)
 	}
 	var resaved bytes.Buffer
