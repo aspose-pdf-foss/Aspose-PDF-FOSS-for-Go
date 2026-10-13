@@ -2,21 +2,38 @@
 
 package asposepdf
 
-// rewriteImageOperatorsInStream removes XObject invocations (Do) whose
-// painted bbox falls entirely inside any redact region, and wraps
+import "fmt"
+
+// rewriteImageOperatorsInStream removes Image XObject invocations (Do)
+// whose painted bbox falls entirely inside any redact region, and wraps
 // partially-overlapping invocations in a q...Q with an even-odd clip
 // path that masks out the redacted area.
+//
+// A Form XObject (which, unlike an Image XObject, can itself contain
+// arbitrary text/path content — the very thing this feature exists to
+// remove) whose placed bbox intersects any region at all, fully or
+// partially, is refused rather than silently dropped/clipped: dropping
+// or clipping only the Do invocation leaves the form's own content
+// stream untouched and fully recoverable, since nothing in this
+// redaction pipeline recurses into a Form XObject's content (see
+// unsafeFormXObjectName). Confirmed reachable through this library's own
+// AddForm/NUp/Booklet/PdfPageStamp — all build on Form XObjects — by an
+// independent review of pdf-go-2qkq's fix. pdf-go-w5hl tracks the real
+// fix (recursing into Form XObject content, CTM-aware, per placement).
 //
 // Fully-outside Do operators are passed through unchanged. The CTM
 // state machine tracks q/Q nesting and cm pre-multiplications.
 // Operators other than q/Q/cm/Do are passed through unchanged.
-func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint) ([]byte, error) {
+func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
 	ops, err := parseContentStream(data)
 	if err != nil {
 		return nil, err
+	}
+	if name, found := unsafeFormXObjectName(ops, regions, objects, resources); found {
+		return nil, fmt.Errorf("asposepdf: ApplyRedactions: a redaction region intersects Form XObject %q; redacting a Form XObject's own content is not supported yet (pdf-go-w5hl) — flatten it into page content first, or keep redaction regions clear of it", name)
 	}
 
 	ctm := identityMatrix()
@@ -198,4 +215,67 @@ func boundsOfQuad(q QuadPoint) (minX, minY, maxX, maxY float64) {
 	minY = minF(minF(q.Y1, q.Y2), minF(q.Y3, q.Y4))
 	maxY = maxF(maxF(q.Y1, q.Y2), maxF(q.Y3, q.Y4))
 	return
+}
+
+// xobjectSubtype resolves name within resources' /XObject dict and
+// returns its /Subtype ("/Form" or "/Image"), or "" if it can't be
+// resolved.
+func xobjectSubtype(objects map[int]*pdfObject, resources pdfDict, name string) string {
+	if resources == nil {
+		return ""
+	}
+	xobjDict, ok := resolveRefToDict(objects, resources["/XObject"])
+	if !ok {
+		return ""
+	}
+	ref, ok := xobjDict[name]
+	if !ok {
+		return ""
+	}
+	if st, ok := resolveRef(objects, ref).(*pdfStream); ok {
+		return dictGetName(st.Dict, "/Subtype")
+	}
+	return ""
+}
+
+// unsafeFormXObjectName scans ops (CTM-aware, same q/Q/cm tracking as
+// rewriteImageOperatorsInStream) for a Do invocation of a Form XObject
+// whose placed bbox intersects any region, fully or partially. Shared by
+// ValidateRedactions (read-only pre-flight) and rewriteImageOperatorsInStream
+// (which refuses to proceed rather than silently drop/clip it) — see the
+// package comment on rewriteImageOperatorsInStream for why a Form XObject
+// needs this and an Image XObject doesn't.
+func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict) (string, bool) {
+	if len(regions) == 0 {
+		return "", false
+	}
+	ctm := identityMatrix()
+	var stack [][6]float64
+	for _, op := range ops {
+		switch op.Operator {
+		case "q":
+			stack = append(stack, ctm)
+		case "Q":
+			if len(stack) > 0 {
+				ctm = stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+			}
+		case "cm":
+			if m, ok := readCMMatrix(op.Operands); ok {
+				ctm = matMul(m, ctm)
+			}
+		case "Do":
+			if len(op.Operands) == 0 {
+				continue
+			}
+			name := operandName(op.Operands[0])
+			if xobjectSubtype(objects, resources, name) != "/Form" {
+				continue
+			}
+			if classifyDoBbox(ctm, regions).kind != keepDo {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }

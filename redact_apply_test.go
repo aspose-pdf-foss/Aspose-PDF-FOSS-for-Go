@@ -276,3 +276,43 @@ func TestApplyRedactionsNoOverlayKeepsFill(t *testing.T) {
 		t.Errorf("expected annotation removed, Count = %d", got)
 	}
 }
+
+// TestApplyRedactionsRefusesFormXObjectInRegion pins a high-severity gap an
+// independent review of pdf-go-2qkq's fix found: a Form XObject (unlike an
+// Image XObject) can itself hold arbitrary text/path content, and nothing in
+// this redaction pipeline recurses into one -- dropping or clipping its Do
+// invocation would leave that content fully recoverable while ApplyRedactions
+// reports success. Confirmed reachable through this library's own documented
+// AddForm/CreateForm API (NUp/Booklet/PdfPageStamp build on the same Form
+// XObject mechanism and are affected the same way). Until the real fix
+// (recursing into Form XObject content, pdf-go-w5hl) ships, both
+// ValidateRedactions and ApplyRedactions must refuse rather than silently
+// succeed.
+func TestApplyRedactionsRefusesFormXObjectInRegion(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.CreateForm(200, 100)
+	const secret = "FORMXOBJECT-SECRET-998877"
+	if err := form.Canvas().AddText(secret, pdf.TextStyle{Size: 12},
+		pdf.Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement := pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}
+	if err := page.AddForm(form, placement); err != nil {
+		t.Fatal(err)
+	}
+	ra := pdf.NewRedactAnnotation(page, placement) // fully covers the form
+	if err := page.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.ValidateRedactions(); err == nil {
+		t.Error("ValidateRedactions: want an error (region intersects a Form XObject), got nil")
+	}
+	if err := doc.ApplyRedactions(); err == nil {
+		t.Error("ApplyRedactions: want an error (region intersects a Form XObject), got nil")
+	}
+}

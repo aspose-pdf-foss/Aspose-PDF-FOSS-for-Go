@@ -9,7 +9,7 @@ import (
 
 func TestRewriteImageNoRegions(t *testing.T) {
 	in := []byte("q\n100 0 0 50 200 600 cm\n/Img1 Do\nQ\n")
-	out, err := rewriteImageOperatorsInStream(in, nil)
+	out, err := rewriteImageOperatorsInStream(in, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestRewriteImageFullyOutside(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 100, X2: 100, Y2: 100, X3: 0, Y3: 0, X4: 100, Y4: 0},
 	}
-	out, err := rewriteImageOperatorsInStream(in, regions)
+	out, err := rewriteImageOperatorsInStream(in, regions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestRewriteImageFullyInside(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 700, X2: 600, Y2: 700, X3: 0, Y3: 500, X4: 600, Y4: 500},
 	}
-	out, err := rewriteImageOperatorsInStream(in, regions)
+	out, err := rewriteImageOperatorsInStream(in, regions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRewriteImagePartialOverlap(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 250, Y1: 700, X2: 400, Y2: 700, X3: 250, Y3: 620, X4: 400, Y4: 620},
 	}
-	out, err := rewriteImageOperatorsInStream(in, regions)
+	out, err := rewriteImageOperatorsInStream(in, regions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestRewriteImageMultipleDoOnPage(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 700, X2: 600, Y2: 700, X3: 0, Y3: 500, X4: 600, Y4: 500},
 	}
-	out, err := rewriteImageOperatorsInStream(in, regions)
+	out, err := rewriteImageOperatorsInStream(in, regions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestRewriteImageCTMNesting(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 100, X2: 50, Y2: 100, X3: 0, Y3: 0, X4: 50, Y4: 0},
 	}
-	out, err := rewriteImageOperatorsInStream(in, regions)
+	out, err := rewriteImageOperatorsInStream(in, regions, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestRewriteImagePassthroughNonImageOps(t *testing.T) {
 	in := []byte("BT\n/F1 12 Tf\n(Hello) Tj\nET\n100 100 m 200 200 l S\n")
 	out, err := rewriteImageOperatorsInStream(in, []QuadPoint{
 		{X1: 0, Y1: 1000, X2: 1000, Y2: 1000, X3: 0, Y3: 0, X4: 1000, Y4: 0},
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

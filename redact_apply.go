@@ -7,18 +7,24 @@ import (
 	"strings"
 )
 
-// ValidateRedactions performs a pre-flight dry-run parseability check on
-// every page that has at least one RedactAnnotation. Returns the first
-// content-stream parse error encountered, or nil if every redact-bearing
-// page's content stream parses cleanly. Pages without redact annotations
-// are not inspected.
+// ValidateRedactions performs a pre-flight dry-run check on every page that
+// has at least one RedactAnnotation: its content stream must parse, and no
+// redaction region may intersect a Form XObject the page draws (see
+// unsafeFormXObjectName — ApplyRedactions cannot safely redact into a Form
+// XObject's own content, pdf-go-w5hl). Returns the first problem found, or
+// nil if every redact-bearing page is safe to process. Pages without redact
+// annotations are not inspected.
 //
-// Callers should invoke this before ApplyRedactions to surface malformed
-// content streams up-front; ApplyRedactions has best-effort semantics
-// and may leave partial state on failure.
+// Callers should invoke this before ApplyRedactions to surface problems
+// up-front; ApplyRedactions has best-effort semantics and may leave
+// partial state on failure.
 func (d *Document) ValidateRedactions() error {
 	for _, page := range d.Pages() {
 		if !pageHasRedact(page) {
+			continue
+		}
+		regions := collectRedactRegions(page)
+		if len(regions) == 0 {
 			continue
 		}
 		data, err := page.contentStreams()
@@ -28,11 +34,35 @@ func (d *Document) ValidateRedactions() error {
 		if data == nil {
 			continue
 		}
-		if _, err := parseContentStream(data); err != nil {
+		ops, err := parseContentStream(data)
+		if err != nil {
 			return fmt.Errorf("ValidateRedactions: page %d content stream: %w", page.Number(), err)
+		}
+		resources := page.pageResources()
+		if name, found := unsafeFormXObjectName(ops, regions, d.objects, resources); found {
+			return fmt.Errorf("ValidateRedactions: page %d: a redaction region intersects Form XObject %q; ApplyRedactions cannot safely redact a Form XObject's own content (flatten it into page content first, or keep redaction regions clear of it)", page.Number(), name)
 		}
 	}
 	return nil
+}
+
+// collectRedactRegions gathers the /QuadPoints (or /Rect fallback) of
+// every RedactAnnotation on p.
+func collectRedactRegions(p *Page) []QuadPoint {
+	var regions []QuadPoint
+	coll := p.Annotations()
+	for i := 0; i < coll.Count(); i++ {
+		ra, ok := coll.At(i).(*RedactAnnotation)
+		if !ok {
+			continue
+		}
+		qps := ra.QuadPoints()
+		if len(qps) == 0 {
+			qps = []QuadPoint{rectAsQuadPoint(ra.Rect())}
+		}
+		regions = append(regions, qps...)
+	}
+	return regions
 }
 
 // ApplyRedactions destructively removes content (text glyphs, image
@@ -58,16 +88,22 @@ func (d *Document) ValidateRedactions() error {
 // — is reclaimed too. Call ApplyRedactions only after placing everything
 // you mean to keep, same as any other Optimize-family call.
 //
-// Known gaps (not closed by this sweep, tracked separately): an image
+// Known gaps (not closed by this sweep, tracked separately): an Image
 // XObject fully inside a redaction region has its Do invocation dropped
 // from the content stream, but its /Resources/XObject entry is left in
 // place (graph-reachable, so RemoveUnusedObjects does not collect it) —
-// its pixel data stays in the file. Redacting a document that is later
-// saved incrementally (already signed, or AddValidationInfo) keeps the
+// its pixel data stays in the file. A Form XObject intersecting a region
+// at all is refused outright rather than silently left incomplete — see
+// unsafeFormXObjectName and pdf-go-w5hl — since unlike an image it can
+// itself hold arbitrary text/path content this pipeline never descends
+// into. A page's /Thumb thumbnail, if a producer embedded one, is never
+// touched by this method and may still show a miniature of the
+// pre-redaction page. Redacting a document that is later saved
+// incrementally (already signed, or AddValidationInfo) keeps the
 // original text in the earlier, byte-preserved revision by design.
 //
 // Best-effort semantics: partial state on failure. Call
-// ValidateRedactions first to surface parse errors before mutating.
+// ValidateRedactions first to surface problems before mutating.
 func (d *Document) ApplyRedactions() error {
 	redacted := 0
 	for _, page := range d.Pages() {
@@ -90,21 +126,13 @@ func (d *Document) ApplyRedactions() error {
 // and removes the redact annotations from the collection.
 func applyRedactionsToPage(p *Page) error {
 	// 1. Collect regions and redact annotation pointers.
-	var regions []QuadPoint
+	regions := collectRedactRegions(p)
 	coll := p.Annotations()
 	var redacts []*RedactAnnotation
 	for i := 0; i < coll.Count(); i++ {
-		ra, ok := coll.At(i).(*RedactAnnotation)
-		if !ok {
-			continue
+		if ra, ok := coll.At(i).(*RedactAnnotation); ok {
+			redacts = append(redacts, ra)
 		}
-		redacts = append(redacts, ra)
-		qps := ra.QuadPoints()
-		if len(qps) == 0 {
-			// Fallback: treat /Rect as a single quad.
-			qps = []QuadPoint{rectAsQuadPoint(ra.Rect())}
-		}
-		regions = append(regions, qps...)
 	}
 	if len(regions) == 0 {
 		return nil // no regions to apply
@@ -129,7 +157,7 @@ func applyRedactionsToPage(p *Page) error {
 	if err != nil {
 		return fmt.Errorf("text rewriter: %w", err)
 	}
-	data, err = rewriteImageOperatorsInStream(data, regions)
+	data, err = rewriteImageOperatorsInStream(data, regions, p.doc.objects, resources)
 	if err != nil {
 		return fmt.Errorf("image rewriter: %w", err)
 	}

@@ -23,8 +23,19 @@ func documentContainsBytes(d *Document, want string) (bool, int) {
 			if bytes.Contains(decodedStreamData(v), wb) {
 				found++
 			}
+			if dictContainsString(v.Dict, want) {
+				found++
+			}
 		case pdfDict:
 			if dictContainsString(v, want) {
+				found++
+			}
+		case pdfArray:
+			if arrayContainsString(v, want) {
+				found++
+			}
+		case pdfHexString, pdfRaw:
+			if valueContainsString(v, want) {
 				found++
 			}
 		}
@@ -32,15 +43,52 @@ func documentContainsBytes(d *Document, want string) (bool, int) {
 	return found > 0, found
 }
 
+// valueContainsString checks the handful of pdfValue shapes that can carry
+// a literal byte sequence directly (not nested in a dict/array): plain Go
+// strings, and the two []byte-based named types (pdfHexString, pdfRaw).
+func valueContainsString(v pdfValue, want string) bool {
+	switch vv := v.(type) {
+	case string:
+		return strings.Contains(vv, want)
+	case pdfHexString:
+		return bytes.Contains([]byte(vv), []byte(want))
+	case pdfRaw:
+		return bytes.Contains([]byte(vv), []byte(want))
+	}
+	return false
+}
+
 func dictContainsString(d pdfDict, want string) bool {
 	for _, v := range d {
+		if valueContainsString(v, want) {
+			return true
+		}
 		switch vv := v.(type) {
-		case string:
-			if strings.Contains(vv, want) {
-				return true
-			}
 		case pdfDict:
 			if dictContainsString(vv, want) {
+				return true
+			}
+		case pdfArray:
+			if arrayContainsString(vv, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func arrayContainsString(a pdfArray, want string) bool {
+	for _, v := range a {
+		if valueContainsString(v, want) {
+			return true
+		}
+		switch vv := v.(type) {
+		case pdfDict:
+			if dictContainsString(vv, want) {
+				return true
+			}
+		case pdfArray:
+			if arrayContainsString(vv, want) {
 				return true
 			}
 		}
