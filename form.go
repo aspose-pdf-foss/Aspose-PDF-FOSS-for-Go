@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "fmt"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 // Form is the document's AcroForm view. Always non-nil — for documents
 // without an /AcroForm dict, Form is empty (no fields, no flags). Field
@@ -182,12 +185,21 @@ func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName,
 	}
 }
 
-// encodeFormString encodes a Go string for storage as a PDF field value.
+// encodeFormString encodes a Go string for storage as a PDF text string.
 // ASCII strings are stored as Latin-1 (PDFDocEncoding-compatible);
 // non-ASCII strings are encoded as UTF-16BE with the 0xFE 0xFF BOM,
-// per ISO 32000-1 §7.9.2.2.
+// per ISO 32000-1 §7.9.2.2. A non-ASCII string that is not valid UTF-8 is
+// returned unchanged, treated as a PDF string a caller already encoded
+// (e.g. raw PDFDocEncoding high bytes, or a UTF-16BE+BOM byte sequence
+// built by hand as a workaround before this encoding existed) — GitHub
+// issue #13's own considerations about staying compatible with such
+// workarounds once SetInfo started encoding instead of passing bytes
+// through verbatim.
 func encodeFormString(s string) string {
 	if isASCII(s) {
+		return s
+	}
+	if !utf8.ValidString(s) {
 		return s
 	}
 	out := make([]byte, 0, len(s)*2+2)

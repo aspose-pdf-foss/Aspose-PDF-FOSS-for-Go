@@ -3,6 +3,7 @@
 package asposepdf_test
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 
@@ -226,5 +227,105 @@ func TestClearMetadata(t *testing.T) {
 		got.Keywords != "" || got.Creator != "" || got.Producer != "" ||
 		got.CreationDate != "" || got.ModDate != "" || len(got.Custom) != 0 {
 		t.Errorf("expected empty Info after ClearInfo, got %+v", got)
+	}
+}
+
+// TestSetInfoNonASCIIRoundTrip pins GitHub issue #13: a non-ASCII Info
+// value must round-trip through Save/Open byte-correctly -- it must also
+// be encoded correctly for OTHER readers (PDFDocEncoding/UTF-16BE per ISO
+// 32000-1 §7.9.2.2, not raw UTF-8 bytes), which TestInfoNonASCIIUsesTextStringEncoding
+// (metadata_internal_test.go) checks directly, since a round-trip within
+// this library alone can't tell the two apart (it decodes however it
+// encoded).
+func TestSetInfoNonASCIIRoundTrip(t *testing.T) {
+	doc := asposepdf.NewDocumentFromFormat(asposepdf.PageFormatA4)
+	want := asposepdf.DocumentInfo{
+		Title:    "Meldergruppenauslösung",
+		Author:   "Jane Doe (č)",
+		Subject:  "emoji: 😀",
+		Keywords: "日本語",
+	}
+	doc.SetInfo(want)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := asposepdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.Info()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != want.Title {
+		t.Errorf("Title: got %q, want %q", got.Title, want.Title)
+	}
+	if got.Author != want.Author {
+		t.Errorf("Author: got %q, want %q", got.Author, want.Author)
+	}
+	if got.Subject != want.Subject {
+		t.Errorf("Subject: got %q, want %q", got.Subject, want.Subject)
+	}
+	if got.Keywords != want.Keywords {
+		t.Errorf("Keywords: got %q, want %q", got.Keywords, want.Keywords)
+	}
+}
+
+// TestSetInfoDatesStayASCII confirms the fix does not touch /CreationDate
+// or /ModDate -- they are never ISO 32000-1 §7.9.2.2 text strings, always
+// plain ASCII date strings, per GitHub issue #13's own "Dates" consideration.
+func TestSetInfoDatesStayASCII(t *testing.T) {
+	doc := asposepdf.NewDocumentFromFormat(asposepdf.PageFormatA4)
+	want := asposepdf.DocumentInfo{
+		CreationDate: "D:20261013120000+03'00'",
+		ModDate:      "D:20261013130000+03'00'",
+	}
+	doc.SetInfo(want)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := asposepdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.Info()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CreationDate != want.CreationDate {
+		t.Errorf("CreationDate: got %q, want %q", got.CreationDate, want.CreationDate)
+	}
+	if got.ModDate != want.ModDate {
+		t.Errorf("ModDate: got %q, want %q", got.ModDate, want.ModDate)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(want.CreationDate)) {
+		t.Error("CreationDate is not stored as a plain ASCII literal in the saved file")
+	}
+}
+
+// TestSetInfoCustomFieldNonASCIIRoundTrip: custom Info entries get the same
+// text-string encoding/decoding as the standard fields.
+func TestSetInfoCustomFieldNonASCIIRoundTrip(t *testing.T) {
+	doc := asposepdf.NewDocumentFromFormat(asposepdf.PageFormatA4)
+	doc.SetInfo(asposepdf.DocumentInfo{Custom: map[string]string{"Department": "Übersetzung"}})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := asposepdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reopened.Info()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Custom["Department"] != "Übersetzung" {
+		t.Errorf("Custom[Department] = %q, want %q", got.Custom["Department"], "Übersetzung")
 	}
 }
