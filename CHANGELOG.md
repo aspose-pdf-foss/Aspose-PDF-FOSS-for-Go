@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-13
+
+The long-term validation and object-streams release. **Signatures gain revocation checking and LTV**: verification can ask the issuer over OCSP or a CRL whether a signing certificate was revoked, and `AddValidationInfo` lets a document carry its own certificates and revocation evidence as an appended revision, so earlier signatures keep validating years later. **Object streams** join `Optimize`'s default preset — packing non-stream objects into Flate-compressed object streams and a cross-reference stream for a further, fully lossless size reduction (21.6% smaller across the test corpus). The **document comparison epic completes**: graphical (pixel) comparison catches what word-diffing can't — moved graphics, font substitution, a replaced scan — side-by-side spreads stay vector instead of rasterized, and four diff output generators serialize a comparison as HTML, JSON, Markdown or a generated PDF report. **E-invoices** (ZUGFeRD / Factur-X) round out the PDF/A-3 associated-files story, and signing gains SHA-3 digests, signing-by-callback for keys the process never holds, and reading AES-256 revision 5. Three bugs reported against v0.9.0 by the community are fixed — a missing PDF/A trailer `/ID`, catalog-only content vanishing under `Optimize`, and `Optimize` running needlessly slowly on documents built from many small drawing calls — and two externally contributed pull requests are merged, fixing a password-validation bypass on cross-reference-stream PDFs and a zero-page bug on indirect `/Kids` page trees.
+
 ### Added
 
 - **E-invoices: ZUGFeRD / Factur-X** — `Document.AttachInvoice(xml, InvoiceOptions{...})` packages a caller-supplied Cross Industry Invoice as a hybrid e-invoice: embedded as `factur-x.xml` (or `xrechnung.xml`) with the relationship its profile requires, described by the `fx:` XMP properties and the PDF/A extension schema that declares them, and converted to PDF/A-3. `Document.Invoice()` extracts the XML, file name, profile (MINIMUM … EXTENDED, XRECHNUNG) and standard from Factur-X 1.0 / ZUGFeRD 2.1+, ZUGFeRD 2.0 and ZUGFeRD 1.0 files. Checked with the `factur-x` reference library, including the official XSD. Attachments gain PDF/A-3 associated-file relationships (`EmbeddedFile.AFRelationship`/`SetAFRelationship`, catalog `/AF`, `/ModDate`); `ValidatePDFA` reports attachments without one for PDF/A-3 and `ConvertToPDFA` repairs them. Mirrors Aspose.PDF for .NET's `PdfFormat.ZUGFeRD` and `FileSpecification.AFRelationship`. (`pdf-go-t6s9`)
@@ -475,7 +479,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.7.0...v0.8.0
