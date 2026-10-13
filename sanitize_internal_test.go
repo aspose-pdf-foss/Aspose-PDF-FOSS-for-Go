@@ -7,6 +7,48 @@ import (
 	"testing"
 )
 
+// TestSanitizeConvertPagesToImagesReportsPartialProgressOnError confirms a
+// review finding on the first draft: when ConvertPagesToImages fails partway
+// through a multi-page document, the pages rasterized before the failing
+// one must still be reported in res.PagesRasterized (and left rasterized in
+// the document) rather than the whole call reporting 0 -- mirroring
+// FlattenTransparency's own partial-progress-on-error convention.
+func TestSanitizeConvertPagesToImagesReportsPartialProgressOnError(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p1, err := d.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p1.AddText("page one", TextStyle{Size: 12}, Rectangle{LLX: 50, LLY: 700, URX: 300, URY: 740}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddBlankPageFromFormat(PageFormatA4); err != nil {
+		t.Fatal(err)
+	}
+	p2, err := d.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Force page 2's rasterization to fail (renderBox/deviceMatrix reports
+	// a degenerate page size for a zero-area MediaBox).
+	p2.pageDict()["/MediaBox"] = pdfArray{0.0, 0.0, 0.0, 0.0}
+
+	res, err := d.Sanitize(HiddenDataSanitizationOptions{ConvertPagesToImages: true, ImageDPI: 50})
+	if err == nil {
+		t.Fatal("Sanitize succeeded; want an error from page 2's degenerate MediaBox")
+	}
+	if res.PagesRasterized != 1 {
+		t.Errorf("PagesRasterized = %d, want 1 (page 1 was already rasterized before page 2 failed)", res.PagesRasterized)
+	}
+	infos, err := p1.ImageInfos()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Errorf("page 1 has %d images, want 1 (it should already be rasterized in the document, not just reported)", len(infos))
+	}
+}
+
 // TestRemoveSearchIndexAndPrivateInfoStripsPieceInfo covers the part of
 // RemoveSearchIndexAndPrivateInfo's scope that has no public getter to
 // assert through: /PieceInfo, private producer-specific application data

@@ -49,9 +49,12 @@ type HiddenDataSanitizationOptions struct {
 	FlattenLayers bool
 	// ConvertPagesToImages replaces every page's content with a single
 	// rasterized image at ImageDPI, discarding whatever vector/text
-	// content survived every option above as a last line of defense.
-	// Runs after every other option. When set, ImageCompressionOptions
-	// is ignored.
+	// content survived every option above as a last line of defense. It
+	// does not touch annotations (a sticky note's /Contents, an
+	// attachment's bytes, an annotation's own /AA JavaScript) — combine
+	// with RemoveAnnotations/RemoveAttachments/RemoveJavaScriptsAndActions
+	// if those must go too. Runs after every other option. When set,
+	// ImageCompressionOptions is ignored.
 	ConvertPagesToImages bool
 	// ImageDPI is the resolution used by ConvertPagesToImages; 0 -> 150.
 	ImageDPI float64
@@ -66,7 +69,9 @@ type HiddenDataSanitizationOptions struct {
 // HiddenDataSanitizationOptions.ImageCompressionOptions); implemented here
 // as a thin mapping onto the existing (*Document).OptimizeImages.
 type ImageCompressionOptions struct {
-	// ResizeImages downscales images above MaxResolution DPI.
+	// ResizeImages downscales images above MaxResolution DPI. Leaving
+	// MaxResolution at its zero value together with ResizeImages true is
+	// rejected by Sanitize (it would otherwise silently downscale nothing).
 	ResizeImages bool
 	// MaxResolution is the DPI ceiling used when ResizeImages is set.
 	MaxResolution float64
@@ -122,13 +127,24 @@ type HiddenDataSanitizationResult struct {
 // RemoveUnusedObjects runs once at the end when anything was removed,
 // reclaiming whatever the steps above orphaned (OCG dictionaries,
 // filespecs, action objects, …).
+//
+// On error, res still reports whatever an earlier step already completed
+// in this call, including a step that failed partway through (e.g.
+// ConvertPagesToImages: res.PagesRasterized counts the pages already
+// rasterized in place before the failing one) — mirroring
+// FlattenTransparency's own partial-progress-on-error convention.
 func (d *Document) Sanitize(opts HiddenDataSanitizationOptions) (HiddenDataSanitizationResult, error) {
 	var res HiddenDataSanitizationResult
 	if opts.ImageDPI < 0 {
 		return res, fmt.Errorf("asposepdf: Sanitize: ImageDPI must be >= 0, got %v", opts.ImageDPI)
 	}
-	if opts.ImageCompressionOptions != nil && opts.ImageCompressionOptions.MaxResolution < 0 {
-		return res, fmt.Errorf("asposepdf: Sanitize: ImageCompressionOptions.MaxResolution must be >= 0, got %v", opts.ImageCompressionOptions.MaxResolution)
+	if ico := opts.ImageCompressionOptions; ico != nil {
+		if ico.MaxResolution < 0 {
+			return res, fmt.Errorf("asposepdf: Sanitize: ImageCompressionOptions.MaxResolution must be >= 0, got %v", ico.MaxResolution)
+		}
+		if ico.ResizeImages && ico.MaxResolution == 0 {
+			return res, fmt.Errorf("asposepdf: Sanitize: ImageCompressionOptions.ResizeImages is set but MaxResolution is 0, which would silently downscale nothing")
+		}
 	}
 
 	didWork := false
@@ -187,8 +203,15 @@ func (d *Document) Sanitize(opts HiddenDataSanitizationOptions) (HiddenDataSanit
 			dpi = DefaultDPI
 		}
 		pages := d.Pages()
-		for _, p := range pages {
+		for i, p := range pages {
 			if err := p.flattenTransparency(dpi); err != nil {
+				// Pages [0,i) were already rasterized in place before this
+				// one failed -- report that partial progress rather than
+				// silently claiming nothing happened.
+				res.PagesRasterized = i
+				if didWork || i > 0 {
+					d.RemoveUnusedObjects()
+				}
 				return res, fmt.Errorf("asposepdf: Sanitize: ConvertPagesToImages: page %d: %w", p.Number(), err)
 			}
 		}
@@ -267,12 +290,12 @@ func (d *Document) removeSearchIndexAndPrivateInfo() int {
 			n++
 		}
 	}
+	pages := d.Pages()
 	for _, fa := range d.pdfaFileAttachmentAnnotations() {
 		if !strings.HasSuffix(strings.ToLower(fa.FileName()), ".pdx") {
 			continue
 		}
 		idx := fa.PageIndex()
-		pages := d.Pages()
 		if idx < 1 || idx > len(pages) {
 			continue
 		}

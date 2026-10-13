@@ -368,4 +368,11 @@ func TestSanitizeNegativeOptionsError(t *testing.T) {
 	}); err == nil {
 		t.Error("ImageCompressionOptions.MaxResolution = -1: want error")
 	}
+	// ResizeImages with MaxResolution left at its zero value would
+	// silently downscale nothing -- Sanitize rejects it instead.
+	if _, err := doc.Sanitize(pdf.HiddenDataSanitizationOptions{
+		ImageCompressionOptions: &pdf.ImageCompressionOptions{ResizeImages: true},
+	}); err == nil {
+		t.Error("ImageCompressionOptions{ResizeImages: true, MaxResolution: 0}: want error")
+	}
 }
