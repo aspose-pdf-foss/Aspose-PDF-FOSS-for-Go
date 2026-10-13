@@ -40,9 +40,36 @@ func (d *Document) ValidateRedactions() error {
 // /Rect if /QuadPoints is empty). Renders /OverlayText if set, then
 // removes the redact annotations from the page.
 //
+// Calls RemoveUnusedObjects once at the end when at least one page was
+// redacted, so the content stream(s) a page's /Contents pointed to before
+// redaction — and any earlier dead copy left by prior drawing calls
+// (image_add.go's appendToContentStream, see pdf-go-qgrn) — are actually
+// gone from the saved file rather than merely unreferenced. Both still
+// carry the redacted content in full, recoverable with any PDF tool, until
+// this runs: replacePageContents (used here and by FlattenTransparency)
+// only repoints /Contents, it was never the writer's job to drop what it
+// replaces. Reported privately by shadowhunter1470-svg via GitHub's
+// private vulnerability reporting (pdf-go-2qkq) — thank you for the
+// careful, considerate report.
+//
+// This sweep shares RemoveUnusedObjects' usual trade-off: a page/catalog
+// -unreachable object that is not yet "dangerous" — e.g. a Type3 glyph
+// canvas or an XForm the caller built but has not placed on any page yet
+// — is reclaimed too. Call ApplyRedactions only after placing everything
+// you mean to keep, same as any other Optimize-family call.
+//
+// Known gaps (not closed by this sweep, tracked separately): an image
+// XObject fully inside a redaction region has its Do invocation dropped
+// from the content stream, but its /Resources/XObject entry is left in
+// place (graph-reachable, so RemoveUnusedObjects does not collect it) —
+// its pixel data stays in the file. Redacting a document that is later
+// saved incrementally (already signed, or AddValidationInfo) keeps the
+// original text in the earlier, byte-preserved revision by design.
+//
 // Best-effort semantics: partial state on failure. Call
 // ValidateRedactions first to surface parse errors before mutating.
 func (d *Document) ApplyRedactions() error {
+	redacted := 0
 	for _, page := range d.Pages() {
 		if !pageHasRedact(page) {
 			continue
@@ -50,6 +77,10 @@ func (d *Document) ApplyRedactions() error {
 		if err := applyRedactionsToPage(page); err != nil {
 			return fmt.Errorf("ApplyRedactions: page %d: %w", page.Number(), err)
 		}
+		redacted++
+	}
+	if redacted > 0 {
+		d.RemoveUnusedObjects()
 	}
 	return nil
 }
@@ -130,8 +161,13 @@ func applyRedactionsToPage(p *Page) error {
 
 // replacePageContents allocates a new stream object holding data and sets
 // the page dict's /Contents to a single pdfRef pointing at it. Any prior
-// /Contents entries (single ref or array) are abandoned; the writer's
-// reachability pass will drop them on save.
+// /Contents entries (single ref or array) are abandoned — the writer has
+// no reachability pass of its own (sortedObjectIDs serializes every
+// object in d.objects regardless), so an abandoned stream still ends up
+// in the saved file unless the caller runs RemoveUnusedObjects. Both
+// callers of this function do: ApplyRedactions (where an abandoned
+// stream can carry the very content just redacted — pdf-go-2qkq) and
+// FlattenTransparency.
 func replacePageContents(p *Page, data []byte) error {
 	pageDict := p.pageDict()
 	if pageDict == nil {
