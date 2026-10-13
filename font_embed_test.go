@@ -46,7 +46,7 @@ func TestBuildFontDescriptor(t *testing.T) {
 		t.Fatal(err)
 	}
 	fontFileID := 42
-	desc := buildFontDescriptor(f, "/FontFile2", fontFileID)
+	desc := buildFontDescriptor(f, "/FontFile2", fontFileID, true)
 
 	if desc["/Type"] != pdfName("/FontDescriptor") {
 		t.Errorf("/Type = %v", desc["/Type"])
@@ -58,10 +58,35 @@ func TestBuildFontDescriptor(t *testing.T) {
 	if !ok || ref.Num != fontFileID {
 		t.Errorf("/FontFile2 = %v, want pdfRef{%d}", desc["/FontFile2"], fontFileID)
 	}
-	// Flags: Symbolic (bit 3, value 4) is always set for embedded TTF.
+	// Flags: symbolic=true -> Symbolic (bit 3, value 4) set, Nonsymbolic
+	// (bit 6, value 32) clear -- the composite-font embedding path (no
+	// /Encoding dict to conflict with it).
 	flags, _ := desc["/Flags"].(int)
 	if flags&0x4 == 0 {
 		t.Errorf("/Flags = %d, Symbolic bit not set", flags)
+	}
+	if flags&0x20 != 0 {
+		t.Errorf("/Flags = %d, Nonsymbolic bit set alongside Symbolic", flags)
+	}
+}
+
+// TestBuildFontDescriptorNonsymbolic pins GitHub issue #12: a simple font
+// descriptor built with symbolic=false (the PDF/A Standard-14 substitution
+// path, which always writes /Encoding) must set Nonsymbolic, not Symbolic --
+// a symbolic TrueType font with /Encoding violates PDF/A (veraPDF
+// 6.2.11.4.1-2 / 6.2.11.6-3/-4).
+func TestBuildFontDescriptorNonsymbolic(t *testing.T) {
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := buildFontDescriptor(f, "/FontFile2", 42, false)
+	flags, _ := desc["/Flags"].(int)
+	if flags&0x20 == 0 {
+		t.Errorf("/Flags = %d, Nonsymbolic bit not set", flags)
+	}
+	if flags&0x4 != 0 {
+		t.Errorf("/Flags = %d, Symbolic bit set alongside Nonsymbolic", flags)
 	}
 }
 

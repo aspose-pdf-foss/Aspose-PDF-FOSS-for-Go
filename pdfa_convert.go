@@ -113,13 +113,18 @@ func (d *Document) embedStandardFonts() {
 		}
 		fi := resolveFont(d.objects, dict)
 		f := fallbackFontFor(fi)
+		// A Latin substitute carries a real /Encoding (WinAnsi/Differences)
+		// and must be Nonsymbolic; symbolFaceFor's Symbol/ZapfDingbats face
+		// has no /Encoding and keeps the Symbolic flag — see
+		// buildFontDescriptor and buildEmbeddedSimpleFont (GitHub issue #12).
+		nonsymbolic := f != nil
 		if f == nil {
 			f = symbolFaceFor(fi)
 		}
 		if f == nil {
 			continue // no substitute and no installed face to embed
 		}
-		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f)
+		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f, nonsymbolic)
 	}
 }
 
@@ -146,8 +151,12 @@ func symbolFaceFor(fi fontInfo) *ttfFont {
 // buildEmbeddedSimpleFont constructs an embedded simple TrueType font dict that
 // substitutes f for the non-embedded font orig, preserving its character codes,
 // encoding and per-code widths (computed from f's own glyph advances so the
-// dictionary and font program agree, as PDF/A requires).
-func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont) pdfDict {
+// dictionary and font program agree, as PDF/A requires). nonsymbolic flags the
+// descriptor Nonsymbolic instead of Symbolic — true for a Latin substitute
+// (fallbackFontFor), which this function always equips with /Encoding below
+// and so must not be Symbolic (ISO 32000-1 §9.6.6.2; GitHub issue #12); false
+// for Symbol/ZapfDingbats (symbolFaceFor), left exactly as before this fix.
+func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont, nonsymbolic bool) pdfDict {
 	scale := func(w uint16) int {
 		return int(float64(w)*1000.0/float64(f.unitsPerEm) + 0.5)
 	}
@@ -160,7 +169,7 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 		widths[c] = w
 	}
 	fontFileID := d.addObject(buildFontFile2Stream(f))
-	descID := d.addObject(buildFontDescriptor(f, "/FontFile2", fontFileID))
+	descID := d.addObject(buildFontDescriptor(f, "/FontFile2", fontFileID, !nonsymbolic))
 
 	out := pdfDict{
 		"/Type":           pdfName("/Font"),

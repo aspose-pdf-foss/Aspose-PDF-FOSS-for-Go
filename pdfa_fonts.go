@@ -255,7 +255,7 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 		subset.postScriptName = sys.postScriptName
 		descriptorFont = subset
 	}
-	descID := d.addObject(buildFontDescriptor(descriptorFont, "/FontFile2", fontFileID))
+	descID := d.addObject(buildFontDescriptor(descriptorFont, "/FontFile2", fontFileID, true))
 	mapID := d.addObject(buildFlateStream(cidMap))
 
 	out := pdfDict{

@@ -66,18 +66,39 @@ func buildFontFile3Stream(f *ttfFont) *pdfStream {
 
 // buildFontDescriptor creates a /FontDescriptor dict referencing the embedded
 // font program under fontFileKey (/FontFile2 for TrueType, /FontFile3 for
-// OpenType-CFF).
-func buildFontDescriptor(f *ttfFont, fontFileKey string, fontFileID int) pdfDict {
+// OpenType-CFF). symbolic selects the Symbolic (true) or Nonsymbolic (false)
+// flag — see the two bullets below; callers pass true for every composite
+// (Type0/Identity-H) embedding this function serves, where no /Encoding
+// dict exists on the font to conflict with either flag, and for a genuinely
+// symbolic simple font (Symbol, ZapfDingbats) that has no /Encoding either.
+// pdfa_convert.go's buildEmbeddedSimpleFont passes false for a Standard-14
+// Latin substitute, which does carry an /Encoding — see its own comment.
+func buildFontDescriptor(f *ttfFont, fontFileKey string, fontFileID int, symbolic bool) pdfDict {
 	scale := func(v int16) int {
 		// Scale FUnits to 1/1000 em.
 		return int(float64(v) * 1000.0 / float64(f.unitsPerEm))
 	}
-	// Flags (PDF spec Table 123):
-	//   bit 1 (1):      FixedPitch
-	//   bit 3 (4):      Symbolic  — always set for embedded TTF
-	//   bit 7 (64):     Italic
+	// Flags (PDF spec Table 123; ISO 32000-1 §9.8.2):
+	//   bit 1 (1):       FixedPitch
+	//   bit 3 (4):       Symbolic
+	//   bit 6 (32):      Nonsymbolic
+	//   bit 7 (64):      Italic
 	//   bit 19 (262144): ForceBold
-	flags := 0x4 // Symbolic
+	// Symbolic and Nonsymbolic are mutually exclusive (exactly one must be
+	// set, ISO 32000-1 Table 123) and govern how a simple TrueType font's
+	// codes map to glyphs (§9.6.6.2): a Nonsymbolic font is expected to
+	// carry /Encoding (WinAnsi/MacRoman/Differences) and look glyphs up by
+	// name through the font's (3,1) Microsoft-Unicode or (1,0) Mac-Roman
+	// cmap; a Symbolic font is expected to have NO /Encoding and look codes
+	// up directly through its (3,0) symbol or (1,0) cmap. A simple TrueType
+	// font that carries /Encoding but is flagged Symbolic violates PDF/A
+	// (veraPDF 6.2.11.4.1-2 / 6.2.11.6-3/-4) — GitHub issue #12.
+	flags := 0
+	if symbolic {
+		flags |= 0x4
+	} else {
+		flags |= 0x20
+	}
 	if f.isFixedPitch {
 		flags |= 0x1
 	}
@@ -285,7 +306,7 @@ func (d *Document) refreshShapedText() {
 // and returns the object ID of the Type0 font dict.
 func embedFont(d *Document, f *ttfFont) int {
 	fontFile2ID := d.addObject(buildFontFile2Stream(f))
-	descriptor := buildFontDescriptor(f, "/FontFile2", fontFile2ID)
+	descriptor := buildFontDescriptor(f, "/FontFile2", fontFile2ID, true)
 	descriptorID := d.addObject(descriptor)
 
 	cidDict := pdfDict{
@@ -327,7 +348,7 @@ func embedFont(d *Document, f *ttfFont) int {
 // already rejected CID-keyed CFF.
 func embedCFFFont(d *Document, f *ttfFont) int {
 	fontFile3ID := d.addObject(buildFontFile3Stream(f))
-	descriptor := buildFontDescriptor(f, "/FontFile3", fontFile3ID)
+	descriptor := buildFontDescriptor(f, "/FontFile3", fontFile3ID, true)
 	descriptorID := d.addObject(descriptor)
 
 	cidDict := pdfDict{
