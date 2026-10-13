@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-10-13
+
+A security release. **`ApplyRedactions` left redacted content fully recoverable in the saved file** — reported privately through GitHub's new private vulnerability reporting channel — and is fixed, along with a related gap our own review of that fix found: a Form XObject intersecting a redaction region was never actually redacted at all, now refused outright with an error rather than silently incomplete. See the Security Advisory for the full writeup. Also new: **`Document.Sanitize`**, a one-call hidden-data sanitizer (metadata, attachments, scripts, annotations, layers, forms, optional page rasterization) mirroring Aspose.PDF for .NET's `HiddenDataSanitizer`. Two more community-reported bugs are fixed: a PDF/A Standard-14 font substitute flagged Symbolic when it should have been Nonsymbolic (veraPDF-verified), and `SetInfo` writing non-ASCII metadata as raw UTF-8 instead of a proper PDF text string.
+
 ### Added
 
 - **`Document.Sanitize` — hidden-data sanitization** — `HiddenDataSanitizationOptions` composes metadata/attachment/script/annotation/layer/form removal and optional page rasterization into one call, mirroring Aspose.PDF for .NET's `HiddenDataSanitizer`/`HiddenDataSanitizationOptions` as a Document method over this library's existing primitives (`ClearInfo`/`ClearXMP`, attachment and action removal, `ApplyRedactions`, `Document.Flatten`, page rasterization, `OptimizeImages`). `AllHiddenDataSanitizationOptions()` mirrors the static `.All()` preset; `SanitizeAllToImages` mirrors the static all-to-images shortcut. `FlattenLayers` (new: drops `/Catalog/OCProperties` and layer-scoped resource entries, so optional content becomes unconditionally visible) and `RemoveSearchIndexAndPrivateInfo` (best-effort: `/PieceInfo` private application data plus `*.pdx`-named attachments) are this library's own readings of two options Aspose does not document precisely. `RemoveAnnotations` leaves form-field widgets to `FlattenForms`, since deleting a widget without also clearing its field from `/AcroForm/Fields` would dangle. (`pdf-go-jbcn`)
@@ -489,7 +493,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.8.0...v0.8.1
