@@ -958,6 +958,7 @@ stays free of network code.
 - **[How-to guides & FAQ](https://kb.aspose.org/pdf/go/)** — task-focused answers for common PDF-processing questions.
 - **[Full API reference](https://reference.aspose.org/pdf/go/)** — the complete, browsable reference for the public API surface (the [API reference](#api-reference) section above covers the essentials).
 - **[Contributing guide](CONTRIBUTING.md)** — development setup and how to submit changes.
+- **[Security policy](SECURITY.md)** — how to report a vulnerability privately.
 - **[Changelog](CHANGELOG.md)** — release history and notable changes.
 - Found a bug or have a feature request? [Open an issue](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues) on GitHub.
 
