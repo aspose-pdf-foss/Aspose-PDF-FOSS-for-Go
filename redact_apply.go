@@ -92,7 +92,7 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // XObject fully inside a redaction region has its Do invocation dropped
 // from the content stream, but its /Resources/XObject entry is left in
 // place (graph-reachable, so RemoveUnusedObjects does not collect it) —
-// its pixel data stays in the file. A Form XObject intersecting a region
+// its pixel data stays in the file (pdf-go-ye1z). A Form XObject intersecting a region
 // at all is refused outright rather than silently left incomplete — see
 // unsafeFormXObjectName and pdf-go-w5hl — since unlike an image it can
 // itself hold arbitrary text/path content this pipeline never descends
@@ -102,7 +102,7 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // flagged — the same pre-existing blind spot every rewriter here has for
 // nested forms). A page's /Thumb thumbnail, if a producer embedded one, is never
 // touched by this method and may still show a miniature of the
-// pre-redaction page. Redacting a document that is later saved
+// pre-redaction page (pdf-go-ekp4). Redacting a document that is later saved
 // incrementally (already signed, or AddValidationInfo) keeps the
 // original text in the earlier, byte-preserved revision by design.
 //
