@@ -96,7 +96,11 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // at all is refused outright rather than silently left incomplete — see
 // unsafeFormXObjectName and pdf-go-w5hl — since unlike an image it can
 // itself hold arbitrary text/path content this pipeline never descends
-// into. A page's /Thumb thumbnail, if a producer embedded one, is never
+// into (the check maps the form's own /BBox+/Matrix through the CTM, not
+// an image's unit square, but still only one Do deep: a Form XObject
+// placed by ANOTHER Form XObject is invisible to it entirely, not even
+// flagged — the same pre-existing blind spot every rewriter here has for
+// nested forms). A page's /Thumb thumbnail, if a producer embedded one, is never
 // touched by this method and may still show a miniature of the
 // pre-redaction page. Redacting a document that is later saved
 // incrementally (already signed, or AddValidationInfo) keeps the

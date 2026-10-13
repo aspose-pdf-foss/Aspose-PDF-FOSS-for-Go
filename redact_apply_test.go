@@ -316,3 +316,56 @@ func TestApplyRedactionsRefusesFormXObjectInRegion(t *testing.T) {
 		t.Error("ApplyRedactions: want an error (region intersects a Form XObject), got nil")
 	}
 }
+
+// TestApplyRedactionsRefusesFormXObjectSubRegion pins a second, more
+// severe review finding on the first draft of pdf-go-w5hl's stopgap:
+// classifyDoBbox assumes an XObject paints within the unit square
+// [0,1]x[0,1] CTM-mapped, which is only true for Image XObjects -- a Form
+// XObject's real footprint is its own /BBox (here 200x100, not 0..1)
+// composed with /Matrix. Reusing the unit-square math computed a bogus
+// 1x1-ish bbox at the form's CTM-origin corner, so only a redact region
+// that happened to cover exactly that corner (like
+// TestApplyRedactionsRefusesFormXObjectInRegion's region == the whole
+// placement rect) was ever caught -- any region that is a genuine
+// sub-rectangle of the form's real footprint sailed through completely
+// undetected, with ApplyRedactions reporting success while the form's
+// text remained fully recoverable -- and redacting one paragraph inside
+// a template/background form is the realistic, common case, not a rare
+// adversarial shape. This test uses the exact placement geometry (even
+// scale = 1, per the reviewer's "Case B") but a small redaction region in
+// a corner of the form's real footprint far from the CTM origin.
+func TestApplyRedactionsRefusesFormXObjectSubRegion(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	form := doc.CreateForm(200, 100)
+	const secret = "FORMXOBJECT-SECRET-SUBREGION"
+	if err := form.Canvas().AddText(secret, pdf.TextStyle{Size: 12},
+		pdf.Rectangle{LLX: 150, LLY: 70, URX: 200, URY: 100}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Scale 1:1 (placement rect == form's own 200x100 size), so the old,
+	// unit-square-based bbox math would have placed its bogus ~1x1 "bbox"
+	// right at (50, 600) -- nowhere near this region.
+	placement := pdf.Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}
+	if err := page.AddForm(form, placement); err != nil {
+		t.Fatal(err)
+	}
+	// A small region in the far corner of the form's REAL footprint
+	// (translated into page space: LLX/LLY offset by the placement's
+	// origin), well away from the placement rect's own origin corner.
+	region := pdf.Rectangle{LLX: 230, LLY: 670, URX: 249, URY: 699}
+	ra := pdf.NewRedactAnnotation(page, region)
+	if err := page.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.ValidateRedactions(); err == nil {
+		t.Error("ValidateRedactions: want an error (sub-region intersects a Form XObject's real footprint), got nil")
+	}
+	if err := doc.ApplyRedactions(); err == nil {
+		t.Error("ApplyRedactions: want an error (sub-region intersects a Form XObject's real footprint), got nil")
+	}
+}

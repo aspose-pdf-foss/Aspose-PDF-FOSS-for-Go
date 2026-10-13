@@ -96,46 +96,60 @@ type doAction struct {
 	bbox Rectangle // image bbox in page space (used for clipDo)
 }
 
-// classifyDoBbox computes the axis-aligned bbox of the unit-square XObject
-// under the given CTM, then classifies its relationship to the redact regions.
-//
-// XObjects (both image and form) paint within [0,1]×[0,1] in their local
-// space. We map the four corners through the CTM to get the page-space bbox.
+// classifyDoBbox computes the axis-aligned bbox of the unit-square Image
+// XObject under the given CTM, then classifies its relationship to the
+// redact regions. Image space is always the unit square [0,1]×[0,1] (ISO
+// 32000-1 §8.9.5.1) — this must NOT be reused for a Form XObject, whose
+// real painted extent is its own /BBox + /Matrix, not the unit square; see
+// formPlacementBbox.
 func classifyDoBbox(ctm [6]float64, regions []QuadPoint) doAction {
-	// Map unit-square corners through CTM.
 	x0, y0 := matApplyPoint(ctm, 0, 0)
 	x1, y1 := matApplyPoint(ctm, 1, 0)
 	x2, y2 := matApplyPoint(ctm, 0, 1)
 	x3, y3 := matApplyPoint(ctm, 1, 1)
-
 	minX := minF(minF(x0, x1), minF(x2, x3))
 	maxX := maxF(maxF(x0, x1), maxF(x2, x3))
 	minY := minF(minF(y0, y1), minF(y2, y3))
 	maxY := maxF(maxF(y0, y1), maxF(y2, y3))
+	return doAction{
+		kind: classifyBbox(minX, minY, maxX, maxY, regions),
+		bbox: Rectangle{LLX: minX, LLY: minY, URX: maxX, URY: maxY},
+	}
+}
 
-	bbox := Rectangle{LLX: minX, LLY: minY, URX: maxX, URY: maxY}
+// formPlacementBbox computes the real page-space axis-aligned bbox of a
+// Form XObject placed with the given CTM: its own /BBox (ISO 32000-1
+// §8.10.2 — any rectangle, NOT necessarily the unit square an Image
+// XObject always uses) composed with its own /Matrix (§8.10.1, default
+// identity, applied in form space before ctm). Reusing classifyDoBbox's
+// unit-square assumption for a Form XObject is wrong and was shown, by an
+// independent review, to silently defeat unsafeFormXObjectName for the
+// common case of a non-trivial placement scale or a redaction region that
+// doesn't happen to cover the form's CTM-origin corner (pdf-go-w5hl).
+// Falls back to the unit square only if /BBox is missing or malformed —
+// conservatively wrong in the same direction classifyDoBbox always was,
+// not a new gap.
+func formPlacementBbox(objects map[int]*pdfObject, st *pdfStream, ctm [6]float64) (minX, minY, maxX, maxY float64) {
+	formMatrix := identityMatrix()
+	if mv := shFloats(objects, st.Dict["/Matrix"]); len(mv) == 6 {
+		formMatrix = [6]float64{mv[0], mv[1], mv[2], mv[3], mv[4], mv[5]}
+	}
+	effective := matMul(formMatrix, ctm)
 
-	// Check each region's axis-aligned bbox against the image bbox.
-	anyIntersect := false
-	for _, q := range regions {
-		rMinX, rMinY, rMaxX, rMaxY := boundsOfQuad(q)
-
-		// No intersection if disjoint.
-		if maxX <= rMinX || minX >= rMaxX || maxY <= rMinY || minY >= rMaxY {
-			continue
-		}
-		anyIntersect = true
-
-		// Fully inside: image bbox is entirely contained within this region.
-		if minX >= rMinX && maxX <= rMaxX && minY >= rMinY && maxY <= rMaxY {
-			return doAction{kind: dropDo, bbox: bbox}
-		}
+	bbox := Rectangle{URX: 1, URY: 1}
+	if bb := shFloats(objects, st.Dict["/BBox"]); len(bb) >= 4 {
+		bbox = Rectangle{LLX: bb[0], LLY: bb[1], URX: bb[2], URY: bb[3]}
 	}
 
-	if !anyIntersect {
-		return doAction{kind: keepDo, bbox: bbox}
-	}
-	return doAction{kind: clipDo, bbox: bbox}
+	x0, y0 := matApplyPoint(effective, bbox.LLX, bbox.LLY)
+	x1, y1 := matApplyPoint(effective, bbox.URX, bbox.LLY)
+	x2, y2 := matApplyPoint(effective, bbox.LLX, bbox.URY)
+	x3, y3 := matApplyPoint(effective, bbox.URX, bbox.URY)
+	minX = minF(minF(x0, x1), minF(x2, x3))
+	maxX = maxF(maxF(x0, x1), maxF(x2, x3))
+	minY = minF(minF(y0, y1), minF(y2, y3))
+	maxY = maxF(maxF(y0, y1), maxF(y2, y3))
+	return
 }
 
 // buildImageClipPath produces content ops for an even-odd clip path that
@@ -217,30 +231,32 @@ func boundsOfQuad(q QuadPoint) (minX, minY, maxX, maxY float64) {
 	return
 }
 
-// xobjectSubtype resolves name within resources' /XObject dict and
-// returns its /Subtype ("/Form" or "/Image"), or "" if it can't be
-// resolved.
-func xobjectSubtype(objects map[int]*pdfObject, resources pdfDict, name string) string {
+// resolveXObjectStream resolves name within resources' /XObject dict to
+// its stream object, or nil if it can't be resolved.
+func resolveXObjectStream(objects map[int]*pdfObject, resources pdfDict, name string) *pdfStream {
 	if resources == nil {
-		return ""
+		return nil
 	}
 	xobjDict, ok := resolveRefToDict(objects, resources["/XObject"])
 	if !ok {
-		return ""
+		return nil
 	}
 	ref, ok := xobjDict[name]
 	if !ok {
-		return ""
+		return nil
 	}
-	if st, ok := resolveRef(objects, ref).(*pdfStream); ok {
-		return dictGetName(st.Dict, "/Subtype")
-	}
-	return ""
+	st, _ := resolveRef(objects, ref).(*pdfStream)
+	return st
 }
 
 // unsafeFormXObjectName scans ops (CTM-aware, same q/Q/cm tracking as
 // rewriteImageOperatorsInStream) for a Do invocation of a Form XObject
-// whose placed bbox intersects any region, fully or partially. Shared by
+// whose REAL placed bbox — its own /BBox+/Matrix via formPlacementBbox,
+// not the unit square classifyDoBbox uses for images — intersects any
+// region, fully or partially. An earlier version of this check reused
+// classifyDoBbox directly, which silently cleared almost every realistic
+// partial-coverage placement (anything but a region covering the form's
+// CTM-origin corner) — caught by an independent review. Shared by
 // ValidateRedactions (read-only pre-flight) and rewriteImageOperatorsInStream
 // (which refuses to proceed rather than silently drop/clip it) — see the
 // package comment on rewriteImageOperatorsInStream for why a Form XObject
@@ -269,10 +285,12 @@ func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int
 				continue
 			}
 			name := operandName(op.Operands[0])
-			if xobjectSubtype(objects, resources, name) != "/Form" {
+			st := resolveXObjectStream(objects, resources, name)
+			if st == nil || dictGetName(st.Dict, "/Subtype") != "/Form" {
 				continue
 			}
-			if classifyDoBbox(ctm, regions).kind != keepDo {
+			minX, minY, maxX, maxY := formPlacementBbox(objects, st, ctm)
+			if classifyBbox(minX, minY, maxX, maxY, regions) != keepDo {
 				return name, true
 			}
 		}
