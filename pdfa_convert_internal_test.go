@@ -45,6 +45,44 @@ func TestConvertToPDFAStandard14SubstituteIsNonsymbolic(t *testing.T) {
 	}
 }
 
+// TestBuildEmbeddedSimpleFontSymbolicOmitsEncoding pins a gap an independent
+// review of this fix found: buildEmbeddedSimpleFont wrote /Encoding
+// unconditionally, so the Symbol/ZapfDingbats path (nonsymbolic=false, via
+// symbolFaceFor) still ended up with /Encoding present AND the Symbolic flag
+// set -- the exact forbidden combination GitHub issue #12 is about, just on
+// the one branch the fix's own comments/CHANGELOG/CLAUDE.md incorrectly
+// claimed was already fine ("no /Encoding to conflict with it"). A real
+// Symbol/ZapfDingbats face is not bundled and resolving one through
+// symbolFaceFor needs either a registered or an installed face, so this
+// calls buildEmbeddedSimpleFont directly (same font program stands in for
+// "whatever face symbolFaceFor would have found" -- only nonsymbolic and
+// orig's /Encoding presence matter here) rather than trying to make the
+// full embedStandardFonts resolution chain land on a real symbol face.
+func TestBuildEmbeddedSimpleFontSymbolicOmitsEncoding(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	f, err := parseTTF(loadDejaVu(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// orig already carrying /Encoding (as a real Standard-14 dict might)
+	// must still end up with none on the symbolic branch -- ISO 32000-1
+	// §9.6.6.2 requires NO /Encoding on a Symbolic simple font regardless
+	// of what the substituted-away font happened to carry.
+	orig := pdfDict{"/Encoding": pdfName("/WinAnsiEncoding")}
+	out := d.buildEmbeddedSimpleFont(orig, fontInfo{}, f, false)
+	if _, ok := out["/Encoding"]; ok {
+		t.Errorf("/Encoding = %v, want absent on the Symbolic (nonsymbolic=false) branch", out["/Encoding"])
+	}
+	desc, ok := resolveRefToDict(d.objects, out["/FontDescriptor"])
+	if !ok {
+		t.Fatal("no /FontDescriptor")
+	}
+	flags, _ := desc["/Flags"].(int)
+	if flags&0x4 == 0 {
+		t.Errorf("/Flags = %d, Symbolic bit not set", flags)
+	}
+}
+
 // findEmbeddedSimpleFont locates the one embedded simple (non-Type0) font's
 // dict and its resolved /FontDescriptor in doc.objects.
 func findEmbeddedSimpleFont(t *testing.T, doc *Document) (pdfDict, pdfDict) {

@@ -149,13 +149,17 @@ func symbolFaceFor(fi fontInfo) *ttfFont {
 }
 
 // buildEmbeddedSimpleFont constructs an embedded simple TrueType font dict that
-// substitutes f for the non-embedded font orig, preserving its character codes,
-// encoding and per-code widths (computed from f's own glyph advances so the
-// dictionary and font program agree, as PDF/A requires). nonsymbolic flags the
-// descriptor Nonsymbolic instead of Symbolic — true for a Latin substitute
-// (fallbackFontFor), which this function always equips with /Encoding below
-// and so must not be Symbolic (ISO 32000-1 §9.6.6.2; GitHub issue #12); false
-// for Symbol/ZapfDingbats (symbolFaceFor), left exactly as before this fix.
+// substitutes f for the non-embedded font orig, preserving its character codes
+// and per-code widths (computed from f's own glyph advances so the dictionary
+// and font program agree, as PDF/A requires). nonsymbolic flags the descriptor
+// Nonsymbolic instead of Symbolic and governs whether /Encoding is written at
+// all (ISO 32000-1 §9.6.6.2 requires exactly one of: Nonsymbolic + /Encoding,
+// or Symbolic + no /Encoding) — true for a Latin substitute (fallbackFontFor),
+// which keeps orig's original code→glyph mapping or defaults to
+// /WinAnsiEncoding; false for Symbol/ZapfDingbats (symbolFaceFor), which omits
+// /Encoding entirely. An earlier version of this fix (GitHub issue #12) wrote
+// /Encoding unconditionally, which still left the Symbol/ZapfDingbats branch
+// violating the same rule the fix was meant to close — caught in review.
 func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont, nonsymbolic bool) pdfDict {
 	scale := func(w uint16) int {
 		return int(float64(w)*1000.0/float64(f.unitsPerEm) + 0.5)
@@ -180,11 +184,22 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 		"/Widths":         widths,
 		"/FontDescriptor": pdfRef{Num: descID},
 	}
-	if enc, ok := orig["/Encoding"]; ok {
-		out["/Encoding"] = enc // keep the original code→glyph mapping
-	} else {
-		out["/Encoding"] = pdfName("/WinAnsiEncoding")
+	if nonsymbolic {
+		if enc, ok := orig["/Encoding"]; ok {
+			out["/Encoding"] = enc // keep the original code→glyph mapping
+		} else {
+			out["/Encoding"] = pdfName("/WinAnsiEncoding")
+		}
 	}
+	// nonsymbolic == false (Symbol/ZapfDingbats, symbolFaceFor): ISO
+	// 32000-1 §9.6.6.2 requires a Symbolic simple font to have NO
+	// /Encoding -- codes already reach glyphs through f's own built-in
+	// cmap via substituteGlyphFor, which reads fi.encoding (derived from
+	// orig during resolveFont) and never consults this dict's /Encoding
+	// key, so omitting it here changes nothing about which glyph is
+	// drawn. Review of GitHub issue #12's fix caught that this branch
+	// still wrote /Encoding unconditionally, which combined with the
+	// Symbolic flag reproduced the exact violation this fix exists for.
 	return out
 }
 
