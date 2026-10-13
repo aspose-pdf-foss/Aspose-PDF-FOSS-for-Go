@@ -129,17 +129,27 @@ func classifyDoBbox(ctm [6]float64, regions []QuadPoint) doAction {
 // Falls back to the unit square only if /BBox is missing or malformed —
 // conservatively wrong in the same direction classifyDoBbox always was,
 // not a new gap.
-func formPlacementBbox(objects map[int]*pdfObject, st *pdfStream, ctm [6]float64) (minX, minY, maxX, maxY float64) {
+// ok is false when /BBox can't be resolved to at least 4 numbers — ISO
+// 32000-1 §8.10.2 requires /BBox on every Form XObject, so its absence
+// means non-conformant or adversarially-malformed input, exactly what a
+// redaction-safety check should trust least. An earlier draft guessed the
+// unit square in that case, which an independent review flagged as its
+// own false-negative risk (the same "guess a safe-looking value instead
+// of refusing" mistake that produced the two bugs before it in this
+// chain) — callers must treat ok==false as unsafe outright, not fall back
+// to any estimate.
+func formPlacementBbox(objects map[int]*pdfObject, st *pdfStream, ctm [6]float64) (minX, minY, maxX, maxY float64, ok bool) {
+	bb := shFloats(objects, st.Dict["/BBox"])
+	if len(bb) < 4 {
+		return 0, 0, 0, 0, false
+	}
+	bbox := Rectangle{LLX: bb[0], LLY: bb[1], URX: bb[2], URY: bb[3]}
+
 	formMatrix := identityMatrix()
 	if mv := shFloats(objects, st.Dict["/Matrix"]); len(mv) == 6 {
 		formMatrix = [6]float64{mv[0], mv[1], mv[2], mv[3], mv[4], mv[5]}
 	}
 	effective := matMul(formMatrix, ctm)
-
-	bbox := Rectangle{URX: 1, URY: 1}
-	if bb := shFloats(objects, st.Dict["/BBox"]); len(bb) >= 4 {
-		bbox = Rectangle{LLX: bb[0], LLY: bb[1], URX: bb[2], URY: bb[3]}
-	}
 
 	x0, y0 := matApplyPoint(effective, bbox.LLX, bbox.LLY)
 	x1, y1 := matApplyPoint(effective, bbox.URX, bbox.LLY)
@@ -149,7 +159,7 @@ func formPlacementBbox(objects map[int]*pdfObject, st *pdfStream, ctm [6]float64
 	maxX = maxF(maxF(x0, x1), maxF(x2, x3))
 	minY = minF(minF(y0, y1), minF(y2, y3))
 	maxY = maxF(maxF(y0, y1), maxF(y2, y3))
-	return
+	return minX, minY, maxX, maxY, true
 }
 
 // buildImageClipPath produces content ops for an even-odd clip path that
@@ -289,8 +299,8 @@ func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int
 			if st == nil || dictGetName(st.Dict, "/Subtype") != "/Form" {
 				continue
 			}
-			minX, minY, maxX, maxY := formPlacementBbox(objects, st, ctm)
-			if classifyBbox(minX, minY, maxX, maxY, regions) != keepDo {
+			minX, minY, maxX, maxY, ok := formPlacementBbox(objects, st, ctm)
+			if !ok || classifyBbox(minX, minY, maxX, maxY, regions) != keepDo {
 				return name, true
 			}
 		}
