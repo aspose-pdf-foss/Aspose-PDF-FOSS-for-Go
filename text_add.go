@@ -85,6 +85,14 @@ func newShapedLineMeasurer(shaper *ttfFont, size float64, baseLevel int, bidi bo
 // must measure or pre-wrap text before handing it to AddText — table row
 // heights, Flow paragraphs, TOC entries, text flowing around floats, …—
 // so the line breaks it predicts agree with what AddText actually draws.
+//
+// Known gap, not closed here (pdf-go-qxsz): unlike renderTextInBuilder,
+// this does not apply the synthetic Arabic Presentation-Forms shaping
+// pass (shapeArabic) for a font whose own GSUB doesn't shape Arabic, so
+// a caller's prediction for such Arabic text can still disagree with
+// what AddText draws — the same symptom class as GitHub issue #14, via a
+// different, non-OpenType shaping path, pre-existing and left out of
+// scope for that fix.
 func lineMeasurerForFont(font Font, size float64, text string, rtl bool, width widthFn) *lineMeasurer {
 	ef, ok := font.(*embeddedFont)
 	if !ok || !fontHasShaping(ef.ttf) {
