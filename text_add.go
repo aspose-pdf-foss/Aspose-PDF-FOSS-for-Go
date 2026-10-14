@@ -34,6 +34,21 @@ type widthFn func(r rune) float64
 // the common case cheap (one shape call per word, cached; one exact
 // reshape per finished line, not per word added to it) instead of
 // reshaping a growing candidate line from scratch for every word.
+//
+// A second, narrower gap (code review of this fix, unconfirmed against a
+// real font): shaping a word alone picks its OpenType script from that
+// word's own characters (otScriptTag), which could in principle disagree
+// with the script the real line-level shape applies to the SAME
+// characters, if the word's bidi embedding level in context splits it
+// across a run boundary that shaping it alone does not see. If the fast
+// estimate this produces ever UNDERshoots the real shaped width, exact's
+// backoff — which only pops words off an OVERsized candidate — cannot
+// correct it (there is no mechanism to re-add a word a prior line judged
+// acceptable). Whether this is reachable at all, and in which direction,
+// is not established; if it is, the failure mode is a wrap decision
+// off by one word, the same class of imprecision cross-word kerning
+// above already accepts, not an overflow (any OVERshoot is still caught
+// by the exact backoff on the finished line).
 type lineMeasurer struct {
 	width     widthFn // unshaped per-rune advance; always set, used as-is when shaper is nil
 	shaper    *ttfFont
@@ -472,7 +487,7 @@ func wrapText(text string, m *lineMeasurer, maxWidth float64) []string {
 			lineWords, lineWidth = nil, 0
 		}
 
-		for wi = 0; wi < len(words) || lineWidth > 0; {
+		for wi = 0; wi < len(words) || len(lineWords) > 0; {
 			if wi >= len(words) {
 				finalizeLine()
 				continue
@@ -480,7 +495,13 @@ func wrapText(text string, m *lineMeasurer, maxWidth float64) []string {
 			word := words[wi]
 			wordWidth := m.word(word)
 
-			if lineWidth == 0 {
+			// len(lineWords) == 0, not lineWidth == 0, decides whether a
+			// line is pending: a zero-ADVANCE word (ZWSP, an unmapped
+			// glyph, a combining mark) must still occupy a slot in
+			// lineWords, or it — and any line consisting only of such
+			// words — is silently dropped instead of committed by
+			// finalizeLine (code review of this fix).
+			if len(lineWords) == 0 {
 				if wordWidth <= maxWidth {
 					lineWords = []string{word}
 					lineWidth = wordWidth
@@ -556,6 +577,14 @@ func breakWord(word string, width widthFn, maxWidth float64) []string {
 // land in one piece that, once shaped, is still too wide for maxWidth;
 // see GitHub issue #14). Falls back to plain breakWord for an unshaped
 // font.
+//
+// Cost (code review of this fix): this is only reached for a single word
+// that alone exceeds maxWidth — rare in prose, but a long unbroken shaped
+// token (e.g. a URL with no spaces) costs one shaped-width call per rune
+// added, each over the growing candidate, so ~O(n) reshapes of up to n
+// runes each for an n-rune token, versus breakWord's O(n) with none.
+// Pathological only at sizes unlikely in a real document (a document
+// built one AddText call at a time); not optimized further here.
 func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string {
 	if m.shaper == nil {
 		return breakWord(word, m.width, maxWidth)

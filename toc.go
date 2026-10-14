@@ -398,7 +398,7 @@ func (p *Page) drawTOCRow(rect Rectangle, yTop float64, title string, level int,
 	}
 	shown := title
 	if shapedOrPlainWidth(o.entryFont, o.entrySize, title, ewidth) > titleMaxW {
-		shown = truncateToWidth(title, ewidth, titleMaxW)
+		shown = truncateToWidth(title, o.entryFont, o.entrySize, ewidth, titleMaxW)
 	}
 
 	if err := p.AddText(shown, o.entryStyle, Rectangle{
@@ -451,23 +451,27 @@ func (p *Page) addTOCLink(rect Rectangle, yTop, lineH float64, pageNum int, top 
 	return p.Annotations().Add(link)
 }
 
-// truncateToWidth shortens s to fit maxW under the width function,
-// appending "..." when it has to cut. Returns s unchanged when it fits.
-func truncateToWidth(s string, width widthFn, maxW float64) string {
-	if measureString(s, width) <= maxW {
+// truncateToWidth shortens s to fit maxW under font/size, appending "..."
+// when it has to cut. Returns s unchanged when it fits. Growing candidates
+// are checked with shapedOrPlainWidth (the plain per-rune sum for an
+// unshaped font, unchanged from before this fix), so a shaped font's
+// truncated title+ellipsis doesn't itself end up wider than maxW once
+// drawn — the caller's own "does it need truncating at all" check was
+// already shaped-aware, but the cut point this picked was not (code
+// review of GitHub issue #14's fix).
+func truncateToWidth(s string, font Font, size float64, width widthFn, maxW float64) string {
+	if shapedOrPlainWidth(font, size, s, width) <= maxW {
 		return s
 	}
 	const ell = "..."
-	ellW := measureString(ell, width)
+	ellW := shapedOrPlainWidth(font, size, ell, width)
 	var b []rune
-	var w float64
 	for _, r := range s {
-		cw := width(r)
-		if w+cw+ellW > maxW {
+		candidate := string(append(append([]rune(nil), b...), r))
+		if shapedOrPlainWidth(font, size, candidate, width)+ellW > maxW {
 			break
 		}
 		b = append(b, r)
-		w += cw
 	}
 	return string(b) + ell
 }

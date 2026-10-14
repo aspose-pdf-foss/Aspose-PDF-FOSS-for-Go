@@ -264,6 +264,67 @@ func TestFlowParagraphShapedFontMatchesAddTextWrapPoints(t *testing.T) {
 	}
 }
 
+// TestWrapTextZeroWidthWordNotDropped pins a regression an independent
+// review of this fix caught: wrapText used lineWidth == 0 as its "is a
+// line pending" sentinel, so a word with zero advance (ZWSP, an unmapped
+// glyph, a lone combining mark) left lineWidth at 0 after being queued —
+// indistinguishable from "no line pending" — so the NEXT word overwrote
+// it instead of extending the line, and a line made entirely of
+// zero-advance words never reached finalizeLine at all (the tail-flush
+// loop condition `lineWidth > 0` was false), silently dropping it. This
+// reproduces with the narrowest case: every rune measures 0.
+func TestWrapTextZeroWidthWordNotDropped(t *testing.T) {
+	// A widthFn that returns 0 for everything stands in for a real
+	// zero-advance character (ZWSP, an unmapped glyph, a lone combining
+	// mark) without putting a raw Unicode format character in this
+	// source file.
+	zeroWidth := func(r rune) float64 { return 0 }
+	m := newLineMeasurer(zeroWidth)
+
+	// A single word whose combined advance is zero must still produce one
+	// (non-empty) line, not be silently dropped.
+	lines := wrapText("x", m, 100)
+	if len(lines) != 1 || lines[0] != "x" {
+		t.Errorf("wrapText(zero-width word) = %q, want [%q]", lines, "x")
+	}
+
+	// Two zero-width "words" on the same line must BOTH survive (not have
+	// the second overwrite the first).
+	lines = wrapText("a b", m, 100)
+	if len(lines) != 1 || lines[0] != "a b" {
+		t.Errorf("wrapText(two zero-width words) = %q, want [%q]", lines, "a b")
+	}
+}
+
+// TestTruncateToWidthShapedNeverExceedsMaxW pins a second review finding:
+// toc.go's "does the title need truncating" pre-check was already
+// shaped-aware, but truncateToWidth itself picked the cut point with the
+// plain unshaped per-rune sum — so a shaped font's truncated
+// title+ellipsis could itself still end up wider than maxW once drawn.
+func TestTruncateToWidthShapedNeverExceedsMaxW(t *testing.T) {
+	_, f := dejaVuFont(t)
+	ttf := f.(*embeddedFont).ttf
+	width := func(r rune) float64 {
+		gid := ttf.glyphID(r)
+		if int(gid) >= len(ttf.glyphWidths) {
+			return 0
+		}
+		return float64(ttf.glyphWidths[gid]) / float64(ttf.unitsPerEm) * 40
+	}
+	// "AA" pairs shape WIDER than their unshaped sum in DejaVu Sans (the
+	// same direction as the overflow repro above), so a cut point chosen
+	// by the old unshaped accumulation keeps too many of them.
+	title := strings.Repeat("AA", 20)
+	const maxW = 400.0
+	shown := truncateToWidth(title, f, 40, width, maxW)
+	if !strings.HasSuffix(shown, "...") {
+		t.Fatalf("truncateToWidth(%q) = %q, want an ellipsis suffix", title, shown)
+	}
+	if got := shapeLine(ttf, shown, 0, false).width(40); got > maxW {
+		t.Errorf("truncateToWidth(%q) = %q, shaped width %.2f exceeds maxW %.2f", title, shown, got, maxW)
+	}
+}
+
 func TestLineMeasurerForFontPlainFontHasNoShaper(t *testing.T) {
 	widths, _ := standard14Widths("/Helvetica")
 	width := func(r rune) float64 {

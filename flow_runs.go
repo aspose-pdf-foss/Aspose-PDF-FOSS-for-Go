@@ -32,7 +32,7 @@ func (f *Flow) addRuns(runs []textRun, st StructType) *Flow {
 // runMetrics caches per-run font measurements.
 type runMetrics struct {
 	width      widthFn
-	measurer   *lineMeasurer // fast shaped-or-plain word width, matching what AddText will draw for this run — see tokenizeRuns
+	measurer   *lineMeasurer // fast shaped-or-plain per-token width; see tokenizeRuns for what this does and does not catch
 	ascent     float64       // ascent factor (of em)
 	size       float64
 	lineHeight float64
@@ -78,6 +78,20 @@ type runToken struct {
 	brk   bool
 }
 
+// tokenizeRuns measures each token's drawn width via ms[ri].measurer —
+// shaped (per word, in isolation) for a run whose font has GSUB/GPOS
+// tables, matching the fast estimate AddText itself uses when it draws
+// the segment (see lineMeasurer, GitHub issue #14). This is still only a
+// per-TOKEN estimate, same as before shaping was measured: cross-token
+// kerning (a glyph either side of the space between two tokens, or across
+// a run border) is not re-verified against the drawn segment's real
+// shaped width the way wrapText's exact()/finalizeLine does for a plain
+// paragraph — drawRunLines' segment rects carry a fixed 1.5pt slack for
+// exactly this gap (code review of this fix: a font with unusually large
+// positive kerning across that boundary could in principle still overflow
+// the slack and have AddText wrap the segment into a second, clipped
+// line; not seen in practice and not fixed here, matching the scope the
+// GitHub issue's own reporter described for styled runs).
 func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 	var tokens []runToken
 	for ri, r := range runs {
