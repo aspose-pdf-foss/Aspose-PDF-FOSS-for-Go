@@ -454,11 +454,14 @@ func (p *Page) addTOCLink(rect Rectangle, yTop, lineH float64, pageNum int, top 
 // truncateToWidth shortens s to fit maxW under font/size, appending "..."
 // when it has to cut. Returns s unchanged when it fits. Growing candidates
 // are checked with shapedOrPlainWidth (the plain per-rune sum for an
-// unshaped font, unchanged from before this fix), so a shaped font's
-// truncated title+ellipsis doesn't itself end up wider than maxW once
-// drawn — the caller's own "does it need truncating at all" check was
-// already shaped-aware, but the cut point this picked was not (code
-// review of GitHub issue #14's fix).
+// unshaped font, unchanged from before this fix): a shaped font's
+// truncated title+ellipsis no longer ends up wider than maxW than the
+// caller's own "does it need truncating" check — already shaped-aware —
+// expected it to, for the same positive-kerning reason the GitHub issue
+// is about. Pre-existing, not fixed by this: when maxW is smaller than
+// the ellipsis's own width (an unusually narrow column), the loop below
+// never keeps any rune of s and the result — "..." alone — is itself
+// still wider than maxW, same as before (code review of this fix).
 func truncateToWidth(s string, font Font, size float64, width widthFn, maxW float64) string {
 	if shapedOrPlainWidth(font, size, s, width) <= maxW {
 		return s

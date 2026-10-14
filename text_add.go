@@ -40,15 +40,15 @@ type widthFn func(r rune) float64
 // word's own characters (otScriptTag), which could in principle disagree
 // with the script the real line-level shape applies to the SAME
 // characters, if the word's bidi embedding level in context splits it
-// across a run boundary that shaping it alone does not see. If the fast
-// estimate this produces ever UNDERshoots the real shaped width, exact's
-// backoff — which only pops words off an OVERsized candidate — cannot
-// correct it (there is no mechanism to re-add a word a prior line judged
-// acceptable). Whether this is reachable at all, and in which direction,
-// is not established; if it is, the failure mode is a wrap decision
-// off by one word, the same class of imprecision cross-word kerning
-// above already accepts, not an overflow (any OVERshoot is still caught
-// by the exact backoff on the finished line).
+// across a run boundary that shaping it alone does not see. The direction
+// that matters is an OVERestimate from this: exact's backoff corrects an
+// UNDERestimate just fine (a line it let overflow still gets re-measured
+// and popped back correctly, since exact always uses the real
+// baseLevel/bidi), but it has no way to ADD a word back that the greedy
+// pack, discouraged by an inflated word() estimate, never tried to fit in
+// the first place — so the only possible symptom is a wrap one word
+// earlier than strictly necessary, never an overflow. Whether this is
+// reachable at all is not established.
 type lineMeasurer struct {
 	width     widthFn // unshaped per-rune advance; always set, used as-is when shaper is nil
 	shaper    *ttfFont
@@ -578,13 +578,20 @@ func breakWord(word string, width widthFn, maxWidth float64) []string {
 // see GitHub issue #14). Falls back to plain breakWord for an unshaped
 // font.
 //
-// Cost (code review of this fix): this is only reached for a single word
-// that alone exceeds maxWidth — rare in prose, but a long unbroken shaped
-// token (e.g. a URL with no spaces) costs one shaped-width call per rune
-// added, each over the growing candidate, so ~O(n) reshapes of up to n
-// runes each for an n-rune token, versus breakWord's O(n) with none.
-// Pathological only at sizes unlikely in a real document (a document
-// built one AddText call at a time); not optimized further here.
+// Cost: this is only reached for a single word that alone exceeds
+// maxWidth — rare in prose. Each candidate's own length is capped by
+// however many runes fit under maxWidth (buf resets on every flush), not
+// by the word's total length, so a long unbroken shaped token (e.g. a URL
+// with no spaces) costs one bounded-length shaped-width call per rune —
+// O(n) shape calls for an n-rune word, same order as breakWord's O(n)
+// plain-sum calls, just each one more expensive (code review of this
+// fix corrected an earlier, overstated O(n²) claim here).
+//
+// A single glyph whose own shaped width already exceeds maxWidth is
+// still emitted alone (the `buf.Len() > 0` guard never fires for it) and
+// overflows when drawn — inherent, not something any wrap-level fix can
+// correct, same as breakWord's pre-existing behavior for an oversized
+// rune.
 func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string {
 	if m.shaper == nil {
 		return breakWord(word, m.width, maxWidth)
