@@ -703,3 +703,205 @@ func TestApplyRedactionsFormXObjectSharedPageResourcesNotCorrupted(t *testing.T)
 		t.Errorf("page 2 (NOT redacted, shares /Resources with page 1 via indirect reference) lost its text: got %q, want it to still contain %q", txt2, secret)
 	}
 }
+
+// TestApplyRedactionsFormXObjectInheritingPageResourcesDoesNotLeakOriginal
+// pins a severe bug a THIRD round of independent review found and this
+// reproduced directly: a Form XObject with NO own /Resources inherits
+// the resources in effect where it's placed (ISO 32000-1 §7.8.3) — here,
+// the page's. redactFormXObject's clone gets a PRIVATE COPY of those
+// inherited resources as ITS OWN (see privateXObjectResources), taken
+// BEFORE the page's own end-of-pass pruning runs. That copy used to be
+// the full, untrimmed page resources dict — including the page's own
+// "/Fm0" entry pointing at THIS VERY form (the one being redacted and
+// cloned), even though the form's own content never references that
+// name at all (nothing inside it calls itself). The clone's /Resources
+// kept that entry forever, which kept the ORIGINAL, unredacted form
+// graph-reachable and un-collectable by RemoveUnusedObjects — the
+// original's secret text stayed fully recoverable in the saved file
+// despite ApplyRedactions reporting success and the page's own content
+// no longer drawing it anywhere. Fixed by pruning a form's PRIVATE
+// resources copy down to exactly what its own (rewritten) content needs
+// (neededXObjectNames), the same way the page-level copy is pruned.
+func TestApplyRedactionsFormXObjectInheritingPageResourcesDoesNotLeakOriginal(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p, err := d.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const secret = "INHERITED-RESOURCES-SECRET"
+	formID := d.nextID
+	d.nextID++
+	d.objects[formID] = &pdfObject{Num: formID, Value: &pdfStream{
+		Dict: pdfDict{
+			"/Type":    pdfName("/XObject"),
+			"/Subtype": pdfName("/Form"),
+			"/BBox":    pdfArray{0.0, 0.0, 200.0, 100.0},
+			// Deliberately NO /Resources: this form inherits whatever
+			// resources are in effect at its placement — the page's.
+		},
+		Data:    []byte("BT /F0 12 Tf 0 0 0 rg 10 50 Td (" + secret + ") Tj ET\n"),
+		Decoded: true,
+	}}
+
+	fontID := d.nextID
+	d.nextID++
+	d.objects[fontID] = &pdfObject{Num: fontID, Value: pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+		"/Encoding": pdfName("/WinAnsiEncoding"),
+	}}
+
+	resources := pdfDict{
+		"/Font":    pdfDict{"/F0": pdfRef{Num: fontID}},
+		"/XObject": pdfDict{"/Fm0": pdfRef{Num: formID}},
+	}
+	p.pageDict()["/Resources"] = resources
+
+	if err := p.appendToContentStream([]byte("q 1 0 0 1 50 600 cm /Fm0 Do Q\n")); err != nil {
+		t.Fatal(err)
+	}
+	// Fully covers the form's only placement.
+	ra := NewRedactAnnotation(p, Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700})
+	if err := p.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.ApplyRedactions(); err != nil {
+		t.Fatalf("ApplyRedactions: %v", err)
+	}
+
+	if found, n := documentContainsBytes(d, secret); found {
+		t.Errorf("%q still present in %d in-memory object(s) after ApplyRedactions (inherited-resources clone leaked a reference to the original)", secret, n)
+	}
+	var buf bytes.Buffer
+	if _, err := d.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, n := documentContainsBytes(reopened, secret); found {
+		t.Errorf("%q recoverable from %d object(s) in the saved+reopened file", secret, n)
+	}
+}
+
+// TestApplyRedactionsSiblingFormInheritingPageResourcesKeepsNeededEntry
+// pins the page-level counterpart of the bug above, also found by the
+// third independent review round: pruning a page's /XObject entries
+// down to what the page's OWN content still calls has no visibility
+// into a SIBLING Form XObject that has no own /Resources and resolves
+// its OWN Do names through that exact same (now-pruned) dict. Here, a
+// shared form Fx is placed directly on the page (inside the redact
+// region — triggering a clone-and-redirect of THAT one occurrence) AND
+// invoked a second time, at an untouched location outside the region,
+// from inside a sibling form G that has no own /Resources and calls
+// "/Fx Do" internally. The page's own top-level content no longer
+// mentions "/Fx" by name after redaction (its one direct occurrence was
+// redirected to a clone) — an old, reactive "only un-prune a name if
+// something in THIS stream still uses it" heuristic would delete "/Fx"
+// from the page's resources at that point, breaking G's internal lookup
+// and silently blanking its (untouched, legitimately still-unredacted)
+// placement of Fx. The fix (neededXObjectNames) finds "/Fx" is still
+// needed by recursing into G's own content, since G has no own
+// /Resources either.
+func TestApplyRedactionsSiblingFormInheritingPageResourcesKeepsNeededEntry(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p, err := d.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const marker = "SHARED-VIA-SIBLING-MARKER"
+	fxID := d.nextID
+	d.nextID++
+	d.objects[fxID] = &pdfObject{Num: fxID, Value: &pdfStream{
+		Dict: pdfDict{
+			"/Type":    pdfName("/XObject"),
+			"/Subtype": pdfName("/Form"),
+			"/BBox":    pdfArray{0.0, 0.0, 100.0, 50.0},
+		},
+		Data:    []byte("BT /F0 12 Tf 0 0 0 rg 5 20 Td (" + marker + ") Tj ET\n"),
+		Decoded: true,
+	}}
+
+	const survivor = "SIBLING-G-SURVIVOR"
+	gID := d.nextID
+	d.nextID++
+	d.objects[gID] = &pdfObject{Num: gID, Value: &pdfStream{
+		Dict: pdfDict{
+			"/Type":    pdfName("/XObject"),
+			"/Subtype": pdfName("/Form"),
+			"/BBox":    pdfArray{0.0, 0.0, 100.0, 50.0},
+			// No own /Resources: resolves "/Fx" through the page's.
+		},
+		Data:    []byte("BT /F0 10 Tf 0 0 0 rg 5 5 Td (" + survivor + ") Tj ET\nq 1 0 0 1 0 0 cm /Fx Do Q\n"),
+		Decoded: true,
+	}}
+
+	fontID := d.nextID
+	d.nextID++
+	d.objects[fontID] = &pdfObject{Num: fontID, Value: pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+		"/Encoding": pdfName("/WinAnsiEncoding"),
+	}}
+
+	resources := pdfDict{
+		"/Font": pdfDict{"/F0": pdfRef{Num: fontID}},
+		"/XObject": pdfDict{
+			"/Fx": pdfRef{Num: fxID},
+			"/G":  pdfRef{Num: gID},
+		},
+	}
+	p.pageDict()["/Resources"] = resources
+
+	// Place Fx directly (inside the redact region) AND place G (outside
+	// the region, untouched — G in turn calls /Fx internally).
+	if err := p.appendToContentStream([]byte(
+		"q 1 0 0 1 50 600 cm /Fx Do Q\n" +
+			"q 1 0 0 1 300 600 cm /G Do Q\n",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	ra := NewRedactAnnotation(p, Rectangle{LLX: 50, LLY: 600, URX: 150, URY: 650})
+	if err := p.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.ApplyRedactions(); err != nil {
+		t.Fatalf("ApplyRedactions: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := d.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rp, err := reopened.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt, err := rp.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt = strings.ReplaceAll(txt, "\n", "")
+	if !strings.Contains(txt, survivor) {
+		t.Errorf("sibling Form XObject G did not render at all: got %q, want it to contain %q", txt, survivor)
+	}
+	// Fx's placement via G was never inside any redaction region, so it
+	// must still render — if the page-level prune had instead deleted
+	// "/Fx" (the bug this test pins), G's internal "/Fx Do" would
+	// silently resolve to nothing and this marker would vanish entirely,
+	// even though no redact annotation ever covered this placement.
+	if !strings.Contains(txt, marker) {
+		t.Errorf("sibling Form XObject G's internal \"/Fx Do\" reference was broken by page-level resource pruning: got %q, want it to still contain %q", txt, marker)
+	}
+}
