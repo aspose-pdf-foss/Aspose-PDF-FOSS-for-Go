@@ -6,11 +6,86 @@ import "fmt"
 
 // maxFormRedactDepth bounds Form-XObject recursion while redacting into
 // one, the same way maxFormDepth (text.go) bounds it during text
-// extraction — a self-referential or pathologically deep nesting stops
-// recursing rather than looping or blowing the stack; the Do invocation
-// at that depth is left unredacted, same pre-existing nested-form blind
-// spot text extraction already has, not a new one.
+// extraction. Unlike text extraction's cap, hitting this one while a
+// region genuinely intersects the Do at that depth is treated as unsafe
+// (an error), not a silent skip: by construction, recursion only
+// happens for a Do already found to intersect a region, so reaching the
+// cap means there IS unredacted, intersecting content this pass is
+// refusing to examine — the same "refuse rather than leave incomplete"
+// principle as a non-invertible matrix or an unresolvable /BBox (code
+// review of this fix: an earlier draft skipped silently here, which is
+// exactly the class of silent, incomplete "success" this whole feature
+// exists to close).
 const maxFormRedactDepth = 32
+
+// maxFormRedactWork bounds the TOTAL number of Form XObject placements
+// redacted into across one ApplyRedactions call (summed across every
+// page, every nested level) — a depth cap alone does not bound the
+// WORK done at a given depth: a form that places two region-intersecting
+// copies of a child, each placing two more, doubles the work every
+// level, so maxFormRedactDepth's generous 32 levels alone could still
+// mean an astronomical number of redactFormXObject calls (and cloned
+// objects) for an adversarially-constructed file. Once this budget is
+// exhausted, ApplyRedactions refuses (an error) rather than continuing
+// to burn CPU/memory on a file shaped to maximize Form-XObject fan-out —
+// confirmed reachable (not just theoretical) by an independent review of
+// this fix's first draft, which had no such bound at all.
+const maxFormRedactWork = 10000
+
+// formRedactBudget is a per-ApplyRedactions-call work counter, shared
+// (by pointer) across every page and every level of Form XObject
+// recursion within that one call — see maxFormRedactWork.
+type formRedactBudget struct {
+	spent int
+}
+
+func (b *formRedactBudget) consume() error {
+	if b == nil {
+		return nil // unit tests that construct a bare rewriteXObjectDoOperatorsInStream call pass no budget; unbounded is fine for a single hand-built op list
+	}
+	b.spent++
+	if b.spent > maxFormRedactWork {
+		return fmt.Errorf("asposepdf: ApplyRedactions: exceeded the Form XObject redaction work budget (%d); refusing rather than continuing on what looks like a pathologically-nested or fan-out-heavy file", maxFormRedactWork)
+	}
+	return nil
+}
+
+// privateXObjectResources returns a resources dict that is SAFE for a
+// redaction pass to add/remove /XObject entries in: a fresh shallow copy
+// of resources itself, with its OWN fresh copy of the /XObject sub-dict.
+// Every other sub-dict (/Font, /ColorSpace, …) is carried over by
+// reference, unchanged, since nothing here ever mutates those.
+//
+// Without this, redactFormDo's redirect-this-one-placement-only logic
+// and rewriteXObjectDoOperatorsInStream's stale-name pruning were both
+// mutating whatever dict resources["/XObject"] resolved to DIRECTLY —
+// but that dict is not necessarily private to the one page or one Form
+// XObject placement being processed: a Form XObject's own /Resources is
+// shared by EVERY placement of that same form object (not just the one
+// a redaction region happens to intersect), and a page's /Resources can
+// itself be shared across pages via an indirect reference (a common PDF
+// producer optimization). Mutating it in place for one placement's sake
+// corrupted every OTHER placement/page sharing it — confirmed reachable
+// (an untouched page sharing a redacted form's own resources lost that
+// form's nested content entirely) by an independent review of this
+// fix's first draft. Installing a private copy — via this helper,
+// called once per page in applyRedactionsToPage and once per
+// placement-needing-a-clone in redactFormDo/redactFormXObject — decouples
+// each one, so only the dict belonging to the ONE page or the ONE
+// private clone this call is building ever changes.
+func privateXObjectResources(objects map[int]*pdfObject, resources pdfDict) pdfDict {
+	fresh := make(pdfDict, len(resources)+1)
+	for k, v := range resources {
+		fresh[k] = v
+	}
+	xobjOriginal, _ := resolveRefToDict(objects, resources["/XObject"])
+	xobjCopy := make(pdfDict, len(xobjOriginal))
+	for k, v := range xobjOriginal {
+		xobjCopy[k] = v
+	}
+	fresh["/XObject"] = xobjCopy
+	return fresh
+}
 
 // rewriteImageOperatorsInStream removes Image XObject invocations (Do)
 // whose painted bbox falls entirely inside any redact region, wraps
@@ -26,14 +101,18 @@ const maxFormRedactDepth = 32
 // state machine tracks q/Q nesting and cm pre-multiplications.
 // Operators other than q/Q/cm/Do are passed through unchanged.
 func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict) ([]byte, error) {
-	return rewriteXObjectDoOperatorsInStream(data, regions, doc, resources, 0)
+	// One budget per call — in practice, one per page (applyRedactionsToPage
+	// calls this once per redacted page) — bounds the total Form XObject
+	// redaction work this call can do; see maxFormRedactWork.
+	return rewriteXObjectDoOperatorsInStream(data, regions, doc, resources, 0, &formRedactBudget{})
 }
 
 // rewriteXObjectDoOperatorsInStream is rewriteImageOperatorsInStream with
 // an explicit recursion depth, so redactFormXObject can call back into it
 // for a Form XObject's own content at depth+1 (nested forms) while the
-// top-level, page-content call starts at depth 0.
-func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict, depth int) ([]byte, error) {
+// top-level, page-content call starts at depth 0 — and an explicit work
+// budget, shared (by pointer) across every level of that recursion.
+func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict, depth int, budget *formRedactBudget) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
@@ -94,7 +173,7 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 			name := operandName(op.Operands[0])
 			st := resolveXObjectStream(objects, resources, name)
 			if st != nil && dictGetName(st.Dict, "/Subtype") == "/Form" {
-				newOp, replaced, err := redactFormDo(doc, st, ctm, regions, resources, depth, op)
+				newOp, replaced, err := redactFormDo(doc, st, ctm, regions, resources, depth, op, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -153,23 +232,35 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 // redacted copy of the form when redactFormXObject actually changed
 // something.
 //
-// A clone, never an in-place mutation of the original form object: the
-// same Form XObject can be Do-invoked from several placements — on this
-// page or another, the same stream shared via indirect reference, think a
-// logo stamped on every page — and only some of those placements may
-// overlap a redaction region. Rewriting the shared content stream in
-// place would blank it everywhere; redirecting only THIS Do operand to a
-// private copy (a fresh object number, a fresh resource name scoped to
-// this one invocation) leaves every other reference to the original
-// object — this stream, on this page or any other — completely
-// untouched. Confirmed necessary by an independent review of this
-// function's first draft, which redacted the shared stream directly.
+// A clone, never an in-place mutation of the original form object OR
+// its /Resources dict: the same Form XObject can be Do-invoked from
+// several placements — on this page or another, the same stream shared
+// via indirect reference, think a logo stamped on every page — and only
+// some of those placements may overlap a redaction region. Rewriting
+// the shared content stream in place would blank it everywhere;
+// redirecting only THIS Do operand to a private copy (a fresh object
+// number, a fresh resource name scoped to this one invocation) leaves
+// every other reference to the original object — this stream, on this
+// page or any other — completely untouched. Confirmed necessary by an
+// independent review of this function's first draft, which redacted the
+// shared stream directly. A SECOND, easy-to-miss sharing hazard the same
+// review caught: a Form XObject's own /Resources dict is ALSO shared by
+// every placement of that form, not just the one being redacted — so
+// redactFormXObject never resolves or mutates it directly either, only
+// a private copy (see privateXObjectResources), which THIS function
+// installs as the clone's own /Resources below.
 // The bool return reports whether this Do operand was redirected to a
 // new, private clone (true) or passed through referencing the original
 // name unchanged (false) — the caller tallies this per resource name
 // across the whole content stream, since the SAME name can appear more
 // than once (see replacedFormNames/survivingFormNames in the caller).
-func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPoint, resources pdfDict, depth int, original contentOp) (contentOp, bool, error) {
+//
+// resources is the CALLER's (parent content stream's) resources dict —
+// already a private, safe-to-mutate copy by the time it reaches here
+// (see privateXObjectResources): this function only ever adds ONE new
+// entry to it (the clone's fresh name), it never resolves or mutates the
+// form's OWN resources itself — that happens inside redactFormXObject.
+func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPoint, resources pdfDict, depth int, original contentOp, budget *formRedactBudget) (contentOp, bool, error) {
 	var objects map[int]*pdfObject
 	if doc != nil {
 		objects = doc.objects
@@ -186,7 +277,24 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 		return original, false, nil
 	}
 
-	newData, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1)
+	// depth+1 is the depth the NESTED recursion below would run at — if
+	// that would exceed the cap, refuse rather than silently leaving this
+	// (already confirmed intersecting) Form XObject unexamined, same
+	// "refuse rather than leave incomplete" principle as a non-invertible
+	// matrix or an unresolvable /BBox (code review of an earlier draft,
+	// which skipped silently at the cap instead).
+	if depth+1 >= maxFormRedactDepth {
+		name := ""
+		if len(original.Operands) > 0 {
+			name = operandName(original.Operands[0])
+		}
+		return contentOp{}, false, fmt.Errorf("asposepdf: ApplyRedactions: Form XObject %q nesting exceeds the redaction depth limit (%d); refusing rather than leaving an intersecting, unexamined Form XObject", name, maxFormRedactDepth)
+	}
+	if err := budget.consume(); err != nil {
+		return contentOp{}, false, err
+	}
+
+	newData, newResources, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1, budget)
 	if err != nil {
 		return contentOp{}, false, err
 	}
@@ -199,6 +307,16 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 	newDict := make(pdfDict, len(st.Dict))
 	for k, v := range st.Dict {
 		newDict[k] = v
+	}
+	// newResources is redactFormXObject's own PRIVATE resources copy, not
+	// st.Dict's original /Resources reference: if redacting the form's
+	// content redirected a NESTED Do to a clone, that clone's name was
+	// registered into newResources, not into the (possibly shared with
+	// other placements of this same form) original — using the original
+	// here would leave the clone's content referencing a name its own
+	// /Resources never got.
+	if newResources != nil {
+		newDict["/Resources"] = newResources
 	}
 	newDict["/Length"] = len(newData)
 	// /Filter + /DecodeParms described the OLD (possibly compressed)
@@ -251,12 +369,19 @@ func nextFormXObjectResourceName(xobjDict pdfDict) string {
 // differ from the original; the caller (redactFormDo) skips cloning
 // entirely when nothing changed (the coarse placement bbox intersected a
 // region, but nothing the form actually draws was inside it once mapped
-// precisely).
-func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ctm [6]float64, regions []QuadPoint, depth int) (newData []byte, changed bool, err error) {
-	if depth >= maxFormRedactDepth {
-		return nil, false, nil
-	}
-
+// precisely). newResources is the PRIVATE resources dict this call used
+// to resolve/redirect anything inside the form's own content (see
+// privateXObjectResources) — nil when changed is false, otherwise the
+// caller must install it as the clone's own /Resources, NOT reuse the
+// form's original (possibly shared-across-placements) one: if a nested
+// Do got redirected to ITS OWN clone, that clone's fresh resource name
+// was registered into THIS private copy, not the original.
+//
+// The depth cap (maxFormRedactDepth) and the work budget
+// (maxFormRedactWork) are both enforced by the caller (redactFormDo),
+// before it ever calls this function — see redactFormDo's own doc
+// comment for why depth is checked there and not here.
+func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ctm [6]float64, regions []QuadPoint, depth int, budget *formRedactBudget) (newData []byte, newResources pdfDict, changed bool, err error) {
 	var objects map[int]*pdfObject
 	if doc != nil {
 		objects = doc.objects
@@ -269,7 +394,7 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 	composed := matMul(formMatrix, ctm)
 	inv, ok := invertMatrix(composed)
 	if !ok {
-		return nil, false, fmt.Errorf("asposepdf: ApplyRedactions: a Form XObject's placement matrix is not invertible; cannot map a redaction region into its content")
+		return nil, nil, false, fmt.Errorf("asposepdf: ApplyRedactions: a Form XObject's placement matrix is not invertible; cannot map a redaction region into its content")
 	}
 
 	localRegions := make([]QuadPoint, len(regions))
@@ -277,33 +402,44 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 		localRegions[i] = transformQuad(q, inv)
 	}
 
-	formResources := parentResources
+	formOwnResources := parentResources
 	if resVal, ok := st.Dict["/Resources"]; ok {
 		if rd, ok := resolveRefToDict(objects, resVal); ok {
-			formResources = rd
+			formOwnResources = rd
 		}
 	}
+	// A FRESH, private copy — never the form's own (or inherited parent's)
+	// resources dict directly. That dict can be shared by every OTHER
+	// placement of this same form object (or, for the inherited-parent
+	// case, by every other page/form that itself shares the parent's
+	// resources); mutating it in place here — adding a nested clone's
+	// name, or pruning a stale one — would corrupt every one of those
+	// other, untouched placements. Confirmed reachable (an unrelated,
+	// non-redacted page sharing this form lost its content entirely) by
+	// an independent review of an earlier draft that resolved
+	// formOwnResources directly and handed it straight to the rewriters.
+	formResources := privateXObjectResources(objects, formOwnResources)
 
 	original := decodedStreamData(st)
 	fontMap := resolveFontResources(objects, formResources)
 
 	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
-	data, err = rewriteXObjectDoOperatorsInStream(data, localRegions, doc, formResources, depth)
+	data, err = rewriteXObjectDoOperatorsInStream(data, localRegions, doc, formResources, depth, budget)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	data, err = rewritePathOperatorsInStream(data, localRegions)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
 	if string(data) == string(original) {
-		return nil, false, nil
+		return nil, nil, false, nil
 	}
-	return data, true, nil
+	return data, formResources, true, nil
 }
 
 // transformQuad maps every corner of q through the affine matrix m.
@@ -504,30 +640,25 @@ func resolveXObjectStream(objects map[int]*pdfObject, resources pdfDict, name st
 // reported; only before that fix did any intersection count as unsafe.
 //
 // Recurses into a safely-resolvable form's own content at the SAME
-// depth redactFormXObject would, so a problem several levels of nesting
-// down (a nested Form XObject with its own bad /BBox, say) is caught
-// here too, before ApplyRedactions attempts any mutation — mirroring
-// redactFormXObject's own recursion exactly (same formPlacementBbox/
-// invertMatrix checks, same region-transform-via-inverse-matrix, same
-// maxFormRedactDepth cap) is deliberate: ApplyRedactions's own mutation
-// path is clone-based and never corrupts anything in place even if an
-// unvalidated deeper level later fails and surfaces as its own error, so
-// this check's only job is to give the caller advance warning, not to
-// gate correctness.
+// depth, depth cap, and work budget redactFormXObject would use (see
+// maxFormRedactDepth/maxFormRedactWork), so a problem several levels of
+// nesting down (a nested Form XObject with its own bad /BBox, say) is
+// caught here too, before ApplyRedactions attempts any mutation —
+// mirroring redactFormXObject's own recursion exactly (same
+// formPlacementBbox/invertMatrix checks, same
+// region-transform-via-inverse-matrix) is deliberate: ApplyRedactions's
+// own mutation path is clone-based and never corrupts anything in place
+// even if an unvalidated deeper level later fails and surfaces as its
+// own error, so this check's only job is to give the caller advance
+// warning, not to gate correctness.
 func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict) (string, bool) {
 	if len(regions) == 0 {
 		return "", false
 	}
-	return unsafeFormXObjectNameDepth(ops, regions, objects, resources, 0)
+	return unsafeFormXObjectNameDepth(ops, regions, objects, resources, 0, &formRedactBudget{})
 }
 
-func unsafeFormXObjectNameDepth(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict, depth int) (string, bool) {
-	if depth >= maxFormRedactDepth {
-		// Matches redactFormXObject's own depth-cap behavior: not
-		// attempted, so not flagged unsafe either — a true blind spot,
-		// not a false negative this check is responsible for.
-		return "", false
-	}
+func unsafeFormXObjectNameDepth(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict, depth int, budget *formRedactBudget) (string, bool) {
 	ctm := identityMatrix()
 	var stack [][6]float64
 	for _, op := range ops {
@@ -560,6 +691,21 @@ func unsafeFormXObjectNameDepth(ops []contentOp, regions []QuadPoint, objects ma
 				continue
 			}
 
+			// Recursing one level deeper, from here, would run at
+			// depth+1 — if that reaches the cap, or the work budget is
+			// exhausted, treat this placement as unsafe rather than
+			// silently reporting it safe: redactFormXObject would refuse
+			// at exactly this same point (code review of an earlier
+			// draft, which stopped silently here instead — a validator
+			// that says "safe" right where the real pass would error is
+			// worse than one that is merely conservative).
+			if depth+1 >= maxFormRedactDepth {
+				return name, true
+			}
+			if budget.consume() != nil {
+				return name, true
+			}
+
 			formMatrix := identityMatrix()
 			if mv := shFloats(objects, st.Dict["/Matrix"]); len(mv) == 6 {
 				formMatrix = [6]float64{mv[0], mv[1], mv[2], mv[3], mv[4], mv[5]}
@@ -583,7 +729,7 @@ func unsafeFormXObjectNameDepth(ops []contentOp, regions []QuadPoint, objects ma
 			if err != nil {
 				return name, true
 			}
-			if innerName, unsafe := unsafeFormXObjectNameDepth(innerOps, localRegions, objects, formResources, depth+1); unsafe {
+			if innerName, unsafe := unsafeFormXObjectNameDepth(innerOps, localRegions, objects, formResources, depth+1, budget); unsafe {
 				return innerName, true
 			}
 		}

@@ -96,19 +96,34 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // was under — formPlacementBbox's own convention, run in reverse), and
 // the SAME three rewriters this method uses at the page level then run on
 // the form's content with those local-space regions, recursing into a
-// nested Form XObject the same way (up to maxFormRedactDepth levels —
-// pathological/self-referential nesting beyond that is left unredacted at
-// that depth, the one remaining blind spot, same as text extraction's own
-// nesting cap). The ORIGINAL form object is never mutated: since the same
-// Form XObject can be placed more than once — the same logo stamped on
-// every page, say — only placements that actually need a change are
+// nested Form XObject the same way (up to maxFormRedactDepth levels, and
+// a total maxFormRedactWork placements across the whole call — a fan-out
+// of region-intersecting placements can exhaust this long before the
+// depth cap, bounding a pathologically fan-out-heavy or self-referential
+// file). Neither cap is a silent blind spot: exceeding either one while
+// a region genuinely intersects an unexamined Do is refused (an error),
+// not left incomplete — an earlier draft of the depth cap skipped
+// silently instead, caught by an independent review. The ORIGINAL form
+// object, and its own /Resources dict, are never mutated: since the same
+// Form XObject (and the same /Resources, shared by every placement of
+// it) can be placed more than once — the same logo stamped on every
+// page, say — only placements that actually need a change are
 // redirected (their one Do operand only) to a freshly cloned, redacted
-// copy; every other placement of the original keeps rendering exactly as
-// before. Still refused outright, not guessed at: a Form XObject with no
-// resolvable /BBox (formPlacementBbox's own ok=false — ISO 32000-1
-// §8.10.2 requires one on every conformant form) or a placement matrix
-// that doesn't invert (so a region can't be mapped into the form's space
-// at all) — see redactFormDo/redactFormXObject.
+// copy with its own private /Resources; every other placement of the
+// original keeps rendering exactly as before. The same sharing hazard
+// applies one level up too: a PAGE's own /Resources can itself be shared
+// across pages via an indirect reference (another common producer size
+// optimization), so this method gives each redacted page a private copy
+// of its own before redacting into it, for the same reason. Both
+// sharing hazards — the page level and the Form XObject level — were
+// confirmed reachable (an unrelated, non-redacted page or placement
+// silently lost content) by an independent review of this fix's first
+// draft, which resolved and mutated whichever resources dict was handed
+// to it directly. Still refused outright, not guessed at: a Form
+// XObject with no resolvable /BBox (formPlacementBbox's own ok=false —
+// ISO 32000-1 §8.10.2 requires one on every conformant form) or a
+// placement matrix that doesn't invert (so a region can't be mapped into
+// the form's space at all) — see redactFormDo/redactFormXObject.
 //
 // Known gaps (not closed by this sweep, tracked separately): an Image
 // XObject fully inside a redaction region has its Do invocation dropped
@@ -167,8 +182,21 @@ func applyRedactionsToPage(p *Page) error {
 		data = []byte{}
 	}
 
-	// 3. Build font map from page resources.
-	resources := p.pageResources()
+	// 3. Give this page its OWN private copy of the /XObject resources
+	// sub-dict before any rewriter runs, and install it as the page's own
+	// /Resources: a page's /Resources (and/or its /XObject sub-dict) can
+	// be shared across several pages via an indirect reference — a common
+	// PDF producer size optimization — and the Form XObject handling
+	// below may add/remove /XObject entries for a redirected clone.
+	// Mutating a shared dict in place would corrupt every OTHER page
+	// sharing it, even ones with no redaction region of their own —
+	// confirmed reachable (an unrelated, non-redacted page sharing a
+	// redacted Form XObject's resources lost that form's content
+	// entirely) by an independent review of an earlier draft that used
+	// p.pageResources() directly here. Other pages keep pointing at the
+	// original, untouched dict; only this one page's view changes.
+	resources := privateXObjectResources(p.doc.objects, p.pageResources())
+	p.pageDict()["/Resources"] = resources
 	fontMap := resolveFontResources(p.doc.objects, resources)
 
 	// 4. Run rewriters sequentially: text → image → path.

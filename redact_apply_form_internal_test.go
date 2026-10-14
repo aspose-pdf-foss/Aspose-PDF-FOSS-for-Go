@@ -229,6 +229,100 @@ func TestApplyRedactionsFormXObjectSharedPlacementNotTouched(t *testing.T) {
 	}
 }
 
+// TestApplyRedactionsFormXObjectSharedNestedFormResourcesNotCorrupted
+// pins a severe bug an independent review found (and this reproduced
+// directly, before fixing it): a Form XObject's OWN /Resources dict is
+// shared by EVERY placement of that same form object, not just the one
+// a redaction happens to intersect. redactFormXObject used to resolve
+// and mutate that shared dict directly when redirecting a NESTED Do to
+// a clone (or pruning the stale name afterward) — so redacting content
+// reached through ONE placement of an outer form silently corrupted a
+// completely different, never-redacted placement of the SAME outer form
+// elsewhere, breaking its nested content (the stale/missing /XObject
+// entry made its own Do operand dangle). Here: one outer form (with its
+// own /Resources, placing an inner form) is placed on two pages; only
+// page 1 is redacted. Page 2's placement — sharing the outer form's
+// object, and therefore its /Resources, with page 1 — must render
+// exactly as before: the inner form's text must still be there.
+func TestApplyRedactionsFormXObjectSharedNestedFormResourcesNotCorrupted(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	inner := doc.CreateForm(100, 50)
+	const secret = "SHARED-NESTED-SECRET"
+	if err := inner.Canvas().AddText(secret, TextStyle{Size: 10},
+		Rectangle{LLX: 0, LLY: 0, URX: 100, URY: 50}); err != nil {
+		t.Fatal(err)
+	}
+
+	outer := doc.CreateForm(200, 100)
+	if err := outer.Canvas().AddForm(inner, Rectangle{LLX: 50, LLY: 25, URX: 150, URY: 75}); err != nil {
+		t.Fatal(err)
+	}
+
+	page1, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement := Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700}
+	if err := page1.AddForm(outer, placement); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.AddBlankPage(595, 842); err != nil {
+		t.Fatal(err)
+	}
+	page2, err := doc.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same OUTER form object (hence the same /Resources, which names the
+	// INNER form) placed again — page 2 gets NO redact annotation at all.
+	if err := page2.AddForm(outer, placement); err != nil {
+		t.Fatal(err)
+	}
+
+	ra := NewRedactAnnotation(page1, placement) // covers the outer form entirely -> recurses into inner
+	if err := page1.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.ApplyRedactions(); err != nil {
+		t.Fatalf("ApplyRedactions: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p1, err := reopened.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt1, err := p1.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(txt1, secret) {
+		t.Errorf("page 1 (redacted) still contains %q: %q", secret, txt1)
+	}
+
+	p2, err := reopened.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt2, err := p2.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ReplaceAll(txt2, "\n", ""), secret) {
+		t.Errorf("page 2 (NOT redacted, shares the outer form's /Resources with page 1) lost the inner form's text: got %q, want it to still contain %q", txt2, secret)
+	}
+}
+
 // TestApplyRedactionsFormXObjectNestedForm confirms the recursive case:
 // a Form XObject that itself places another (nested) Form XObject, with
 // redactable text inside the NESTED one, is still reached and redacted —
@@ -380,5 +474,232 @@ func TestApplyRedactionsFormXObjectCloneDoesNotLeakOriginal(t *testing.T) {
 	// once the page's only Do operand was redirected to the clone.
 	if _, stillThere := doc.objects[form.formID]; stillThere {
 		t.Errorf("original Form XObject object %d still present after ApplyRedactions reclaimed unused objects", form.formID)
+	}
+}
+
+// TestFormRedactBudgetConsumeRefusesWhenExhausted is a focused unit test
+// of the work-budget mechanism itself (maxFormRedactWork): consume()
+// must start succeeding and, once the budget is spent, keep refusing —
+// this is what bounds the TOTAL number of Form XObject placements
+// ApplyRedactions will redact into across one call, independent of the
+// depth cap (a shallow but wide fan-out of region-intersecting
+// placements can exhaust this long before maxFormRedactDepth is ever
+// reached — an independent review confirmed this is reachable: a form
+// that places two region-intersecting copies of a child, each placing
+// two more, doubles the work every level).
+func TestFormRedactBudgetConsumeRefusesWhenExhausted(t *testing.T) {
+	b := &formRedactBudget{}
+	for i := 0; i < maxFormRedactWork; i++ {
+		if err := b.consume(); err != nil {
+			t.Fatalf("consume() #%d: unexpected error before the budget is exhausted: %v", i, err)
+		}
+	}
+	if err := b.consume(); err == nil {
+		t.Error("consume(): want an error once the work budget is exhausted, got nil")
+	}
+
+	// A nil budget (unit tests that call rewriteXObjectDoOperatorsInStream
+	// directly with a hand-built op list, with no budget to pass) must
+	// never panic and never refuse — it means "this call site doesn't
+	// care to bound the work."
+	var nilBudget *formRedactBudget
+	if err := nilBudget.consume(); err != nil {
+		t.Errorf("consume() on a nil budget: want nil, got %v", err)
+	}
+}
+
+// TestApplyRedactionsFormXObjectExhaustedWorkBudgetRefuses is the
+// integration-level counterpart: a form tree shaped to exceed
+// maxFormRedactWork well before maxFormRedactDepth (fanout 3, depth 9 =
+// 3^9 ≈ 19683 region-intersecting placements, each triggering its own
+// redactFormXObject call since redactFormDo runs once per Do OCCURRENCE,
+// not once per unique object -- so this needs only `depth` distinct form
+// objects to build, reused via multiple Do operators per level, not an
+// exponential number of objects). ApplyRedactions must refuse with an
+// error rather than grinding through (and cloning!) tens of thousands of
+// placements.
+func TestApplyRedactionsFormXObjectExhaustedWorkBudgetRefuses(t *testing.T) {
+	const fanout = 3
+	const depth = 9 // fanout^depth ≈ 19683 > maxFormRedactWork (10000)
+
+	doc := NewDocumentFromFormat(PageFormatA4)
+	level := doc.CreateForm(20, 20)
+	if err := level.Canvas().AddText("x", TextStyle{Size: 8}, Rectangle{LLX: 0, LLY: 0, URX: 20, URY: 20}); err != nil {
+		t.Fatal(err)
+	}
+	for d := 0; d < depth; d++ {
+		next := doc.CreateForm(60, 20)
+		for i := 0; i < fanout; i++ {
+			x := float64(i) * 20
+			if err := next.Canvas().AddForm(level, Rectangle{LLX: x, LLY: 0, URX: x + 20, URY: 20}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		level = next
+	}
+
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement := Rectangle{LLX: 50, LLY: 600, URX: 50 + 60, URY: 620}
+	if err := page.AddForm(level, placement); err != nil {
+		t.Fatal(err)
+	}
+	ra := NewRedactAnnotation(page, placement) // covers the whole tree
+	if err := page.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.ApplyRedactions(); err == nil {
+		t.Error("ApplyRedactions: want an error (work budget exceeded by a wide fan-out of region-intersecting placements), got nil")
+	}
+}
+
+// TestApplyRedactionsFormXObjectExceedsDepthRefuses: a chain of nested
+// Form XObjects deeper than maxFormRedactDepth, each one fully covered
+// by the redact region (so recursion is attempted all the way down),
+// must refuse rather than silently leaving the deepest, unexamined
+// levels unredacted — the "refuse rather than leave incomplete"
+// principle this whole feature already applies to a non-invertible
+// matrix or an unresolvable /BBox (code review of an earlier draft,
+// which stopped silently at the cap instead of erroring).
+func TestApplyRedactionsFormXObjectExceedsDepthRefuses(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	level := doc.CreateForm(50, 50)
+	if err := level.Canvas().AddText("leaf", TextStyle{Size: 8}, Rectangle{LLX: 0, LLY: 0, URX: 50, URY: 50}); err != nil {
+		t.Fatal(err)
+	}
+	for d := 0; d < maxFormRedactDepth+2; d++ {
+		next := doc.CreateForm(50, 50)
+		if err := next.Canvas().AddForm(level, Rectangle{LLX: 0, LLY: 0, URX: 50, URY: 50}); err != nil {
+			t.Fatal(err)
+		}
+		level = next
+	}
+
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement := Rectangle{LLX: 50, LLY: 600, URX: 100, URY: 650}
+	if err := page.AddForm(level, placement); err != nil {
+		t.Fatal(err)
+	}
+	ra := NewRedactAnnotation(page, placement) // fully covers the whole chain
+	if err := page.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.ValidateRedactions(); err == nil {
+		t.Error("ValidateRedactions: want an error (nesting exceeds the redaction depth limit), got nil")
+	}
+	if err := doc.ApplyRedactions(); err == nil {
+		t.Error("ApplyRedactions: want an error (nesting exceeds the redaction depth limit), got nil")
+	}
+}
+
+// TestApplyRedactionsFormXObjectSharedPageResourcesNotCorrupted pins the
+// page-level counterpart of the shared-/Resources bug: a PDF producer can
+// have two pages share the exact same /Resources object via an indirect
+// reference (a common size optimization), not just a Form XObject's own
+// /Resources being shared across placements. Redacting page 1's Form
+// XObject (covered by a region) must not corrupt page 2's otherwise
+// identical /Fm0 Do -- page 2 has no redact annotation at all and must
+// render/extract exactly as before.
+func TestApplyRedactionsFormXObjectSharedPageResourcesNotCorrupted(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	if err := d.AddBlankPage(595, 842); err != nil {
+		t.Fatal(err)
+	}
+	p1, err := d.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := d.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const secret = "SHARED-PAGE-SECRET"
+	formID := d.nextID
+	d.nextID++
+	d.objects[formID] = &pdfObject{Num: formID, Value: &pdfStream{
+		Dict: pdfDict{
+			"/Type":    pdfName("/XObject"),
+			"/Subtype": pdfName("/Form"),
+			"/BBox":    pdfArray{0.0, 0.0, 200.0, 100.0},
+		},
+		Data:    []byte("BT /F0 12 Tf 0 0 0 rg 10 50 Td (" + secret + ") Tj ET\n"),
+		Decoded: true,
+	}}
+
+	fontID := d.nextID
+	d.nextID++
+	d.objects[fontID] = &pdfObject{Num: fontID, Value: pdfDict{
+		"/Type":     pdfName("/Font"),
+		"/Subtype":  pdfName("/Type1"),
+		"/BaseFont": pdfName("/Helvetica"),
+		"/Encoding": pdfName("/WinAnsiEncoding"),
+	}}
+
+	// ONE resources object, referenced indirectly by BOTH pages.
+	resID := d.nextID
+	d.nextID++
+	d.objects[resID] = &pdfObject{Num: resID, Value: pdfDict{
+		"/Font":    pdfDict{"/F0": pdfRef{Num: fontID}},
+		"/XObject": pdfDict{"/Fm0": pdfRef{Num: formID}},
+	}}
+
+	p1.pageDict()["/Resources"] = pdfRef{Num: resID}
+	p2.pageDict()["/Resources"] = pdfRef{Num: resID}
+	if err := p1.appendToContentStream([]byte("q 1 0 0 1 50 600 cm /Fm0 Do Q\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p2.appendToContentStream([]byte("q 1 0 0 1 50 600 cm /Fm0 Do Q\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Redact page 1's placement only; page 2 gets no annotation at all.
+	ra := NewRedactAnnotation(p1, Rectangle{LLX: 50, LLY: 600, URX: 250, URY: 700})
+	if err := p1.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.ApplyRedactions(); err != nil {
+		t.Fatalf("ApplyRedactions: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := d.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rp1, err := reopened.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt1, err := rp1.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(txt1, secret) {
+		t.Errorf("page 1 (redacted) still contains %q: %q", secret, txt1)
+	}
+
+	rp2, err := reopened.Page(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt2, err := rp2.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(txt2, secret) {
+		t.Errorf("page 2 (NOT redacted, shares /Resources with page 1 via indirect reference) lost its text: got %q, want it to still contain %q", txt2, secret)
 	}
 }
