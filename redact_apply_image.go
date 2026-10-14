@@ -4,27 +4,36 @@ package asposepdf
 
 import "fmt"
 
+// maxFormRedactDepth bounds Form-XObject recursion while redacting into
+// one, the same way maxFormDepth (text.go) bounds it during text
+// extraction — a self-referential or pathologically deep nesting stops
+// recursing rather than looping or blowing the stack; the Do invocation
+// at that depth is left unredacted, same pre-existing nested-form blind
+// spot text extraction already has, not a new one.
+const maxFormRedactDepth = 32
+
 // rewriteImageOperatorsInStream removes Image XObject invocations (Do)
-// whose painted bbox falls entirely inside any redact region, and wraps
+// whose painted bbox falls entirely inside any redact region, wraps
 // partially-overlapping invocations in a q...Q with an even-odd clip
-// path that masks out the redacted area.
-//
-// A Form XObject (which, unlike an Image XObject, can itself contain
-// arbitrary text/path content — the very thing this feature exists to
-// remove) whose placed bbox intersects any region at all, fully or
-// partially, is refused rather than silently dropped/clipped: dropping
-// or clipping only the Do invocation leaves the form's own content
-// stream untouched and fully recoverable, since nothing in this
-// redaction pipeline recurses into a Form XObject's content (see
-// unsafeFormXObjectName). Confirmed reachable through this library's own
-// AddForm/NUp/Booklet/PdfPageStamp — all build on Form XObjects — by an
-// independent review of pdf-go-2qkq's fix. pdf-go-w5hl tracks the real
-// fix (recursing into Form XObject content, CTM-aware, per placement).
+// path that masks out the redacted area, and — this is the function's
+// other half, despite the name kept for minimal API churn — recurses a
+// redaction pass into a Form XObject's own content when its placement
+// intersects a region at all (see rewriteXObjectDoOperatorsInStream and
+// redactFormXObject for how; pdf-go-w5hl, the real fix for a v0.11.0
+// safety stopgap that used to refuse outright here instead).
 //
 // Fully-outside Do operators are passed through unchanged. The CTM
 // state machine tracks q/Q nesting and cm pre-multiplications.
 // Operators other than q/Q/cm/Do are passed through unchanged.
-func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict) ([]byte, error) {
+func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict) ([]byte, error) {
+	return rewriteXObjectDoOperatorsInStream(data, regions, doc, resources, 0)
+}
+
+// rewriteXObjectDoOperatorsInStream is rewriteImageOperatorsInStream with
+// an explicit recursion depth, so redactFormXObject can call back into it
+// for a Form XObject's own content at depth+1 (nested forms) while the
+// top-level, page-content call starts at depth 0.
+func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict, depth int) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
@@ -32,12 +41,31 @@ func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, objects map
 	if err != nil {
 		return nil, err
 	}
-	if name, found := unsafeFormXObjectName(ops, regions, objects, resources); found {
-		return nil, fmt.Errorf("asposepdf: ApplyRedactions: a redaction region intersects Form XObject %q; redacting a Form XObject's own content is not supported yet (pdf-go-w5hl) — flatten it into page content first, or keep redaction regions clear of it", name)
+
+	var objects map[int]*pdfObject
+	if doc != nil {
+		objects = doc.objects
 	}
 
 	ctm := identityMatrix()
 	var stack [][6]float64
+
+	// replacedFormNames/survivingFormNames track, across every Do
+	// invocation in THIS content stream, which original /XObject
+	// resource names (not objects — a name is local to this one
+	// resources dict) were redirected to a redacted clone at least once,
+	// and which still have at least one occurrence passing through
+	// unchanged (the SAME name used more than once, only some of which
+	// need redaction). A name that was replaced everywhere it appeared
+	// in this stream and never survives unchanged is pruned from the
+	// resources dict after the loop — otherwise the dict keeps pointing
+	// at the original, now content-stream-unreferenced form object,
+	// which keeps it graph-reachable and un-collectable by
+	// RemoveUnusedObjects, defeating the whole point of redacting it.
+	// Caught by an independent review of this fix's first draft, which
+	// only ever ADDED the clone's new name, never removing the old one.
+	replacedFormNames := map[string]bool{}
+	survivingFormNames := map[string]bool{}
 
 	out := make([]contentOp, 0, len(ops))
 	for _, op := range ops {
@@ -59,6 +87,26 @@ func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, objects map
 			}
 			out = append(out, op)
 		case "Do":
+			if len(op.Operands) == 0 {
+				out = append(out, op)
+				continue
+			}
+			name := operandName(op.Operands[0])
+			st := resolveXObjectStream(objects, resources, name)
+			if st != nil && dictGetName(st.Dict, "/Subtype") == "/Form" {
+				newOp, replaced, err := redactFormDo(doc, st, ctm, regions, resources, depth, op)
+				if err != nil {
+					return nil, err
+				}
+				if replaced {
+					replacedFormNames[name] = true
+				} else {
+					survivingFormNames[name] = true
+				}
+				out = append(out, newOp)
+				continue
+			}
+
 			action := classifyDoBbox(ctm, regions)
 			switch action.kind {
 			case keepDo:
@@ -78,7 +126,193 @@ func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, objects map
 			out = append(out, op)
 		}
 	}
+
+	// A name redirected to a clone at least once, with no occurrence
+	// surviving unchanged anywhere in this stream, no longer has any Do
+	// operator in the rewritten output referencing it — remove it from
+	// the resources dict so the original form object it pointed to loses
+	// this reference and RemoveUnusedObjects can actually reclaim it.
+	for name := range replacedFormNames {
+		if survivingFormNames[name] {
+			continue
+		}
+		if xobjDict, ok := resolveRefToDict(objects, resources["/XObject"]); ok {
+			delete(xobjDict, name)
+		}
+	}
+
 	return serializeContentOps(out), nil
+}
+
+// redactFormDo decides what to do with one Do invocation of a Form
+// XObject: pass it through unchanged when its placement (formPlacementBbox,
+// using the form's own /BBox+/Matrix, not an Image XObject's unit square)
+// doesn't intersect any region at all, refuse (error) when the placement
+// can't be trusted (bad/missing /BBox) or its matrix can't be inverted to
+// map regions into the form's content, or redirect it to a freshly cloned,
+// redacted copy of the form when redactFormXObject actually changed
+// something.
+//
+// A clone, never an in-place mutation of the original form object: the
+// same Form XObject can be Do-invoked from several placements — on this
+// page or another, the same stream shared via indirect reference, think a
+// logo stamped on every page — and only some of those placements may
+// overlap a redaction region. Rewriting the shared content stream in
+// place would blank it everywhere; redirecting only THIS Do operand to a
+// private copy (a fresh object number, a fresh resource name scoped to
+// this one invocation) leaves every other reference to the original
+// object — this stream, on this page or any other — completely
+// untouched. Confirmed necessary by an independent review of this
+// function's first draft, which redacted the shared stream directly.
+// The bool return reports whether this Do operand was redirected to a
+// new, private clone (true) or passed through referencing the original
+// name unchanged (false) — the caller tallies this per resource name
+// across the whole content stream, since the SAME name can appear more
+// than once (see replacedFormNames/survivingFormNames in the caller).
+func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPoint, resources pdfDict, depth int, original contentOp) (contentOp, bool, error) {
+	var objects map[int]*pdfObject
+	if doc != nil {
+		objects = doc.objects
+	}
+	minX, minY, maxX, maxY, ok := formPlacementBbox(objects, st, ctm)
+	if !ok {
+		name := ""
+		if len(original.Operands) > 0 {
+			name = operandName(original.Operands[0])
+		}
+		return contentOp{}, false, fmt.Errorf("asposepdf: ApplyRedactions: Form XObject %q has no resolvable /BBox; cannot safely determine whether a redaction region intersects it", name)
+	}
+	if classifyBbox(minX, minY, maxX, maxY, regions) == keepDo {
+		return original, false, nil
+	}
+
+	newData, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1)
+	if err != nil {
+		return contentOp{}, false, err
+	}
+	if !changed {
+		return original, false, nil
+	}
+
+	newID := doc.nextID
+	doc.nextID++
+	newDict := make(pdfDict, len(st.Dict))
+	for k, v := range st.Dict {
+		newDict[k] = v
+	}
+	newDict["/Length"] = len(newData)
+	// /Filter + /DecodeParms described the OLD (possibly compressed)
+	// bytes; newData is raw/decoded, same convention as
+	// replacePageContents — the writer re-Flates on output.
+	delete(newDict, "/Filter")
+	delete(newDict, "/DecodeParms")
+	doc.objects[newID] = &pdfObject{Num: newID, Value: &pdfStream{
+		Dict:    newDict,
+		Data:    newData,
+		Decoded: true,
+	}}
+
+	xobjDict, ok := resolveRefToDict(doc.objects, resources["/XObject"])
+	if !ok {
+		return contentOp{}, false, fmt.Errorf("asposepdf: ApplyRedactions: internal error: Form XObject resolved but its /XObject resources dict did not")
+	}
+	newName := nextFormXObjectResourceName(xobjDict)
+	xobjDict[newName] = pdfRef{Num: newID}
+
+	return contentOp{Operator: "Do", Operands: []pdfValue{pdfName(newName)}}, true, nil
+}
+
+// nextFormXObjectResourceName returns the next available /Fm* resource
+// name in xobjDict — the same convention flatten.go's registerFormXObject
+// uses for freshly-created Form XObjects.
+func nextFormXObjectResourceName(xobjDict pdfDict) string {
+	for i := 0; ; i++ {
+		name := fmt.Sprintf("/Fm%d", i)
+		if _, exists := xobjDict[name]; !exists {
+			return name
+		}
+	}
+}
+
+// redactFormXObject recurses a redaction pass into a Form XObject's own
+// content stream for the region(s) that intersect it. Regions are given
+// in page space (the same space every other redaction entry point uses);
+// this maps them into the form's LOCAL content-stream coordinate space by
+// applying the INVERSE of the placement matrix in effect for this specific
+// Do invocation — the form's own /Matrix composed with ctm, the same
+// composition formPlacementBbox uses to go the other direction. Once the
+// regions are in the form's own space, the form's content is just another
+// content stream: the same three rewriters process it (this function
+// recurses into rewriteXObjectDoOperatorsInStream at depth+1 for a nested
+// Form XObject, so one level of nesting — or more, up to
+// maxFormRedactDepth — is handled, not only the top one).
+//
+// Returns the redacted bytes and changed=true only if they actually
+// differ from the original; the caller (redactFormDo) skips cloning
+// entirely when nothing changed (the coarse placement bbox intersected a
+// region, but nothing the form actually draws was inside it once mapped
+// precisely).
+func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ctm [6]float64, regions []QuadPoint, depth int) (newData []byte, changed bool, err error) {
+	if depth >= maxFormRedactDepth {
+		return nil, false, nil
+	}
+
+	var objects map[int]*pdfObject
+	if doc != nil {
+		objects = doc.objects
+	}
+
+	formMatrix := identityMatrix()
+	if mv := shFloats(objects, st.Dict["/Matrix"]); len(mv) == 6 {
+		formMatrix = [6]float64{mv[0], mv[1], mv[2], mv[3], mv[4], mv[5]}
+	}
+	composed := matMul(formMatrix, ctm)
+	inv, ok := invertMatrix(composed)
+	if !ok {
+		return nil, false, fmt.Errorf("asposepdf: ApplyRedactions: a Form XObject's placement matrix is not invertible; cannot map a redaction region into its content")
+	}
+
+	localRegions := make([]QuadPoint, len(regions))
+	for i, q := range regions {
+		localRegions[i] = transformQuad(q, inv)
+	}
+
+	formResources := parentResources
+	if resVal, ok := st.Dict["/Resources"]; ok {
+		if rd, ok := resolveRefToDict(objects, resVal); ok {
+			formResources = rd
+		}
+	}
+
+	original := decodedStreamData(st)
+	fontMap := resolveFontResources(objects, formResources)
+
+	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err = rewriteXObjectDoOperatorsInStream(data, localRegions, doc, formResources, depth)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err = rewritePathOperatorsInStream(data, localRegions)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if string(data) == string(original) {
+		return nil, false, nil
+	}
+	return data, true, nil
+}
+
+// transformQuad maps every corner of q through the affine matrix m.
+func transformQuad(q QuadPoint, m [6]float64) QuadPoint {
+	x1, y1 := matApplyPoint(m, q.X1, q.Y1)
+	x2, y2 := matApplyPoint(m, q.X2, q.Y2)
+	x3, y3 := matApplyPoint(m, q.X3, q.Y3)
+	x4, y4 := matApplyPoint(m, q.X4, q.Y4)
+	return QuadPoint{X1: x1, Y1: y1, X2: x2, Y2: y2, X3: x3, Y3: y3, X4: x4, Y4: y4}
 }
 
 // doActionKind categorises what to do with a Do operator.
@@ -259,20 +493,39 @@ func resolveXObjectStream(objects map[int]*pdfObject, resources pdfDict, name st
 	return st
 }
 
-// unsafeFormXObjectName scans ops (CTM-aware, same q/Q/cm tracking as
-// rewriteImageOperatorsInStream) for a Do invocation of a Form XObject
-// whose REAL placed bbox — its own /BBox+/Matrix via formPlacementBbox,
-// not the unit square classifyDoBbox uses for images — intersects any
-// region, fully or partially. An earlier version of this check reused
-// classifyDoBbox directly, which silently cleared almost every realistic
-// partial-coverage placement (anything but a region covering the form's
-// CTM-origin corner) — caught by an independent review. Shared by
-// ValidateRedactions (read-only pre-flight) and rewriteImageOperatorsInStream
-// (which refuses to proceed rather than silently drop/clip it) — see the
-// package comment on rewriteImageOperatorsInStream for why a Form XObject
-// needs this and an Image XObject doesn't.
+// unsafeFormXObjectName is ValidateRedactions's read-only pre-flight
+// counterpart to redactFormDo/redactFormXObject: it reports a Form
+// XObject placement that intersects a redaction region AND cannot be
+// safely redacted into — a missing/malformed /BBox (formPlacementBbox's
+// own ok=false), or a placement matrix that composes to something
+// non-invertible (so a region can't be mapped into the form's local
+// content-stream space at all). A placement that intersects but CAN be
+// redacted into — the common case, since pdf-go-w5hl — is no longer
+// reported; only before that fix did any intersection count as unsafe.
+//
+// Recurses into a safely-resolvable form's own content at the SAME
+// depth redactFormXObject would, so a problem several levels of nesting
+// down (a nested Form XObject with its own bad /BBox, say) is caught
+// here too, before ApplyRedactions attempts any mutation — mirroring
+// redactFormXObject's own recursion exactly (same formPlacementBbox/
+// invertMatrix checks, same region-transform-via-inverse-matrix, same
+// maxFormRedactDepth cap) is deliberate: ApplyRedactions's own mutation
+// path is clone-based and never corrupts anything in place even if an
+// unvalidated deeper level later fails and surfaces as its own error, so
+// this check's only job is to give the caller advance warning, not to
+// gate correctness.
 func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict) (string, bool) {
 	if len(regions) == 0 {
+		return "", false
+	}
+	return unsafeFormXObjectNameDepth(ops, regions, objects, resources, 0)
+}
+
+func unsafeFormXObjectNameDepth(ops []contentOp, regions []QuadPoint, objects map[int]*pdfObject, resources pdfDict, depth int) (string, bool) {
+	if depth >= maxFormRedactDepth {
+		// Matches redactFormXObject's own depth-cap behavior: not
+		// attempted, so not flagged unsafe either — a true blind spot,
+		// not a false negative this check is responsible for.
 		return "", false
 	}
 	ctm := identityMatrix()
@@ -300,8 +553,38 @@ func unsafeFormXObjectName(ops []contentOp, regions []QuadPoint, objects map[int
 				continue
 			}
 			minX, minY, maxX, maxY, ok := formPlacementBbox(objects, st, ctm)
-			if !ok || classifyBbox(minX, minY, maxX, maxY, regions) != keepDo {
+			if !ok {
 				return name, true
+			}
+			if classifyBbox(minX, minY, maxX, maxY, regions) == keepDo {
+				continue
+			}
+
+			formMatrix := identityMatrix()
+			if mv := shFloats(objects, st.Dict["/Matrix"]); len(mv) == 6 {
+				formMatrix = [6]float64{mv[0], mv[1], mv[2], mv[3], mv[4], mv[5]}
+			}
+			inv, invOK := invertMatrix(matMul(formMatrix, ctm))
+			if !invOK {
+				return name, true
+			}
+
+			localRegions := make([]QuadPoint, len(regions))
+			for i, q := range regions {
+				localRegions[i] = transformQuad(q, inv)
+			}
+			formResources := resources
+			if resVal, ok := st.Dict["/Resources"]; ok {
+				if rd, ok := resolveRefToDict(objects, resVal); ok {
+					formResources = rd
+				}
+			}
+			innerOps, err := parseContentStream(decodedStreamData(st))
+			if err != nil {
+				return name, true
+			}
+			if innerName, unsafe := unsafeFormXObjectNameDepth(innerOps, localRegions, objects, formResources, depth+1); unsafe {
+				return innerName, true
 			}
 		}
 	}

@@ -88,23 +88,38 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // — is reclaimed too. Call ApplyRedactions only after placing everything
 // you mean to keep, same as any other Optimize-family call.
 //
+// A Form XObject intersecting a redaction region — fully or partially —
+// is now redacted into, not refused (pdf-go-w5hl, closed; a v0.11.0
+// safety stopgap until then): the region is mapped from page space into
+// the form's own local content-stream space by inverting the composed
+// placement matrix (the form's /Matrix, then the CTM the Do invocation
+// was under — formPlacementBbox's own convention, run in reverse), and
+// the SAME three rewriters this method uses at the page level then run on
+// the form's content with those local-space regions, recursing into a
+// nested Form XObject the same way (up to maxFormRedactDepth levels —
+// pathological/self-referential nesting beyond that is left unredacted at
+// that depth, the one remaining blind spot, same as text extraction's own
+// nesting cap). The ORIGINAL form object is never mutated: since the same
+// Form XObject can be placed more than once — the same logo stamped on
+// every page, say — only placements that actually need a change are
+// redirected (their one Do operand only) to a freshly cloned, redacted
+// copy; every other placement of the original keeps rendering exactly as
+// before. Still refused outright, not guessed at: a Form XObject with no
+// resolvable /BBox (formPlacementBbox's own ok=false — ISO 32000-1
+// §8.10.2 requires one on every conformant form) or a placement matrix
+// that doesn't invert (so a region can't be mapped into the form's space
+// at all) — see redactFormDo/redactFormXObject.
+//
 // Known gaps (not closed by this sweep, tracked separately): an Image
 // XObject fully inside a redaction region has its Do invocation dropped
 // from the content stream, but its /Resources/XObject entry is left in
 // place (graph-reachable, so RemoveUnusedObjects does not collect it) —
-// its pixel data stays in the file (pdf-go-ye1z). A Form XObject intersecting a region
-// at all is refused outright rather than silently left incomplete — see
-// unsafeFormXObjectName and pdf-go-w5hl — since unlike an image it can
-// itself hold arbitrary text/path content this pipeline never descends
-// into (the check maps the form's own /BBox+/Matrix through the CTM, not
-// an image's unit square, but still only one Do deep: a Form XObject
-// placed by ANOTHER Form XObject is invisible to it entirely, not even
-// flagged — the same pre-existing blind spot every rewriter here has for
-// nested forms). A page's /Thumb thumbnail, if a producer embedded one, is never
-// touched by this method and may still show a miniature of the
-// pre-redaction page (pdf-go-ekp4). Redacting a document that is later saved
-// incrementally (already signed, or AddValidationInfo) keeps the
-// original text in the earlier, byte-preserved revision by design.
+// its pixel data stays in the file (pdf-go-ye1z). A page's /Thumb
+// thumbnail, if a producer embedded one, is never touched by this method
+// and may still show a miniature of the pre-redaction page (pdf-go-ekp4).
+// Redacting a document that is later saved incrementally (already
+// signed, or AddValidationInfo) keeps the original text in the earlier,
+// byte-preserved revision by design.
 //
 // Best-effort semantics: partial state on failure. Call
 // ValidateRedactions first to surface problems before mutating.
@@ -161,7 +176,7 @@ func applyRedactionsToPage(p *Page) error {
 	if err != nil {
 		return fmt.Errorf("text rewriter: %w", err)
 	}
-	data, err = rewriteImageOperatorsInStream(data, regions, p.doc.objects, resources)
+	data, err = rewriteImageOperatorsInStream(data, regions, p.doc, resources)
 	if err != nil {
 		return fmt.Errorf("image rewriter: %w", err)
 	}
