@@ -81,6 +81,108 @@ func TestRewriteTextTracksCM(t *testing.T) {
 	}
 }
 
+// TestRewriteTextTracksCMInTJArray is the TJ-array counterpart of
+// TestRewriteTextTracksCM: an independent review of the cm-tracking fix
+// found that every new test exercised only Tj, leaving filterTJArray's
+// two glyph-center sites (the Type0 and single-byte loops) without any
+// test that would catch a regression specific to THEM — a mutation
+// limited to those two call sites would not have failed any existing
+// test. This closes that gap.
+func TestRewriteTextTracksCMInTJArray(t *testing.T) {
+	fonts := testRewriteFontMap()
+	in := []byte("q\n1 0 0 -1 0 842 cm\nBT\n/F1 12 Tf\n100 142 Td\n[(SEC) -100 (RET)] TJ\nET\nQ\n")
+	regions := []QuadPoint{
+		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 690, X4: 1000, Y4: 690},
+	}
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "SEC") || strings.Contains(string(out), "RET") {
+		t.Errorf("expected both TJ string elements removed (their real page-space position, after the Y-flip cm, falls inside the region), got %q", out)
+	}
+}
+
+// TestRewriteTextQRestoresTextState pins a bug an independent review of
+// the cm-tracking fix found alongside it: "q" must save the WHOLE
+// graphics state, not just the CTM — ISO 32000-1 Table 52 lists
+// character spacing, word spacing, horizontal scaling, leading, text
+// font and text font size as graphics-state parameters exactly as
+// q/Q-scoped as the CTM, and textExtractor (text.go) already
+// saves/restores all of them. Here, text drawn AFTER a "Q" must be
+// measured using the font/size that was active BEFORE the matching "q",
+// not whatever a Tf INSIDE that q/Q block last set — if Q failed to
+// restore the font, the glyph-center math after Q would use the wrong
+// (much wider) advance and could fall outside the very region that
+// correctly covers its TRUE, post-restore position.
+func TestRewriteTextQRestoresTextState(t *testing.T) {
+	fonts := testRewriteFontMap()
+	// /F2: double the per-character advance of /F1 (1000 vs 500
+	// thousandths), so a failure to restore the font after Q measurably
+	// shifts every glyph's computed center.
+	f2 := fonts["/F1"]
+	f2.name = "/F2-wide"
+	for i := range f2.widths {
+		f2.widths[i] = 1000
+	}
+	fonts["/F2"] = f2
+
+	in := []byte("/F1 12 Tf\nq\n/F2 36 Tf\nQ\nBT\n100 700 Td\n(SECRET) Tj\nET\n")
+
+	// With Q correctly restoring /F1 at 12pt: first glyph advance =
+	// 500/1000*12 = 6, center x = 100 + 6/2 = 103. A region of
+	// [100,110]x[695,705] covers that and nothing a /F2-at-36pt
+	// (advance 1000/1000*36 = 36, center x = 100+18 = 118) computation
+	// would land in.
+	regions := []QuadPoint{
+		{X1: 100, Y1: 705, X2: 110, Y2: 705, X3: 100, Y3: 695, X4: 110, Y4: 695},
+	}
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "SECRET") {
+		t.Errorf("expected SECRET removed (Q should have restored /F1 at 12pt, placing its first glyph's center inside the region), got %q", out)
+	}
+}
+
+// TestRewriteTextTJKerningHonorsHorizScale pins a bug an independent
+// review of the cm-tracking fix found alongside it: when filterTJArray
+// reads an EXISTING numeric kerning entry from a TJ array to track the
+// running text-space position of later string elements, it must scale
+// the displacement by horizScale (Tz/100) exactly like every other term
+// in ISO 32000-1 §9.4.4's tx formula — and exactly like
+// glyphAdvance/glyphAdvanceCID already do for ordinary glyph advances,
+// and like this file's OWN kerning-number WRITERS already do in the
+// opposite direction (dividing a target advance by horizScale to produce
+// a TJ number). Reading a kerning number without that scaling drifts the
+// running position out of sync with the glyph-advance side whenever Tz
+// isn't 100 — reachable on essentially any real TJ-based PDF, since
+// kerning for ordinary letter spacing is ubiquitous even when a document
+// never otherwise touches Tz.
+func TestRewriteTextTJKerningHonorsHorizScale(t *testing.T) {
+	fonts := testRewriteFontMap()
+	// 50 Tz halves every advance (and must halve the kerning entry's
+	// contribution too). [(A) -1000 (SECRET)]: "A" advances the running
+	// position by 500/1000*12*0.5 = 3; the kerning number -1000 then
+	// adds -(-1000)/1000*12*0.5 = 6 MORE (correctly scaled) — so
+	// "SECRET" starts at running-advance 9, i.e. page-space x = 109,
+	// center of its first glyph at 109 + 3/2 = 110.5. Unscaled (the
+	// bug), the kerning term alone would be 12, running-advance 15,
+	// first-glyph center at 118.5 — outside the region below.
+	in := []byte("BT\n/F1 12 Tf\n50 Tz\n100 700 Td\n[(A) -1000 (SECRET)] TJ\nET\n")
+	regions := []QuadPoint{
+		{X1: 108, Y1: 705, X2: 113, Y2: 705, X3: 108, Y3: 695, X4: 113, Y4: 695},
+	}
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "SECRET") {
+		t.Errorf("expected SECRET removed (its correctly horizScale-adjusted position falls inside the region), got %q", out)
+	}
+}
+
 func TestRewriteTextKeepAllGlyphs(t *testing.T) {
 	// Region far away from drawn text.
 	fonts := testRewriteFontMap()

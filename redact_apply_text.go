@@ -2,17 +2,51 @@
 
 package asposepdf
 
-// rewriteTextOperatorsInStream removes glyphs whose center falls inside
-// any region from text-rendering operators (Tj, TJ, ', "), preserving
-// the position of surviving glyphs via TJ kerning gaps.
+// rewriteTextOperatorsInStream removes glyphs whose test point falls
+// inside any region from text-rendering operators (Tj, TJ, ', "),
+// preserving the position of surviving glyphs via TJ kerning gaps. The
+// test point is the glyph's horizontal center at its BASELINE (y=0 in
+// text space, i.e. ignoring text rise — Ts has no case in this file at
+// all, tracked as pdf-go-lx1f) — "center" in the rest of this file's
+// comments means this,
+// not the glyph's true 2D bounding-box center; a region whose y-range
+// excludes the baseline (e.g. one hand-drawn tightly over just the upper
+// half of a line of text) can miss a glyph that is visibly inside it.
+// The documented, intended workflow — build a RedactAnnotation from a
+// SearchText match's own Rect — is unaffected: SearchText's own
+// Rect always spans descender-to-ascender and so always contains the
+// baseline too.
 //
 // Form XObjects (Do op), inline images, and non-text operators are passed
-// through unchanged. Unknown fonts (font.known == false) cause the
-// affected Tj/TJ op to be passed through unchanged.
+// through unchanged at THIS level — a Form XObject's own content is
+// redacted separately, by redact_apply_image.go's recursion into it, via
+// its own call to this same function on just that form's content. That
+// nested call always starts with a zeroed text state (no font, no
+// charSpace/wordSpace/horizScale carried over), but per ISO 32000-1
+// §8.10.1 a form actually inherits the FULL graphics state — including
+// the text state — in effect at the Do that invoked it; a form whose own
+// content draws text with no Tf of its own, relying on that inherited
+// font, is therefore always treated as unknown-font (see below) and
+// passes through completely unredacted. Tracked as pdf-go-w7ye, not
+// fixed here (unusual for library-authored forms, which always emit
+// their own Tf, but legal PDF and not merely theoretical for arbitrary
+// third-party input, which ApplyRedactions must handle).
+//
+// Unknown fonts (font.known == false) cause the
+// affected Tj/TJ op to be passed through unchanged — note this also
+// means that op's own advance is reported as 0 (unknown, so the text
+// matrix cannot be reliably advanced), which can leave LATER glyphs on
+// the same line measured too far left if a known-font run follows an
+// unknown-font one; tracked as pdf-go-uhqd, not fixed here (refusing to
+// guess a position it can't compute, rather than fabricating one, is
+// the existing convention this project applies elsewhere).
 //
 // A glyph's page-space position is the text matrix (tm) composed with
 // the graphics-state CTM — ISO 32000-1 §9.4.4's text rendering matrix is
-// Trm = [font/rise submatrix] × Tm × CTM, and the regions this function
+// Trm = [font/rise submatrix] × Tm × CTM (the font-size/rise submatrix
+// is deliberately omitted here: font size is already baked into the
+// text-space advances glyphAdvance/glyphAdvanceCID compute, and text
+// rise is the documented gap above), and the regions this function
 // compares glyph centers against are always given in page space (the
 // same space every other ApplyRedactions entry point uses). The CTM
 // half of that composition was missing entirely until pdf-go-njbg: this
@@ -52,7 +86,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		tm         = identityMatrix()
 		lm         = identityMatrix()
 		ctm        = identityMatrix()
-		ctmStack   [][6]float64
+		gStack     []textGState
 	)
 
 	out := make([]contentOp, 0, len(ops))
@@ -69,13 +103,29 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			out = append(out, op)
 
 		case "q":
-			ctmStack = append(ctmStack, ctm)
+			// q saves the whole graphics state, not just the CTM — ISO
+			// 32000-1 Table 52 lists character spacing, word spacing,
+			// horizontal scaling, leading, text font and text font size
+			// as graphics-state (not text-object-state) parameters, so
+			// they are exactly as q/Q-scoped as the CTM is. tm/lm are
+			// NOT part of the graphics state (only BT resets them) and
+			// so are deliberately not saved here — this mirrors
+			// textExtractor's own q/Q handling (text.go) exactly, field
+			// for field except for the colour state this rewriter
+			// doesn't track.
+			gStack = append(gStack, textGState{
+				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
+				charSpace: charSpace, wordSpace: wordSpace, horizScale: horizScale,
+				leading: leading,
+			})
 			out = append(out, op)
 
 		case "Q":
-			if len(ctmStack) > 0 {
-				ctm = ctmStack[len(ctmStack)-1]
-				ctmStack = ctmStack[:len(ctmStack)-1]
+			if n := len(gStack); n > 0 {
+				s := gStack[n-1]
+				gStack = gStack[:n-1]
+				ctm, font, fontName, fontSize = s.ctm, s.font, s.fontName, s.fontSize
+				charSpace, wordSpace, horizScale, leading = s.charSpace, s.wordSpace, s.horizScale, s.leading
 			}
 			out = append(out, op)
 
@@ -249,6 +299,21 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	}
 
 	return serializeContentOps(out), nil
+}
+
+// textGState is the subset of this walker's running state that "q"
+// saves and "Q" restores — the graphics-state (not text-object-state)
+// parameters of ISO 32000-1 Table 52, the same fields textExtractor's
+// own gsStack (text.go) saves/restores.
+type textGState struct {
+	ctm        [6]float64
+	font       fontInfo
+	fontName   string
+	fontSize   float64
+	charSpace  float64
+	wordSpace  float64
+	horizScale float64
+	leading    float64
 }
 
 // glyphFilterState holds the current text rendering state for glyph filtering.
@@ -665,14 +730,31 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 			totalAdvance += stringAdvance
 
 		case int:
-			// TJ kerning: displacement = -N/1000 * fontSize (text space before horizScale)
-			displacement := -float64(v) / 1000.0 * state.fontSize
+			// TJ kerning per ISO 32000-1 §9.4.3: the numeric adjustment is
+			// -N/1000 * fontSize in UNSCALED text space, and like every
+			// other term in the tx/ty formula (§9.4.4) it is THEN scaled
+			// by horizScale — the same scaling glyphAdvance/glyphAdvanceCID
+			// already bake into stringAdvance above, and the same scaling
+			// this file's own kerning-number WRITERS (buildTJArraySingleByte
+			// and the inline equivalents in filterTjStringType0/
+			// filterTJArray) already divide out when they go the other
+			// direction (advance -> TJ number). Reading a kerning number
+			// without this scaling drifted runningAdvance (and therefore
+			// every later glyph's computed page-space position) out of
+			// sync with the glyph-advance side whenever Tz != 100 and the
+			// TJ array already contained kerning — reachable on nearly any
+			// real producer's output, since TJ kerning for ordinary letter
+			// spacing is extremely common even when Tz is never touched by
+			// this SPECIFIC document (the bug only needs Tz != 100 to be in
+			// effect, not to be set inside this same TJ op). Found during
+			// an independent review of pdf-go-njbg's cm-tracking fix.
+			displacement := -float64(v) / 1000.0 * state.fontSize * state.horizScale
 			runningAdvance += displacement
 			totalAdvance += displacement
 			outArr = append(outArr, elem)
 
 		case float64:
-			displacement := -v / 1000.0 * state.fontSize
+			displacement := -v / 1000.0 * state.fontSize * state.horizScale
 			runningAdvance += displacement
 			totalAdvance += displacement
 			outArr = append(outArr, elem)

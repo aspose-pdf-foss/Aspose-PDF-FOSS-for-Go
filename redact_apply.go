@@ -158,9 +158,16 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // content untouched — this method only rewrites page content and removes
 // /Redact annotations themselves, it never examines another annotation's
 // /AP, a tiling-pattern cell stream, or a Type3 font's /CharProcs
-// (pdf-go-xp2u). Redacting a document that is later saved incrementally
-// (already signed, or AddValidationInfo) keeps the original text in the
-// earlier, byte-preserved revision by design.
+// (pdf-go-xp2u). A Form XObject whose own content relies on a font
+// inherited from the page (no Tf of its own) is treated as unknown-font
+// and passes through unredacted (pdf-go-w7ye); an unknown-font Tj/TJ run
+// anywhere can leave later, known-font text on the same line
+// mispositioned (pdf-go-uhqd); text rise (Ts) is not tracked, so a
+// region drawn tightly around a rendered superscript/subscript may miss
+// its (untracked, baseline-only) test point (pdf-go-lx1f). Redacting a
+// document that is later saved incrementally (already signed, or
+// AddValidationInfo) keeps the original text in the earlier,
+// byte-preserved revision by design.
 //
 // Best-effort semantics: partial state on failure. Call
 // ValidateRedactions first to surface problems before mutating.
