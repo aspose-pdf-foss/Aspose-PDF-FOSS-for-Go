@@ -32,12 +32,13 @@ func (f *Flow) addRuns(runs []textRun, st StructType) *Flow {
 // runMetrics caches per-run font measurements.
 type runMetrics struct {
 	width      widthFn
-	ascent     float64 // ascent factor (of em)
+	measurer   *lineMeasurer // fast shaped-or-plain word width, matching what AddText will draw for this run — see tokenizeRuns
+	ascent     float64       // ascent factor (of em)
 	size       float64
 	lineHeight float64
 }
 
-func metricsFor(style TextStyle) (runMetrics, error) {
+func metricsFor(style TextStyle, text string) (runMetrics, error) {
 	font := style.Font
 	if font == nil {
 		font = FontHelvetica
@@ -50,7 +51,8 @@ func metricsFor(style TextStyle) (runMetrics, error) {
 	if err != nil {
 		return runMetrics{}, err
 	}
-	return runMetrics{width: w, ascent: asc, size: size, lineHeight: size * lineSpacingOf(style)}, nil
+	m := lineMeasurerForFont(font, size, text, style.RTL, w)
+	return runMetrics{width: w, measurer: m, ascent: asc, size: size, lineHeight: size * lineSpacingOf(style)}, nil
 }
 
 // runSeg is one drawn segment: a run's contiguous text on one line, at x
@@ -90,7 +92,7 @@ func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 				for j < len(text) && text[j] == ' ' {
 					j++
 				}
-				tokens = append(tokens, runToken{run: ri, text: text[:j], w: measureString(text[:j], ms[ri].width), space: true})
+				tokens = append(tokens, runToken{run: ri, text: text[:j], w: ms[ri].measurer.word(text[:j]), space: true})
 				text = text[j:]
 				continue
 			}
@@ -98,7 +100,7 @@ func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 			if j < 0 {
 				j = len(text)
 			}
-			tokens = append(tokens, runToken{run: ri, text: text[:j], w: measureString(text[:j], ms[ri].width)})
+			tokens = append(tokens, runToken{run: ri, text: text[:j], w: ms[ri].measurer.word(text[:j])})
 			text = text[j:]
 		}
 	}
@@ -231,7 +233,7 @@ func (s *flowState) flowRunsIndent(runs []textRun, st StructType, indent float64
 	s.dropBelowFloats()
 	ms := make([]runMetrics, len(runs))
 	for i, r := range runs {
-		m, err := metricsFor(r.style)
+		m, err := metricsFor(r.style, r.text)
 		if err != nil {
 			return fmt.Errorf("flow runs: %w", err)
 		}

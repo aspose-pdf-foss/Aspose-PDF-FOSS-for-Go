@@ -11,6 +11,153 @@ import (
 // widthFn returns advance width in points for a single rune.
 type widthFn func(r rune) float64
 
+// lineMeasurer measures candidate text for word-wrap decisions so they
+// agree with what will actually be drawn (GitHub issue #14: AddText used
+// to wrap by the unshaped per-rune sum even for a font that OpenType-shapes
+// — kerning/ligatures then make the drawn line narrower or wider than the
+// width used to wrap it, causing an early wrap or a clipped overflow).
+//
+// For an unshaped font (no GSUB/GPOS, or Standard-14/Type3 — shaper is
+// nil) word/space/exact are all the plain per-rune advance sum: that is
+// also exactly what gets drawn, so the wrapping decision is already exact
+// and output stays byte-identical to before shaping existed.
+//
+// For a font that shapes (fontHasShaping), word/space are a FAST estimate
+// — each word (or a single space) shaped on its own and cached, which is
+// exact for everything shaping does WITHIN a word (ligatures, contextual
+// forms, intra-word kerning — joining never crosses a space) but can miss
+// kerning BETWEEN two glyphs either side of the inter-word space, which a
+// font rarely defines. exact always re-shapes the whole candidate exactly
+// as renderTextInBuilder's draw loop will, so a caller can verify a
+// greedily-packed line before committing to it and back a word off (into
+// the next line) on the rare mismatch — see wrapText/nextLine. This keeps
+// the common case cheap (one shape call per word, cached; one exact
+// reshape per finished line, not per word added to it) instead of
+// reshaping a growing candidate line from scratch for every word.
+type lineMeasurer struct {
+	width     widthFn // unshaped per-rune advance; always set, used as-is when shaper is nil
+	shaper    *ttfFont
+	size      float64
+	baseLevel int
+	bidi      bool
+
+	wordCache   map[string]float64
+	spaceW      float64
+	spaceSet    bool
+	shapedCache map[string]shapedLine // populated by exact(); reused by renderTextInBuilder's draw loop so a finished line is shaped only once
+}
+
+// newLineMeasurer wraps a plain unshaped widthFn: word/space/exact are all
+// the existing per-rune sum, so output for an unshaped font is unchanged.
+func newLineMeasurer(width widthFn) *lineMeasurer {
+	return &lineMeasurer{width: width}
+}
+
+// newShapedLineMeasurer measures through the OpenType shaper (shaper must
+// have fontHasShaping), so wrapping decisions match what
+// renderTextInBuilder actually draws. baseLevel/bidi are the same values
+// the draw loop uses for this text (see bidiBaseLevel/bidiHasStrongRTL).
+func newShapedLineMeasurer(shaper *ttfFont, size float64, baseLevel int, bidi bool, width widthFn) *lineMeasurer {
+	return &lineMeasurer{
+		width: width, shaper: shaper, size: size, baseLevel: baseLevel, bidi: bidi,
+		wordCache: make(map[string]float64),
+	}
+}
+
+// lineMeasurerForFont builds the measurer that matches how AddText would
+// wrap and draw text in this font/size: shaped when the font has GSUB/GPOS
+// tables, otherwise the plain unshaped sum. For use by any caller that
+// must measure or pre-wrap text before handing it to AddText — table row
+// heights, Flow paragraphs, TOC entries, text flowing around floats, …—
+// so the line breaks it predicts agree with what AddText actually draws.
+func lineMeasurerForFont(font Font, size float64, text string, rtl bool, width widthFn) *lineMeasurer {
+	ef, ok := font.(*embeddedFont)
+	if !ok || !fontHasShaping(ef.ttf) {
+		return newLineMeasurer(width)
+	}
+	needBidi := rtl || bidiHasStrongRTL(text)
+	baseLevel := 0
+	if needBidi {
+		baseLevel = bidiBaseLevel(text, rtl)
+	}
+	return newShapedLineMeasurer(ef.ttf, size, baseLevel, needBidi, width)
+}
+
+// shapedOrPlainWidth returns s's width exactly as AddText would draw it in
+// this font/size: OpenType-shaped for a font with GSUB/GPOS tables,
+// otherwise the plain per-rune sum. For callers that measure a single
+// finished string (not a word-wrap decision) — TOC title/number widths,
+// Markdown code lines and list labels — where the full lineMeasurer's
+// word/space/exact split isn't needed.
+func shapedOrPlainWidth(font Font, size float64, s string, width widthFn) float64 {
+	if ef, ok := font.(*embeddedFont); ok && fontHasShaping(ef.ttf) {
+		return shapeLine(ef.ttf, s, 0, false).width(size)
+	}
+	return measureString(s, width)
+}
+
+// word returns a fast width estimate for a single word (no internal
+// whitespace): exact for an unshaped font, shaped-in-isolation (cached)
+// for a shaped font — see lineMeasurer.
+func (m *lineMeasurer) word(s string) float64 {
+	if m.shaper == nil {
+		return measureString(s, m.width)
+	}
+	if w, ok := m.wordCache[s]; ok {
+		return w
+	}
+	w := shapeLine(m.shaper, s, 0, false).width(m.size)
+	m.wordCache[s] = w
+	return w
+}
+
+// space returns the fast width estimate for one inter-word space.
+func (m *lineMeasurer) space() float64 {
+	if m.shaper == nil {
+		return m.width(' ')
+	}
+	if !m.spaceSet {
+		m.spaceW = shapeLine(m.shaper, " ", 0, false).width(m.size)
+		m.spaceSet = true
+	}
+	return m.spaceW
+}
+
+// exact returns a finished candidate line's real drawn width — exactly
+// what renderTextInBuilder's shapeLine call will produce — so a caller can
+// verify a greedily-packed line before committing to it. The shapedLine it
+// computes along the way is cached (keyed by s) so the draw loop, which
+// needs the same shapedLine to emit glyphs, doesn't reshape it a second
+// time; see shapedLineFor.
+func (m *lineMeasurer) exact(s string) float64 {
+	if m.shaper == nil {
+		return measureString(s, m.width)
+	}
+	if m.shapedCache != nil {
+		if sl, ok := m.shapedCache[s]; ok {
+			return sl.width(m.size)
+		}
+	} else {
+		m.shapedCache = make(map[string]shapedLine)
+	}
+	sl := shapeLine(m.shaper, s, m.baseLevel, m.bidi)
+	m.shapedCache[s] = sl
+	return sl.width(m.size)
+}
+
+// shapedLineFor returns the shapedLine for a finished wrapped line,
+// reusing the result exact() already computed for it during wrapping when
+// available (so a line already measured once during wrapText isn't
+// reshaped again at draw time).
+func (m *lineMeasurer) shapedLineFor(line string) shapedLine {
+	if m.shapedCache != nil {
+		if sl, ok := m.shapedCache[line]; ok {
+			return sl
+		}
+	}
+	return shapeLine(m.shaper, line, m.baseLevel, m.bidi)
+}
+
 // encodeFn returns a PDF string operand for s — "(...)" for single-byte
 // encoding, "<...>" for hex glyph IDs.
 type encodeFn func(s string) string
@@ -94,15 +241,14 @@ func renderTextInBuilder(
 		text = shapeArabic(text)
 	}
 
-	lines := wrapText(text, width, rectWidth)
-	if len(lines) == 0 {
-		return nil
-	}
-
 	// Bidirectional (RTL) layout: when the text is explicitly RTL or contains
 	// any strong right-to-left character, reorder each line into visual order
 	// (so the left-to-right glyph emission below draws it correctly) and flip
-	// the default alignment to the right for an RTL base paragraph.
+	// the default alignment to the right for an RTL base paragraph. Computed
+	// before wrapping (not just before the draw loop) so the lineMeasurer
+	// below verifies wrapped lines' EXACT width with the same baseLevel/bidi
+	// the draw loop itself uses — wrapping decisions must agree with what
+	// gets drawn (GitHub issue #14).
 	needBidi := style.RTL || bidiHasStrongRTL(text)
 	baseLevel := 0
 	if needBidi {
@@ -111,6 +257,17 @@ func renderTextInBuilder(
 	hAlign := style.HAlign
 	if baseLevel%2 == 1 && hAlign == HAlignLeft {
 		hAlign = HAlignRight
+	}
+
+	var m *lineMeasurer
+	if shaper != nil {
+		m = newShapedLineMeasurer(shaper.ttf, fontSize, baseLevel, needBidi, width)
+	} else {
+		m = newLineMeasurer(width)
+	}
+	lines := wrapText(text, m, rectWidth)
+	if len(lines) == 0 {
+		return nil
 	}
 
 	// Line height and total text height.
@@ -175,7 +332,7 @@ func renderTextInBuilder(
 		var shaped shapedLine
 		var lineWidth float64
 		if shaper != nil {
-			shaped = shapeLine(shaper.ttf, line, baseLevel, needBidi)
+			shaped = m.shapedLineFor(line) // reuses the shapedLine wrapText already computed verifying this line's exact width, if any
 			lineWidth = shaped.width(fontSize)
 		} else {
 			if needBidi {
@@ -258,10 +415,19 @@ func renderTextInBuilder(
 	return nil
 }
 
-// wrapText splits text into lines that fit within maxWidth points.
-// It breaks at spaces; words longer than maxWidth are broken on rune boundaries.
-// Explicit newlines in the input force a line break.
-func wrapText(text string, width widthFn, maxWidth float64) []string {
+// wrapText splits text into lines that fit within maxWidth points, as
+// measured by m. It breaks at spaces; words longer than maxWidth are
+// broken on rune boundaries. Explicit newlines in the input force a line
+// break.
+//
+// For a shaped font (m.shaper != nil) the greedy packing below uses m's
+// fast per-word/per-space estimate, then verifies the finished line's
+// EXACT shaped width (m.exact) and backs the last word off onto the next
+// line if cross-word kerning pushed it over maxWidth — see lineMeasurer.
+// For an unshaped font this reduces to exactly the old per-rune-sum
+// wrapping (m.word/m.space/m.exact are all measureString, and the verify
+// step is skipped since it can never disagree).
+func wrapText(text string, m *lineMeasurer, maxWidth float64) []string {
 	if text == "" {
 		return nil
 	}
@@ -280,53 +446,71 @@ func wrapText(text string, width widthFn, maxWidth float64) []string {
 			continue
 		}
 
-		var line string
 		var lineWidth float64
+		var lineWords []string
 
-		for _, word := range words {
-			wordWidth := measureString(word, width)
+		// finalizeLine commits the accumulated line to result. For a
+		// shaped font it re-verifies the exact shaped width and pops
+		// words off the end — each one reconsidered for the next line,
+		// via rewinding wi — until what remains actually fits.
+		var wi int
+		finalizeLine := func() {
+			kept := lineWords
+			pushedBack := 0
+			if m.shaper != nil {
+				for {
+					candidate := strings.Join(kept, " ")
+					if m.exact(candidate) <= maxWidth || len(kept) <= 1 {
+						break
+					}
+					kept = kept[:len(kept)-1]
+					pushedBack++
+				}
+			}
+			result = append(result, strings.Join(kept, " "))
+			wi -= pushedBack
+			lineWords, lineWidth = nil, 0
+		}
+
+		for wi = 0; wi < len(words) || lineWidth > 0; {
+			if wi >= len(words) {
+				finalizeLine()
+				continue
+			}
+			word := words[wi]
+			wordWidth := m.word(word)
 
 			if lineWidth == 0 {
 				if wordWidth <= maxWidth {
-					line = word
+					lineWords = []string{word}
 					lineWidth = wordWidth
+					wi++
 				} else {
-					broken := breakWord(word, width, maxWidth)
+					broken := breakWordMeasured(word, m, maxWidth)
 					for i, part := range broken {
 						if i < len(broken)-1 {
 							result = append(result, part)
 						} else {
-							line = part
-							lineWidth = measureString(part, width)
+							lineWords = []string{part}
+							lineWidth = m.word(part)
 						}
 					}
+					wi++
 				}
 			} else {
-				spaceWidth := width(' ')
+				spaceWidth := m.space()
 				if lineWidth+spaceWidth+wordWidth <= maxWidth {
-					line += " " + word
+					lineWords = append(lineWords, word)
 					lineWidth += spaceWidth + wordWidth
+					wi++
 				} else {
-					result = append(result, line)
-					if wordWidth <= maxWidth {
-						line = word
-						lineWidth = wordWidth
-					} else {
-						broken := breakWord(word, width, maxWidth)
-						for i, part := range broken {
-							if i < len(broken)-1 {
-								result = append(result, part)
-							} else {
-								line = part
-								lineWidth = measureString(part, width)
-							}
-						}
-					}
+					// The line is full; finalize it (word is NOT consumed
+					// — wi still points at it, or at an earlier word if
+					// backoff pushed one back) and loop around to start a
+					// fresh line at the current wi.
+					finalizeLine()
 				}
 			}
-		}
-		if line != "" || lineWidth == 0 {
-			result = append(result, line)
 		}
 	}
 
@@ -357,6 +541,33 @@ func breakWord(word string, width widthFn, maxWidth float64) []string {
 		}
 		buf.WriteRune(r)
 		w += cw
+	}
+	if buf.Len() > 0 {
+		parts = append(parts, buf.String())
+	}
+	return parts
+}
+
+// breakWordMeasured is breakWord, but for a shaped font (m.shaper != nil)
+// each growing candidate piece is checked by its real shaped width
+// (m.word) instead of the plain per-rune sum — so a forced split still
+// respects kerning/ligatures within the word (e.g. two letters that kern
+// wider together than their unshaped advances sum to would otherwise both
+// land in one piece that, once shaped, is still too wide for maxWidth;
+// see GitHub issue #14). Falls back to plain breakWord for an unshaped
+// font.
+func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string {
+	if m.shaper == nil {
+		return breakWord(word, m.width, maxWidth)
+	}
+	var parts []string
+	var buf strings.Builder
+	for _, r := range word {
+		if buf.Len() > 0 && m.word(buf.String()+string(r)) > maxWidth {
+			parts = append(parts, buf.String())
+			buf.Reset()
+		}
+		buf.WriteRune(r)
 	}
 	if buf.Len() > 0 {
 		parts = append(parts, buf.String())
@@ -448,7 +659,8 @@ func measureText(text string, style TextStyle, maxWidth float64) (lines int, lin
 	if err != nil {
 		return 0, 0, err
 	}
-	wrapped := wrapText(text, width, maxWidth)
+	m := lineMeasurerForFont(font, fontSize, text, style.RTL, width)
+	wrapped := wrapText(text, m, maxWidth)
 	return len(wrapped), fontSize * lineSpacing, nil
 }
 

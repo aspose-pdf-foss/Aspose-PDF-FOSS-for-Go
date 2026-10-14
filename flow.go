@@ -318,10 +318,15 @@ func (s *flowState) flowText(text string, style TextStyle, st StructType) error 
 		return err
 	}
 	lh := style.Size * lineSpacingOf(style)
+	// The same measurer feeds both branches below, so the line breaks it
+	// predicts here agree with what AddText (called for each resulting
+	// line/chunk, further down and in flowTextAround) actually draws for
+	// a shaped font — see lineMeasurerForFont and GitHub issue #14.
+	m := lineMeasurerForFont(font, style.Size, text, style.RTL, width)
 	if len(s.floats) > 0 {
-		return s.flowTextAround(text, style, st, width, lh)
+		return s.flowTextAround(text, style, st, m, lh)
 	}
-	lines := wrapText(text, width, s.contentW)
+	lines := wrapText(text, m, s.contentW)
 	for len(lines) > 0 {
 		fit := int((s.y - s.bottom) / lh)
 		if fit < 1 {

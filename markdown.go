@@ -492,7 +492,7 @@ func (r *mdRender) resolveImagePath(dest string) (string, error) {
 
 func (r *mdRender) renderCodeBlock(s *flowState, literal string, indent float64) error {
 	style := TextStyle{Font: r.th.code, Size: r.th.size * 0.9}
-	m, err := metricsFor(style)
+	m, err := metricsFor(style, literal)
 	if err != nil {
 		return err
 	}
@@ -541,8 +541,11 @@ func (r *mdRender) renderCodeBlock(s *flowState, literal string, indent float64)
 						LLY: y - m.lineHeight,
 						// Generous right edge: a long code line overflows
 						// (clipped at the page) rather than wrapping over
-						// the next line.
-						URX: box.LLX + pad + float64(lead)*spaceW + measureString(trimmed, m.width) + 4,
+						// the next line. shapedOrPlainWidth matches AddText's
+						// own drawn width for a shaped code font; measureString
+						// here would risk the rect being too narrow and
+						// wrapping this single line in two (GitHub issue #14).
+						URX: box.LLX + pad + float64(lead)*spaceW + shapedOrPlainWidth(style.Font, style.Size, trimmed, m.width) + 4,
 						URY: y,
 					}
 					if err := s.page.AddText(trimmed, style, rect); err != nil {
@@ -636,11 +639,11 @@ func (r *mdRender) renderList(s *flowState, list *mdBlock, indent float64) error
 		task, checked := item.task, item.taskChecked
 
 		labelStyle := TextStyle{Font: r.th.base, Size: r.th.size}
-		lm, err := metricsFor(labelStyle)
+		lm, err := metricsFor(labelStyle, label)
 		if err != nil {
 			return err
 		}
-		labelW := measureString(label, lm.width)
+		labelW := shapedOrPlainWidth(labelStyle.Font, labelStyle.Size, label, lm.width)
 		contentIndent := indent + labelW + 8
 		if contentIndent < indent+16 {
 			contentIndent = indent + 16

@@ -11,7 +11,7 @@ func runsMetrics(t *testing.T, runs []textRun) []runMetrics {
 	t.Helper()
 	ms := make([]runMetrics, len(runs))
 	for i, r := range runs {
-		m, err := metricsFor(r.style)
+		m, err := metricsFor(r.style, r.text)
 		if err != nil {
 			t.Fatal(err)
 		}

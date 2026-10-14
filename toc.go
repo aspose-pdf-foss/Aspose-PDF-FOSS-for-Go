@@ -385,14 +385,21 @@ func (p *Page) drawTOCRow(rect Rectangle, yTop float64, title string, level int,
 	yBot := yTop - lineH
 	indentX := rect.LLX + float64(level)*o.indentStep
 
-	numW := measureString(numStr, ewidth)
+	// shapedOrPlainWidth matches what AddText itself draws for a shaped
+	// entry font (GitHub issue #14); measureString's unshaped sum would
+	// misplace the number column and leader, and could let AddText below
+	// wrap `shown` into a second line that overflows this single-line row.
+	numW := shapedOrPlainWidth(o.entryFont, o.entrySize, numStr, ewidth)
 	numColX := rect.URX - numW
 
 	titleMaxW := numColX - 6 - indentX
 	if titleMaxW < 1 {
 		titleMaxW = 1
 	}
-	shown := truncateToWidth(title, ewidth, titleMaxW)
+	shown := title
+	if shapedOrPlainWidth(o.entryFont, o.entrySize, title, ewidth) > titleMaxW {
+		shown = truncateToWidth(title, ewidth, titleMaxW)
+	}
 
 	if err := p.AddText(shown, o.entryStyle, Rectangle{
 		LLX: indentX, LLY: yBot, URX: numColX - 4, URY: yTop,
@@ -411,7 +418,7 @@ func (p *Page) drawTOCRow(rect Rectangle, yTop float64, title string, level int,
 	}
 
 	if o.leader && numStr != "" {
-		titleW := measureString(shown, ewidth)
+		titleW := shapedOrPlainWidth(o.entryFont, o.entrySize, shown, ewidth)
 		x0 := indentX + titleW + 4
 		x1 := numColX - 4
 		if x1 > x0 {

@@ -149,7 +149,7 @@ func (s *flowState) dropBelowFloats() {
 // flowTextAround lays text out line by line, narrowing each line to the width
 // left by the active float bands. Lines on the same page are bracketed into one
 // tagged paragraph; a page/column break starts a new one.
-func (s *flowState) flowTextAround(text string, style TextStyle, st StructType, width widthFn, lh float64) error {
+func (s *flowState) flowTextAround(text string, style TextStyle, st StructType, m *lineMeasurer, lh float64) error {
 	minLine := 4 * style.Size
 	type lineDraw struct {
 		text string
@@ -201,7 +201,7 @@ func (s *flowState) flowTextAround(text string, style TextStyle, st StructType, 
 				}
 				continue
 			}
-			line, rest := nextLine(words, width, right-left)
+			line, rest := nextLine(words, m, right-left)
 			words = rest
 			batch = append(batch, lineDraw{text: line, rect: Rectangle{LLX: left, LLY: s.y - lh, URX: right, URY: s.y}})
 			s.y -= lh
@@ -214,28 +214,50 @@ func (s *flowState) flowTextAround(text string, style TextStyle, st StructType, 
 	return nil
 }
 
-// nextLine greedily takes the words that fit within maxWidth and returns the
-// line plus the remaining words. A single word wider than maxWidth is broken.
-func nextLine(words []string, width widthFn, maxWidth float64) (string, []string) {
+// nextLine greedily takes the words that fit within maxWidth (as measured
+// by m) and returns the line plus the remaining words. A single word wider
+// than maxWidth is broken.
+//
+// For a shaped font (m.shaper != nil), the greedy accumulation below uses
+// m's fast per-word/per-space estimate and then verifies the finished
+// line's EXACT shaped width, backing the last word off into the returned
+// remainder if cross-word kerning pushed it over maxWidth — see
+// lineMeasurer and GitHub issue #14 (text flowing beside a FloatingBox has
+// the same wrap-by-unshaped-width bug AddText itself had, since it packs
+// lines the same way before handing each to AddText). For an unshaped
+// font this is exactly the old per-rune-sum packing.
+func nextLine(words []string, m *lineMeasurer, maxWidth float64) (string, []string) {
 	if len(words) == 0 {
 		return "", nil
 	}
-	if measureString(words[0], width) > maxWidth {
-		parts := breakWord(words[0], width, maxWidth)
+	word := words[0]
+	wordWidth := m.word(word)
+	if wordWidth > maxWidth {
+		parts := breakWordMeasured(word, m, maxWidth)
 		rest := append(append([]string{}, parts[1:]...), words[1:]...)
 		return parts[0], rest
 	}
-	line := words[0]
-	lineW := measureString(line, width)
-	sp := width(' ')
+
+	lineWords := []string{word}
+	fast := wordWidth
 	i := 1
-	for ; i < len(words); i++ {
-		ww := measureString(words[i], width)
-		if lineW+sp+ww > maxWidth {
+	for i < len(words) {
+		ww := m.word(words[i])
+		sp := m.space()
+		if fast+sp+ww > maxWidth {
 			break
 		}
-		line += " " + words[i]
-		lineW += sp + ww
+		lineWords = append(lineWords, words[i])
+		fast += sp + ww
+		i++
 	}
-	return line, words[i:]
+
+	if m.shaper != nil {
+		for len(lineWords) > 1 && m.exact(strings.Join(lineWords, " ")) > maxWidth {
+			lineWords = lineWords[:len(lineWords)-1]
+			i--
+		}
+	}
+
+	return strings.Join(lineWords, " "), words[i:]
 }

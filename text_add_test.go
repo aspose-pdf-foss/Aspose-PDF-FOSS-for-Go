@@ -56,14 +56,14 @@ func helveticaWidthFn(t *testing.T, size float64) widthFn {
 }
 
 func TestWrapTextSingleLine(t *testing.T) {
-	lines := wrapText("Hello", helveticaWidthFn(t, 12), 500)
+	lines := wrapText("Hello", newLineMeasurer(helveticaWidthFn(t, 12)), 500)
 	if len(lines) != 1 || lines[0] != "Hello" {
 		t.Errorf("wrapText single line = %v, want [Hello]", lines)
 	}
 }
 
 func TestWrapTextMultipleLines(t *testing.T) {
-	lines := wrapText("Hello World", helveticaWidthFn(t, 12), 40)
+	lines := wrapText("Hello World", newLineMeasurer(helveticaWidthFn(t, 12)), 40)
 	if len(lines) != 2 {
 		t.Fatalf("wrapText = %v, want 2 lines", lines)
 	}
@@ -73,14 +73,14 @@ func TestWrapTextMultipleLines(t *testing.T) {
 }
 
 func TestWrapTextLongWord(t *testing.T) {
-	lines := wrapText("ABCDEFGHIJKLMNOP", helveticaWidthFn(t, 12), 50)
+	lines := wrapText("ABCDEFGHIJKLMNOP", newLineMeasurer(helveticaWidthFn(t, 12)), 50)
 	if len(lines) < 2 {
 		t.Fatalf("wrapText long word = %v, expected multiple lines", lines)
 	}
 }
 
 func TestWrapTextNewlines(t *testing.T) {
-	lines := wrapText("Line1\nLine2\nLine3", helveticaWidthFn(t, 12), 500)
+	lines := wrapText("Line1\nLine2\nLine3", newLineMeasurer(helveticaWidthFn(t, 12)), 500)
 	if len(lines) != 3 {
 		t.Fatalf("wrapText newlines = %v, want 3 lines", lines)
 	}
@@ -90,7 +90,7 @@ func TestWrapTextNewlines(t *testing.T) {
 }
 
 func TestWrapTextEmpty(t *testing.T) {
-	lines := wrapText("", helveticaWidthFn(t, 12), 500)
+	lines := wrapText("", newLineMeasurer(helveticaWidthFn(t, 12)), 500)
 	if len(lines) != 0 {
 		t.Errorf("wrapText empty = %v, want []", lines)
 	}
@@ -100,7 +100,7 @@ func TestWrapTextRuneSafe(t *testing.T) {
 	// Even with standard 14, long Cyrillic words should not be cut mid-rune.
 	// Each ? (WinAnsi fallback) is 278 units wide at 12pt = ~3.3pt.
 	// Force a break by using narrow rect relative to string length.
-	lines := wrapText("АБВГДЕЖЗИЙ", helveticaWidthFn(t, 12), 10)
+	lines := wrapText("АБВГДЕЖЗИЙ", newLineMeasurer(helveticaWidthFn(t, 12)), 10)
 	for _, line := range lines {
 		if !utf8.ValidString(line) {
 			t.Errorf("wrapText produced invalid UTF-8 line: %q", line)
