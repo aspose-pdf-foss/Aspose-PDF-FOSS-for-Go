@@ -9,6 +9,27 @@ package asposepdf
 // Form XObjects (Do op), inline images, and non-text operators are passed
 // through unchanged. Unknown fonts (font.known == false) cause the
 // affected Tj/TJ op to be passed through unchanged.
+//
+// A glyph's page-space position is the text matrix (tm) composed with
+// the graphics-state CTM — ISO 32000-1 §9.4.4's text rendering matrix is
+// Trm = [font/rise submatrix] × Tm × CTM, and the regions this function
+// compares glyph centers against are always given in page space (the
+// same space every other ApplyRedactions entry point uses). The CTM
+// half of that composition was missing entirely until pdf-go-njbg: this
+// function tracked tm (via BT/Td/TD/Tm/T*) but never ctm (via q/Q/cm),
+// so any text drawn after a non-identity cm — e.g. the page-flipping
+// "1 0 0 -1 0 H cm" many producers (Chrome/Skia among them) emit at the
+// very start of a page's content to work in a top-left-origin coordinate
+// system — was compared against regions at the WRONG position and so
+// never matched, even though SearchText (which IS CTM-aware) reported
+// the correct position and a RedactAnnotation built from that match
+// looked, to the caller, like it should obviously work. Confirmed by
+// direct reproduction, not just by reading the code: a page built with
+// exactly that Y-flip cm reported ApplyRedactions success while the
+// secret text stayed fully present and extractable afterward. The path
+// rewriter (redact_apply_path.go) and the Form-XObject/image rewriter
+// (redact_apply_image.go) both already tracked q/Q/cm correctly; only
+// this file was missing it.
 func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
@@ -30,6 +51,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		leading    float64
 		tm         = identityMatrix()
 		lm         = identityMatrix()
+		ctm        = identityMatrix()
+		ctmStack   [][6]float64
 	)
 
 	out := make([]contentOp, 0, len(ops))
@@ -43,6 +66,26 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			out = append(out, op)
 
 		case "ET":
+			out = append(out, op)
+
+		case "q":
+			ctmStack = append(ctmStack, ctm)
+			out = append(out, op)
+
+		case "Q":
+			if len(ctmStack) > 0 {
+				ctm = ctmStack[len(ctmStack)-1]
+				ctmStack = ctmStack[:len(ctmStack)-1]
+			}
+			out = append(out, op)
+
+		case "cm":
+			// cm operands: a b c d e f — new CTM = matrix_from_operands × old_CTM
+			// (ISO 32000-1 §8.4.4), same convention redact_apply_path.go /
+			// redact_apply_image.go already use.
+			if m, ok := readCMMatrix(op.Operands); ok {
+				ctm = matMul(m, ctm)
+			}
 			out = append(out, op)
 
 		case "Tf":
@@ -124,6 +167,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					wordSpace:  wordSpace,
 					horizScale: horizScale,
 					tm:         tm,
+					ctm:        ctm,
 				}
 				newOps, totalAdvance := filterTjString(op.Operands[0], state, regions)
 				// Advance the text matrix by total advance regardless of what survived.
@@ -142,6 +186,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					wordSpace:  wordSpace,
 					horizScale: horizScale,
 					tm:         tm,
+					ctm:        ctm,
 				}
 				newOps, totalAdvance := filterTJArray(op.Operands[0], state, regions)
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
@@ -164,6 +209,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					wordSpace:  wordSpace,
 					horizScale: horizScale,
 					tm:         tm,
+					ctm:        ctm,
 				}
 				newOps, totalAdvance := filterTjString(op.Operands[0], state, regions)
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
@@ -188,6 +234,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					wordSpace:  wordSpace,
 					horizScale: horizScale,
 					tm:         tm,
+					ctm:        ctm,
 				}
 				newOps, totalAdvance := filterTjString(op.Operands[2], state, regions)
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
@@ -212,6 +259,11 @@ type glyphFilterState struct {
 	wordSpace  float64
 	horizScale float64
 	tm         [6]float64
+	// ctm is the graphics-state CTM in effect for this Tj/TJ/'/" — a
+	// glyph's page-space position is tm composed with ctm (see
+	// rewriteTextOperatorsInStream's own doc comment, pdf-go-njbg), never
+	// tm alone.
+	ctm [6]float64
 }
 
 // glyphAdvance computes the text-space advance for a single-byte glyph code.
@@ -294,7 +346,7 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 
 		// Glyph center in text space: (runningX + adv/2, 0).
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(state.tm, cx, 0)
+		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, 0)
 		dropped := pointInAnyQuad(ux, uy, regions)
 
 		glyphs[i] = singleByteGlyph{code: code, advance: adv, dropped: dropped}
@@ -429,7 +481,7 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 		adv := glyphAdvanceCID(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(state.tm, cx, 0)
+		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, 0)
 		dropped := pointInAnyQuad(ux, uy, regions)
 
 		glyphs = append(glyphs, cidGlyph{hi: hi, lo: lo, code: code, advance: adv, dropped: dropped})
@@ -549,7 +601,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 					code := uint16(hi)<<8 | uint16(lo)
 					adv := glyphAdvanceCID(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 					cx := lx + adv/2.0
-					ux, uy := matApplyPoint(localTM, cx, 0)
+					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
 					dropped := pointInAnyQuad(ux, uy, regions)
 					cidGlyphs = append(cidGlyphs, struct {
 						hi, lo  byte
@@ -566,7 +618,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 					code := v[i]
 					adv := glyphAdvance(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 					cx := lx + adv/2.0
-					ux, uy := matApplyPoint(localTM, cx, 0)
+					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
 					dropped := pointInAnyQuad(ux, uy, regions)
 					glyphs = append(glyphs, singleByteGlyph{code: code, advance: adv, dropped: dropped})
 					lx += adv

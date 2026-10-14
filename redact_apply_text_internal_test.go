@@ -53,6 +53,34 @@ func TestRewriteTextDropAllGlyphs(t *testing.T) {
 	}
 }
 
+// TestRewriteTextTracksCM pins pdf-go-njbg: a glyph's page-space
+// position must be the text matrix composed with the graphics-state
+// CTM, not the text matrix alone. Here the content sets up a Y-flip
+// "cm" (the common top-left-origin idiom many producers, including
+// Chrome/Skia, emit at the very start of a page's content) before
+// drawing text with Td — the text's REAL, post-cm page-space position
+// is nowhere near where it would land if the rewriter (wrongly) ignored
+// the cm and treated Td's raw operands as the final position. The
+// region given here is in page space (the position SearchText would
+// actually report, and the position the caller would build a
+// RedactAnnotation from), matching ApplyRedactions' real contract.
+func TestRewriteTextTracksCM(t *testing.T) {
+	fonts := testRewriteFontMap()
+	// Flip Y around y=842 (an A4-height page), then draw at local (100, 142)
+	// -- which the flip maps to page-space (100, 700).
+	in := []byte("q\n1 0 0 -1 0 842 cm\nBT\n/F1 12 Tf\n100 142 Td\n(SECRET) Tj\nET\nQ\n")
+	regions := []QuadPoint{
+		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 690, X4: 1000, Y4: 690},
+	}
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "(SECRET)") {
+		t.Errorf("expected SECRET removed (its real page-space position, after the Y-flip cm, falls inside the region), got %q", out)
+	}
+}
+
 func TestRewriteTextKeepAllGlyphs(t *testing.T) {
 	// Region far away from drawn text.
 	fonts := testRewriteFontMap()

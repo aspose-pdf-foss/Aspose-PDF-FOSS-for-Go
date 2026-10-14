@@ -71,7 +71,14 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // ApplyRedactions destructively removes content (text glyphs, image
 // XObjects, paths) inside every /Redact annotation's /QuadPoints (or
 // /Rect if /QuadPoints is empty). Renders /OverlayText if set, then
-// removes the redact annotations from the page.
+// removes the redact annotations from the page. A glyph's page-space
+// position correctly accounts for the graphics-state CTM a "cm" sets,
+// not just the text matrix — see rewriteTextOperatorsInStream's own doc
+// comment (pdf-go-njbg, closed): text drawn after a non-identity "cm"
+// (the common top-left-origin Y-flip many producers emit once per page)
+// used to be compared against regions at the wrong position and so
+// never matched, even when the region came straight from SearchText's
+// own (correct) answer.
 //
 // Calls RemoveUnusedObjects once at the end when at least one page was
 // redacted, so the content stream(s) a page's /Contents pointed to before
