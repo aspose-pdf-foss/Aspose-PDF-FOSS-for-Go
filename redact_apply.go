@@ -146,25 +146,47 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // that doesn't invert (so a region can't be mapped into the form's space
 // at all) — see redactFormDo/redactFormXObject.
 //
-// Known gaps (not closed by this sweep, tracked separately): an Image
-// XObject fully inside a redaction region has its Do invocation dropped
-// from the content stream, but its /Resources/XObject entry is left in
-// place (graph-reachable, so RemoveUnusedObjects does not collect it) —
-// its pixel data stays in the file (pdf-go-ye1z). A page's /Thumb
-// thumbnail, if a producer embedded one, is never touched by this method
-// and may still show a miniature of the pre-redaction page (pdf-go-ekp4).
-// A non-/Redact annotation (FreeText, Stamp, Widget, markup, …) whose own
-// appearance stream happens to overlap a redaction region keeps that
-// content untouched — this method only rewrites page content and removes
-// /Redact annotations themselves, it never examines another annotation's
-// /AP, a tiling-pattern cell stream, or a Type3 font's /CharProcs
-// (pdf-go-xp2u). A Form XObject whose own content relies on a font
-// inherited from the page (no Tf of its own) is treated as unknown-font
-// and passes through unredacted (pdf-go-w7ye); an unknown-font Tj/TJ run
-// anywhere can leave later, known-font text on the same line
-// mispositioned (pdf-go-uhqd); text rise (Ts) is not tracked, so a
-// region drawn tightly around a rendered superscript/subscript may miss
-// its (untracked, baseline-only) test point (pdf-go-lx1f). Redacting a
+// Known gaps (not closed by this sweep, tracked separately). Two are
+// more severe than the rest — the secret can survive not just
+// forensically (pdf-go-2qkq's class) but through this library's own
+// ORDINARY read APIs on the "redacted" file: a Tj/TJ run under a font
+// this pipeline cannot classify (font.known==false — an undeclared
+// font name, a simple font with no usable /Encoding/ToUnicode, or an
+// Identity-H font with no /ToUnicode and no Adobe /Ordering) is passed
+// through completely unredacted, yet several such cases ARE still
+// visible when rendered and extractable via ExtractText/SearchText
+// (both substitute Helvetica or read the embedded program's own
+// encoding where the redaction pipeline gives up) — pdf-go-oq9i; and a
+// BDC marked-content span's /ActualText property (common in
+// accessibility-tagged output from Word, InDesign, etc.) is never
+// examined or scrubbed, so ExtractText/SearchText on an already-
+// redacted page can still return the original secret text verbatim via
+// that replacement mechanism even though the underlying glyphs were
+// correctly dropped — pdf-go-1ha8.
+//
+// The rest: an Image XObject fully inside a redaction region has its Do
+// invocation dropped from the content stream, but its /Resources/XObject
+// entry is left in place (graph-reachable, so RemoveUnusedObjects does
+// not collect it) — its pixel data stays in the file (pdf-go-ye1z). A
+// page's /Thumb thumbnail, if a producer embedded one, is never touched
+// by this method and may still show a miniature of the pre-redaction
+// page (pdf-go-ekp4). A non-/Redact annotation (FreeText, Stamp, Widget,
+// markup, …) whose own appearance stream happens to overlap a redaction
+// region keeps that content untouched — this method only rewrites page
+// content and removes /Redact annotations themselves, it never examines
+// another annotation's /AP, a tiling-pattern cell stream, or a Type3
+// font's /CharProcs (pdf-go-xp2u). A Form XObject whose own content
+// relies on a font inherited from the page (no Tf of its own) is treated
+// as unknown-font and passes through unredacted (pdf-go-w7ye, the
+// Form-XObject-specific case of pdf-go-oq9i above); an unknown-font
+// Tj/TJ run anywhere can leave later, known-font text on the same line
+// mispositioned (pdf-go-uhqd); a composite (Type0) font using a
+// non-Identity, variable-width CJK CMap (predefined or embedded) is
+// parsed as fixed 2-byte codes, same as Identity-H — unconfirmed by a
+// real repro yet, but potentially misdecodes/mispositions CJK text
+// (pdf-go-eys1); text rise (Ts) is not tracked, so a region drawn
+// tightly around a rendered superscript/subscript may miss its
+// (untracked, baseline-only) test point (pdf-go-lx1f). Redacting a
 // document that is later saved incrementally (already signed, or
 // AddValidationInfo) keeps the original text in the earlier,
 // byte-preserved revision by design.

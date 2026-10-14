@@ -639,6 +639,21 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 	totalAdvance := 0.0   // total advance including numeric kerning
 
 	var outArr pdfArray
+	// anyDropped tracks whether ANY glyph in this whole TJ array was
+	// actually redacted. Without it, filterTJArray always rebuilt the
+	// array (through compactTJArray below) even when NOTHING was
+	// dropped — compactTJArray strips a leading/trailing kerning-only
+	// entry unconditionally, which is correct for one left over after a
+	// drop emptied the glyphs around it, but wrong for one the ORIGINAL
+	// document author put there intentionally (e.g. letter-spacing
+	// before the first glyph in the array) on a TJ this redaction pass
+	// never actually touched — silently shifting unrelated, untouched
+	// text sideways on any page that merely HAS a redaction region
+	// somewhere, found by an independent review. filterTjStringSingleByte/
+	// filterTjStringType0 already have this "nothing dropped -> return
+	// the original op verbatim" guard; this gives filterTJArray the same
+	// one.
+	anyDropped := false
 
 	for _, elem := range arr {
 		switch v := elem.(type) {
@@ -698,6 +713,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 						// Append kept bytes as a string fragment.
 						outArr = append(outArr, string([]byte{g.hi, g.lo}))
 					} else {
+						anyDropped = true
 						// Append kerning gap.
 						fs := state.fontSize
 						hs := state.horizScale
@@ -714,6 +730,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 					if !g.dropped {
 						outArr = append(outArr, string([]byte{g.code}))
 					} else {
+						anyDropped = true
 						fs := state.fontSize
 						hs := state.horizScale
 						if fs == 0 || hs == 0 {
@@ -759,6 +776,15 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 			totalAdvance += displacement
 			outArr = append(outArr, elem)
 		}
+	}
+
+	if !anyDropped {
+		// Nothing in this TJ was actually redacted: return the ORIGINAL
+		// operand verbatim rather than outArr (which is semantically
+		// equivalent but not necessarily byte-identical, and — the bug
+		// this guards against — would otherwise still go through
+		// compactTJArray's leading/trailing-kerning strip below).
+		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, totalAdvance
 	}
 
 	if len(outArr) == 0 {

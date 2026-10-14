@@ -183,6 +183,31 @@ func TestRewriteTextTJKerningHonorsHorizScale(t *testing.T) {
 	}
 }
 
+// TestRewriteTextUntouchedTJKeepsLeadingKerning pins a bug an
+// independent review found: filterTJArray always rebuilt its TJ array
+// through compactTJArray, which strips a leading/trailing kerning-only
+// entry unconditionally — correct for one left orphaned by a drop, but
+// wrong for one the ORIGINAL document author put there intentionally
+// (e.g. deliberate letter-spacing before the first glyph), on a TJ this
+// redaction pass never actually touches at all. The leading kerning here
+// must survive untouched since the region is nowhere near this text.
+func TestRewriteTextUntouchedTJKeepsLeadingKerning(t *testing.T) {
+	fonts := testRewriteFontMap()
+	in := []byte("BT\n/F1 12 Tf\n100 700 Td\n[-200 (Hello)] TJ\nET\n")
+	// Region far away from the drawn text — nothing in this TJ should
+	// be dropped at all.
+	regions := []QuadPoint{
+		{X1: 0, Y1: 10, X2: 50, Y2: 10, X3: 0, Y3: 0, X4: 50, Y4: 0},
+	}
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(in) {
+		t.Errorf("expected the untouched TJ op to pass through byte-for-byte unchanged, got %q, want %q", out, in)
+	}
+}
+
 func TestRewriteTextKeepAllGlyphs(t *testing.T) {
 	// Region far away from drawn text.
 	fonts := testRewriteFontMap()

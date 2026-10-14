@@ -584,10 +584,22 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 				e.showStringSingleByte(v)
 			}
 		case int:
-			displacement := -float64(v) / 1000.0 * e.fontSize
+			// ISO 32000-1 §9.4.4: every term of tx, including this
+			// numeric TJ adjustment, is scaled by horizScaling (Tz/100)
+			// — the same scaling advanceGlyph/advanceGlyphCID already
+			// apply to ordinary glyph advances just below. Omitting it
+			// here (as this line used to) drifts e.tm out of sync with
+			// those advances whenever Tz != 100 and the TJ array already
+			// contains kerning, which is near-universal in TJ output —
+			// so every fragment/match position AFTER such a kerning
+			// entry (SearchText, ExtractTextWithLayout, and by extension
+			// any RedactAnnotation built from a SearchText match) can be
+			// wrong. Found via an independent review of the analogous
+			// bug already fixed in redact_apply_text.go's filterTJArray.
+			displacement := -float64(v) / 1000.0 * e.fontSize * e.horizScaling
 			e.tm = matMul(translateMatrix(displacement, 0), e.tm)
 		case float64:
-			displacement := -v / 1000.0 * e.fontSize
+			displacement := -v / 1000.0 * e.fontSize * e.horizScaling
 			e.tm = matMul(translateMatrix(displacement, 0), e.tm)
 		}
 	}
