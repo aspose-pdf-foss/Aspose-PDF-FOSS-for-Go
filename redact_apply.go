@@ -161,7 +161,19 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // ExtractText/SearchText on a redacted page can no longer return the
 // original secret text verbatim via that replacement mechanism
 // (pdf-go-1ha8). Both fixed in rewriteTextOperatorsInStream
-// (redact_apply_text.go) — see its own doc comment.
+// (redact_apply_text.go) — see its own doc comment. A further
+// independent review of those two fixes found and closed two more real
+// gaps in the SAME /ActualText mechanism (both documented in
+// rewriteTextOperatorsInStream's own comment, not repeated here) and
+// one gap in ApplyRedactions' own error handling: returning on the
+// first page that errors used to skip RemoveUnusedObjects entirely, so
+// any EARLIER page that had already redacted successfully still had
+// its pre-redaction stream sitting dead but unswept in d.objects —
+// reachable in practice now that pdf-go-oq9i gives this method a real
+// way to fail partway through a multi-page document, where before
+// every rewriter just silently passed through instead. Fixed by
+// sweeping whatever succeeded so far before returning the error, not
+// only on the all-succeeded path.
 //
 // The rest: an Image XObject fully inside a redaction region has its Do
 // invocation dropped from the content stream, but its /Resources/XObject
@@ -203,6 +215,27 @@ func (d *Document) ApplyRedactions() error {
 			continue
 		}
 		if err := applyRedactionsToPage(page); err != nil {
+			// Any EARLIER page in this loop that already redacted
+			// successfully still has its pre-redaction content stream
+			// sitting unreferenced in d.objects (replacePageContents
+			// only repoints /Contents, same reason the success path
+			// below calls RemoveUnusedObjects at all — pdf-go-2qkq).
+			// Returning here without sweeping would write those
+			// original, unredacted streams to the file on the caller's
+			// next Save/WriteTo despite ApplyRedactions reporting
+			// failure — the secret surviving via the very mechanism
+			// this method exists to close, just reached through the
+			// error path instead of the success one. Confirmed
+			// reachable by an independent review: once any rewriter can
+			// genuinely refuse partway through a multi-page document
+			// (pdf-go-oq9i's unknown-font refusal, in particular, made
+			// this far more likely to trigger in practice than it was
+			// when every rewriter just silently passed through instead
+			// of erroring), a later page's failure is no longer a
+			// theoretical edge case.
+			if redacted > 0 {
+				d.RemoveUnusedObjects()
+			}
 			return fmt.Errorf("ApplyRedactions: page %d: %w", page.Number(), err)
 		}
 		redacted++

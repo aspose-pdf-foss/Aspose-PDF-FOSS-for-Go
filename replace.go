@@ -36,12 +36,33 @@ func replaceToSearchOptions(opts []ReplaceOptions) SearchOptions {
 // much longer replacement may overrun following content. Matches are located
 // within a single line, like SearchText. Mirrors the find-and-replace idiom of
 // Aspose.PDF for .NET's TextFragmentAbsorber + TextFragment.Text.
+//
+// Removing the old text reuses the SAME content-stream rewriter
+// ApplyRedactions does (rewriteTextOperatorsInStream), so it shares that
+// function's one hard limit: a match drawn with a font this pipeline
+// cannot resolve (an undeclared font name, or a simple font with no
+// usable /Encoding/ToUnicode) makes this call return an error instead
+// of replacing it — rather than, as before, silently leaving the OLD
+// text underneath the new replacement text it still drew on top (a
+// real, if cosmetic, bug this change trades for a clear error; found
+// during an independent review of pdf-go-oq9i, the ApplyRedactions fix
+// this inherited). Also removes the dead, now-unreferenced ORIGINAL
+// content stream from the document once at least one match was
+// replaced (RemoveUnusedObjects, the same reason ApplyRedactions calls
+// it — pdf-go-2qkq's class of leak otherwise applies here too, since
+// old text containing whatever was just "replaced" would stay
+// recoverable in the saved file) — so, like ApplyRedactions, call
+// ReplaceText only after placing everything else you mean to keep.
 func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int, error) {
 	re, err := compileSearch(old, replaceToSearchOptions(opts))
 	if err != nil {
 		return 0, err
 	}
-	return applyReplaceToPage(p, re, replacement)
+	n, err := applyReplaceToPage(p, re, replacement)
+	if n > 0 {
+		p.doc.RemoveUnusedObjects()
+	}
+	return n, err
 }
 
 // ReplaceText replaces every occurrence of old with replacement across all
@@ -56,10 +77,21 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 	for i := range d.pages {
 		p := &Page{doc: d, index: i}
 		n, err := applyReplaceToPage(p, re, replacement)
+		total += n
 		if err != nil {
+			// As with ApplyRedactions: any EARLIER page that already
+			// replaced successfully left its pre-replacement content
+			// stream dead but still in d.objects — sweep whatever
+			// succeeded before surfacing the error, so it doesn't end
+			// up written to the file anyway on the caller's next Save.
+			if total > 0 {
+				d.RemoveUnusedObjects()
+			}
 			return total, fmt.Errorf("replace text: page %d: %w", i+1, err)
 		}
-		total += n
+	}
+	if total > 0 {
+		d.RemoveUnusedObjects()
 	}
 	return total, nil
 }

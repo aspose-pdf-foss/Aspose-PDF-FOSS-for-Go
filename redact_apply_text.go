@@ -102,6 +102,54 @@ import "fmt"
 // be shared by OTHER, untouched spans using the same name — the same
 // sharing hazard class as pdf-go-w5hl's Form-XObject /Resources, just
 // for marked-content properties instead).
+//
+// Two more scrub triggers, beyond "a glyph was dropped inside this
+// span", were added after an independent review found the first draft
+// (glyph-drop only) still missed real cases of exactly the leak this
+// mechanism exists to close:
+//
+//   - The EMC-time ActualText-POSITION check (case "EMC" below): the
+//     extractor (text.go) emits an /ActualText span's replacement text
+//     AT EMC, positioned wherever tm∘ctm has moved TO by then —
+//     advanceGlyph still runs for every one of the span's own
+//     (suppressed) glyphs, but the position-recording half of emitRune
+//     is exactly what /ActualText suppresses, so the reported position
+//     does not overlap where those glyphs are actually drawn. The
+//     documented workflow — find the secret via SearchText, build a
+//     RedactAnnotation from THAT match's own Rect — therefore builds a
+//     region around the EMC-time position, not around the span's own
+//     glyphs, which the glyph-drop check alone can completely miss
+//     (reproduced directly: filler glyphs nowhere near the region, the
+//     /ActualText text itself never dropped by anything).
+//   - The "Do" case below: this pass and the separate Form-XObject/
+//     image rewriter (redact_apply_image.go) are two SEQUENTIAL passes
+//     over the same content, each with its own notion of "dropped" —
+//     a Form XObject placed via Do inside an /ActualText span is
+//     redacted entirely by the LATER pass, which this one has no
+//     visibility into. Conservatively marking the span dropped
+//     whenever the Do's OWN placement could possibly overlap a region
+//     (without knowing whether the later pass will actually drop
+//     anything inside it — this pass has no way to ask) closes that
+//     gap; reproduced directly with a Form XObject's secret text fully
+//     inside the region while the enclosing span's own direct glyphs
+//     were unrelated filler outside it.
+//
+// Known gaps in this mechanism, found by the same review round and
+// deliberately deferred (bundled as pdf-go-tnsb, both low-severity):
+// an unterminated BDC (a malformed/truncated stream with no matching
+// EMC before end-of-stream) leaves that span's mcStack entry simply
+// discarded when this function returns — its scrub decision is never
+// made, but this needs a malformed input to begin with, and the rest
+// of the document is unaffected; and the unknown-font refusal below
+// (pdf-go-oq9i) checks fontInfo.known, which font.go's resolveFont
+// sets via an exact PostScript-name match — a simple font using a
+// common alias like /Arial (not literally one of the Standard-14
+// names) with no /Encoding/ToUnicode is refused even though
+// render_std14.go's own standard14WidthAlias table would recognize it
+// as Helvetica-equivalent, so this over-refuses on a wider set of
+// real documents than strictly necessary (always the safe direction —
+// over-refusing, never under-redacting — but a usability regression
+// worth revisiting by widening font.go's own resolution path).
 func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
@@ -176,6 +224,34 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			if n := len(mcStack); n > 0 {
 				span := mcStack[n-1]
 				mcStack = mcStack[:n-1]
+
+				// The extractor emits an /ActualText span's replacement
+				// text AT EMC, positioned at the CURRENT tm∘ctm origin
+				// (textExtractor.currentPos, text.go) — NOT overlapping
+				// the span's own (suppressed) glyphs: advanceGlyph still
+				// runs for every one of them, but the emitRune call that
+				// would record their positions is the one /ActualText
+				// specifically suppresses, so by EMC the text matrix has
+				// already moved past wherever those glyphs actually sit.
+				// A caller who finds the secret via SearchText — the
+				// documented workflow — and builds a region from THAT
+				// match is building it around THIS point, not around the
+				// span's underlying glyphs, so the glyph-drop tracking
+				// below (which this span's own Tj/TJ calls feed via
+				// markDropped) can miss exactly the common case
+				// SearchText→redact exists to catch: an ActualText span
+				// whose drawn glyphs (filler, a different cipher, …)
+				// never themselves fall in any region. Treating this
+				// point the same way the extractor does closes that gap.
+				// Found reachable by an independent review of this
+				// mechanism's first draft (a region built from
+				// SearchText's own reported match for the ActualText
+				// string left the span, and its glyphs, completely
+				// untouched).
+				if ax, ay := matApplyPoint(matMul(tm, ctm), 0, 0); pointInAnyQuad(ax, ay, regions) {
+					span.dropped = true
+				}
+
 				if span.dropped && span.props != nil {
 					if _, hasActualText := span.props["/ActualText"]; hasActualText {
 						scrubbed := make(pdfDict, len(span.props))
@@ -419,6 +495,46 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				out = append(out, op)
 			}
 
+		case "Do":
+			// This pass never drops/clips a Do itself — that is the
+			// SEPARATE image/Do rewriter's job, run as its own pass
+			// AFTER this one. But a Do whose placement could overlap a
+			// region, drawn while an /ActualText span is open, still
+			// needs THAT span's dropped flag set here and now: these
+			// two rewriters never share state otherwise, so if this
+			// pass doesn't flag it, nothing ever will, and the later
+			// pass dropping the Do's own content (an image, or a Form
+			// XObject's text) leaves /ActualText — a separate textual
+			// representation of the same span — stale and unscrubbed.
+			// Conservative by design: ANY possible overlap counts,
+			// without knowing whether the later pass will actually
+			// end up dropping something inside it, since this pass has
+			// no way to ask. Confirmed reachable by an independent
+			// review: a redaction region covering a Form XObject's
+			// secret text, placed inside a BDC/ActualText span with
+			// unrelated filler glyphs of its own, used to leave that
+			// span's /ActualText completely untouched.
+			if len(op.Operands) >= 1 {
+				if name := operandName(op.Operands[0]); name != "" {
+					if st := resolveXObjectStream(objects, resources, name); st != nil {
+						var kind doActionKind
+						if dictGetName(st.Dict, "/Subtype") == "/Form" {
+							if minX, minY, maxX, maxY, ok := formPlacementBbox(objects, st, ctm); ok {
+								kind = classifyBbox(minX, minY, maxX, maxY, regions)
+							} else {
+								kind = dropDo // unresolvable /BBox: can't rule it out, assume the worst
+							}
+						} else {
+							kind = classifyDoBbox(ctm, regions).kind
+						}
+						if kind != keepDo {
+							markDropped()
+						}
+					}
+				}
+			}
+			out = append(out, op)
+
 		default:
 			out = append(out, op)
 		}
@@ -578,7 +694,12 @@ func filterTjString(operand pdfValue, state glyphFilterState, regions []QuadPoin
 	}
 
 	if !state.font.known {
-		return nil, 0, false, fmt.Errorf("asposepdf: ApplyRedactions: cannot safely determine the position of text drawn with font %q; refusing rather than leaving it unredacted", state.fontName)
+		// Generic wording, not "ApplyRedactions" specifically: this
+		// function is shared by ApplyRedactions, Form-XObject
+		// redaction, AND ReplaceText (replace.go reuses it to remove
+		// the OLD text before drawing a replacement) — an error naming
+		// the wrong caller would mislead whoever reads it.
+		return nil, 0, false, fmt.Errorf("asposepdf: cannot safely determine the position of text drawn with font %q; refusing rather than silently leaving it unmodified", state.fontName)
 	}
 
 	if state.font.isType0 {
@@ -820,7 +941,12 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 	}
 
 	if !state.font.known {
-		return nil, 0, false, fmt.Errorf("asposepdf: ApplyRedactions: cannot safely determine the position of text drawn with font %q; refusing rather than leaving it unredacted", state.fontName)
+		// Generic wording, not "ApplyRedactions" specifically: this
+		// function is shared by ApplyRedactions, Form-XObject
+		// redaction, AND ReplaceText (replace.go reuses it to remove
+		// the OLD text before drawing a replacement) — an error naming
+		// the wrong caller would mislead whoever reads it.
+		return nil, 0, false, fmt.Errorf("asposepdf: cannot safely determine the position of text drawn with font %q; refusing rather than silently leaving it unmodified", state.fontName)
 	}
 
 	// We'll build a new TJ array, tracking position as we go.

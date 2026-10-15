@@ -306,6 +306,21 @@ func TestRewriteTextUnknownFontRefuses(t *testing.T) {
 	}
 }
 
+// TestRewriteTextUnknownFontRefusesInTJArray is the TJ-array counterpart
+// of TestRewriteTextUnknownFontRefuses: an independent review of
+// pdf-go-oq9i found that the unknown-font gate was only ever exercised
+// through Tj — filterTJArray has its OWN separate gate (it does not
+// delegate to filterTjString), so nothing proved it actually refuses
+// too. Reverting just filterTJArray's gate would leave every other test
+// green.
+func TestRewriteTextUnknownFontRefusesInTJArray(t *testing.T) {
+	in := []byte("BT\n/F1 12 Tf\n100 700 Td\n[(Hello)] TJ\nET\n")
+	_, err := rewriteTextOperatorsInStream(in, []QuadPoint{{X1: 0, Y1: 1000, X2: 1000, Y2: 1000, X3: 0, Y3: 0, X4: 1000, Y4: 0}}, map[string]fontInfo{}, nil, nil)
+	if err == nil {
+		t.Error("expected an error when the font cannot be resolved (TJ array), got nil")
+	}
+}
+
 func TestRewriteTextPointInAnyQuad(t *testing.T) {
 	quads := []QuadPoint{
 		{X1: 0, Y1: 100, X2: 100, Y2: 100, X3: 0, Y3: 0, X4: 100, Y4: 0},

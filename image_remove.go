@@ -70,6 +70,19 @@ func serializeOperand(buf *bytes.Buffer, v pdfValue) {
 		}
 	case pdfNull:
 		buf.WriteString("null")
+	case pdfRef:
+		// An indirect reference as a content-stream operand (e.g. a
+		// BDC properties dict value) — no remapping needed here, this
+		// is the document's existing object-number space, not the
+		// writer's output space. Without this case the default branch
+		// below printed Go's own struct format ("{5 0}"), which is not
+		// valid PDF syntax and would corrupt the content stream on
+		// re-serialization; found by an independent review while
+		// checking the /ActualText scrub's "copy the properties dict
+		// minus /ActualText, re-emit it inline" path, which can carry
+		// forward whatever OTHER values a producer's BDC dict had,
+		// including a reference-valued one.
+		fmt.Fprintf(buf, "%d %d R", val.Num, val.Gen)
 	default:
 		fmt.Fprintf(buf, "%v", val)
 	}
