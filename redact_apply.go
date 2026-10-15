@@ -14,9 +14,14 @@ import (
 // invertible placement matrix, and nesting/work within
 // maxFormRedactDepth/maxFormRedactWork (see unsafeFormXObjectName; most
 // intersecting Form XObjects ARE safely redactable since pdf-go-w5hl — this
-// only flags the genuinely unsafe cases). Returns the first problem found,
-// or nil if every redact-bearing page is safe to process. Pages without
-// redact annotations are not inspected.
+// only flags the genuinely unsafe cases). Also checks every non-/Redact
+// annotation's own /AP appearance stream(s) overlapping a region the same
+// way (unsafeAnnotationAppearance; pdf-go-xp2u) — an annotation's
+// placement matrix is always invertible by construction (it comes from
+// ISO 32000-1 §12.5.5's scale+translate algorithm, not an arbitrary `cm`),
+// so only a missing/malformed /BBox can make one unsafe here. Returns the
+// first problem found, or nil if every redact-bearing page is safe to
+// process. Pages without redact annotations are not inspected.
 //
 // Callers should invoke this before ApplyRedactions to surface problems
 // up-front; ApplyRedactions has best-effort semantics and may leave
@@ -44,6 +49,9 @@ func (d *Document) ValidateRedactions() error {
 		resources := page.pageResources()
 		if name, found := unsafeFormXObjectName(ops, regions, d.objects, resources); found {
 			return fmt.Errorf("ValidateRedactions: page %d: Form XObject %q cannot be safely redacted into (missing/malformed /BBox, a non-invertible placement matrix, or nesting/work beyond the redaction depth/work limits); flatten it into page content first, or keep redaction regions clear of it", page.Number(), name)
+		}
+		if found := unsafeAnnotationAppearance(page, d.objects, regions); found {
+			return fmt.Errorf("ValidateRedactions: page %d: an annotation's /AP appearance stream overlapping a redaction region cannot be safely redacted into (missing/malformed /BBox)", page.Number())
 		}
 	}
 	return nil
@@ -197,14 +205,41 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // uses) and mutation-tested (temporarily disabling the pruning's delete
 // call reproduces exactly the leak the ticket described).
 //
+// Two more content paths this method's rewriters never reached are now
+// closed too (pdf-go-xp2u). First, every OTHER annotation's own /AP
+// appearance stream(s) overlapping a redaction region are now redacted
+// into (redactAnnotationAppearances, redact_apply_annot.go) — a FreeText
+// note's drawn text, a Stamp's drawn content, and critically a form
+// Widget's /AP rendering of its OWN FIELD VALUE (a text field showing an
+// SSN, say) all draw through their own appearance stream, completely
+// outside this method's page-content rewriters, and used to survive a
+// covering redaction untouched both visually and forensically. Reuses the
+// Form-XObject redaction machinery from pdf-go-w5hl almost verbatim: an
+// annotation's /AP/N (or /D, /R) stream IS a Form XObject, placed by a
+// fixed ISO 32000-1 §12.5.5 algorithm instead of a content-stream
+// `cm`+`Do`, and that algorithm's own matrix composes with the stream's
+// /Matrix exactly the way a Do's CTM does — so redactFormXObject and
+// formPlacementBbox apply unchanged, this just supplies a different
+// "ctm". Same clone-not-mutate discipline as redactFormDo: nothing here
+// ever mutates an annotation's /AP dict or an appearance stream object in
+// place, since either can in principle be shared across annotations or
+// states. Second, an inline image (BI...ID...EI) fully or partially inside
+// a region is now dropped/clipped the same way a non-Form Do is
+// (emitClassifiedImageOp, redact_apply_image.go) — it used to fall
+// through to the rewriter's default case and pass through completely
+// unexamined, the same class of leak as pdf-go-ye1z's XObject-image case
+// but for pixel data that was never a separate XObject to begin with.
+// Tiling-pattern cell content and Type3 font /CharProcs remain open,
+// deliberately deferred as pdf-go-ifik — see that ticket for why each is
+// narrower/more involved than the two fixes above (in short: a pattern
+// cell has no single page-space placement to redact into, and a Type3
+// CharProc is shared by every occurrence of that glyph document-wide, so
+// redacting "inside" one based on one occurrence's position would blank
+// every other, legitimately-unredacted occurrence of the same character).
+//
 // The rest: a page's /Thumb thumbnail, if a producer embedded one, is never touched
 // by this method and may still show a miniature of the pre-redaction
-// page (pdf-go-ekp4). A non-/Redact annotation (FreeText, Stamp, Widget,
-// markup, …) whose own appearance stream happens to overlap a redaction
-// region keeps that content untouched — this method only rewrites page
-// content and removes /Redact annotations themselves, it never examines
-// another annotation's /AP, a tiling-pattern cell stream, or a Type3
-// font's /CharProcs (pdf-go-xp2u). A Form XObject whose own content
+// page (pdf-go-ekp4). A Form XObject whose own content
 // relies on a font inherited from the page (no Tf of its own) is treated
 // as unknown-font — since pdf-go-oq9i, that now correctly REFUSES rather
 // than silently passing through (an improvement, not a full fix: the
@@ -340,6 +375,19 @@ func applyRedactionsToPage(p *Page) error {
 	// 5. Replace the page's /Contents with a single new stream.
 	if err := replacePageContents(p, data); err != nil {
 		return fmt.Errorf("replace content: %w", err)
+	}
+
+	// 5b. Redact into every OTHER annotation's own /AP appearance
+	// stream(s) too (pdf-go-xp2u) — a FreeText note, Stamp, or form Widget
+	// draws its own content independent of the page's /Contents, and
+	// until this ran, a redaction region covering one of those did
+	// nothing to it at all. Must run after /Redact annotations' own
+	// positions are still well-defined (they're deleted below) but order
+	// relative to step 4 above doesn't matter otherwise — annotation
+	// appearance streams are independent objects, never reached through
+	// page /Contents.
+	if err := redactAnnotationAppearances(p, regions, resources, budget); err != nil {
+		return fmt.Errorf("annotation appearance: %w", err)
 	}
 
 	// 6. Render overlay (fill + optional text) for each redact region.

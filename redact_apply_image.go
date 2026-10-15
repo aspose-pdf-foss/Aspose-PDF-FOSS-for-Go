@@ -196,21 +196,23 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 				continue
 			}
 
-			action := classifyDoBbox(ctm, regions)
-			switch action.kind {
-			case keepDo:
-				out = append(out, op)
-			case dropDo:
-				// skip emission — Do and its visual contribution are suppressed
-			case clipDo:
-				// Wrap Do in a local q...Q with an even-odd clip path that masks
-				// out the redacted region(s) while keeping the unredacted area.
-				out = append(out, contentOp{Operator: "q"})
-				clipOps := buildImageClipPath(action.bbox, regions)
-				out = append(out, clipOps...)
-				out = append(out, op)
-				out = append(out, contentOp{Operator: "Q"})
-			}
+			out = emitClassifiedImageOp(out, op, ctm, regions)
+		case "BI":
+			// An inline image (BI ... ID ... EI, ISO 32000-1 §8.9.7) paints
+			// into the unit square under the current CTM exactly like an
+			// Image XObject's Do (image_inline_write.go emits the same
+			// preceding "q <w> 0 0 <h> <x> <y> cm" positioning convention —
+			// see render.go's own "BI" case, which paints it through the
+			// identical classifyDoBbox unit-square assumption). Already
+			// parsed as a single contentOp (parseContentStream's own BI
+			// handling consumes through ID/EI internally), so the same
+			// drop/clip/keep classification used for a non-Form Do applies
+			// verbatim — closes pdf-go-xp2u's inline-image half: before
+			// this, BI fell through to the default case and passed through
+			// a redaction region completely untouched, the same class of
+			// leak as pdf-go-ye1z but for pixel data that never became a
+			// separate XObject in the first place.
+			out = emitClassifiedImageOp(out, op, ctm, regions)
 		default:
 			out = append(out, op)
 		}
@@ -253,6 +255,32 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 	}
 
 	return finalData, nil
+}
+
+// emitClassifiedImageOp appends op (a non-Form Do, or a BI inline image) to
+// out, classified against regions under the unit-square convention every
+// raster-painting operator shares (ISO 32000-1 §8.9.5.1 for an Image
+// XObject, §8.9.7 for an inline image — both paint into [0,1]×[0,1] under
+// whatever CTM is in effect, so classifyDoBbox applies to either
+// identically): dropped entirely when fully inside a region, wrapped in a
+// local clip when partially overlapping, passed through unchanged
+// otherwise.
+func emitClassifiedImageOp(out []contentOp, op contentOp, ctm [6]float64, regions []QuadPoint) []contentOp {
+	action := classifyDoBbox(ctm, regions)
+	switch action.kind {
+	case keepDo:
+		out = append(out, op)
+	case dropDo:
+		// skip emission — op and its visual contribution are suppressed
+	case clipDo:
+		// Wrap op in a local q...Q with an even-odd clip path that masks
+		// out the redacted region(s) while keeping the unredacted area.
+		out = append(out, contentOp{Operator: "q"})
+		out = append(out, buildImageClipPath(action.bbox, regions)...)
+		out = append(out, op)
+		out = append(out, contentOp{Operator: "Q"})
+	}
+	return out
 }
 
 // neededXObjectNames scans data for every /XObject resource name actually
