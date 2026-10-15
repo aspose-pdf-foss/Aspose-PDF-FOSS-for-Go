@@ -76,20 +76,34 @@ func DefaultOptimizationOptions() OptimizationOptions {
 // streams → remove unused objects again (so anything a transform orphans is
 // reclaimed last). RemovedObjects reports the sum of both passes.
 //
-// The pre-pass exists because every (*Page).AddText call (and every table
-// cell) replaces a page's /Contents with a brand-new stream object holding
-// the whole concatenated content (image_add.go's appendToContentStream) —
-// the old one is left dead in d.objects, with nothing referencing it any
-// more. On a page built from many small AddText calls this means many dead
-// copies piling up, which RemoveDuplicateStreams and CompressStreams would
-// otherwise both walk and hash/compress for nothing before the final pass
-// clears them away — on a 20-page, 200-calls-per-page document this made
-// Optimize ~25x slower for no change in the end result. Running the same
-// removal once at the very start avoids that wasted work; it changes nothing
-// about which objects survive Optimize overall, only when the already-dead
-// ones are noticed, since nothing later in this method can make a genuinely
-// unreachable object reachable again. Reported with a clear reproduction and
-// a correct diagnosis by Kare-ino (GitHub issue #9) — thank you.
+// The pre-pass was added because every (*Page).AddText call (and every
+// table cell) used to replace a page's /Contents with a brand-new stream
+// object holding the whole concatenated content, leaving the old one dead
+// in d.objects with nothing referencing it any more — on a page built
+// from many small AddText calls this meant many dead copies piling up,
+// which RemoveDuplicateStreams and CompressStreams would otherwise both
+// walk and hash/compress for nothing before the final pass cleared them
+// away; on a 20-page, 200-calls-per-page document this made Optimize ~25x
+// slower for no change in the end result. Reported with a clear
+// reproduction and a correct diagnosis by Kare-ino (GitHub issue #9) —
+// thank you. That root cause is now closed at the source
+// (appendToContentStream/prependToContentStream, content_append.go,
+// pdf-go-jbiu/GitHub issue #16: an append now adds one array entry to
+// /Contents instead of rewriting a combined stream, so nothing is ever
+// abandoned), so a document built with the current code produces no such
+// copies in the first place — TestOptimizeManyAddTextCallsStaysFast still
+// pins the speed guarantee itself, now trivially satisfied rather than
+// needing the pre-pass's help. The pre-pass is kept anyway as cheap,
+// harmless insurance against OTHER sources of dead objects this method
+// doesn't know about: a third-party file opened with its own pre-existing
+// orphaned content, or this library's own full-content-replace call sites
+// (ApplyRedactions, ConvertToGrayscale, ImageInfo.Remove,
+// FlattenTransparency — all via replacePageContents or an equivalent,
+// which still swap in one new stream and abandon whatever /Contents
+// pointed at before). Running the same removal once at the very start
+// changes nothing about which objects survive Optimize overall, only when
+// the already-dead ones are noticed, since nothing later in this method
+// can make a genuinely unreachable object reachable again.
 func (d *Document) Optimize(opts OptimizationOptions) (OptimizationResult, error) {
 	var res OptimizationResult
 	if opts.RemoveUnusedObjects {

@@ -85,28 +85,36 @@ func TestRemoveDuplicateStreams(t *testing.T) {
 	}
 }
 
-// TestOptimizeRemovedObjectsCountsBothPasses pins GitHub issue #9's fix: the
-// pre-pass Optimize now runs at its start (to avoid RemoveDuplicateStreams
-// and CompressStreams hashing/scanning dead content-stream copies
-// appendToContentStream leaves behind, see Optimize's doc comment) must have
-// its removed-count ADDED to the final pass's, not overwritten by it. With
-// only RemoveUnusedObjects enabled here, the pre-pass removes every dead
-// copy and the final pass then finds nothing left — a `res.RemovedObjects =
-// d.RemoveUnusedObjects()` on the final call (instead of +=) would silently
-// report 0 removed even though real garbage was cleared.
+// TestOptimizeRemovedObjectsCountsBothPasses pins GitHub issue #9's fix:
+// the pre-pass Optimize runs at its start (to avoid RemoveDuplicateStreams
+// and CompressStreams hashing/scanning dead objects for nothing, see
+// Optimize's doc comment) must have its removed-count ADDED to the final
+// pass's, not overwritten by it — a `res.RemovedObjects =
+// d.RemoveUnusedObjects()` on the final call (instead of +=) would
+// silently report only whatever the SECOND call found, hiding whatever
+// the pre-pass already removed.
+//
+// Originally exercised via appendToContentStream's dead content-stream
+// copies (repeated AddText calls on one page each left the previous
+// /Contents stream dead) — that root cause is now closed at the source
+// (content_append.go, pdf-go-jbiu/GitHub issue #16: an append adds one
+// /Contents array entry instead of rewriting a combined stream, so
+// nothing is ever abandoned), so this test instead injects synthetic
+// unreachable objects directly, independent of any particular drawing
+// call's behavior.
 func TestOptimizeRemovedObjectsCountsBothPasses(t *testing.T) {
 	doc := NewDocumentFromFormat(PageFormatA4)
-	p, err := doc.Page(1)
-	if err != nil {
+	if _, err := doc.Page(1); err != nil {
 		t.Fatal(err)
 	}
-	// Each call replaces /Contents with a brand-new object; the previous one
-	// is left dead. 6 calls -> 5 dead copies for the pre-pass to clear.
+	// Six objects reachable from nothing -- generic stand-ins for "dead
+	// garbage", the same shape the pre-pass exists to clear regardless of
+	// how it was produced (a third-party file's own pre-existing orphans,
+	// or this library's full-content-replace call sites like
+	// ApplyRedactions/ConvertToGrayscale, which still abandon whatever
+	// /Contents pointed at before).
 	for i := 0; i < 6; i++ {
-		if err := p.AddText(fmt.Sprintf("line %d", i), TextStyle{Size: 10},
-			Rectangle{LLX: 50, LLY: float64(700 - i*20), URX: 300, URY: float64(720 - i*20)}); err != nil {
-			t.Fatal(err)
-		}
+		doc.addObject(&pdfStream{Dict: pdfDict{}, Data: []byte(fmt.Sprintf("dead %d", i)), Decoded: true})
 	}
 
 	before := len(doc.objects)
@@ -119,8 +127,8 @@ func TestOptimizeRemovedObjectsCountsBothPasses(t *testing.T) {
 	if got, want := before-after, res.RemovedObjects; got != want {
 		t.Errorf("Optimize actually removed %d objects (before=%d after=%d) but reported RemovedObjects=%d", got, before, after, want)
 	}
-	if res.RemovedObjects < 5 {
-		t.Errorf("RemovedObjects = %d, want at least 5 (the dead content-stream copies)", res.RemovedObjects)
+	if res.RemovedObjects < 6 {
+		t.Errorf("RemovedObjects = %d, want at least 6 (the injected dead objects)", res.RemovedObjects)
 	}
 }
 

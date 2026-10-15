@@ -362,24 +362,5 @@ func nextXObjectName(xobjDict pdfDict) string {
 	}
 }
 
-func (p *Page) appendToContentStream(data []byte) error {
-	existing, err := p.contentStreams()
-	if err != nil {
-		return err
-	}
-
-	newData := append(existing, data...)
-	newStream := &pdfStream{
-		Dict:    pdfDict{},
-		Data:    newData,
-		Decoded: true,
-	}
-
-	newID := p.doc.nextID
-	p.doc.nextID++
-	p.doc.objects[newID] = &pdfObject{Num: newID, Value: newStream}
-
-	pageDict := p.pageDict()
-	pageDict["/Contents"] = pdfRef{Num: newID}
-	return nil
-}
+// appendToContentStream and prependToContentStream are both defined in
+// content_append.go.

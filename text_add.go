@@ -905,30 +905,7 @@ func (d *Document) AddTextWatermark(text string, style TextStyle, pageNums ...in
 	return nil
 }
 
-// prependToContentStream inserts data before the existing page content.
-func (p *Page) prependToContentStream(data []byte) error {
-	existing, err := p.contentStreams()
-	if err != nil {
-		return err
-	}
-
-	newData := make([]byte, 0, len(data)+len(existing))
-	newData = append(newData, data...)
-	newData = append(newData, existing...)
-	newStream := &pdfStream{
-		Dict:    pdfDict{},
-		Data:    newData,
-		Decoded: true,
-	}
-
-	newID := p.doc.nextID
-	p.doc.nextID++
-	p.doc.objects[newID] = &pdfObject{Num: newID, Value: newStream}
-
-	pageDict := p.pageDict()
-	pageDict["/Contents"] = pdfRef{Num: newID}
-	return nil
-}
+// prependToContentStream is defined in content_append.go.
 
 // ensureStandardFontResource registers a Type1 font in the page's /Resources /Font dict.
 // If a font with the same /BaseFont already exists, its resource name is returned.

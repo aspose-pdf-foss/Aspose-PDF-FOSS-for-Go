@@ -46,8 +46,15 @@ func TestTaggedTableHeadersAndArtifacts(t *testing.T) {
 		t.Errorf("got %d /TD elements, want 2 (the body row)", td)
 	}
 
-	// The decoded page content brackets decoration as /Artifact and tags cells.
-	content := decodedStreamData(resolveRef(doc.objects, p.pageDict()["/Contents"]).(*pdfStream))
+	// The decoded page content brackets decoration as /Artifact and tags
+	// cells. p.contentStreams() concatenates a /Contents array the same
+	// way the renderer/extractor do -- /Contents is no longer guaranteed
+	// to be a single stream now that appendToContentStream appends array
+	// entries instead of rewriting one combined stream (pdf-go-jbiu).
+	content, err := p.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(content, []byte("/Artifact BMC")) {
 		t.Error("cell backgrounds/borders not bracketed as /Artifact")
 	}
