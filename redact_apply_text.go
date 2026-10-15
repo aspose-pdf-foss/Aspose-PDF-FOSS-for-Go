@@ -2,6 +2,8 @@
 
 package asposepdf
 
+import "fmt"
+
 // rewriteTextOperatorsInStream removes glyphs whose test point falls
 // inside any region from text-rendering operators (Tj, TJ, ', "),
 // preserving the position of surviving glyphs via TJ kerning gaps. The
@@ -64,7 +66,43 @@ package asposepdf
 // rewriter (redact_apply_path.go) and the Form-XObject/image rewriter
 // (redact_apply_image.go) both already tracked q/Q/cm correctly; only
 // this file was missing it.
-func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo) ([]byte, error) {
+//
+// A Tj/TJ/'/" drawn with a font this function cannot classify
+// (fontMap has no usable entry — font.known == false) now REFUSES
+// (returns an error) rather than passing it through unredacted, the
+// same "refuse rather than guess" principle this feature already
+// applies to a non-invertible Form-XObject matrix or an unresolvable
+// /BBox (pdf-go-oq9i). Passing it through used to report success while
+// several real cases left the text fully visible when rendered AND
+// extractable via ExtractText/SearchText on the "redacted" file — not
+// merely forensically recoverable from raw bytes, but readable through
+// this library's own ordinary read APIs — because the renderer and the
+// extractor's own fallback logic can resolve some fonts this
+// redaction-specific flag calls unknown (an undeclared font name
+// substitutes Helvetica on both read paths; a simple font with no
+// usable /Encoding/ToUnicode still renders from its program's built-in
+// encoding). objects/resources (both may be nil, in which case BDC
+// properties referenced by name cannot be resolved and are left alone)
+// are used ONLY for the /ActualText scrub below — this function never
+// mutates resources, so no private copy is required.
+//
+// Marked-content /ActualText scrubbing (pdf-go-1ha8): a BDC's
+// /ActualText property (routine in accessibility-tagged output from
+// Word, InDesign, etc.) is a SEPARATE textual representation of
+// whatever is drawn between that BDC and its matching EMC — glyphs
+// inside are redacted normally by the Tj/TJ handling below, but
+// /ActualText itself was never examined, so ExtractText/SearchText on
+// an already-"redacted" page could still return the original secret
+// text verbatim via that replacement mechanism, even with the
+// underlying glyphs correctly gone. Fixed by tracking BDC/EMC nesting:
+// if ANY glyph drawn inside a BDC/EMC span (at any nesting depth
+// beneath it) was dropped, that BDC's properties are rewritten on EMC
+// to drop /ActualText — always as a fresh INLINE dict, never by
+// mutating a /Properties-resource-referenced dict in place (which can
+// be shared by OTHER, untouched spans using the same name — the same
+// sharing hazard class as pdf-go-w5hl's Form-XObject /Resources, just
+// for marked-content properties instead).
+func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
@@ -87,9 +125,19 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		lm         = identityMatrix()
 		ctm        = identityMatrix()
 		gStack     []textGState
+		mcStack    []*mcSpan
 	)
 
 	out := make([]contentOp, 0, len(ops))
+
+	// markDropped flags every currently-open marked-content span (at
+	// every nesting depth) as having had something redacted inside it —
+	// called whenever a Tj/TJ/'/" actually drops at least one glyph.
+	markDropped := func() {
+		for _, span := range mcStack {
+			span.dropped = true
+		}
+	}
 
 	for _, op := range ops {
 		switch op.Operator {
@@ -101,6 +149,56 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 
 		case "ET":
 			out = append(out, op)
+
+		case "BDC":
+			span := &mcSpan{outIdx: len(out)}
+			if len(op.Operands) >= 2 {
+				span.tagOperand = op.Operands[0]
+				if props, ok := resolveBDCProperties(objects, resources, op.Operands[1]); ok {
+					span.props = make(pdfDict, len(props))
+					for k, v := range props {
+						span.props[k] = v
+					}
+				}
+			}
+			mcStack = append(mcStack, span)
+			out = append(out, op)
+
+		case "BMC":
+			// BMC has no properties operand, so it can never itself carry
+			// /ActualText — still pushed (empty) so EMC pops the right
+			// nesting level and "dropped" propagates through it correctly.
+			mcStack = append(mcStack, &mcSpan{outIdx: len(out)})
+			out = append(out, op)
+
+		case "EMC":
+			out = append(out, op)
+			if n := len(mcStack); n > 0 {
+				span := mcStack[n-1]
+				mcStack = mcStack[:n-1]
+				if span.dropped && span.props != nil {
+					if _, hasActualText := span.props["/ActualText"]; hasActualText {
+						scrubbed := make(pdfDict, len(span.props))
+						for k, v := range span.props {
+							if k == "/ActualText" {
+								continue
+							}
+							scrubbed[k] = v
+						}
+						// Always a FRESH inline dict — even if the
+						// original BDC referenced /Properties by name —
+						// so a /Properties entry shared by other,
+						// untouched spans is never mutated.
+						out[span.outIdx] = contentOp{Operator: "BDC", Operands: []pdfValue{span.tagOperand, scrubbed}}
+					}
+				}
+				// A span's content (including anything nested inside it)
+				// being redacted means the ENCLOSING span's own
+				// /ActualText, if any, is now stale too — propagate up.
+				if span.dropped && len(mcStack) > 0 {
+					mcStack[len(mcStack)-1].dropped = true
+				}
+			}
 
 		case "q":
 			// q saves the whole graphics state, not just the CTM — ISO
@@ -212,6 +310,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			if len(op.Operands) >= 1 {
 				state := glyphFilterState{
 					font:       font,
+					fontName:   fontName,
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
@@ -219,9 +318,15 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 				}
-				newOps, totalAdvance := filterTjString(op.Operands[0], state, regions)
+				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
+				if err != nil {
+					return nil, err
+				}
 				// Advance the text matrix by total advance regardless of what survived.
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				if dropped {
+					markDropped()
+				}
 				out = append(out, newOps...)
 			} else {
 				out = append(out, op)
@@ -231,6 +336,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			if len(op.Operands) >= 1 {
 				state := glyphFilterState{
 					font:       font,
+					fontName:   fontName,
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
@@ -238,8 +344,14 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 				}
-				newOps, totalAdvance := filterTJArray(op.Operands[0], state, regions)
+				newOps, totalAdvance, dropped, err := filterTJArray(op.Operands[0], state, regions)
+				if err != nil {
+					return nil, err
+				}
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				if dropped {
+					markDropped()
+				}
 				out = append(out, newOps...)
 			} else {
 				out = append(out, op)
@@ -254,6 +366,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			if len(op.Operands) >= 1 {
 				state := glyphFilterState{
 					font:       font,
+					fontName:   fontName,
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
@@ -261,8 +374,14 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 				}
-				newOps, totalAdvance := filterTjString(op.Operands[0], state, regions)
+				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
+				if err != nil {
+					return nil, err
+				}
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				if dropped {
+					markDropped()
+				}
 				out = append(out, newOps...)
 			}
 
@@ -279,6 +398,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				out = append(out, contentOp{Operator: "T*"})
 				state := glyphFilterState{
 					font:       font,
+					fontName:   fontName,
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
@@ -286,8 +406,14 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 				}
-				newOps, totalAdvance := filterTjString(op.Operands[2], state, regions)
+				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[2], state, regions)
+				if err != nil {
+					return nil, err
+				}
 				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				if dropped {
+					markDropped()
+				}
 				out = append(out, newOps...)
 			} else {
 				out = append(out, op)
@@ -299,6 +425,59 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	}
 
 	return serializeContentOps(out), nil
+}
+
+// mcSpan tracks one open BDC/BMC marked-content span while this
+// function walks a content stream, for the /ActualText scrub
+// (pdf-go-1ha8): outIdx is where its BDC/BMC op landed in out (so EMC
+// can replace it in place once it knows whether anything inside was
+// dropped), tagOperand is the BDC's original tag operand (reused
+// verbatim if the op is rewritten), props is a PRIVATE, owned copy of
+// its resolved properties dict (nil if it has none, or none could be
+// resolved — e.g. a /Properties name with no resources to resolve it
+// against), and dropped records whether any glyph drawn anywhere
+// inside this span (at any nesting depth beneath it) was redacted.
+type mcSpan struct {
+	outIdx     int
+	tagOperand pdfValue
+	props      pdfDict
+	dropped    bool
+}
+
+// resolveBDCProperties resolves a BDC op's second operand — either an
+// inline dict or a pdfName looked up in resources' /Properties
+// sub-dict (ISO 32000-1 §14.6.2) — to the properties dict it names,
+// mirroring textExtractor.resolveActualText's resolution logic exactly
+// (text.go) but returning the WHOLE dict rather than just /ActualText,
+// since the scrub step needs every OTHER property preserved too. ok is
+// false when nothing could be resolved (no resources, unknown name, or
+// an operand of neither shape) — callers must treat that as "unknown",
+// not "no properties/no ActualText".
+func resolveBDCProperties(objects map[int]*pdfObject, resources pdfDict, operand pdfValue) (pdfDict, bool) {
+	switch v := operand.(type) {
+	case pdfDict:
+		return v, true
+	case pdfName:
+		if resources == nil {
+			return nil, false
+		}
+		propsVal, ok := resources["/Properties"]
+		if !ok {
+			return nil, false
+		}
+		propsDict, ok := resolveRefToDict(objects, propsVal)
+		if !ok {
+			return nil, false
+		}
+		entryVal, ok := propsDict[string(v)]
+		if !ok {
+			return nil, false
+		}
+		d, ok := resolveRefToDict(objects, entryVal)
+		return d, ok
+	default:
+		return nil, false
+	}
 }
 
 // textGState is the subset of this walker's running state that "q"
@@ -318,7 +497,11 @@ type textGState struct {
 
 // glyphFilterState holds the current text rendering state for glyph filtering.
 type glyphFilterState struct {
-	font       fontInfo
+	font fontInfo
+	// fontName is the resource name (e.g. "/F1") font was resolved
+	// from — carried only so an unknown-font refusal (pdf-go-oq9i) can
+	// name which font resource is the problem.
+	fontName   string
 	fontSize   float64
 	charSpace  float64
 	wordSpace  float64
@@ -374,32 +557,40 @@ func matApplyPoint(m [6]float64, x, y float64) (float64, float64) {
 }
 
 // filterTjString processes a single Tj operand (a string), filtering glyphs
-// that fall inside any region. Returns replacement ops and total text advance.
+// that fall inside any region. Returns replacement ops, total text advance,
+// and whether anything was actually dropped.
 //
-// If font.known == false, passes the op through unchanged with computed advance=0.
 // If all glyphs are kept, returns the original op.
 // If all glyphs are dropped, returns no ops.
 // Otherwise returns a TJ op with kerning gaps for dropped glyphs.
-func filterTjString(operand pdfValue, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64) {
+//
+// Returns an error, rather than passing the op through, when
+// font.known == false (pdf-go-oq9i) — see rewriteTextOperatorsInStream's
+// own doc comment for why passthrough is unsafe here, not merely
+// imprecise: this redaction-pipeline-specific flag can be false even
+// when the renderer or the extractor's own fallback can still resolve
+// and display/extract the exact same text.
+func filterTjString(operand pdfValue, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool, error) {
 	s, ok := operand.(string)
 	if !ok {
 		// Not a string operand — pass through as Tj.
-		return []contentOp{{Operator: "Tj", Operands: []pdfValue{operand}}}, 0
+		return []contentOp{{Operator: "Tj", Operands: []pdfValue{operand}}}, 0, false, nil
 	}
 
-	// Unknown font: pass through unchanged, advance unknown (return 0 so tm isn't moved).
 	if !state.font.known {
-		return []contentOp{{Operator: "Tj", Operands: []pdfValue{operand}}}, 0
+		return nil, 0, false, fmt.Errorf("asposepdf: ApplyRedactions: cannot safely determine the position of text drawn with font %q; refusing rather than leaving it unredacted", state.fontName)
 	}
 
 	if state.font.isType0 {
-		return filterTjStringType0(s, state, regions)
+		ops, adv, dropped := filterTjStringType0(s, state, regions)
+		return ops, adv, dropped, nil
 	}
-	return filterTjStringSingleByte(s, state, regions)
+	ops, adv, dropped := filterTjStringSingleByte(s, state, regions)
+	return ops, adv, dropped, nil
 }
 
 // filterTjStringSingleByte handles single-byte fonts.
-func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64) {
+func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool) {
 	// Collect per-glyph info and decide which to drop.
 	runningX := 0.0
 	glyphs := make([]singleByteGlyph, len(s))
@@ -429,12 +620,12 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 
 	if droppedCount == 0 {
 		// All kept: return original Tj op unchanged.
-		return []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, totalAdvance
+		return []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, totalAdvance, false
 	}
 
 	if droppedCount == len(glyphs) {
 		// All dropped: emit nothing.
-		return nil, totalAdvance
+		return nil, totalAdvance, true
 	}
 
 	// Mixed: build TJ array with kerning gaps.
@@ -457,9 +648,9 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 
 	arr := buildTJArraySingleByte(glyphs, state)
 	if len(arr) == 0 {
-		return nil, totalAdvance
+		return nil, totalAdvance, true
 	}
-	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance
+	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance, true
 }
 
 type singleByteGlyph struct {
@@ -527,7 +718,7 @@ func buildTJArraySingleByte(glyphs []singleByteGlyph, state glyphFilterState) pd
 }
 
 // filterTjStringType0 handles Type0 (CID) fonts where glyphs are 2 bytes each.
-func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64) {
+func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool) {
 	type cidGlyph struct {
 		hi, lo  byte
 		code    uint16
@@ -562,10 +753,10 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 	}
 
 	if droppedCount == 0 {
-		return []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, totalAdvance
+		return []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, totalAdvance, false
 	}
 	if droppedCount == len(glyphs) {
-		return nil, totalAdvance
+		return nil, totalAdvance, true
 	}
 
 	// Build TJ array for CID font.
@@ -611,9 +802,9 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 	}
 
 	if len(arr) == 0 {
-		return nil, totalAdvance
+		return nil, totalAdvance, true
 	}
-	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance
+	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance, true
 }
 
 // filterTJArray processes a TJ operand (array of strings and kerning numbers).
@@ -622,15 +813,14 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 // Strategy: walk the TJ array, tracking the current tm internally.
 // Strings get per-glyph filtering; numeric entries are accumulated into the output
 // and also applied to the running position.
-func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64) {
+func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool, error) {
 	arr, ok := operand.(pdfArray)
 	if !ok {
-		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, 0
+		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, 0, false, nil
 	}
 
-	// Unknown font: pass through unchanged.
 	if !state.font.known {
-		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, 0
+		return nil, 0, false, fmt.Errorf("asposepdf: ApplyRedactions: cannot safely determine the position of text drawn with font %q; refusing rather than leaving it unredacted", state.fontName)
 	}
 
 	// We'll build a new TJ array, tracking position as we go.
@@ -784,21 +974,21 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 		// equivalent but not necessarily byte-identical, and — the bug
 		// this guards against — would otherwise still go through
 		// compactTJArray's leading/trailing-kerning strip below).
-		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, totalAdvance
+		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, totalAdvance, false, nil
 	}
 
 	if len(outArr) == 0 {
-		return nil, totalAdvance
+		return nil, totalAdvance, true, nil
 	}
 
 	// Compact adjacent strings in outArr.
 	outArr = compactTJArray(outArr)
 
 	if len(outArr) == 0 {
-		return nil, totalAdvance
+		return nil, totalAdvance, true, nil
 	}
 
-	return []contentOp{{Operator: "TJ", Operands: []pdfValue{outArr}}}, totalAdvance
+	return []contentOp{{Operator: "TJ", Operands: []pdfValue{outArr}}}, totalAdvance, true, nil
 }
 
 // compactTJArray merges adjacent string elements and removes zero-advance kerning entries

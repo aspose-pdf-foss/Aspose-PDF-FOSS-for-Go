@@ -100,7 +100,7 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string) (int, er
 		regions = append(regions, rectAsQuadPoint(m.rect))
 	}
 	fontMap := resolveFontResources(p.doc.objects, p.pageResources())
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap)
+	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, p.pageResources())
 	if err != nil {
 		return 0, fmt.Errorf("remove matched text: %w", err)
 	}

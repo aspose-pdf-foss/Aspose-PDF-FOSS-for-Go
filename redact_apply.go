@@ -146,23 +146,22 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // that doesn't invert (so a region can't be mapped into the form's space
 // at all) — see redactFormDo/redactFormXObject.
 //
-// Known gaps (not closed by this sweep, tracked separately). Two are
-// more severe than the rest — the secret can survive not just
+// Known gaps (not closed by this sweep, tracked separately). Two
+// MORE SEVERE ones — where the secret used to survive not just
 // forensically (pdf-go-2qkq's class) but through this library's own
-// ORDINARY read APIs on the "redacted" file: a Tj/TJ run under a font
-// this pipeline cannot classify (font.known==false — an undeclared
-// font name, a simple font with no usable /Encoding/ToUnicode, or an
-// Identity-H font with no /ToUnicode and no Adobe /Ordering) is passed
-// through completely unredacted, yet several such cases ARE still
-// visible when rendered and extractable via ExtractText/SearchText
-// (both substitute Helvetica or read the embedded program's own
-// encoding where the redaction pipeline gives up) — pdf-go-oq9i; and a
-// BDC marked-content span's /ActualText property (common in
-// accessibility-tagged output from Word, InDesign, etc.) is never
-// examined or scrubbed, so ExtractText/SearchText on an already-
-// redacted page can still return the original secret text verbatim via
-// that replacement mechanism even though the underlying glyphs were
-// correctly dropped — pdf-go-1ha8.
+// ORDINARY read APIs on the "redacted" file — are now closed: a Tj/TJ
+// run under a font this pipeline cannot classify now REFUSES (an error)
+// rather than passing through unredacted (pdf-go-oq9i; several such
+// "unknown" cases were still visible when rendered and extractable via
+// ExtractText/SearchText, which substitute Helvetica or read the
+// embedded program's own encoding where this redaction-specific flag
+// gives up); and a BDC marked-content span's /ActualText property
+// (common in accessibility-tagged output from Word, InDesign, etc.) is
+// now scrubbed whenever anything inside its span was redacted, so
+// ExtractText/SearchText on a redacted page can no longer return the
+// original secret text verbatim via that replacement mechanism
+// (pdf-go-1ha8). Both fixed in rewriteTextOperatorsInStream
+// (redact_apply_text.go) — see its own doc comment.
 //
 // The rest: an Image XObject fully inside a redaction region has its Do
 // invocation dropped from the content stream, but its /Resources/XObject
@@ -177,10 +176,14 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // another annotation's /AP, a tiling-pattern cell stream, or a Type3
 // font's /CharProcs (pdf-go-xp2u). A Form XObject whose own content
 // relies on a font inherited from the page (no Tf of its own) is treated
-// as unknown-font and passes through unredacted (pdf-go-w7ye, the
-// Form-XObject-specific case of pdf-go-oq9i above); an unknown-font
-// Tj/TJ run anywhere can leave later, known-font text on the same line
-// mispositioned (pdf-go-uhqd); a composite (Type0) font using a
+// as unknown-font — since pdf-go-oq9i, that now correctly REFUSES rather
+// than silently passing through (an improvement, not a full fix: the
+// form's text still cannot be redacted, but the caller is told so
+// instead of being left with a false sense of success) — pdf-go-w7ye
+// tracks actually resolving the inherited font so such text CAN be
+// redacted; an unknown-font Tj/TJ run anywhere can leave later,
+// known-font text on the same line mispositioned (pdf-go-uhqd); a
+// composite (Type0) font using a
 // non-Identity, variable-width CJK CMap (predefined or embedded) is
 // parsed as fixed 2-byte codes, same as Identity-H — unconfirmed by a
 // real repro yet, but potentially misdecodes/mispositions CJK text
@@ -270,7 +273,7 @@ func applyRedactionsToPage(p *Page) error {
 	preserve := pagePreservedXObjectNames(p, p.doc.objects, resources, budget)
 
 	// 4. Run rewriters sequentially: text → image → path.
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap)
+	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources)
 	if err != nil {
 		return fmt.Errorf("text rewriter: %w", err)
 	}

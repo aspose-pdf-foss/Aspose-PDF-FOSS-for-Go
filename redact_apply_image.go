@@ -509,7 +509,7 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 	original := decodedStreamData(st)
 	fontMap := resolveFontResources(objects, formResources)
 
-	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap)
+	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap, objects, formResources)
 	if err != nil {
 		return nil, nil, false, err
 	}

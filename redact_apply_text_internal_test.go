@@ -27,7 +27,7 @@ func testRewriteFontMap() map[string]fontInfo {
 
 func TestRewriteTextNoRegions(t *testing.T) {
 	in := []byte("BT\n/F1 12 Tf\n100 700 Td\n(Hello world) Tj\nET\n")
-	out, err := rewriteTextOperatorsInStream(in, nil, testRewriteFontMap())
+	out, err := rewriteTextOperatorsInStream(in, nil, testRewriteFontMap(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestRewriteTextDropAllGlyphs(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 690, X4: 1000, Y4: 690},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRewriteTextTracksCM(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 690, X4: 1000, Y4: 690},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRewriteTextTracksCMInTJArray(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 690, X4: 1000, Y4: 690},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestRewriteTextQRestoresTextState(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 100, Y1: 705, X2: 110, Y2: 705, X3: 100, Y3: 695, X4: 110, Y4: 695},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestRewriteTextTJKerningHonorsHorizScale(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 108, Y1: 705, X2: 113, Y2: 705, X3: 108, Y3: 695, X4: 113, Y4: 695},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestRewriteTextUntouchedTJKeepsLeadingKerning(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 10, X2: 50, Y2: 10, X3: 0, Y3: 0, X4: 50, Y4: 0},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRewriteTextKeepAllGlyphs(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 100, X2: 100, Y2: 100, X3: 0, Y3: 50, X4: 100, Y4: 50},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestRewriteTextPartialGlyphFilter(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 134, Y1: 720, X2: 200, Y2: 720, X3: 134, Y3: 690, X4: 200, Y4: 690},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestRewriteTextEmitsTJWithKerning(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 134, Y1: 720, X2: 200, Y2: 720, X3: 134, Y3: 690, X4: 200, Y4: 690},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRewriteTextMultiLine(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 695, X2: 1000, Y2: 695, X3: 0, Y3: 675, X4: 1000, Y4: 675},
 	}
-	out, err := rewriteTextOperatorsInStream(in, regions, fonts)
+	out, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,15 +290,19 @@ func TestRewriteTextMultiLine(t *testing.T) {
 	}
 }
 
-func TestRewriteTextUnknownFontPassthrough(t *testing.T) {
-	// Font map empty — should pass through unchanged.
+// TestRewriteTextUnknownFontRefuses pins pdf-go-oq9i: a Tj/TJ drawn with
+// a font this function cannot classify must REFUSE (return an error)
+// rather than silently pass through and leave the caller believing
+// ApplyRedactions succeeded — an unresolvable font gives no width data,
+// so this function cannot prove the text is NOT inside the region
+// either, and several real cases of "unknown" to this redaction-specific
+// flag are still visible/extractable through this library's own normal
+// read APIs (see rewriteTextOperatorsInStream's own doc comment).
+func TestRewriteTextUnknownFontRefuses(t *testing.T) {
 	in := []byte("BT\n/F1 12 Tf\n100 700 Td\n(Hello) Tj\nET\n")
-	out, err := rewriteTextOperatorsInStream(in, []QuadPoint{{X1: 0, Y1: 1000, X2: 1000, Y2: 1000, X3: 0, Y3: 0, X4: 1000, Y4: 0}}, map[string]fontInfo{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), "(Hello)") {
-		t.Errorf("expected passthrough when font unknown, got %q", out)
+	_, err := rewriteTextOperatorsInStream(in, []QuadPoint{{X1: 0, Y1: 1000, X2: 1000, Y2: 1000, X3: 0, Y3: 0, X4: 1000, Y4: 0}}, map[string]fontInfo{}, nil, nil)
+	if err == nil {
+		t.Error("expected an error when the font cannot be resolved, got nil")
 	}
 }
 
