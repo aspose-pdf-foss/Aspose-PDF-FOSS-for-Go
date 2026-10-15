@@ -175,11 +175,29 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // sweeping whatever succeeded so far before returning the error, not
 // only on the all-succeeded path.
 //
-// The rest: an Image XObject fully inside a redaction region has its Do
-// invocation dropped from the content stream, but its /Resources/XObject
-// entry is left in place (graph-reachable, so RemoveUnusedObjects does
-// not collect it) — its pixel data stays in the file (pdf-go-ye1z). A
-// page's /Thumb thumbnail, if a producer embedded one, is never touched
+// An Image XObject fully inside a redaction region has its Do invocation
+// dropped from the content stream, and — closed, pdf-go-ye1z — its
+// /Resources/XObject entry is pruned from the page's own (already
+// privatized, see privateXObjectResources) resources too, so
+// RemoveUnusedObjects' trailing sweep above actually reclaims the image
+// object rather than leaving it graph-reachable with its pixel data still
+// in the file. This closed as a side effect of the general-purpose
+// resource-pruning pass neededXObjectNames already does for the unrelated
+// pdf-go-w5hl Form-XObject fix: it computes which /XObject names the
+// FINAL rewritten content still invokes via ANY Do operator — Image or
+// Form alike, it draws no distinction — and prunes every other name, so a
+// dropped Image Do is pruned exactly the same way a redirected Form
+// XObject's now-stale original name is. The ticket had proposed a
+// separate, image-specific fix; by the time it was picked up, the more
+// general mechanism built for pdf-go-w5hl already covered it, confirmed
+// by a direct forensic test (TestApplyRedactionsRemovesFullyCoveredImageBytes,
+// redact_apply_image_leak_internal_test.go — an image whose raw JPEG
+// bytes carry a marker, redacted, then checked byte-for-byte across every
+// object in the saved file, same method pdf-go-2qkq's own regression test
+// uses) and mutation-tested (temporarily disabling the pruning's delete
+// call reproduces exactly the leak the ticket described).
+//
+// The rest: a page's /Thumb thumbnail, if a producer embedded one, is never touched
 // by this method and may still show a miniature of the pre-redaction
 // page (pdf-go-ekp4). A non-/Redact annotation (FreeText, Stamp, Widget,
 // markup, …) whose own appearance stream happens to overlap a redaction
