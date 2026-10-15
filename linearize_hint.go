@@ -4,8 +4,6 @@ package asposepdf
 
 import (
 	"bytes"
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"strconv"
 )
@@ -252,15 +250,19 @@ func classicXrefLen(startObj, count int) int {
 	return len("xref\n") + len(fmt.Sprintf("%d %d\n", startObj, count)) + 20*count
 }
 
-// linID returns a deterministic 16-byte file identifier (hex) so the layout is
-// stable and the file carries a /ID without needing a random source.
-func linID(size, pages int) string {
-	sum := md5.Sum([]byte(fmt.Sprintf("aspose-linearized-%d-%d", size, pages)))
-	return hex.EncodeToString(sum[:])
-}
-
-func buildFirstTrailer(size, root, info, prev, pages int) string {
-	id := linID(size, pages)
+// buildFirstTrailer and buildMainTrailer both take the SAME id0/id1 (hex
+// strings, already encoded by the caller) — ISO 32000-1 §14.4 requires a
+// file's trailers to agree on /ID, and the two trailers here are the
+// first-page and main trailers of the SAME file. The caller (linParams.emit)
+// computes this once via linParams.fileID, reusing documentFileID's
+// reuse-the-original-/ID-or-hash-the-content logic — until pdf-go-hy6n, this
+// instead derived a deterministic value from JUST size+pages
+// (fmt.Sprintf("aspose-linearized-%d-%d", size, pages)), which collided for
+// any two different documents sharing an object/page count and discarded
+// an opened document's own, permanent /ID entirely (GitHub issue #16
+// point 3, shadowhunter1470-svg) — see linParams.fileID's own doc comment
+// for the fix and its scope.
+func buildFirstTrailer(size, root, info, prev, pages int, id0, id1 string) string {
 	var b bytes.Buffer
 	b.WriteString("trailer\n<< /Size ")
 	b.WriteString(pad(size, 8))
@@ -274,12 +276,11 @@ func buildFirstTrailer(size, root, info, prev, pages int) string {
 	}
 	b.WriteString(" /Prev ")
 	b.WriteString(pad(prev, 10))
-	fmt.Fprintf(&b, " /ID [<%s><%s>] >>\n", id, id)
+	fmt.Fprintf(&b, " /ID [<%s><%s>] >>\n", id0, id1)
 	return b.String()
 }
 
-func buildMainTrailer(size, root, info, pages int) string {
-	id := linID(size, pages)
+func buildMainTrailer(size, root, info, pages int, id0, id1 string) string {
 	var b bytes.Buffer
 	b.WriteString("trailer\n<< /Size ")
 	b.WriteString(pad(size, 8))
@@ -291,6 +292,6 @@ func buildMainTrailer(size, root, info, pages int) string {
 		b.WriteString(pad(info, 8))
 		b.WriteString(" 0 R")
 	}
-	fmt.Fprintf(&b, " /ID [<%s><%s>] >>\n", id, id)
+	fmt.Fprintf(&b, " /ID [<%s><%s>] >>\n", id0, id1)
 	return b.String()
 }

@@ -4,7 +4,9 @@ package asposepdf
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
+	"sort"
 )
 
 // linParams carries the partitioned object set into emit. Part numbering
@@ -26,9 +28,63 @@ type linParams struct {
 	pageNewIDs    []int
 }
 
+// fileID returns the hex-encoded /ID pair this linearized file's first-page
+// and main trailers both carry (ISO 32000-1 §14.4 requires the two to
+// agree, since they describe the same file). Reuses documentFileID's own
+// reuse-the-original-/ID-or-hash-the-content logic, hashing a deterministic
+// serialization of every object VALUE already assembled into lp.values
+// (sorted by new object ID, so iteration order never depends on map
+// ordering) rather than final file bytes, which don't exist yet at the
+// point both trailers' lengths must already be known (the whole point of
+// this writer's "two-pass-free" layout: bit widths/string lengths depend
+// only on lengths, never on not-yet-computed offsets) — a content hash
+// computed once, up front, and threaded into every later use serves the
+// same "identifies this document, with high probability uniquely" purpose
+// (ISO 32000-1 §14.4) documentFileID's final-body hash serves for
+// buildDocumentPDF, without needing the final body to exist first.
+//
+// Before pdf-go-hy6n (GitHub issue #16 point 3, shadowhunter1470-svg), this
+// was md5("aspose-linearized-<size>-<pages>") — independent of content
+// entirely, so two different documents sharing an object/page count got
+// the SAME /ID, and a document opened from an existing file (with its
+// own, permanent /ID) silently got a different, content-blind one on
+// re-linearization instead. Fixed for both: a fresh (never-opened)
+// document's /ID is now content-sensitive and stable across repeated
+// WriteToLinearized calls, same as any other writer path; an opened
+// document's original /ID is now reused verbatim, exactly as WriteTo
+// already does, since both go through documentFileID. Two DIFFERENT
+// writer paths for the SAME fresh, never-saved document can still land
+// on different /ID values (documentFileID's own doc comment already
+// notes this for the classic-vs-object-stream writers — each hashes a
+// different byte representation of the same logical content); this is
+// not a new divergence, and nothing in ISO 32000-1 §14.4 requires two
+// different serializations to agree, only that each identifies its own
+// file with high-probability uniqueness.
+func (lp *linParams) fileID() (id0, id1 string) {
+	ids := make([]int, 0, len(lp.values))
+	for id := range lp.values {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	var buf bytes.Buffer
+	for _, id := range ids {
+		fmt.Fprintf(&buf, "%d ", id)
+		// Errors are ignored: this buffer is a hash input, never written to
+		// the output file, so a value writeValue can't serialize (e.g. a
+		// NaN/±Inf float, which it now refuses — pdf-go-mxhk) just
+		// contributes nothing to the hash rather than failing the whole
+		// linearized save over something unrelated to linearization.
+		_ = writeValue(&buf, lp.values[id], identityRemap, nil)
+		buf.WriteByte('\n')
+	}
+	b0, b1 := lp.d.documentFileID(buf.Bytes())
+	return hex.EncodeToString(b0), hex.EncodeToString(b1)
+}
+
 // emit lays out and serializes the linearized PDF.
 func (lp *linParams) emit() ([]byte, error) {
 	asm := lp.asm
+	id0, id1 := lp.fileID() // computed once; both trailers below must agree
 
 	// --- Linearized object numbering: part 2 = 1..K2, part 1 = K2+1.. ---
 	// part-1 file order: lin dict, catalog, open-document objects (part 4),
@@ -166,9 +222,9 @@ func (lp *linParams) emit() ([]byte, error) {
 	// First-page xref: covers lin numbers [linFirstPart, size).
 	infoLin := lp.infoLin(newToLin)
 	npages := len(lp.d.pages)
-	firstXrefLen := classicXrefLen(linFirstPart, part1Count) + len(buildFirstTrailer(size, linCatalog, infoLin, 0, npages))
+	firstXrefLen := classicXrefLen(linFirstPart, part1Count) + len(buildFirstTrailer(size, linCatalog, infoLin, 0, npages, id0, id1))
 	// Main xref: covers 0..k2.
-	mainXrefLen := classicXrefLen(0, k2+1) + len(buildMainTrailer(size, linCatalog, infoLin, npages))
+	mainXrefLen := classicXrefLen(0, k2+1) + len(buildMainTrailer(size, linCatalog, infoLin, npages, id0, id1))
 
 	// --- Compute absolute offsets in file order. ---
 	pos := len(header)
@@ -243,7 +299,7 @@ func (lp *linParams) emit() ([]byte, error) {
 		}
 	}
 	firstXref := classicXref(linFirstPart, firstXrefOffsets) +
-		buildFirstTrailer(size, linCatalog, infoLin, offMainXref, npages)
+		buildFirstTrailer(size, linCatalog, infoLin, offMainXref, npages, id0, id1)
 
 	// --- Main xref (0..k2). ---
 	mainOffsets := make([]int, k2+1)
@@ -252,7 +308,7 @@ func (lp *linParams) emit() ([]byte, error) {
 		mainOffsets[newToLin[id]] = offByLin[newToLin[id]]
 	}
 	mainXref := classicXref(0, mainOffsets) +
-		buildMainTrailer(size, linCatalog, infoLin, npages)
+		buildMainTrailer(size, linCatalog, infoLin, npages, id0, id1)
 
 	// --- Assemble. ---
 	var out bytes.Buffer
