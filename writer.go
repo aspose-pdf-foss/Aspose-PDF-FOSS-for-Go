@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"crypto/md5"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -234,6 +235,41 @@ func sortedObjectIDs(objects map[int]*pdfObject) []int {
 	return ids
 }
 
+// writeFloatValue formats a float64 dict/array value per ISO 32000-1
+// §7.3.3: an optional sign, digits, and an optional decimal point — no
+// exponent form at all, unlike Go's 'g' verb, which switches to it for
+// small- or large-magnitude numbers (e.g. a tiny floating-point rounding
+// remainder from a computed layout, written as "-1e-13"). Not a merely
+// theoretical strictness concern: this library's OWN parser/lexer, which
+// correctly implements only the spec's no-exponent grammar, could not
+// read "-1e-13" back at all — a document saved with such a value and
+// reopened with this same library lost the annotation carrying it
+// entirely (confirmed directly by reverting this fix and re-running
+// TestWriteValueNeverUsesExponentNotation, writer_float_internal_test.go,
+// whose round-trip assertion failed with 0 annotations found instead of
+// 1). GitHub issue #16 point 4, shadowhunter1470-svg. Content-stream
+// numbers already go through a
+// different, correct helper (appearance_builder.go's formatFloat:
+// fixed-notation, 6 decimal places, trailing zeros/point trimmed) — only
+// this dictionary/array value path was affected.
+//
+// 'f' with precision -1 gives the same "shortest string that parses back
+// to the exact same float64" guarantee 'g' does (strconv's doc: the
+// special precision applies to 'f' too, not only 'e'/'g'), just without
+// ever switching notation — so this changes representation, not
+// precision. NaN/±Inf (which 'f'/'g' both render as non-numeric text no
+// PDF reader can parse at all) are refused outright rather than written
+// as garbage; reaching this from the public API means something upstream
+// already computed a non-finite coordinate, which this library has no
+// sensible default for.
+func writeFloatValue(buf *bytes.Buffer, val float64) error {
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return fmt.Errorf("asposepdf: cannot write non-finite number %v to a PDF dictionary/array (ISO 32000-1 §7.3.3 defines no such value)", val)
+	}
+	buf.WriteString(strconv.FormatFloat(val, 'f', -1, 64))
+	return nil
+}
+
 // writeValue serialises a PDF value to buf, remapping object reference numbers via remapFn.
 // encFn, if non-nil, is called to encrypt string and stream data for the current object.
 func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func([]byte) ([]byte, error)) error {
@@ -249,7 +285,9 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 	case int:
 		buf.WriteString(strconv.Itoa(val))
 	case float64:
-		buf.WriteString(strconv.FormatFloat(val, 'g', -1, 64))
+		if err := writeFloatValue(buf, val); err != nil {
+			return err
+		}
 	case pdfName:
 		buf.WriteString(string(val))
 	case pdfRaw:
