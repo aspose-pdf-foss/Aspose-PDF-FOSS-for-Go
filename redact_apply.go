@@ -263,11 +263,19 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // miniature of the pre-redaction page — see this method's step 5a for
 // why dropping rather than regenerating it.
 //
-// The rest: a composite (Type0) font using a
-// non-Identity, variable-width CJK CMap (predefined or embedded) is
-// parsed as fixed 2-byte codes, same as Identity-H — unconfirmed by a
-// real repro yet, but potentially misdecodes/mispositions CJK text
-// (pdf-go-eys1); text rise (Ts) is not tracked, so a region drawn
+// A composite (Type0) font using a non-Identity, variable-width CJK CMap
+// (predefined or embedded) now decodes glyph boundaries through the
+// font's own CMap instead of assuming fixed 2-byte codes, closing a
+// misdecode/mispositioning risk — and a width-lookup-by-raw-code bug that
+// predated it — the same way the text extractor and renderer already did
+// (`pdf-go-eys1`, closed; see `decodeCIDGlyphs`'s own doc comment,
+// `redact_apply_text.go`). This also closes `pdf-go-ifpy`'s word-spacing
+// point as a side effect: Tw now applies only to a single-byte code 32,
+// never a multi-byte one resolving to CID 32, mirroring the extractor
+// exactly — its other two points (`Tz=0` handling,
+// `textGState`'s by-value `fontInfo` memory amplification) remain open.
+//
+// The rest: text rise (Ts) is not tracked, so a region drawn
 // tightly around a rendered superscript/subscript may miss its
 // (untracked, baseline-only) test point (pdf-go-lx1f). Redacting a
 // document that is later saved incrementally (already signed, or

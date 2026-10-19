@@ -107,7 +107,14 @@ func (rd *renderer) showText(s string) {
 		}
 		for i := 0; i+1 < len(s); i += 2 {
 			code := uint16(s[i])<<8 | uint16(s[i+1])
-			rd.showGlyph(uint32(code), code == 32)
+			// Identity-H/V codes are always 2 bytes; ISO 32000-1 §9.3.3
+			// restricts Tw to the single-byte code 32 and never to a
+			// multi-byte one, so this is never eligible for word
+			// spacing regardless of the numeric value of code — unlike
+			// the cidCMap branch above, which can genuinely see a
+			// single-byte code 32 in a mixed-width CMap (pdf-go-ifpy
+			// point 2, closed).
+			rd.showGlyph(uint32(code), false)
 		}
 		return
 	}

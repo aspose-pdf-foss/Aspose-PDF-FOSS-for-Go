@@ -660,10 +660,21 @@ func glyphAdvance(fi fontInfo, code byte, fontSize, charSpace, wordSpace, horizS
 	return adv
 }
 
-// glyphAdvanceCID computes the text-space advance for a CID glyph.
-func glyphAdvanceCID(fi fontInfo, code uint16, fontSize, charSpace, wordSpace, horizScale float64) float64 {
+// glyphAdvanceCID computes the text-space advance for one Type0 glyph. cid
+// is the RESOLVED CID (what /W is keyed by, ISO 32000-1 §9.7.4.3) — never
+// the raw character code, which for a non-Identity CMap can differ from the
+// CID entirely; nbytes is how many bytes of the content-stream string this
+// glyph's code occupied (1 for a 1-byte code in a mixed-width CMap, 2 for
+// Identity-H/V or a 2-byte CMap code). Word spacing (Tw) applies only when
+// a SINGLE-BYTE code maps to CID 32 — ISO 32000-1 §9.3.3 restricts Tw to the
+// single-byte code 32 and never to a multi-byte one, and this mirrors
+// text.go's own extractor (advanceGlyphCID) exactly rather than
+// re-deriving the condition independently (pdf-go-eys1/pdf-go-ifpy point 2,
+// both closed by this same nbytes/cid-aware rewrite — see
+// filterTjStringType0's own doc comment).
+func glyphAdvanceCID(fi fontInfo, cid uint16, nbytes int, fontSize, charSpace, wordSpace, horizScale float64) float64 {
 	w := fi.defaultW
-	if cw, ok := fi.cidWidths[code]; ok {
+	if cw, ok := fi.cidWidths[cid]; ok {
 		w = cw
 	}
 	if w == 0 {
@@ -673,7 +684,7 @@ func glyphAdvanceCID(fi fontInfo, code uint16, fontSize, charSpace, wordSpace, h
 		}
 	}
 	adv := (w/1000.0*fontSize + charSpace) * horizScale
-	if code == 0x0020 {
+	if nbytes == 1 && cid == 32 {
 		adv += wordSpace * horizScale
 	}
 	return adv
@@ -854,33 +865,76 @@ func buildTJArraySingleByte(glyphs []singleByteGlyph, state glyphFilterState) pd
 	return arr
 }
 
-// filterTjStringType0 handles Type0 (CID) fonts where glyphs are 2 bytes each.
-func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool) {
-	type cidGlyph struct {
-		hi, lo  byte
-		code    uint16
-		advance float64
-		dropped bool
-	}
+// cidGlyph is one decoded Type0 glyph in a Tj/TJ string: raw is the exact
+// content-stream bytes this glyph's code occupied (2 bytes for
+// Identity-H/V, 1-4 for a font with its own CMap — pdf-go-eys1), kept
+// verbatim so a surviving glyph's bytes are re-emitted unchanged.
+type cidGlyph struct {
+	raw     []byte
+	advance float64
+	dropped bool
+}
 
-	runningX := 0.0
+// decodeCIDGlyphs decodes s into its Type0 glyphs, computing each one's
+// advance/dropped status against localTM (already positioned at this
+// string's own start) and regions. Two decode paths: when state.font.
+// cidCMap is nil (Identity-H/V, ISO 32000-1 §9.7.6.2 Table 118's special
+// predefined encodings — code IS the CID, always exactly 2 bytes), the
+// fixed-stride loop this file always used; otherwise (a predefined CJK
+// CMap like 90ms-RKSJ-H, or the PDF's own embedded /Encoding CMap stream)
+// decodes through the font's actual codespace via cidCMap.next, which can
+// mix 1- and multi-byte codes in one string — font.go's resolveType0Encoding
+// already builds this cidCMap, and the text EXTRACTOR (text.go's
+// showStringCMap) and the RENDERER (render_text.go) already decode through
+// it the same way; this redaction rewriter used to be the one place in the
+// codebase that still assumed every Type0 string is fixed-2-byte
+// regardless, which — for any font using such a CMap — could decode glyph
+// boundaries, CIDs, and therefore widths and positions, from the wrong
+// bytes entirely: dropping the wrong chunk of text, keeping a secret that
+// should have been redacted, or garbling unrelated survivor text,
+// depending on the specific bytes. Width lookup is keyed by the RESOLVED
+// CID either way (glyphAdvanceCID), not the raw code — the two coincide
+// for Identity-H/V by definition, but differ for a real CMap, where the
+// OLD code here looked widths up by the wrong key even before pdf-go-eys1
+// mattered at all.
+func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regions []QuadPoint) ([]cidGlyph, float64) {
+	b := []byte(s)
 	var glyphs []cidGlyph
+	runningX := 0.0
 	totalAdvance := 0.0
 
-	for i := 0; i+1 < len(s); i += 2 {
-		hi := s[i]
-		lo := s[i+1]
-		code := uint16(hi)<<8 | uint16(lo)
-		adv := glyphAdvanceCID(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
+	if state.font.cidCMap != nil {
+		for len(b) > 0 {
+			_, cid, n := state.font.cidCMap.next(b)
+			adv := glyphAdvanceCID(state.font, cid, n, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
+			cx := runningX + adv/2.0
+			ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
+			dropped := pointInAnyQuad(ux, uy, regions)
+			glyphs = append(glyphs, cidGlyph{raw: b[:n], advance: adv, dropped: dropped})
+			runningX += adv
+			totalAdvance += adv
+			b = b[n:]
+		}
+		return glyphs, totalAdvance
+	}
 
+	for i := 0; i+1 < len(b); i += 2 {
+		cid := uint16(b[i])<<8 | uint16(b[i+1])
+		adv := glyphAdvanceCID(state.font, cid, 2, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, 0)
+		ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
 		dropped := pointInAnyQuad(ux, uy, regions)
-
-		glyphs = append(glyphs, cidGlyph{hi: hi, lo: lo, code: code, advance: adv, dropped: dropped})
+		glyphs = append(glyphs, cidGlyph{raw: b[i : i+2], advance: adv, dropped: dropped})
 		runningX += adv
 		totalAdvance += adv
 	}
+	return glyphs, totalAdvance
+}
+
+// filterTjStringType0 handles Type0 (CID) fonts — see decodeCIDGlyphs for
+// how glyph boundaries are decoded.
+func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) ([]contentOp, float64, bool) {
+	glyphs, totalAdvance := decodeCIDGlyphs(s, state, state.tm, regions)
 
 	droppedCount := 0
 	for _, g := range glyphs {
@@ -920,7 +974,7 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 				arr = append(arr, kern)
 				pendingKernAdv = 0
 			}
-			keptBytes = append(keptBytes, g.hi, g.lo)
+			keptBytes = append(keptBytes, g.raw...)
 		}
 	}
 	// Flush trailing.
@@ -996,34 +1050,12 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 			localState.tm = localTM
 
 			var glyphs []singleByteGlyph
-			var cidGlyphs []struct {
-				hi, lo  byte
-				code    uint16
-				advance float64
-				dropped bool
-			}
+			var cidGlyphs []cidGlyph
 
 			var stringAdvance float64
 
 			if state.font.isType0 {
-				lx := 0.0
-				for i := 0; i+1 < len(v); i += 2 {
-					hi := v[i]
-					lo := v[i+1]
-					code := uint16(hi)<<8 | uint16(lo)
-					adv := glyphAdvanceCID(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
-					cx := lx + adv/2.0
-					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
-					dropped := pointInAnyQuad(ux, uy, regions)
-					cidGlyphs = append(cidGlyphs, struct {
-						hi, lo  byte
-						code    uint16
-						advance float64
-						dropped bool
-					}{hi, lo, code, adv, dropped})
-					lx += adv
-					stringAdvance += adv
-				}
+				cidGlyphs, stringAdvance = decodeCIDGlyphs(v, state, localTM, regions)
 			} else {
 				lx := 0.0
 				for i := 0; i < len(v); i++ {
@@ -1043,7 +1075,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 				for _, g := range cidGlyphs {
 					if !g.dropped {
 						// Append kept bytes as a string fragment.
-						outArr = append(outArr, string([]byte{g.hi, g.lo}))
+						outArr = append(outArr, string(g.raw))
 					} else {
 						anyDropped = true
 						// Append kerning gap.
