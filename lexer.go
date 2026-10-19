@@ -140,7 +140,36 @@ func (l *lexer) readName() (token, error) {
 	for l.pos < len(l.data) && !isDelimiter(l.data[l.pos]) {
 		l.pos++
 	}
-	return token{kind: tokName, raw: l.data[start:l.pos]}, nil
+	return token{kind: tokName, raw: decodeNameEscapes(l.data[start:l.pos])}, nil
+}
+
+// decodeNameEscapes decodes "#xx" hex escapes in a PDF name token's raw
+// bytes (leading "/" included) per ISO 32000-1 §7.3.5: "#" followed by
+// two hex digits represents the byte they encode, so "/A#20B" and the
+// name "A B" are the same name and must compare/round-trip equal — a
+// writer that escapes a caller-supplied name this way (writeValue's
+// pdfName case, writer.go) is otherwise reading back something
+// different than what it wrote. A malformed "#" not followed by two
+// hex digits (e.g. one at the very end of the name) is kept literal
+// rather than erroring, matching this parser's general tolerance for
+// non-conformant input. Returns raw unchanged (zero-copy, no
+// allocation) when it contains no '#' at all — the overwhelmingly
+// common case, so every other name token stays exactly as fast as
+// before this fix.
+func decodeNameEscapes(raw []byte) []byte {
+	if !bytes.ContainsRune(raw, '#') {
+		return raw
+	}
+	out := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '#' && i+2 < len(raw) && isHexDigit(raw[i+1]) && isHexDigit(raw[i+2]) {
+			out = append(out, byte(hexVal(raw[i+1])<<4|hexVal(raw[i+2])))
+			i += 2
+			continue
+		}
+		out = append(out, raw[i])
+	}
+	return out
 }
 
 func (l *lexer) readNumber() (token, error) {

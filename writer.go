@@ -270,6 +270,71 @@ func writeFloatValue(buf *bytes.Buffer, val float64) error {
 	return nil
 }
 
+// writeNameValue writes a PDF name per ISO 32000-1 §7.3.5: every byte
+// outside the printable range 0x21-0x7E, plus "#" itself and the eight
+// delimiter characters ( ) < > [ ] { } / %, is written as "#xx" (two
+// uppercase hex digits) — everywhere in this codebase, including every
+// caller-facing API that writes one (pdf-go-zg1d, reported privately
+// by shadowhunter1470-svg), a pdfName value was written VERBATIM,
+// untouched by this escaping. Where the name came from caller data —
+// a Document.Info custom key, a font's /BaseFont read from a loaded
+// font file, SetRawName, an AcroForm radio button's export name — a
+// delimiter or whitespace byte in it ended the name early and the rest
+// became further PDF syntax the caller never intended to write: the
+// reproduction in the report turns one Info custom entry
+// (`"Dept /Injected (yes) /X": "v"`) into two actual dictionary
+// entries. Escaping centrally here, rather than at each of those call
+// sites, means every current AND future caller-facing name path is
+// covered by construction, not by remembering to escape at the edge.
+//
+// The leading "/" (byte 0, by this codebase's convention: every
+// pdfName value, including every literal in this file's own source,
+// already carries it — see e.g. the SetRawName/RawName doc comments)
+// is written literally; it is the name's own introducer, not part of
+// its value, and is not itself escaped even though it also appears in
+// the delimiter list above (a bare, unescaped "/" is exactly what
+// starts every name token, including this one). A name with no leading
+// "/" at all (malformed input from a caller who forgot it, a
+// pre-existing, narrower issue this fix does not change) still gets
+// byte 0 written as-is and everything after it escaped, rather than
+// this function guessing a slash that was never there.
+//
+// The reader decodes the same "#xx" escapes back (decodeNameEscapes,
+// lexer.go) so a name written this way reads back as the exact same
+// name, per spec ("/A#20B" and "A B" are the same name) — without
+// that, this fix alone would make this library's own round-trip of a
+// name needing escaping come back different than what was written.
+func writeNameValue(buf *bytes.Buffer, name pdfName) error {
+	b := []byte(name)
+	if len(b) == 0 {
+		return fmt.Errorf("asposepdf: cannot write an empty PDF name")
+	}
+	buf.WriteByte(b[0])
+	for _, c := range b[1:] {
+		if nameByteNeedsEscape(c) {
+			fmt.Fprintf(buf, "#%02X", c)
+		} else {
+			buf.WriteByte(c)
+		}
+	}
+	return nil
+}
+
+// nameByteNeedsEscape reports whether c must be written as "#xx" when
+// it appears (after the name's own leading "/") in a PDF name: outside
+// the regular/printable range 0x21-0x7E, or "#" itself, or one of the
+// eight delimiter characters ISO 32000-1 §7.2.3 Table 1 defines.
+func nameByteNeedsEscape(c byte) bool {
+	if c < 0x21 || c > 0x7E {
+		return true
+	}
+	switch c {
+	case '#', '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
+		return true
+	}
+	return false
+}
+
 // writeValue serialises a PDF value to buf, remapping object reference numbers via remapFn.
 // encFn, if non-nil, is called to encrypt string and stream data for the current object.
 func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func([]byte) ([]byte, error)) error {
@@ -289,7 +354,9 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			return err
 		}
 	case pdfName:
-		buf.WriteString(string(val))
+		if err := writeNameValue(buf, val); err != nil {
+			return err
+		}
 	case pdfRaw:
 		// Verbatim — used for signature /Contents and /ByteRange placeholders.
 		buf.Write(val)
@@ -335,7 +402,15 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		sort.Strings(keys)
 		for _, k := range keys {
 			buf.WriteString("\n")
-			buf.WriteString(k)
+			// A dict key is itself a PDF name and needs the exact same
+			// escaping a name VALUE does (writeNameValue) — this is the
+			// actual line the report's reproduction exploits: a
+			// Document.Info custom key written here verbatim let a
+			// caller-supplied "Dept /Injected (yes) /X" turn into two
+			// real dictionary entries instead of one oddly-named one.
+			if err := writeNameValue(buf, pdfName(k)); err != nil {
+				return err
+			}
 			buf.WriteString(" ")
 			if err := writeValue(buf, val[k], remapFn, encFn); err != nil {
 				return err

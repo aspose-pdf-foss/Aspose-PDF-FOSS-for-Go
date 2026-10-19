@@ -39,7 +39,15 @@ func serializeOperand(buf *bytes.Buffer, v pdfValue) {
 	case float64:
 		buf.WriteString(formatFloat(val))
 	case pdfName:
-		buf.WriteString(string(val))
+		// Same escaping as the main writer's pdfValue path (writeValue,
+		// writer.go) — content-stream operands go through this
+		// SEPARATE serializer, which had the identical verbatim-write
+		// gap. Errors (an empty name) are deliberately swallowed here:
+		// this function has no error return (used throughout as a
+		// fire-and-forget operand writer), and a malformed name
+		// reaching this specific path is not the caller-data injection
+		// this fix targets — see writeNameValue's own doc comment.
+		_ = writeNameValue(buf, val)
 	case string:
 		buf.WriteByte('(')
 		buf.WriteString(escapeLiteral(val))
@@ -56,7 +64,7 @@ func serializeOperand(buf *bytes.Buffer, v pdfValue) {
 	case pdfDict:
 		buf.WriteString("<<")
 		for k, dv := range val {
-			buf.WriteString(k)
+			_ = writeNameValue(buf, pdfName(k)) // dict key is a name too — same reasoning as the pdfName case above
 			buf.WriteByte(' ')
 			serializeOperand(buf, dv)
 			buf.WriteByte(' ')
@@ -232,7 +240,7 @@ func serializeInlineImage(buf *bytes.Buffer, op contentOp) {
 	buf.WriteString("BI\n")
 	if dict, ok := op.Operands[0].(pdfDict); ok {
 		for k, v := range dict {
-			buf.WriteString(k)
+			_ = writeNameValue(buf, pdfName(k)) // same escaping as every other dict-key write in this codebase
 			buf.WriteByte(' ')
 			serializeOperand(buf, v)
 			buf.WriteByte('\n')
