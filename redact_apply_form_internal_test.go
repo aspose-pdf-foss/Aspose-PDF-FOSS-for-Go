@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -510,49 +511,129 @@ func TestFormRedactBudgetConsumeRefusesWhenExhausted(t *testing.T) {
 
 // TestApplyRedactionsFormXObjectExhaustedWorkBudgetRefuses is the
 // integration-level counterpart: a form tree shaped to exceed
-// maxFormRedactWork well before maxFormRedactDepth (fanout 3, depth 9 =
-// 3^9 ≈ 19683 region-intersecting placements, each triggering its own
-// redactFormXObject call since redactFormDo runs once per Do OCCURRENCE,
-// not once per unique object -- so this needs only `depth` distinct form
-// objects to build, reused via multiple Do operators per level, not an
-// exponential number of objects). ApplyRedactions must refuse with an
+// maxFormRedactWork via wide fan-out. ApplyRedactions must refuse with an
 // error rather than grinding through (and cloning!) tens of thousands of
 // placements.
+//
+// Every leaf is its own DISTINCT Form XObject object, deliberately not
+// one object reused via multiple Do operators the way an earlier version
+// of this test built its tree (fanout 3 / depth 9, reusing a shared
+// object at each level): once the clone cache (pdf-go-wuv7) landed, that
+// construction's own translation offsets (0/20/40 at every level) summed
+// to the SAME composed CTM across many different root-to-leaf paths —
+// pure-translation composition is commutative, so this is an inherent
+// property of reusing a small alphabet of offsets across many levels,
+// not a flaw in the cache — and the cache correctly recognized those
+// paths as byte-identical placements, collapsing the actual
+// redactFormXObject calls (and so the budget.consume() calls inside the
+// recursion THEY would have triggered) far below the nominal 3^9 ≈ 19683
+// the tree's shape suggested, no longer exhausting the budget at all.
+// Distinct objects sidestep this ambiguity entirely: the clone cache's
+// key includes the form's own pointer identity, so no two placements
+// here can ever hit the cache regardless of any CTM arithmetic,
+// guaranteeing every single one still costs a real, uncached
+// redactFormXObject call — which is also a more faithful model of what
+// defeating the cache actually requires of a real adversarial file now:
+// genuinely-independent content, not merely a compact tree of shared
+// references.
 func TestApplyRedactionsFormXObjectExhaustedWorkBudgetRefuses(t *testing.T) {
-	const fanout = 3
-	const depth = 9 // fanout^depth ≈ 19683 > maxFormRedactWork (10000)
+	const fanout = 101
+	const total = fanout * fanout // 10201 leaf placements, one more than maxFormRedactWork
 
-	doc := NewDocumentFromFormat(PageFormatA4)
-	level := doc.CreateForm(20, 20)
-	if err := level.Canvas().AddText("x", TextStyle{Size: 8}, Rectangle{LLX: 0, LLY: 0, URX: 20, URY: 20}); err != nil {
-		t.Fatal(err)
-	}
-	for d := 0; d < depth; d++ {
-		next := doc.CreateForm(60, 20)
-		for i := 0; i < fanout; i++ {
-			x := float64(i) * 20
-			if err := next.Canvas().AddForm(level, Rectangle{LLX: x, LLY: 0, URX: x + 20, URY: 20}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		level = next
-	}
-
-	page, err := doc.Page(1)
+	d := NewDocumentFromFormat(PageFormatA4)
+	p, err := d.Page(1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement := Rectangle{LLX: 50, LLY: 600, URX: 50 + 60, URY: 620}
-	if err := page.AddForm(level, placement); err != nil {
-		t.Fatal(err)
+
+	// Hand-built directly (not via CreateForm/AddText/AddForm): building
+	// `total` distinct objects is already a sizeable fixture, and the
+	// public drawing API's font-resource/word-wrap machinery adds
+	// nothing this test needs, only build time. Two levels of fanout
+	// (101x101) rather than one flat level of 10201: each level's own
+	// /Resources/XObject dict then has only ~101 entries, kept cheap to
+	// privatize (privateXObjectResources) once per mid-level placement —
+	// a single flat level of 10201 direct leaf placements under one
+	// root was tried first and found to cost O(total^2) here, since
+	// every leaf placement privatizes a fresh copy of whichever
+	// (potentially huge) /XObject dict it inherits, even though the
+	// leaves share no /Resources of their own; a real product-level fix
+	// for THAT redundancy is a separate, unticketed concern, so this
+	// test instead sidesteps it by keeping every level's own dict small.
+	mkLeaf := func() int {
+		leafID := d.nextID
+		d.nextID++
+		d.objects[leafID] = &pdfObject{Num: leafID, Value: &pdfStream{
+			Dict: pdfDict{
+				"/Type":    pdfName("/XObject"),
+				"/Subtype": pdfName("/Form"),
+				"/BBox":    pdfArray{0.0, 0.0, 20.0, 20.0},
+			},
+			Data:    []byte("0 0 20 20 re f\n"),
+			Decoded: true,
+		}}
+		return leafID
 	}
-	ra := NewRedactAnnotation(page, placement) // covers the whole tree
-	if err := page.Annotations().Add(ra); err != nil {
+
+	rootXObj := pdfDict{}
+	var rootContent bytes.Buffer
+	for m := 0; m < fanout; m++ {
+		midXObj := pdfDict{}
+		var midContent bytes.Buffer
+		for i := 0; i < fanout; i++ {
+			leafID := mkLeaf()
+			name := fmt.Sprintf("/Fx%d", i)
+			midXObj[name] = pdfRef{Num: leafID}
+			fmt.Fprintf(&midContent, "q 1 0 0 1 %d 0 cm %s Do Q\n", i*20, name)
+		}
+		midID := d.nextID
+		d.nextID++
+		d.objects[midID] = &pdfObject{Num: midID, Value: &pdfStream{
+			Dict: pdfDict{
+				"/Type":      pdfName("/XObject"),
+				"/Subtype":   pdfName("/Form"),
+				"/BBox":      pdfArray{0.0, 0.0, float64(fanout) * 20, 20.0},
+				"/Resources": pdfDict{"/XObject": midXObj},
+			},
+			Data:    midContent.Bytes(),
+			Decoded: true,
+		}}
+		name := fmt.Sprintf("/Fm%d", m)
+		rootXObj[name] = pdfRef{Num: midID}
+		fmt.Fprintf(&rootContent, "q 1 0 0 1 0 %d cm %s Do Q\n", m*20, name)
+	}
+
+	rootID := d.nextID
+	d.nextID++
+	d.objects[rootID] = &pdfObject{Num: rootID, Value: &pdfStream{
+		Dict: pdfDict{
+			"/Type":      pdfName("/XObject"),
+			"/Subtype":   pdfName("/Form"),
+			"/BBox":      pdfArray{0.0, 0.0, float64(fanout) * 20, float64(fanout) * 20},
+			"/Resources": pdfDict{"/XObject": rootXObj},
+		},
+		Data:    rootContent.Bytes(),
+		Decoded: true,
+	}}
+
+	resources := p.pageResources()
+	if resources == nil {
+		resources = pdfDict{}
+		p.pageDict()["/Resources"] = resources
+	}
+	resources["/XObject"] = pdfDict{"/Fm0": pdfRef{Num: rootID}}
+	if err := p.appendToContentStream([]byte("q 1 0 0 1 50 600 cm /Fm0 Do Q\n")); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := doc.ApplyRedactions(); err == nil {
-		t.Error("ApplyRedactions: want an error (work budget exceeded by a wide fan-out of region-intersecting placements), got nil")
+	placement := Rectangle{LLX: 50, LLY: 600, URX: 50 + float64(fanout)*20, URY: 600 + float64(fanout)*20}
+	ra := NewRedactAnnotation(p, placement) // covers the whole tree
+	if err := p.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.ApplyRedactions(); err == nil {
+		t.Errorf("ApplyRedactions: want an error (work budget exceeded by %d region-intersecting placements, limit %d), got nil", total, maxFormRedactWork)
 	}
 }
 

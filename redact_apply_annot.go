@@ -242,6 +242,19 @@ func redactOneAnnotationAppearance(doc *Document, st *pdfStream, rect [4]float64
 		return nil, false, err
 	}
 
+	// Shares the page's clone cache with redactFormDo (pdf-go-wuv7): a
+	// byte-identical earlier placement — the same appearance stream at
+	// the same placement matrix, found on an earlier annotation/state —
+	// already produced a clone, so reuse its object directly. Nothing
+	// placement-specific to register here (unlike redactFormDo, an
+	// annotation's /AP entry references the stream object directly, not
+	// through a page /XObject resources dict), so a hit is just the
+	// cached ref, no further work at all.
+	key := newFormCloneKey(st, m, nil)
+	if cachedID, ok := budget.lookupClone(key); ok {
+		return pdfRef{Num: cachedID}, true, nil
+	}
+
 	// initial=nil: an annotation's /AP appearance stream is placed by a
 	// fixed ISO 32000-1 §12.5.5 algorithm, not a content-stream Do with
 	// some surrounding text state to inherit — there is nothing here to
@@ -271,6 +284,7 @@ func redactOneAnnotationAppearance(doc *Document, st *pdfStream, rect [4]float64
 		Data:    newData,
 		Decoded: true,
 	}}
+	budget.storeClone(key, newID)
 
 	return pdfRef{Num: newID}, true, nil
 }

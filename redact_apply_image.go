@@ -51,9 +51,32 @@ const maxFormRedactWork = 10000
 // formRedactBudget is a work counter, shared (by pointer) across every
 // level of Form XObject recursion within the ONE page it was constructed
 // for — see maxFormRedactWork for why the scope is per-page, not
-// per-ApplyRedactions-call.
+// per-ApplyRedactions-call. It also memoizes clones (pdf-go-wuv7) and
+// remembers the next free "/FmN" resource index, both for the same
+// reason: every level of recursion, and both callers that create clones
+// (redactFormDo for page content, redactOneAnnotationAppearance for
+// annotation appearances), share this one instance per page.
 type formRedactBudget struct {
 	spent int
+
+	// clones memoizes an already-produced redacted clone's object number,
+	// keyed by what fully determines its content (formCloneKey): the
+	// source Form XObject stream, the CTM composing with its own
+	// /Matrix, and the inherited text state (pdf-go-w7ye) seeding its
+	// nested text rewrite, if any. Without this, several byte-identical
+	// placements of the same form — a logo stamped on every page, or
+	// several widgets sharing one appearance stream — each got their own
+	// full duplicate clone object, inflating the saved file far beyond
+	// what the content actually needs; maxFormRedactWork bounds the
+	// COUNT of placements redacted into, but not, before this, their
+	// aggregate SIZE.
+	clones map[formCloneKey]int
+
+	// fmCursor remembers the next "/FmN" index nextFormXObjectResourceName
+	// should try first — without it, every call rescanned from "/Fm0",
+	// making total resource-naming cost quadratic in the number of
+	// clones created on one page.
+	fmCursor int
 }
 
 func (b *formRedactBudget) consume() error {
@@ -65,6 +88,73 @@ func (b *formRedactBudget) consume() error {
 		return fmt.Errorf("asposepdf: ApplyRedactions: exceeded the Form XObject redaction work budget (%d); refusing rather than continuing on what looks like a pathologically-nested or fan-out-heavy file", maxFormRedactWork)
 	}
 	return nil
+}
+
+// formCloneKey identifies one Form XObject placement's redacted output
+// uniquely enough to memoize it (pdf-go-wuv7): redactFormXObject's output
+// depends only on the source stream, the CTM in effect (composed with the
+// form's own /Matrix, which is intrinsic to form and so need not be
+// included separately), the redaction regions (constant within one page —
+// collected once in applyRedactionsToPage — so not part of the key), and
+// the inherited text state seeding its nested text rewrite, if any. Two
+// placements agreeing on all of these produce byte-identical redacted
+// content. form is compared by pointer identity, which correctly
+// distinguishes different source objects — resolveRef always returns the
+// same *pdfStream for the same object number within one Document, and
+// nothing in this redaction pass ever mutates an original (unredacted)
+// form's stream value in place (clone-not-mutate throughout).
+type formCloneKey struct {
+	form *pdfStream
+	ctm  [6]float64
+
+	// The inherited-text-state fields, flattened rather than embedding
+	// *textGState directly: textGState embeds fontInfo, which carries map
+	// fields and so is not comparable — unusable as a map key component.
+	// fontName (the resource name "/F1" etc. the state was resolved
+	// under) is a faithful proxy for font identity within the one
+	// resources dict a given redaction pass works from.
+	hasInherited bool
+	fontName     string
+	fontSize     float64
+	charSpace    float64
+	wordSpace    float64
+	horizScale   float64
+	leading      float64
+}
+
+func newFormCloneKey(st *pdfStream, ctm [6]float64, inherited *textGState) formCloneKey {
+	k := formCloneKey{form: st, ctm: ctm}
+	if inherited != nil {
+		k.hasInherited = true
+		k.fontName = inherited.fontName
+		k.fontSize = inherited.fontSize
+		k.charSpace = inherited.charSpace
+		k.wordSpace = inherited.wordSpace
+		k.horizScale = inherited.horizScale
+		k.leading = inherited.leading
+	}
+	return k
+}
+
+// lookupClone/storeClone are the memoization table's read/write sides; a
+// nil budget (bare unit-test calls with no budget) always misses, so
+// those callers see no behavior change at all.
+func (b *formRedactBudget) lookupClone(key formCloneKey) (int, bool) {
+	if b == nil || b.clones == nil {
+		return 0, false
+	}
+	id, ok := b.clones[key]
+	return id, ok
+}
+
+func (b *formRedactBudget) storeClone(key formCloneKey, id int) {
+	if b == nil {
+		return
+	}
+	if b.clones == nil {
+		b.clones = map[formCloneKey]int{}
+	}
+	b.clones[key] = id
 }
 
 // privateXObjectResources returns a resources dict that is SAFE for a
@@ -479,6 +569,25 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 		return contentOp{}, err
 	}
 
+	// A byte-identical earlier placement (same form, same composed CTM,
+	// same inherited text state) already produced a clone this page —
+	// reuse it instead of re-running the three rewriters and allocating
+	// a full duplicate stream object (pdf-go-wuv7). Only the resource
+	// NAME is placement-specific (this Do's resources dict might not be
+	// the same dict an earlier placement registered into — a nested
+	// form's own private resources, say); the underlying object is
+	// shared.
+	key := newFormCloneKey(st, ctm, inherited)
+	if cachedID, ok := budget.lookupClone(key); ok {
+		xobjDict, ok := resolveRefToDict(doc.objects, resources["/XObject"])
+		if !ok {
+			return contentOp{}, fmt.Errorf("asposepdf: ApplyRedactions: internal error: Form XObject resolved but its /XObject resources dict did not")
+		}
+		newName := nextFormXObjectResourceName(xobjDict, budget)
+		xobjDict[newName] = pdfRef{Num: cachedID}
+		return contentOp{Operator: "Do", Operands: []pdfValue{pdfName(newName)}}, nil
+	}
+
 	newData, newResources, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1, budget, inherited)
 	if err != nil {
 		return contentOp{}, err
@@ -515,11 +624,13 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 		Decoded: true,
 	}}
 
+	budget.storeClone(key, newID)
+
 	xobjDict, ok := resolveRefToDict(doc.objects, resources["/XObject"])
 	if !ok {
 		return contentOp{}, fmt.Errorf("asposepdf: ApplyRedactions: internal error: Form XObject resolved but its /XObject resources dict did not")
 	}
-	newName := nextFormXObjectResourceName(xobjDict)
+	newName := nextFormXObjectResourceName(xobjDict, budget)
 	xobjDict[newName] = pdfRef{Num: newID}
 
 	return contentOp{Operator: "Do", Operands: []pdfValue{pdfName(newName)}}, nil
@@ -527,11 +638,27 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 
 // nextFormXObjectResourceName returns the next available /Fm* resource
 // name in xobjDict — the same convention flatten.go's registerFormXObject
-// uses for freshly-created Form XObjects.
-func nextFormXObjectResourceName(xobjDict pdfDict) string {
-	for i := 0; ; i++ {
+// uses for freshly-created Form XObjects. budget's fmCursor (nil-safe; a
+// bare unit-test call with no budget just scans from 0 every time, as
+// before) remembers where the LAST call left off across every clone
+// created on this page, so a long run of clones doesn't rescan "/Fm0"
+// upward from zero each time — nextFormXObjectResourceName used to make
+// total naming cost quadratic in the number of clones (pdf-go-wuv7).
+// Still verifies non-existence in THIS specific xobjDict before returning
+// a name (never assumes the cursor alone is enough): a third-party file's
+// own pre-existing "/FmN" entries, or a different resources dict than the
+// one the cursor last advanced against, could still collide.
+func nextFormXObjectResourceName(xobjDict pdfDict, budget *formRedactBudget) string {
+	start := 0
+	if budget != nil {
+		start = budget.fmCursor
+	}
+	for i := start; ; i++ {
 		name := fmt.Sprintf("/Fm%d", i)
 		if _, exists := xobjDict[name]; !exists {
+			if budget != nil {
+				budget.fmCursor = i + 1
+			}
 			return name
 		}
 	}
