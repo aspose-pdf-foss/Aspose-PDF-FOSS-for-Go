@@ -258,9 +258,12 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // substring with each other; see
 // redact_apply_inherited_font_internal_test.go's own comments for both.
 //
-// The rest: a page's /Thumb thumbnail, if a producer embedded one, is never touched
-// by this method and may still show a miniature of the pre-redaction
-// page (pdf-go-ekp4). A composite (Type0) font using a
+// A page's /Thumb thumbnail, if a producer embedded one, is now dropped
+// (pdf-go-ekp4, closed) rather than left to go on possibly showing a
+// miniature of the pre-redaction page — see this method's step 5a for
+// why dropping rather than regenerating it.
+//
+// The rest: a composite (Type0) font using a
 // non-Identity, variable-width CJK CMap (predefined or embedded) is
 // parsed as fixed 2-byte codes, same as Identity-H — unconfirmed by a
 // real repro yet, but potentially misdecodes/mispositions CJK text
@@ -388,6 +391,30 @@ func applyRedactionsToPage(p *Page) error {
 	if err := replacePageContents(p, data); err != nil {
 		return fmt.Errorf("replace content: %w", err)
 	}
+
+	// 5a. Drop the page's /Thumb thumbnail, if a producer embedded one
+	// (pdf-go-ekp4): a thumbnail is a small, independent rendering of
+	// the page, reached through its own catalog/page-tree key, never
+	// through /Contents — none of the rewriters above, which only ever
+	// touch /Contents and annotation appearance streams, see it at all.
+	// If it happens to be a miniature of the PRE-redaction page (the
+	// common case: viewers that generate one render from the page as it
+	// existed when the thumbnail was made), it would otherwise go on
+	// showing the redacted content after everything else was correctly
+	// rewritten — the same class of leak as pdf-go-2qkq, just reached
+	// through a different, independent object. This library itself
+	// never writes /Thumb, so only a third-party-produced file is
+	// affected. Regenerating one from the now-redacted page (matching
+	// Acrobat's own behavior more closely) was considered and rejected
+	// for v1: a thumbnail is purely decorative (ISO 32000-1 §7.7.3.3
+	// imposes no rendering requirement on it, and nothing in this
+	// library's own read path ever consults it), so simply dropping the
+	// reference closes the leak with no loss of anything functionally
+	// required — RemoveUnusedObjects (already called once at the end of
+	// ApplyRedactions) then reclaims the now-unreferenced stream object
+	// from the saved file entirely, the same way it reclaims every
+	// other object this method's rewriters orphan.
+	delete(p.pageDict(), "/Thumb")
 
 	// 5b. Redact into every OTHER annotation's own /AP appearance
 	// stream(s) too (pdf-go-xp2u) — a FreeText note, Stamp, or form Widget
