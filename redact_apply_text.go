@@ -22,26 +22,30 @@ import "fmt"
 // Form XObjects (Do op), inline images, and non-text operators are passed
 // through unchanged at THIS level — a Form XObject's own content is
 // redacted separately, by redact_apply_image.go's recursion into it, via
-// its own call to this same function on just that form's content. That
-// nested call always starts with a zeroed text state (no font, no
-// charSpace/wordSpace/horizScale carried over), but per ISO 32000-1
-// §8.10.1 a form actually inherits the FULL graphics state — including
-// the text state — in effect at the Do that invoked it; a form whose own
-// content draws text with no Tf of its own, relying on that inherited
-// font, is therefore always treated as unknown-font (see below) and
-// passes through completely unredacted. Tracked as pdf-go-w7ye, not
-// fixed here (unusual for library-authored forms, which always emit
-// their own Tf, but legal PDF and not merely theoretical for arbitrary
-// third-party input, which ApplyRedactions must handle).
-//
-// Unknown fonts (font.known == false) cause the
-// affected Tj/TJ op to be passed through unchanged — note this also
-// means that op's own advance is reported as 0 (unknown, so the text
-// matrix cannot be reliably advanced), which can leave LATER glyphs on
-// the same line measured too far left if a known-font run follows an
-// unknown-font one; tracked as pdf-go-uhqd, not fixed here (refusing to
-// guess a position it can't compute, rather than fabricating one, is
-// the existing convention this project applies elsewhere).
+// its own call to this same function on just that form's content. Per
+// ISO 32000-1 §8.10.1 a form inherits the FULL graphics state — including
+// the text state — in effect at the Do that invoked it (except the CTM,
+// handled separately: regions are already mapped into the form's own
+// local content space by the time this function sees them, so the form's
+// content always starts at ctm = identity regardless of what the page's
+// CTM was at the Do). initial, when non-nil, supplies that inherited text
+// state (font/fontName/fontSize/charSpace/wordSpace/horizScale/leading —
+// its ctm field is never read here) as the walker's starting point instead
+// of the usual zero/unknown state; redact_apply_image.go's
+// rewriteXObjectDoOperatorsInStream captures it by tracking the SAME
+// text-state operators (Tf/Tc/Tw/Tz/TL, saved/restored by q/Q) while it
+// walks the CALLING content stream, and hands it to redactFormXObject,
+// which passes it through to this call (pdf-go-w7ye, closed): a form
+// whose own content draws text with no Tf of its own, relying on that
+// inherited font, previously had its text ALWAYS treated as unknown-font
+// (see below) here, which — since pdf-go-oq9i started refusing rather
+// than silently passing unknown-font text through — made ApplyRedactions
+// refuse outright on such a document instead of leaving the text
+// unredacted; both the silent-leak and the outright-refusal failure modes
+// are closed by resolving the font this function actually inherited.
+// Every top-level call (the page's own content, ReplaceText) passes nil:
+// a page has nothing to inherit from, and ReplaceText never recurses into
+// a Form XObject in the first place.
 //
 // A glyph's page-space position is the text matrix (tm) composed with
 // the graphics-state CTM — ISO 32000-1 §9.4.4's text rendering matrix is
@@ -150,7 +154,7 @@ import "fmt"
 // real documents than strictly necessary (always the safe direction —
 // over-refusing, never under-redacting — but a usability regression
 // worth revisiting by widening font.go's own resolution path).
-func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict) ([]byte, error) {
+func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict, initial *textGState) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
@@ -175,6 +179,18 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		gStack     []textGState
 		mcStack    []*mcSpan
 	)
+	if initial != nil {
+		// Seed the text-state portion of the inherited graphics state
+		// (pdf-go-w7ye) — never ctm, which always starts at identity here
+		// regardless of what the caller's CTM was: regions have already
+		// been mapped into this content's own local space by the time
+		// they reach this function (redactFormXObject's inverse-matrix
+		// transform), so comparing against tm∘identity is what's
+		// already correct for every OTHER call into this function too.
+		font, fontName = initial.font, initial.fontName
+		fontSize, charSpace, wordSpace = initial.fontSize, initial.charSpace, initial.wordSpace
+		horizScale, leading = initial.horizScale, initial.leading
+	}
 
 	out := make([]contentOp, 0, len(ops))
 

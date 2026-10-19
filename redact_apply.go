@@ -237,18 +237,30 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // redacting "inside" one based on one occurrence's position would blank
 // every other, legitimately-unredacted occurrence of the same character).
 //
+// A Form XObject whose own content relies on a font inherited from the
+// page (no Tf of its own, legal per ISO 32000-1 §8.10.1) can now actually
+// be redacted (pdf-go-w7ye, closed): rewriteXObjectDoOperatorsInStream
+// tracks the SAME text-state operators (Tf/Tc/Tw/Tz/TL, saved/restored
+// by q/Q) the page-level text rewriter does, purely to capture the state
+// in effect at each Do, and hands it to redactFormXObject as the form's
+// own rewriter's starting point instead of zero/unknown — closing both
+// the earlier silent-leak failure mode (before pdf-go-oq9i existed) and
+// the later outright-refusal one (after it): a document using this
+// unusual but legal construct is now redacted correctly instead of
+// either leaking or failing outright. The inheritance chain is threaded
+// through nested Form XObjects too, so a form two levels of Do deep
+// continues to resolve correctly. Confirmed by direct reproduction, not
+// just by reading the code — a prior draft of the regression test for
+// this accidentally passed under more than one wrong fix, once because
+// a MERELY PARTIAL redaction broke a secret string's contiguity just as
+// effectively as a complete one for a plain substring-absence check, and
+// once because two hand-picked test secrets happened to share a
+// substring with each other; see
+// redact_apply_inherited_font_internal_test.go's own comments for both.
+//
 // The rest: a page's /Thumb thumbnail, if a producer embedded one, is never touched
 // by this method and may still show a miniature of the pre-redaction
-// page (pdf-go-ekp4). A Form XObject whose own content
-// relies on a font inherited from the page (no Tf of its own) is treated
-// as unknown-font — since pdf-go-oq9i, that now correctly REFUSES rather
-// than silently passing through (an improvement, not a full fix: the
-// form's text still cannot be redacted, but the caller is told so
-// instead of being left with a false sense of success) — pdf-go-w7ye
-// tracks actually resolving the inherited font so such text CAN be
-// redacted; an unknown-font Tj/TJ run anywhere can leave later,
-// known-font text on the same line mispositioned (pdf-go-uhqd); a
-// composite (Type0) font using a
+// page (pdf-go-ekp4). A composite (Type0) font using a
 // non-Identity, variable-width CJK CMap (predefined or embedded) is
 // parsed as fixed 2-byte codes, same as Identity-H — unconfirmed by a
 // real repro yet, but potentially misdecodes/mispositions CJK text
@@ -359,11 +371,11 @@ func applyRedactionsToPage(p *Page) error {
 	preserve := pagePreservedXObjectNames(p, p.doc.objects, resources, budget)
 
 	// 4. Run rewriters sequentially: text → image → path.
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources)
+	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources, nil)
 	if err != nil {
 		return fmt.Errorf("text rewriter: %w", err)
 	}
-	data, err = rewriteXObjectDoOperatorsInStream(data, regions, p.doc, resources, 0, budget, preserve)
+	data, err = rewriteXObjectDoOperatorsInStream(data, regions, p.doc, resources, 0, budget, preserve, nil)
 	if err != nil {
 		return fmt.Errorf("image rewriter: %w", err)
 	}

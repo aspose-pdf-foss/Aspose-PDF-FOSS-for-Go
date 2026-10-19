@@ -242,7 +242,11 @@ func redactOneAnnotationAppearance(doc *Document, st *pdfStream, rect [4]float64
 		return nil, false, err
 	}
 
-	newData, newResources, changed, err := redactFormXObject(doc, st, pageResources, m, regions, 0, budget)
+	// initial=nil: an annotation's /AP appearance stream is placed by a
+	// fixed ISO 32000-1 §12.5.5 algorithm, not a content-stream Do with
+	// some surrounding text state to inherit — there is nothing here to
+	// pass through, same as the page-level call.
+	newData, newResources, changed, err := redactFormXObject(doc, st, pageResources, m, regions, 0, budget, nil)
 	if err != nil {
 		return nil, false, err
 	}

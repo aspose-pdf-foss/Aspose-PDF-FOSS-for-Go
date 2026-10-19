@@ -126,8 +126,9 @@ func privateXObjectResources(objects map[int]*pdfObject, resources pdfDict) pdfD
 func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict) ([]byte, error) {
 	// One budget per call — in practice, one per page (applyRedactionsToPage
 	// calls this once per redacted page) — bounds the total Form XObject
-	// redaction work this call can do; see maxFormRedactWork.
-	return rewriteXObjectDoOperatorsInStream(data, regions, doc, resources, 0, &formRedactBudget{}, nil)
+	// redaction work this call can do; see maxFormRedactWork. initial=nil:
+	// a page's own content has nothing to inherit a text state from.
+	return rewriteXObjectDoOperatorsInStream(data, regions, doc, resources, 0, &formRedactBudget{}, nil, nil)
 }
 
 // rewriteXObjectDoOperatorsInStream is rewriteImageOperatorsInStream with
@@ -144,7 +145,22 @@ func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, doc *Docume
 // recursive (Form-XObject-level) call: nothing outside a freshly cloned
 // form's own content ever looks at that clone's /Resources, so there is
 // nothing else to preserve there.
-func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict, depth int, budget *formRedactBudget, preserve map[string]bool) ([]byte, error) {
+//
+// initial seeds the text-state portion (font/fontSize/charSpace/
+// wordSpace/horizScale/leading — never ctm) of this walker's OWN running
+// state, the same way rewriteTextOperatorsInStream's own initial
+// parameter does — needed so a NESTED Form XObject (one placed by a Do
+// inside another form's content, itself reached only because the OUTER
+// form inherited a text state at ITS Do) continues the inheritance chain
+// correctly instead of restarting at zero one level down. nil for the
+// page-level call (rewriteImageOperatorsInStream): a page has nothing to
+// inherit from. This walker tracks Tf/Tc/Tw/Tz/TL (saved/restored by
+// q/Q, same as rewriteTextOperatorsInStream's own gStack) purely to
+// capture the state in effect AT EACH Do, to hand to redactFormDo/
+// redactFormXObject for that specific placement's nested text rewrite —
+// it has no text-rendering operators of its own to apply that state to
+// (pdf-go-w7ye).
+func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Document, resources pdfDict, depth int, budget *formRedactBudget, preserve map[string]bool, initial *textGState) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
 	}
@@ -157,20 +173,41 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 	if doc != nil {
 		objects = doc.objects
 	}
+	fontMap := resolveFontResources(objects, resources)
 
 	ctm := identityMatrix()
-	var stack [][6]float64
+	var (
+		font       fontInfo
+		fontName   string
+		fontSize   float64
+		charSpace  float64
+		wordSpace  float64
+		horizScale = 1.0
+		leading    float64
+	)
+	if initial != nil {
+		font, fontName = initial.font, initial.fontName
+		fontSize, charSpace, wordSpace = initial.fontSize, initial.charSpace, initial.wordSpace
+		horizScale, leading = initial.horizScale, initial.leading
+	}
+	var stack []textGState
 
 	out := make([]contentOp, 0, len(ops))
 	for _, op := range ops {
 		switch op.Operator {
 		case "q":
-			stack = append(stack, ctm)
+			stack = append(stack, textGState{
+				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
+				charSpace: charSpace, wordSpace: wordSpace, horizScale: horizScale,
+				leading: leading,
+			})
 			out = append(out, op)
 		case "Q":
-			if len(stack) > 0 {
-				ctm = stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
+			if n := len(stack); n > 0 {
+				s := stack[n-1]
+				stack = stack[:n-1]
+				ctm, font, fontName, fontSize = s.ctm, s.font, s.fontName, s.fontSize
+				charSpace, wordSpace, horizScale, leading = s.charSpace, s.wordSpace, s.horizScale, s.leading
 			}
 			out = append(out, op)
 		case "cm":
@@ -178,6 +215,37 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 			// Per ISO 32000-1 §8.4.4: the new CTM = matrix_from_operands × old_CTM
 			if m, ok := readCMMatrix(op.Operands); ok {
 				ctm = matMul(m, ctm)
+			}
+			out = append(out, op)
+		case "Tf":
+			if len(op.Operands) >= 2 {
+				fontName = operandName(op.Operands[0])
+				if fi, ok := fontMap[fontName]; ok {
+					font = fi
+				} else {
+					font = fontInfo{}
+				}
+				fontSize = operandFloat(op.Operands[1])
+			}
+			out = append(out, op)
+		case "Tc":
+			if len(op.Operands) >= 1 {
+				charSpace = operandFloat(op.Operands[0])
+			}
+			out = append(out, op)
+		case "Tw":
+			if len(op.Operands) >= 1 {
+				wordSpace = operandFloat(op.Operands[0])
+			}
+			out = append(out, op)
+		case "Tz":
+			if len(op.Operands) >= 1 {
+				horizScale = operandFloat(op.Operands[0]) / 100.0
+			}
+			out = append(out, op)
+		case "TL":
+			if len(op.Operands) >= 1 {
+				leading = operandFloat(op.Operands[0])
 			}
 			out = append(out, op)
 		case "Do":
@@ -188,7 +256,15 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 			name := operandName(op.Operands[0])
 			st := resolveXObjectStream(objects, resources, name)
 			if st != nil && dictGetName(st.Dict, "/Subtype") == "/Form" {
-				newOp, err := redactFormDo(doc, st, ctm, regions, resources, depth, op, budget)
+				// The text state in effect AT THIS Do — what the form
+				// actually inherits per ISO 32000-1 §8.10.1, ctm handled
+				// separately as always (see redactFormXObject).
+				inherited := &textGState{
+					font: font, fontName: fontName, fontSize: fontSize,
+					charSpace: charSpace, wordSpace: wordSpace,
+					horizScale: horizScale, leading: leading,
+				}
+				newOp, err := redactFormDo(doc, st, ctm, regions, resources, depth, op, budget, inherited)
 				if err != nil {
 					return nil, err
 				}
@@ -362,7 +438,14 @@ func neededXObjectNames(data []byte, objects map[int]*pdfObject, resources pdfDi
 // redirected to a clone or passed through unchanged: resources["/XObject"]
 // pruning now works from the final rewritten content's actual Do targets
 // (see neededXObjectNames), not from a per-name replaced/survived tally.
-func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPoint, resources pdfDict, depth int, original contentOp, budget *formRedactBudget) (contentOp, error) {
+//
+// inherited is the text state (font/fontSize/charSpace/wordSpace/
+// horizScale/leading) in effect at THIS specific Do, captured by the
+// caller's walker — passed straight through to redactFormXObject, which
+// uses it to seed the form's own text rewrite instead of starting at a
+// zeroed/unknown state (pdf-go-w7ye): a form whose own content draws
+// text with no Tf of its own relies entirely on this.
+func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPoint, resources pdfDict, depth int, original contentOp, budget *formRedactBudget, inherited *textGState) (contentOp, error) {
 	var objects map[int]*pdfObject
 	if doc != nil {
 		objects = doc.objects
@@ -396,7 +479,7 @@ func redactFormDo(doc *Document, st *pdfStream, ctm [6]float64, regions []QuadPo
 		return contentOp{}, err
 	}
 
-	newData, newResources, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1, budget)
+	newData, newResources, changed, err := redactFormXObject(doc, st, resources, ctm, regions, depth+1, budget, inherited)
 	if err != nil {
 		return contentOp{}, err
 	}
@@ -495,7 +578,18 @@ func nextFormXObjectResourceName(xobjDict pdfDict) string {
 // (maxFormRedactWork) are both enforced by the caller (redactFormDo),
 // before it ever calls this function — see redactFormDo's own doc
 // comment for why depth is checked there and not here.
-func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ctm [6]float64, regions []QuadPoint, depth int, budget *formRedactBudget) (newData []byte, newResources pdfDict, changed bool, err error) {
+//
+// inherited is the text state (font/fontSize/charSpace/wordSpace/
+// horizScale/leading) in effect at the Do that invoked this form,
+// captured by the caller — per ISO 32000-1 §8.10.1 this form's own
+// content inherits exactly that state (never ctm, which this form's
+// content always starts at identity for, since localRegions above is
+// already in the form's own local space). Used as the starting state
+// for rewriteTextOperatorsInStream below, and threaded through to the
+// nested rewriteXObjectDoOperatorsInStream call so a NESTED Form XObject
+// one level further down continues the same inheritance chain
+// (pdf-go-w7ye) rather than restarting at zero/unknown.
+func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ctm [6]float64, regions []QuadPoint, depth int, budget *formRedactBudget, inherited *textGState) (newData []byte, newResources pdfDict, changed bool, err error) {
 	var objects map[int]*pdfObject
 	if doc != nil {
 		objects = doc.objects
@@ -537,7 +631,7 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 	original := decodedStreamData(st)
 	fontMap := resolveFontResources(objects, formResources)
 
-	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap, objects, formResources)
+	data, err := rewriteTextOperatorsInStream(original, localRegions, fontMap, objects, formResources, inherited)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -545,7 +639,12 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 	// content will ever look at formResources, so there is nothing else
 	// that needs its /XObject entries kept beyond what this form's own
 	// (rewritten) content actually calls — see neededXObjectNames.
-	data, err = rewriteXObjectDoOperatorsInStream(data, localRegions, doc, formResources, depth, budget, nil)
+	// initial=inherited: a NESTED Form XObject placed somewhere in THIS
+	// form's own content inherits from where it's actually invoked
+	// below, but if this form's content itself draws no Tj of its own
+	// before reaching that nested Do, the chain traces back to the SAME
+	// inherited state this form itself started from.
+	data, err = rewriteXObjectDoOperatorsInStream(data, localRegions, doc, formResources, depth, budget, nil, inherited)
 	if err != nil {
 		return nil, nil, false, err
 	}

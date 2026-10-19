@@ -382,7 +382,7 @@ func TestApplyRedactionsUnmatchedEMCDoesNotPanic(t *testing.T) {
 	regions := []QuadPoint{
 		{X1: 0, Y1: 720, X2: 1000, Y2: 720, X3: 0, Y3: 0, X4: 1000, Y4: 0},
 	}
-	if _, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil); err != nil {
+	if _, err := rewriteTextOperatorsInStream(in, regions, fonts, nil, nil, nil); err != nil {
 		t.Fatalf("unexpected error on an unmatched EMC: %v", err)
 	}
 }
