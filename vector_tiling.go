@@ -84,6 +84,10 @@ func (t *TilingPattern) ensureBuilt() (int, error) {
 	t.patternID = t.doc.nextID
 	t.doc.nextID++
 	t.doc.objects[t.patternID] = &pdfObject{Num: t.patternID, Value: stream}
+	// Free the cell canvas's own content-stream objects now that their
+	// bytes are copied into the pattern stream above, and reject any
+	// further drawing on it (pdf-go-nvpo / GitHub issue #17 point 1).
+	freezeDetachedCanvas(t.canvas)
 	return t.patternID, nil
 }
 

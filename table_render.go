@@ -146,6 +146,17 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 			groupH += heights[r]
 		}
 		if y-groupH < currentRect.LLY {
+			// A detached canvas (XForm.Canvas, TilingPattern.Canvas, a
+			// Type3Font glyph canvas) has no page of its own to continue
+			// onto — AddBlankPage below would append a page to the
+			// DOCUMENT, unrelated to the form/pattern/glyph being built,
+			// which is never what an overflowing table on one of these
+			// canvases should do (pdf-go-nvpo / GitHub issue #17 point
+			// 2). Refuse instead of silently growing the wrong object.
+			if p.obj != nil {
+				return pagesAdded, fmt.Errorf("add table: table overflows the canvas (height %g available); detached canvases don't support continuation pages", currentRect.URY-currentRect.LLY)
+			}
+
 			// Overflow: finish outer border on current page, append a new page.
 			if err := drawOuterBorder(currentPage, t, currentRect, currentRect.URY, pageDrawn, xOffsets, edges); err != nil {
 				return pagesAdded, fmt.Errorf("add table: outer border (page break): %w", err)

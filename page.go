@@ -75,6 +75,13 @@ func (p *Page) pageDict() pdfDict {
 // Size returns the page dimensions from its MediaBox.
 // If MediaBox is not set on the page itself, it is inherited from the page tree.
 func (p *Page) Size() (PageSize, error) {
+	if p.obj != nil {
+		r, err := p.detachedBoxRect()
+		if err != nil {
+			return PageSize{}, err
+		}
+		return PageSize{Width: r.URX - r.LLX, Height: r.URY - r.LLY}, nil
+	}
 	return mediaBoxSize(p.doc.objects, p.pageObj().Num)
 }
 
@@ -91,31 +98,80 @@ func (p *Page) Rotation() RotationAngle {
 // If not set on the page itself, it is inherited from the page tree.
 // Mirrors Aspose.PDF for .NET's Page.MediaBox.
 func (p *Page) MediaBox() (Rectangle, error) {
+	if p.obj != nil {
+		return p.detachedBoxRect()
+	}
 	return mediaBoxRect(p.doc.objects, p.pageObj().Num)
 }
 
 // CropBox returns the crop box of the page as a Rectangle.
 // Falls back to MediaBox if not set. Mirrors Aspose.PDF for .NET's Page.CropBox.
 func (p *Page) CropBox() (Rectangle, error) {
+	if p.obj != nil {
+		return p.detachedBoxRect("/CropBox")
+	}
 	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/CropBox")
 }
 
 // TrimBox returns the trim box of the page as a Rectangle.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) TrimBox() (Rectangle, error) {
+	if p.obj != nil {
+		return p.detachedBoxRect("/TrimBox", "/CropBox")
+	}
 	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/TrimBox", "/CropBox")
 }
 
 // BleedBox returns the bleed box of the page as a Rectangle.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) BleedBox() (Rectangle, error) {
+	if p.obj != nil {
+		return p.detachedBoxRect("/BleedBox", "/CropBox")
+	}
 	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/BleedBox", "/CropBox")
 }
 
 // ArtBox returns the art box of the page as a Rectangle.
 // Falls back to CropBox, then MediaBox if not set.
 func (p *Page) ArtBox() (Rectangle, error) {
+	if p.obj != nil {
+		return p.detachedBoxRect("/ArtBox", "/CropBox")
+	}
 	return pageBoxRect(p.doc.objects, p.pageObj().Num, "/ArtBox", "/CropBox")
+}
+
+// detachedBoxRect reads a page box directly off a detached canvas's own
+// dict (XForm.Canvas, TilingPattern.Canvas, a Type3Font glyph canvas) —
+// unlike a real page, a canvas is never in d.objects under its own
+// object number (pageObj().Num is the zero value), so the ordinary
+// mediaBoxRect/pageBoxRect helpers — which look pages up BY NUMBER to
+// walk /Parent inheritance — fail outright with "object 0 not found"
+// (pdf-go-nvpo / GitHub issue #17 point 2). No inheritance applies to a
+// canvas (it has no /Parent; CreateForm/CreateTilingPattern/AddGlyph
+// always set its own /MediaBox directly), so reading straight from the
+// dict is both sufficient and correct. Mirrors pageBoxRect's own
+// "first matching box, else /MediaBox" fallback order.
+func (p *Page) detachedBoxRect(boxes ...string) (Rectangle, error) {
+	d := p.pageDict()
+	if d == nil {
+		return Rectangle{}, fmt.Errorf("canvas has no dict")
+	}
+	for _, name := range boxes {
+		if v, ok := d[name]; ok {
+			if arr, ok := resolveRefToArray(p.doc.objects, v); ok {
+				return rectFromArray(arr)
+			}
+		}
+	}
+	mb, ok := d["/MediaBox"]
+	if !ok {
+		return Rectangle{}, fmt.Errorf("canvas has no /MediaBox")
+	}
+	arr, ok := resolveRefToArray(p.doc.objects, mb)
+	if !ok {
+		return Rectangle{}, fmt.Errorf("canvas /MediaBox is not a valid array")
+	}
+	return rectFromArray(arr)
 }
 
 // SetMediaBox sets the page's MediaBox (the full page rectangle) in PDF user

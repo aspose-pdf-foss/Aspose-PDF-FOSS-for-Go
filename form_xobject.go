@@ -134,7 +134,12 @@ func bboxFromForm(d *Document, st *pdfStream) Rectangle {
 	return Rectangle{}
 }
 
-// build harvests the canvas content + resources into a /Form XObject stream.
+// build harvests the canvas content + resources into a /Form XObject
+// stream, then frees the canvas's own content-stream objects (pdf-go-nvpo
+// / GitHub issue #17 point 1) — their bytes are already copied into the
+// returned stream, so keeping them around would only duplicate content in
+// the saved file (or, for anything drawn on the canvas after this point,
+// leak content that never reaches any page).
 func (x *XForm) build() (*pdfStream, error) {
 	content, err := x.canvas.contentStreams()
 	if err != nil {
@@ -144,7 +149,9 @@ func (x *XForm) build() (*pdfStream, error) {
 	if resources == nil {
 		resources = pdfDict{}
 	}
-	return makeFormXObjectWithResources(content, x.bbox, resources), nil
+	stream := makeFormXObjectWithResources(content, x.bbox, resources)
+	freezeDetachedCanvas(x.canvas)
+	return stream, nil
 }
 
 // AddForm places the form on the page so its box maps onto rect, preserving

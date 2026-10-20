@@ -17,6 +17,76 @@ import "fmt"
 // every conforming reader, so this is safe to carry in the file.
 const contentAppendMarkerKey = "/AsposeCB"
 
+// canvasFrozenMarkerKey is a private, non-spec dict entry (same convention
+// as contentAppendMarkerKey) written on a detached drawing canvas's own
+// dict (XForm.Canvas, TilingPattern.Canvas, a Type3Font glyph canvas) once
+// its content has been harvested into the Form XObject/tiling-pattern
+// cell/Type3 CharProc stream it feeds (pdf-go-nvpo / GitHub issue #17
+// point 1). Every one of this library's drawing primitives funnels
+// through appendToContentStream/prependToContentStream (and, for an
+// Image XObject, addImageFromBytes's own object-creation step beforehand)
+// — checking the marker there, rather than in every exported Draw*/Add*
+// method individually, rejects a draw call made after the canvas was
+// frozen instead of silently adding a new stream (or, for an image, a new
+// XObject) that can never be reached by anything the canvas was built
+// into, yet would otherwise still be written into the saved file.
+const canvasFrozenMarkerKey = "/AsposeFrozen"
+
+// detachedCanvasContentStreamIDs returns the object numbers backing a
+// canvas's own /Contents entries — every one of them was created by
+// newContentStream (the internal q/Q wrap pair included, when present)
+// and is referenced from nowhere but this one dict's /Contents entry.
+// Once that content has been copied by value into the Form
+// XObject/pattern cell/CharProc stream the canvas feeds, these objects
+// serve no further purpose and are safe to delete outright rather than
+// linger as dead weight in the saved file.
+func (p *Page) detachedCanvasContentStreamIDs() []int {
+	d := p.pageDict()
+	if d == nil {
+		return nil
+	}
+	entries, _ := contentsEntries(p.doc.objects, d["/Contents"])
+	ids := make([]int, 0, len(entries))
+	for _, e := range entries {
+		if ref, ok := e.(pdfRef); ok {
+			ids = append(ids, ref.Num)
+		}
+	}
+	return ids
+}
+
+// freezeDetachedCanvas deletes a detached canvas's own content-stream
+// objects (already harvested by value into the object it feeds) and marks
+// the canvas frozen, so a later draw call on it errors instead of leaking
+// a new, permanently-unreferenced object into the saved file
+// (pdf-go-nvpo / GitHub issue #17 point 1). Called once, from each of
+// XForm.build, TilingPattern.ensureBuilt and Type3Font.ensureBuilt (per
+// glyph canvas), right after that canvas's content has been read via
+// contentStreams().
+func freezeDetachedCanvas(canvas *Page) {
+	for _, id := range canvas.detachedCanvasContentStreamIDs() {
+		delete(canvas.doc.objects, id)
+	}
+	if d := canvas.pageDict(); d != nil {
+		delete(d, "/Contents")
+		d[canvasFrozenMarkerKey] = true
+	}
+}
+
+// checkCanvasNotFrozen reports an error if p is a detached canvas whose
+// content has already been frozen (see canvasFrozenMarkerKey) — a no-op
+// for a real page, which never carries the marker.
+func (p *Page) checkCanvasNotFrozen() error {
+	d := p.pageDict()
+	if d == nil {
+		return nil
+	}
+	if frozen, _ := d[canvasFrozenMarkerKey].(bool); frozen {
+		return fmt.Errorf("asposepdf: this canvas's content was already frozen into its Form XObject/tiling pattern/Type3 glyph (draw everything before the first use)")
+	}
+	return nil
+}
+
 // contentsEntries normalizes a page's current /Contents value (absent,
 // null, a single stream, or an array — ISO 32000-1 §7.8.2 allows all
 // four read-side, and page.contentStreams() already concatenates an
@@ -115,6 +185,9 @@ func newContentStream(doc *Document, data []byte, extraDict pdfDict) pdfRef {
 // and nothing to wrap — the new stream simply becomes /Contents outright,
 // the same minimal single-stream shape a brand-new page always had.
 func (p *Page) appendToContentStream(data []byte) error {
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	pageDict := p.pageDict()
 	if pageDict == nil {
 		return fmt.Errorf("page has no dict")
@@ -154,6 +227,9 @@ func (p *Page) appendToContentStream(data []byte) error {
 // its own emitted operators in q…Q, so it cannot itself leak state
 // forward into the content now running after it either.
 func (p *Page) prependToContentStream(data []byte) error {
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	pageDict := p.pageDict()
 	if pageDict == nil {
 		return fmt.Errorf("page has no dict")

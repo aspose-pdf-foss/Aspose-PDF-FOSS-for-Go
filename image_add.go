@@ -277,6 +277,16 @@ func (p *Page) AddImageFromStream(r io.Reader, rect Rectangle) error {
 }
 
 func (p *Page) addImageFromBytes(data []byte, rect Rectangle) error {
+	// Checked here, not only in appendToContentStream below: unlike a
+	// plain shape or glyph, an image is a separate payload-bearing object
+	// created (and registered into /Resources) BEFORE the "cm ... Do"
+	// operators are appended, so a frozen-canvas rejection at the append
+	// step alone would still leave that orphaned image object — with its
+	// real pixel bytes — reachable through the (already-built, shared)
+	// Form XObject/pattern/CharProc's own Resources dict (pdf-go-nvpo).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := rect.validate(); err != nil {
 		return err
 	}

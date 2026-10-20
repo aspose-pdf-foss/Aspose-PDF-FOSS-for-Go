@@ -124,6 +124,11 @@ func (t *Type3Font) ensureBuilt() (int, error) {
 		stream := &pdfStream{Dict: pdfDict{}, Data: []byte(proc), Decoded: true}
 		charProcs["/"+g.glyphName()] = pdfRef{Num: t.doc.addObject(stream)}
 		mergeResourceDict(fontRes, g.canvas.pageResources())
+		// Free this glyph's canvas's own content-stream objects now that
+		// their bytes are copied into the CharProc stream above, and
+		// reject any further drawing on it (pdf-go-nvpo / GitHub issue
+		// #17 point 1).
+		freezeDetachedCanvas(g.canvas)
 		if g.code > maxCode {
 			maxCode = g.code
 		}
