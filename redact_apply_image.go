@@ -120,6 +120,7 @@ type formCloneKey struct {
 	wordSpace    float64
 	horizScale   float64
 	leading      float64
+	rise         float64 // Ts (pdf-go-lx1f) — two placements differing only in inherited rise can redact different glyphs near a region boundary, so it must be part of what distinguishes a memoized clone
 }
 
 func newFormCloneKey(st *pdfStream, ctm [6]float64, inherited *textGState) formCloneKey {
@@ -132,6 +133,7 @@ func newFormCloneKey(st *pdfStream, ctm [6]float64, inherited *textGState) formC
 		k.wordSpace = inherited.wordSpace
 		k.horizScale = inherited.horizScale
 		k.leading = inherited.leading
+		k.rise = inherited.rise
 	}
 	return k
 }
@@ -237,14 +239,14 @@ func rewriteImageOperatorsInStream(data []byte, regions []QuadPoint, doc *Docume
 // nothing else to preserve there.
 //
 // initial seeds the text-state portion (font/fontSize/charSpace/
-// wordSpace/horizScale/leading — never ctm) of this walker's OWN running
-// state, the same way rewriteTextOperatorsInStream's own initial
+// wordSpace/horizScale/leading/rise — never ctm) of this walker's OWN
+// running state, the same way rewriteTextOperatorsInStream's own initial
 // parameter does — needed so a NESTED Form XObject (one placed by a Do
 // inside another form's content, itself reached only because the OUTER
 // form inherited a text state at ITS Do) continues the inheritance chain
 // correctly instead of restarting at zero one level down. nil for the
 // page-level call (rewriteImageOperatorsInStream): a page has nothing to
-// inherit from. This walker tracks Tf/Tc/Tw/Tz/TL (saved/restored by
+// inherit from. This walker tracks Tf/Tc/Tw/Tz/TL/Ts (saved/restored by
 // q/Q, same as rewriteTextOperatorsInStream's own gStack) purely to
 // capture the state in effect AT EACH Do, to hand to redactFormDo/
 // redactFormXObject for that specific placement's nested text rewrite —
@@ -274,11 +276,13 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 		wordSpace  float64
 		horizScale = 1.0
 		leading    float64
+		rise       float64 // Ts (pdf-go-lx1f)
 	)
 	if initial != nil {
 		font, fontName = initial.font, initial.fontName
 		fontSize, charSpace, wordSpace = initial.fontSize, initial.charSpace, initial.wordSpace
 		horizScale, leading = initial.horizScale, initial.leading
+		rise = initial.rise
 	}
 	var stack []textGState
 
@@ -289,7 +293,7 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 			stack = append(stack, textGState{
 				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
 				charSpace: charSpace, wordSpace: wordSpace, horizScale: horizScale,
-				leading: leading,
+				leading: leading, rise: rise,
 			})
 			out = append(out, op)
 		case "Q":
@@ -298,6 +302,7 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 				stack = stack[:n-1]
 				ctm, font, fontName, fontSize = s.ctm, s.font, s.fontName, s.fontSize
 				charSpace, wordSpace, horizScale, leading = s.charSpace, s.wordSpace, s.horizScale, s.leading
+				rise = s.rise
 			}
 			out = append(out, op)
 		case "cm":
@@ -338,6 +343,11 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 				leading = operandFloat(op.Operands[0])
 			}
 			out = append(out, op)
+		case "Ts":
+			if len(op.Operands) >= 1 {
+				rise = operandFloat(op.Operands[0])
+			}
+			out = append(out, op)
 		case "Do":
 			if len(op.Operands) == 0 {
 				out = append(out, op)
@@ -352,7 +362,7 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 				inherited := &textGState{
 					font: font, fontName: fontName, fontSize: fontSize,
 					charSpace: charSpace, wordSpace: wordSpace,
-					horizScale: horizScale, leading: leading,
+					horizScale: horizScale, leading: leading, rise: rise,
 				}
 				newOp, err := redactFormDo(doc, st, ctm, regions, resources, depth, op, budget, inherited)
 				if err != nil {
@@ -530,7 +540,7 @@ func neededXObjectNames(data []byte, objects map[int]*pdfObject, resources pdfDi
 // (see neededXObjectNames), not from a per-name replaced/survived tally.
 //
 // inherited is the text state (font/fontSize/charSpace/wordSpace/
-// horizScale/leading) in effect at THIS specific Do, captured by the
+// horizScale/leading/rise) in effect at THIS specific Do, captured by the
 // caller's walker — passed straight through to redactFormXObject, which
 // uses it to seed the form's own text rewrite instead of starting at a
 // zeroed/unknown state (pdf-go-w7ye): a form whose own content draws
@@ -707,7 +717,7 @@ func nextFormXObjectResourceName(xobjDict pdfDict, budget *formRedactBudget) str
 // comment for why depth is checked there and not here.
 //
 // inherited is the text state (font/fontSize/charSpace/wordSpace/
-// horizScale/leading) in effect at the Do that invoked this form,
+// horizScale/leading/rise) in effect at the Do that invoked this form,
 // captured by the caller — per ISO 32000-1 §8.10.1 this form's own
 // content inherits exactly that state (never ctm, which this form's
 // content always starts at identity for, since localRegions above is

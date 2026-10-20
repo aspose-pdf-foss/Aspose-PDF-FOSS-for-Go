@@ -7,17 +7,30 @@ import "fmt"
 // rewriteTextOperatorsInStream removes glyphs whose test point falls
 // inside any region from text-rendering operators (Tj, TJ, ', "),
 // preserving the position of surviving glyphs via TJ kerning gaps. The
-// test point is the glyph's horizontal center at its BASELINE (y=0 in
-// text space, i.e. ignoring text rise — Ts has no case in this file at
-// all, tracked as pdf-go-lx1f) — "center" in the rest of this file's
-// comments means this,
-// not the glyph's true 2D bounding-box center; a region whose y-range
-// excludes the baseline (e.g. one hand-drawn tightly over just the upper
-// half of a line of text) can miss a glyph that is visibly inside it.
-// The documented, intended workflow — build a RedactAnnotation from a
-// SearchText match's own Rect — is unaffected: SearchText's own
-// Rect always spans descender-to-ascender and so always contains the
-// baseline too.
+// test point is the glyph's horizontal center at its baseline, OFFSET
+// BY TEXT RISE (y=rise in text space — Ts is tracked the same way
+// charSpace/wordSpace/etc. are, pdf-go-lx1f, closed) — "center" in the
+// rest of this file's comments means this, not the glyph's true 2D
+// bounding-box center; a region whose y-range excludes both the
+// baseline AND any active rise (e.g. one hand-drawn tightly over just
+// the upper half of a line of ordinary, non-risen text) can still miss
+// a glyph that is visibly inside it. The documented, intended workflow —
+// build a RedactAnnotation from a SearchText match's own Rect — is
+// unaffected either way: SearchText's own Rect always spans
+// descender-to-ascender and so always contains the baseline (and, for
+// the common case of a modest rise on an inline superscript/subscript,
+// the risen position too) regardless of Ts.
+//
+// Ts itself is intentionally NOT applied to the EMC-time /ActualText
+// position check below (case "EMC") — that check deliberately mirrors
+// textExtractor.currentPos (text.go), which has no Ts case of its own
+// either (consistent, not merely unfixed: fixing the extractor's own
+// Ts-unawareness, so SearchText itself reports a risen glyph's true
+// visual position, is a separate, deliberately out-of-scope change —
+// the "ideally to SearchText too" note on pdf-go-lx1f — since it would
+// also move every already-correct, Ts-unaware position SearchText and
+// ExtractTextWithLayout currently report for existing documents, a
+// wider blast radius than this file's own glyph-filtering fix).
 //
 // Form XObjects (Do op), inline images, and non-text operators are passed
 // through unchanged at THIS level — a Form XObject's own content is
@@ -173,6 +186,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		wordSpace  float64
 		horizScale = 1.0 // Tz / 100
 		leading    float64
+		rise       float64 // Ts, text space units, applied directly (ISO 32000-1 §9.4.4 — not scaled by fontSize, since this file already omits that submatrix; see this function's own doc comment)
 		tm         = identityMatrix()
 		lm         = identityMatrix()
 		ctm        = identityMatrix()
@@ -190,6 +204,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		font, fontName = initial.font, initial.fontName
 		fontSize, charSpace, wordSpace = initial.fontSize, initial.charSpace, initial.wordSpace
 		horizScale, leading = initial.horizScale, initial.leading
+		rise = initial.rise
 	}
 
 	out := make([]contentOp, 0, len(ops))
@@ -306,7 +321,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			gStack = append(gStack, textGState{
 				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
 				charSpace: charSpace, wordSpace: wordSpace, horizScale: horizScale,
-				leading: leading,
+				leading: leading, rise: rise,
 			})
 			out = append(out, op)
 
@@ -316,6 +331,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				gStack = gStack[:n-1]
 				ctm, font, fontName, fontSize = s.ctm, s.font, s.fontName, s.fontSize
 				charSpace, wordSpace, horizScale, leading = s.charSpace, s.wordSpace, s.horizScale, s.leading
+				rise = s.rise
 			}
 			out = append(out, op)
 
@@ -365,6 +381,12 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			}
 			out = append(out, op)
 
+		case "Ts":
+			if len(op.Operands) >= 1 {
+				rise = operandFloat(op.Operands[0])
+			}
+			out = append(out, op)
+
 		case "Td":
 			if len(op.Operands) >= 2 {
 				tx := operandFloat(op.Operands[0])
@@ -409,6 +431,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					horizScale: horizScale,
 					tm:         tm,
 					ctm:        ctm,
+					rise:       rise,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
 				if err != nil {
@@ -435,6 +458,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					horizScale: horizScale,
 					tm:         tm,
 					ctm:        ctm,
+					rise:       rise,
 				}
 				newOps, totalAdvance, dropped, err := filterTJArray(op.Operands[0], state, regions)
 				if err != nil {
@@ -465,6 +489,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					horizScale: horizScale,
 					tm:         tm,
 					ctm:        ctm,
+					rise:       rise,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
 				if err != nil {
@@ -497,6 +522,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					horizScale: horizScale,
 					tm:         tm,
 					ctm:        ctm,
+					rise:       rise,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[2], state, regions)
 				if err != nil {
@@ -625,6 +651,7 @@ type textGState struct {
 	wordSpace  float64
 	horizScale float64
 	leading    float64
+	rise       float64 // Ts (pdf-go-lx1f)
 }
 
 // glyphFilterState holds the current text rendering state for glyph filtering.
@@ -644,6 +671,11 @@ type glyphFilterState struct {
 	// rewriteTextOperatorsInStream's own doc comment, pdf-go-njbg), never
 	// tm alone.
 	ctm [6]float64
+	// rise is the active text rise (Ts) in text-space units, applied
+	// directly as the glyph test point's y coordinate before tm/ctm
+	// (pdf-go-lx1f) — see rewriteTextOperatorsInStream's own doc comment
+	// for why it needs no further scaling.
+	rise float64
 }
 
 // glyphAdvance computes the text-space advance for a single-byte glyph code.
@@ -750,7 +782,7 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 
 		// Glyph center in text space: (runningX + adv/2, 0).
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, 0)
+		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, state.rise)
 		dropped := pointInAnyQuad(ux, uy, regions)
 
 		glyphs[i] = singleByteGlyph{code: code, advance: adv, dropped: dropped}
@@ -908,7 +940,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 			_, cid, n := state.font.cidCMap.next(b)
 			adv := glyphAdvanceCID(state.font, cid, n, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 			cx := runningX + adv/2.0
-			ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
+			ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
 			dropped := pointInAnyQuad(ux, uy, regions)
 			glyphs = append(glyphs, cidGlyph{raw: b[:n], advance: adv, dropped: dropped})
 			runningX += adv
@@ -922,7 +954,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 		cid := uint16(b[i])<<8 | uint16(b[i+1])
 		adv := glyphAdvanceCID(state.font, cid, 2, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
+		ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
 		dropped := pointInAnyQuad(ux, uy, regions)
 		glyphs = append(glyphs, cidGlyph{raw: b[i : i+2], advance: adv, dropped: dropped})
 		runningX += adv
@@ -1062,7 +1094,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 					code := v[i]
 					adv := glyphAdvance(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 					cx := lx + adv/2.0
-					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, 0)
+					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
 					dropped := pointInAnyQuad(ux, uy, regions)
 					glyphs = append(glyphs, singleByteGlyph{code: code, advance: adv, dropped: dropped})
 					lx += adv
