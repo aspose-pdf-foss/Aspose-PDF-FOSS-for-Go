@@ -4,7 +4,6 @@ package asposepdf
 
 import (
 	"fmt"
-	"regexp"
 )
 
 // toIntBytes converts a byte slice of ASCII digits to int.
@@ -259,6 +258,20 @@ func collectObjDeps(objects map[int]*pdfObject, num int, deps map[int]*pdfObject
 	collectValueDepsDoc(objects, obj.Value, deps, visited)
 }
 
+// collectValueDepsDoc walks v's PARSED structure only — dict values,
+// array elements, a stream's own dict — never a stream's decoded DATA
+// bytes (pdf-go-2apc / GHSA-696v-26w4-39vc). A content stream (or any
+// other stream's data: a font program, an image, compressed bytes) is
+// not PDF syntax; it references resources (fonts, images, nested forms)
+// by NAME through /Resources, never by an indirect "N G R" reference
+// embedded directly in its bytes. Earlier code also regex-scanned a
+// stream's data for anything shaped like "N G R" and treated every
+// match as a real dependency — but that shape can appear in ordinary
+// page TEXT by pure coincidence (a price list, a cross-reference in the
+// prose, a part number), and Extract/Split then pulled in a whole
+// unrelated object (confirmed reachable: another page's own content
+// stream, confidentiality-impacting for a document split one page per
+// recipient) that the page never actually used.
 func collectValueDepsDoc(objects map[int]*pdfObject, v pdfValue, deps map[int]*pdfObject, visited map[int]bool) {
 	switch val := v.(type) {
 	case pdfRef:
@@ -271,13 +284,6 @@ func collectValueDepsDoc(objects map[int]*pdfObject, v pdfValue, deps map[int]*p
 		}
 	case *pdfStream:
 		collectDictDeps(objects, val.Dict, deps, visited)
-		// Scan stream bytes for inline references (content streams).
-		for _, m := range reRefDoc.FindAllSubmatch(val.Data, -1) {
-			n := toIntBytes(m[1])
-			if n > 0 {
-				collectObjDeps(objects, n, deps, visited)
-			}
-		}
 	}
 }
 
@@ -286,8 +292,6 @@ func collectDictDeps(objects map[int]*pdfObject, d pdfDict, deps map[int]*pdfObj
 		collectValueDepsDoc(objects, dv, deps, visited)
 	}
 }
-
-var reRefDoc = regexp.MustCompile(`\b(\d+)\s+\d+\s+R\b`)
 
 // collectReachableIDs returns the set of object IDs reachable from the given root objects.
 // Used by RemoveUnusedObjects to identify orphaned objects.
@@ -311,6 +315,12 @@ func collectReachableIDs(objects map[int]*pdfObject, roots []*pdfObject) map[int
 	return visited
 }
 
+// markReachable walks v's PARSED structure only — see collectValueDepsDoc's
+// doc comment (pdf-go-2apc / GHSA-696v-26w4-39vc): a stream's decoded DATA
+// bytes are never scanned for reference-shaped digit sequences. Before
+// this, RemoveUnusedObjects kept a genuinely dead object alive forever
+// whenever its number happened to appear, by pure coincidence, inside
+// some unrelated stream's own text/binary data.
 func markReachable(objects map[int]*pdfObject, v pdfValue, visited map[int]bool) {
 	switch val := v.(type) {
 	case pdfRef:
@@ -334,16 +344,6 @@ func markReachable(objects map[int]*pdfObject, v pdfValue, visited map[int]bool)
 	case *pdfStream:
 		for _, dv := range val.Dict {
 			markReachable(objects, dv, visited)
-		}
-		// Scan stream bytes for inline references (e.g. content streams).
-		for _, m := range reRefDoc.FindAllSubmatch(val.Data, -1) {
-			n := toIntBytes(m[1])
-			if n > 0 && !visited[n] {
-				if obj, ok := objects[n]; ok {
-					visited[n] = true
-					markReachable(objects, obj.Value, visited)
-				}
-			}
 		}
 	}
 }
@@ -398,8 +398,19 @@ func deepCopyValue(v pdfValue) pdfValue {
 	return v
 }
 
-// rewriteRefs returns a deep copy of v with all pdfRef IDs translated through idMap.
-// Objects whose IDs are not in idMap are left as-is.
+// rewriteRefs returns a deep copy of v with all pdfRef IDs translated
+// through idMap. Objects whose IDs are not in idMap are left as-is. A
+// stream's decoded DATA bytes are copied verbatim, never rewritten (see
+// collectValueDepsDoc's doc comment, pdf-go-2apc / GHSA-696v-26w4-39vc):
+// content streams name resources through /Resources, never via a raw
+// "N G R" embedded in their own bytes, so there is nothing in stream
+// data that this remap could ever legitimately need to touch. Before
+// this, Append silently rewrote the APPENDED document's own visible text
+// (or font/image binary data) whenever it happened to contain a
+// reference-shaped digit sequence naming one of ITS OWN real objects,
+// which then got renumbered out from under it — an integrity bug, and
+// nondeterministic besides (the replacement numbers depend on whatever
+// the target document's own object count happened to be).
 func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {
 	switch val := v.(type) {
 	case pdfRef:
@@ -424,18 +435,8 @@ func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {
 		for k, dv := range val.Dict {
 			nd[k] = rewriteRefs(dv, idMap)
 		}
-		newData := reRefDoc.ReplaceAllFunc(val.Data, func(match []byte) []byte {
-			sub := reRefDoc.FindSubmatch(match)
-			if sub == nil {
-				return match
-			}
-			n := toIntBytes(sub[1])
-			if newID, ok := idMap[n]; ok {
-				return []byte(fmt.Sprintf("%d 0 R", newID))
-			}
-			return match
-		})
-		return &pdfStream{Dict: nd, Data: newData, Decoded: val.Decoded}
+		data := append([]byte(nil), val.Data...)
+		return &pdfStream{Dict: nd, Data: data, Decoded: val.Decoded}
 	}
 	return v
 }

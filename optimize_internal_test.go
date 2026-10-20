@@ -132,22 +132,73 @@ func TestOptimizeRemovedObjectsCountsBothPasses(t *testing.T) {
 	}
 }
 
-func TestRemoveDuplicateStreamsRewritesContentRefs(t *testing.T) {
+// TestRemoveDuplicateStreamsRewritesStructuralRefsNotStreamBytes pins the
+// corrected behavior after pdf-go-2apc / GHSA-696v-26w4-39vc:
+// removeDuplicateStreams repoints a merged-away duplicate's references
+// through the STRUCTURAL object graph (a dict/array pdfRef — here, the
+// page's own /Resources/XObject entry) via rewriteRefs, but must never
+// touch a stream's own DATA bytes, even when they happen to contain a
+// digit sequence shaped exactly like a reference to the duplicate. A
+// real content stream never names a resource this way (Do operands are
+// always resource NAMES resolved through /Resources, never a raw
+// "N G R" embedded in the operator stream) — rewriteRefs used to scan
+// and rewrite stream bytes anyway, which both corrupted any ordinary
+// page text that happened to contain such a sequence AND was never
+// needed for the structural case this function actually exists to
+// handle, which the first half of this test confirms still works.
+func TestRemoveDuplicateStreamsRewritesStructuralRefsNotStreamBytes(t *testing.T) {
 	d := NewDocumentFromFormat(PageFormatA4)
 	content := bytes.Repeat([]byte("data "), 20)
 	a := d.addObject(&pdfStream{Dict: pdfDict{}, Data: content, Decoded: true})
 	b := d.addObject(&pdfStream{Dict: pdfDict{}, Data: append([]byte(nil), content...), Decoded: true})
 
-	// A content stream that references the duplicate by "b 0 R" in its bytes.
-	body := []byte("/X " + itoa(b) + " 0 R Do")
-	holder := d.addObject(&pdfStream{Dict: pdfDict{}, Data: body, Decoded: true})
+	// The STRUCTURAL way a page actually references an XObject: a
+	// /Resources/XObject dict entry, a real pdfRef — not anything
+	// embedded in stream bytes.
+	page, err := d.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources := page.pageResources()
+	xobj := pdfDict{"/X": pdfRef{Num: b}}
+	resources["/XObject"] = xobj
+
+	// A content stream whose own bytes happen to contain a digit
+	// sequence shaped exactly like a reference to the duplicate (b) —
+	// pure coincidence, same as ordinary page text could produce (e.g.
+	// "see item 3 0 R" in a price list) — which must survive byte-for-byte.
+	coincidence := []byte("/X Do % see item " + itoa(b) + " 0 R for details")
+	holder := d.addObject(&pdfStream{Dict: pdfDict{}, Data: coincidence, Decoded: true})
 
 	if got := d.removeDuplicateStreams(); got != 1 {
 		t.Fatalf("removed %d; want 1", got)
 	}
-	newBody := string(d.objects[holder].Value.(*pdfStream).Data)
-	want := "/X " + itoa(a) + " 0 R Do"
-	if newBody != want {
-		t.Errorf("content ref not rewritten: got %q want %q", newBody, want)
+
+	// Structural repoint: the page's /Resources/XObject entry must now
+	// point at the keeper (a), not the removed duplicate (b). rewriteRefs
+	// returns a fresh deep copy rather than mutating in place, so this
+	// must be re-read from d.objects (obj.Value was reassigned), not from
+	// the stale local xobj map built before the call.
+	newPageDict, ok := d.objects[page.pageObj().Num].Value.(pdfDict)
+	if !ok {
+		t.Fatal("page object is no longer a dict")
+	}
+	newResources, ok := newPageDict["/Resources"].(pdfDict)
+	if !ok {
+		t.Fatal("page /Resources is no longer a dict")
+	}
+	newXObj, ok := newResources["/XObject"].(pdfDict)
+	if !ok {
+		t.Fatal("/Resources/XObject is no longer a dict")
+	}
+	if ref, ok := newXObj["/X"].(pdfRef); !ok || ref.Num != a {
+		t.Errorf("/Resources/XObject/X = %v, want a plain ref to the keeper object %d", newXObj["/X"], a)
+	}
+
+	// Stream bytes: untouched, even though they contain the duplicate's
+	// own (now-stale, but irrelevant) number in "N 0 R" shape.
+	gotBody := string(d.objects[holder].Value.(*pdfStream).Data)
+	if gotBody != string(coincidence) {
+		t.Errorf("content stream bytes were rewritten: got %q, want the original %q unchanged", gotBody, coincidence)
 	}
 }
