@@ -122,6 +122,13 @@ type otShaper struct {
 	table      *otLayoutTable // the table currently being applied
 	nesting    int
 	ligCounter uint32
+
+	// prevBaseCache[i], once built, is prevBase(i)'s answer — see
+	// prevBase's own doc comment (GHSA-7jjg-q5vf-8592 / pdf-go-velp).
+	// Built lazily on first use since most shaping runs never call
+	// prevBase at all (no GPOS mark-attachment lookups apply).
+	prevBaseCache      []int
+	prevBaseCacheBuilt bool
 }
 
 // otScriptTag picks the OpenType script tag for a run from its characters.
@@ -950,10 +957,44 @@ func (s *otShaper) applyCursive(t *gposCursive, l *otLookup, i int) int {
 	return j
 }
 
-// prevBase returns the nearest preceding glyph that is not a mark.
+// prevBase returns the nearest preceding glyph that is not a mark,
+// using a cache built once per shaping run (GHSA-7jjg-q5vf-8592 /
+// pdf-go-velp): a naive backward scan here made attaching N consecutive
+// marks to their base O(N²) overall, since each mark's own scan walked
+// back through every mark already seen — a text value of a few KB of
+// combining marks could stall AddText for seconds. The cache is valid
+// for the lifetime of one otShaper (a fresh otShaper is built per
+// shaping call): a glyph's mark/base classification (glyphClass, driven
+// by GDEF class + the precomputed isMark flag — see glyphClass) never
+// changes once GPOS positioning begins, since gids and the glyph count
+// are already fixed by then. prevBase's own matcher flag
+// (otFlagIgnoreMarks only, no mark-filtering-set, no ignore-ligatures)
+// is a fixed constant too, independent of whichever GPOS lookup is
+// calling it — so, unlike a cache keyed to one lookup's own flag, this
+// one answer is correct for every caller throughout the whole run.
 func (s *otShaper) prevBase(i int) int {
+	if !s.prevBaseCacheBuilt {
+		s.buildPrevBaseCache()
+	}
+	if i < 0 || i >= len(s.prevBaseCache) {
+		return -1
+	}
+	return s.prevBaseCache[i]
+}
+
+// buildPrevBaseCache computes prevBase's answer for every position in
+// one forward O(n) pass.
+func (s *otShaper) buildPrevBaseCache() {
 	m := otMatcher{s: s, flag: otFlagIgnoreMarks}
-	return m.prev(i)
+	s.prevBaseCache = make([]int, len(s.glyphs))
+	last := -1
+	for i := range s.glyphs {
+		s.prevBaseCache[i] = last
+		if !m.skip(i) {
+			last = i
+		}
+	}
+	s.prevBaseCacheBuilt = true
 }
 
 func (s *otShaper) attachMarkTo(i, base int, mark otMarkRecord, anchor otAnchor) int {

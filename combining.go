@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // Unicode canonical combining classes, and the canonical ordering they
 // drive (UAX #15, D108). A shaper must see combining marks in canonical
@@ -581,19 +584,40 @@ func shapingClass(r rune) uint8 {
 // canonicalOrder sorts each run of combining marks by shaping class, in
 // place and stably (marks of equal class keep their typed order, as the
 // algorithm requires). Runes with class 0 are fixed points.
+//
+// Each maximal run of non-zero-class runes is sorted independently with
+// sort.SliceStable, O(run log run) rather than the O(run²) insertion
+// sort this used to be (GHSA-7jjg-q5vf-8592 / pdf-go-velp: a text value
+// of a few KB consisting mostly of combining marks — plausible user
+// input, e.g. a field using combining diacritics instead of precomposed
+// characters — could stall AddText for seconds). A stable sort by the
+// same total order as the old bubble pass is guaranteed to produce the
+// IDENTICAL permutation: stability pins the relative order of marks
+// that compare equal (same class), and every other pair's relative
+// order is fully determined by comparing their classes either way —
+// there is no input on which the two algorithms could legally disagree.
 func canonicalOrder(runes []rune) {
-	for i := 1; i < len(runes); i++ {
-		c := shapingClass(runes[i])
-		if c == 0 {
+	n := len(runes)
+	for i := 0; i < n; i++ {
+		if shapingClass(runes[i]) == 0 {
 			continue
 		}
-		// Bubble this mark back past any mark of a higher class.
-		for j := i; j > 0; j-- {
-			pc := shapingClass(runes[j-1])
-			if pc == 0 || pc <= c {
-				break
-			}
-			runes[j], runes[j-1] = runes[j-1], runes[j]
+		j := i + 1
+		for j < n && shapingClass(runes[j]) != 0 {
+			j++
 		}
+		sortMarkRun(runes[i:j])
+		i = j // the for loop's own i++ then lands past this run
 	}
+}
+
+// sortMarkRun stably sorts one maximal run of non-zero-class marks by
+// shaping class.
+func sortMarkRun(run []rune) {
+	if len(run) < 2 {
+		return
+	}
+	sort.SliceStable(run, func(a, b int) bool {
+		return shapingClass(run[a]) < shapingClass(run[b])
+	})
 }
