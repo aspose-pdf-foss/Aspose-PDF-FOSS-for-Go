@@ -34,6 +34,13 @@ type shapedGlyph struct {
 	text      string // the characters this glyph draws, for /ToUnicode
 	rtl       bool   // drawn in a right-to-left run (set by shapeLine)
 
+	// deleted marks a glyph ligate/gsubMultiple consumed during the GSUB
+	// lookup pass currently running. It is tombstoned rather than spliced
+	// out of s.glyphs immediately — see compactGSUB — so every matcher
+	// (otMatcher.skip, and so next/prev/matchForward/matchBackward too)
+	// treats it as unconditionally skippable in the meantime.
+	deleted bool
+
 	// Ligature bookkeeping: which ligature a glyph belongs to and which of
 	// its components, so a mark can attach to the right part of it.
 	ligID   uint32
@@ -129,6 +136,48 @@ type otShaper struct {
 	// prevBase at all (no GPOS mark-attachment lookups apply).
 	prevBaseCache      []int
 	prevBaseCacheBuilt bool
+
+	// hasDeleted and pendingInserts back the deferred-compaction scheme
+	// ligate/gsubMultiple use to avoid an O(n) buffer shift on every
+	// single substitution event (GHSA-vj25-h6h5-3phj / pdf-go-sv5t point
+	// 2, a follow-up to GHSA-7jjg-q5vf-8592 / pdf-go-velp's own two
+	// quadratic hot spots): a ligature or a zero-length multiple
+	// substitution tombstones the glyphs it consumes (deleted=true)
+	// instead of removing them, and a growing (one-to-many) multiple
+	// substitution queues its extra glyphs here keyed by the position
+	// they go after, instead of splicing them in immediately. Both are
+	// applied in a single O(n) rebuild by compactGSUB once the whole
+	// lookup's forward scan finishes, rather than once per event.
+	hasDeleted     bool
+	pendingInserts map[int][]shapedGlyph
+}
+
+// compactGSUB rebuilds s.glyphs in one O(n) pass, dropping every glyph
+// tombstoned this lookup pass and splicing in whatever a growing
+// multiple substitution queued in pendingInserts — see the otShaper
+// field comments above for why this is deferred instead of running on
+// every individual substitution. Called once, at the end of a top-level
+// applyLookup's GSUB forward scan: by then every tombstone/pending
+// insert this lookup produced, including ones a nested nested lookup
+// queued via applyNested, has already been recorded, so this single
+// pass leaves s.glyphs exactly as immediate splicing would have, just
+// without the repeated O(remaining length) copying.
+func (s *otShaper) compactGSUB() {
+	if !s.hasDeleted && len(s.pendingInserts) == 0 {
+		return
+	}
+	out := make([]shapedGlyph, 0, len(s.glyphs))
+	for i := range s.glyphs {
+		if !s.glyphs[i].deleted {
+			out = append(out, s.glyphs[i])
+		}
+		if extra, ok := s.pendingInserts[i]; ok {
+			out = append(out, extra...)
+		}
+	}
+	s.glyphs = out
+	s.hasDeleted = false
+	s.pendingInserts = nil
 }
 
 // otScriptTag picks the OpenType script tag for a run from its characters.
@@ -361,6 +410,9 @@ type otMatcher struct {
 
 func (m otMatcher) skip(i int) bool {
 	g := &m.s.glyphs[i]
+	if g.deleted {
+		return true
+	}
 	class := m.s.glyphClass(g)
 	switch class {
 	case otClassMark:
@@ -453,6 +505,9 @@ func (s *otShaper) applyLookup(pl otPlanLookup, gsub bool) {
 			i++
 		}
 	}
+	if gsub {
+		s.compactGSUB()
+	}
 }
 
 // applyLookupAt applies one lookup at a single position — the entry point
@@ -506,22 +561,29 @@ func (s *otShaper) applyGSUBSubtable(st any, l *otLookup, i int) int {
 		}
 		seq := t.seqs[ci]
 		if len(seq) == 0 {
-			// A zero-length sequence deletes the glyph.
-			s.glyphs = append(s.glyphs[:i], s.glyphs[i+1:]...)
-			return i
+			// A zero-length sequence deletes the glyph — tombstoned
+			// rather than spliced out immediately; see compactGSUB.
+			s.glyphs[i].deleted = true
+			s.hasDeleted = true
+			return i + 1
 		}
 		s.glyphs[i].gid = seq[0]
 		if len(seq) > 1 {
+			// Queue the extra glyphs to be spliced in after i by
+			// compactGSUB instead of shifting the whole tail now; see
+			// the otShaper.pendingInserts field comment.
 			extra := make([]shapedGlyph, len(seq)-1)
 			for k := range extra {
 				extra[k] = s.glyphs[i]
 				extra[k].gid = seq[k+1]
 				extra[k].text = "" // the first glyph of the sequence carries the text
 			}
-			rest := append(extra, s.glyphs[i+1:]...)
-			s.glyphs = append(s.glyphs[:i+1], rest...)
+			if s.pendingInserts == nil {
+				s.pendingInserts = make(map[int][]shapedGlyph)
+			}
+			s.pendingInserts[i] = extra
 		}
-		return i + len(seq)
+		return i + 1
 
 	case *gsubAlternate:
 		ci := t.cov.index(g)
@@ -613,11 +675,12 @@ func (s *otShaper) matchBackward(i int, m otMatcher, n int, ok func(k int, g uin
 	return true
 }
 
-// ligate replaces the glyph at i with lig, deletes the component glyphs at
-// comps, and tags any glyphs that were skipped between them (marks) with
-// the ligature's id and the component they follow — which is what lets
-// mark-to-ligature positioning find the right attachment point. It returns
-// the position just past the ligature.
+// ligate replaces the glyph at i with lig and tombstones the component
+// glyphs at comps (deleted=true, rather than removing them from s.glyphs
+// immediately — see compactGSUB), tagging any glyphs that were skipped
+// between them (marks) with the ligature's id and the component they
+// follow — which is what lets mark-to-ligature positioning find the right
+// attachment point. It returns the position just past the last component.
 func (s *otShaper) ligate(i int, comps []int, lig uint16) int {
 	s.ligCounter++
 	id := s.ligCounter
@@ -626,23 +689,20 @@ func (s *otShaper) ligate(i int, comps []int, lig uint16) int {
 	s.glyphs[i].ligComp = 0
 
 	last := comps[len(comps)-1]
-	out := s.glyphs[:i+1]
 	ci, comp := 0, uint8(1)
 	for k := i + 1; k <= last; k++ {
 		if ci < len(comps) && comps[ci] == k {
 			s.glyphs[i].text += s.glyphs[k].text
+			s.glyphs[k].deleted = true
+			s.hasDeleted = true
 			ci++
 			comp++
 			continue
 		}
-		g := s.glyphs[k]
-		g.ligID = id
-		g.ligComp = comp
-		out = append(out, g)
+		s.glyphs[k].ligID = id
+		s.glyphs[k].ligComp = comp
 	}
-	newIdx := len(out)
-	s.glyphs = append(out, s.glyphs[last+1:]...)
-	return newIdx
+	return last + 1
 }
 
 // --- contextual lookups (GSUB 5/6, GPOS 7/8) ----------------------------
@@ -1089,9 +1149,27 @@ func (s *otShaper) applyMarkMark(t *gposMarkMark, l *otLookup, i int) int {
 // absolute offsets: a mark's offset is relative to the glyph it attached
 // to, which may itself be attached to something else, and the pen has
 // already advanced past everything in between.
+// resolveAttachments resolves every glyph's attachment chain (mark-to-base,
+// mark-to-ligature, cursive) into absolute xOff/yOff offsets.
+//
+// advancePrefix[i] is the sum of s.glyphs[0:i].advance, built once here
+// before any propagation runs — propagateAttachment never mutates
+// .advance (only .xOff/.yOff), so the sums stay valid for the whole pass.
+// Passing it down lets propagateAttachment turn its "sum every advance
+// between the base and the mark" loop into one O(1) subtraction
+// (GHSA-vj25-h6h5-3phj / pdf-go-sv5t point 1, a follow-up to
+// GHSA-7jjg-q5vf-8592 / pdf-go-velp: that fix's own regression test used
+// base letter "a", which DejaVu Sans's mark-to-base lookup apparently
+// recomposes through a path that never reaches this loop at all, so the
+// O(N²) cost of N marks sharing one base — any base OTHER than the few
+// the test happened to try — went unnoticed).
 func (s *otShaper) resolveAttachments() {
+	advancePrefix := make([]int32, len(s.glyphs)+1)
+	for i, g := range s.glyphs {
+		advancePrefix[i+1] = advancePrefix[i] + g.advance
+	}
 	for i := range s.glyphs {
-		s.propagateAttachment(i, map[int]bool{})
+		s.propagateAttachment(i, map[int]bool{}, advancePrefix)
 	}
 	for i := range s.glyphs {
 		s.glyphs[i].attachType = attachNone
@@ -1099,7 +1177,7 @@ func (s *otShaper) resolveAttachments() {
 	}
 }
 
-func (s *otShaper) propagateAttachment(i int, seen map[int]bool) {
+func (s *otShaper) propagateAttachment(i int, seen map[int]bool, advancePrefix []int32) {
 	g := &s.glyphs[i]
 	if g.attachChain == 0 || seen[i] {
 		return
@@ -1110,7 +1188,7 @@ func (s *otShaper) propagateAttachment(i int, seen map[int]bool) {
 		g.attachChain = 0
 		return
 	}
-	s.propagateAttachment(j, seen)
+	s.propagateAttachment(j, seen, advancePrefix)
 
 	switch g.attachType {
 	case attachMark:
@@ -1121,17 +1199,14 @@ func (s *otShaper) propagateAttachment(i int, seen map[int]bool) {
 		// drawn the pen has moved. Which glyphs lie in between depends on
 		// the direction — an RTL run is reversed before it is drawn, so
 		// the mark comes out ahead of its base rather than behind it.
+		// sum(s.glyphs[k].advance for k in [lo, hi)) == advancePrefix[hi] - advancePrefix[lo].
 		if j >= i {
 			break
 		}
 		if !s.rtl {
-			for k := j; k < i; k++ {
-				g.xOff -= s.glyphs[k].advance
-			}
+			g.xOff -= advancePrefix[i] - advancePrefix[j]
 		} else {
-			for k := j + 1; k <= i; k++ {
-				g.xOff += s.glyphs[k].advance
-			}
+			g.xOff += advancePrefix[i+1] - advancePrefix[j+1]
 		}
 	case attachCursive:
 		g.yOff += s.glyphs[j].yOff

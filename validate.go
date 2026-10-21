@@ -5,7 +5,6 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 )
 
 // ValidationIssue describes a single problem found in a PDF file.
@@ -506,10 +505,10 @@ func (d *rawDocument) pages() ([]*pageInfo, error) {
 	return result, nil
 }
 
-// pageInfo describes a single PDF page and all objects it needs.
+// pageInfo describes a single PDF page reached while walking the page
+// tree.
 type pageInfo struct {
 	objNum int
-	deps   map[int]bool
 }
 
 func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error {
@@ -542,81 +541,10 @@ func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error 
 			}
 		}
 	case "/Page", "":
-		deps := make(map[int]bool)
-		deps[ref.Num] = true
-		d.collectValueDeps(nodeDict, deps)
-		if err := d.collectInheritedDeps(nodeRef, deps); err != nil {
-			return err
-		}
-		*result = append(*result, &pageInfo{objNum: ref.Num, deps: deps})
+		*result = append(*result, &pageInfo{objNum: ref.Num})
 	default:
 		return fmt.Errorf("unknown page tree node type: %s", nodeType)
 	}
 	return nil
 }
 
-func (d *rawDocument) collectInheritedDeps(pageRef pdfValue, deps map[int]bool) error {
-	nodeDict, err := d.resolveDict(pageRef)
-	if err != nil {
-		return err
-	}
-	parentRef, ok := nodeDict["/Parent"]
-	if !ok {
-		return nil
-	}
-	parentDict, err := d.resolveDict(parentRef)
-	if err != nil {
-		return err
-	}
-	if res, ok := parentDict["/Resources"]; ok {
-		d.collectValueDeps(res, deps)
-	}
-	return d.collectInheritedDeps(parentRef, deps)
-}
-
-var reRef = regexp.MustCompile(`\b(\d+)\s+\d+\s+R\b`)
-
-func (d *rawDocument) collectDeps(objNum int, deps map[int]bool) error {
-	if deps[objNum] {
-		return nil
-	}
-	obj, err := d.getObject(objNum)
-	if err != nil {
-		return nil
-	}
-	if dict, ok := obj.Value.(pdfDict); ok {
-		switch dictGetName(dict, "/Type") {
-		case "/Pages", "/Catalog", "/Page":
-			return nil
-		}
-	}
-	deps[objNum] = true
-	d.collectValueDeps(obj.Value, deps)
-	return nil
-}
-
-func (d *rawDocument) collectValueDeps(v pdfValue, deps map[int]bool) {
-	switch val := v.(type) {
-	case pdfRef:
-		_ = d.collectDeps(val.Num, deps) // best-effort walk
-	case pdfDict:
-		for _, dv := range val {
-			d.collectValueDeps(dv, deps)
-		}
-	case pdfArray:
-		for _, av := range val {
-			d.collectValueDeps(av, deps)
-		}
-	case *pdfStream:
-		for _, dv := range val.Dict {
-			d.collectValueDeps(dv, deps)
-		}
-		refs := reRef.FindAllSubmatch(val.Data, -1)
-		for _, m := range refs {
-			n := toIntBytes(m[1])
-			if n > 0 {
-				_ = d.collectDeps(n, deps) // best-effort walk
-			}
-		}
-	}
-}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	asposepdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
@@ -175,6 +176,32 @@ func TestValidate_StrippedStreamFilter(t *testing.T) {
 				t.Errorf("%s: %s", p, issue.Message)
 			}
 		}
+	}
+}
+
+// TestValidate_DoesNotScanStreamBytesForReferences is a loose timing
+// regression test for pdf-go-sv5t point 3 (a follow-up to
+// GHSA-vj25-h6h5-3phj): Validate used to decode every stream in the
+// document and regex-scan its DATA bytes for digit sequences shaped
+// like an indirect reference ("N G R"), building a dependency map
+// (pageInfo.deps) that nothing in the codebase ever read — purely
+// wasted work, not a correctness or security issue (unlike the same
+// regex-over-stream-bytes anti-pattern in doc.go, closed by pdf-go-2apc
+// / GHSA-696v-26w4-39vc, whose output WAS acted on). Removed outright,
+// along with the rest of the unused dependency-collection machinery
+// (collectDeps/collectValueDeps/collectInheritedDeps). On the 1.6MB,
+// image-heavy testdata/PdfWithImages.pdf this took Validate from
+// ~660ms to ~60ms per call on the machine this was measured on — not a
+// tight bound (this is a one-time constant-factor removal, not a
+// quadratic fix, so the bound here is deliberately generous), just
+// enough to catch a gross regression.
+func TestValidate_DoesNotScanStreamBytesForReferences(t *testing.T) {
+	start := time.Now()
+	if _, err := asposepdf.Validate("testdata/PdfWithImages.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 400*time.Millisecond {
+		t.Errorf("Validate(PdfWithImages.pdf) took %v — expected well under the ~660ms the stream-byte scan cost before it was removed", elapsed)
 	}
 }
 
