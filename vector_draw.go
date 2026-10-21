@@ -79,6 +79,17 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 	if style.Width <= 0 {
 		return nil
 	}
+	// Checked here, not only in appendToContentStream below: applyAlpha
+	// (and, for a fill-capable shape, resolveShapeGradient/
+	// resolveShapeTiling) register resources into /Resources before
+	// this method ever reaches its own appendToContentStream call, so
+	// a frozen-canvas rejection there alone would still leave those
+	// traces of rejected content in the saved file (GitHub issue #20
+	// point 2, shadowhunter1470-svg). Every Draw* method in this file
+	// gets the same check for the same reason.
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
 	gsOp, err := p.applyAlpha(style.Color, nil)
@@ -150,6 +161,9 @@ func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
 	op := paintOp(style)
 	if op == "" {
 		return nil
+	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
 	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
@@ -230,6 +244,9 @@ func (p *Page) DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error
 	if op == "" || rx == 0 || ry == 0 {
 		return nil
 	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -257,6 +274,9 @@ func (p *Page) DrawPolyline(points []Point, style LineStyle) error {
 	}
 	if style.Width <= 0 {
 		return nil
+	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
 	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
@@ -308,6 +328,9 @@ func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
 	if op == "" {
 		return nil
 	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -343,6 +366,9 @@ func (p *Page) DrawRoundedRectangle(rect Rectangle, radius float64, style ShapeS
 	if w <= 0 || h <= 0 {
 		return nil
 	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -370,6 +396,9 @@ func (p *Page) DrawPolygon(points []Point, style ShapeStyle) error {
 	op := paintOp(style)
 	if op == "" {
 		return nil
+	}
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
 	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err

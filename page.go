@@ -39,6 +39,18 @@ type Page struct {
 	// full *Page drawing API (AddText, Draw*, AddImage, …) then targets it,
 	// and its content/resources are harvested into a Form XObject.
 	obj *pdfObject
+
+	// contentsBounded/contentsLen cache appendToContentStream's own
+	// "/Contents is a direct pdfArray I exclusively own, already wrapped
+	// with the one-time q...Q marker" fact across repeated calls, so a
+	// long run of draw calls on one page/canvas doesn't pay
+	// contentsEntries' O(n) resolve-and-scan on every single one of
+	// them (GitHub issue #20 point 1, shadowhunter1470-svg). See
+	// appendToContentStream's own doc comment for the full writeup,
+	// including why a stale cache falls back safely rather than
+	// corrupting anything.
+	contentsBounded bool
+	contentsLen     int
 }
 
 // Number returns the 1-based page number within the document.

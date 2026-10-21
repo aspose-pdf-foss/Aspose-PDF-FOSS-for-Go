@@ -24,6 +24,13 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 	if t == nil {
 		return 0, fmt.Errorf("add table: nil table")
 	}
+	// Checked here, not only in appendToContentStream below: cell text/
+	// image/border rendering registers fonts and images into /Resources
+	// well before this method reaches its own appendToContentStream
+	// call (GitHub issue #20 point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return 0, err
+	}
 	if err := rect.validate(); err != nil {
 		return 0, fmt.Errorf("add table: %w", err)
 	}
@@ -74,23 +81,42 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 		xOffsets[i+1] = xOffsets[i] + w
 	}
 
-	// Compute continuation rect (used on auto-appended pages).
-	overflowTop, overflowBottom := t.OverflowMargins()
-	sz, err := p.Size()
-	if err != nil {
-		return 0, fmt.Errorf("add table: page size: %w", err)
-	}
-	continuationRect := Rectangle{
-		LLX: rect.LLX,
-		LLY: overflowBottom,
-		URX: rect.URX,
-		URY: sz.Height - overflowTop,
-	}
-	continuationHeight := continuationRect.URY - continuationRect.LLY
-	if continuationHeight <= 0 {
-		return 0, fmt.Errorf(
-			"add table: continuation rect has non-positive height (page %g, margins top=%g bottom=%g)",
-			sz.Height, overflowTop, overflowBottom)
+	// Compute continuation rect (used on auto-appended pages). A detached
+	// canvas (XForm.Canvas, TilingPattern.Canvas, a Type3Font glyph
+	// canvas) never continues onto a next page at all — the render loop
+	// below refuses outright on overflow for one instead (p.obj != nil
+	// branch) — so none of this continuation-page bookkeeping applies to
+	// it. Computing it unconditionally used to reject a table that fit
+	// the canvas just fine purely because the UNRELATED continuation
+	// rect (derived from the DOCUMENT's page size, which a small canvas
+	// has nothing to do with) came out too short under the default 50pt
+	// overflow margins — e.g. a 50pt-tall canvas with top=bottom=50
+	// margins always failed this way, regardless of the table's actual
+	// size (GitHub issue #20 point 3, shadowhunter1470-svg; a follow-up
+	// to the same pdf-go-nvpo/#17 point 2 the render-loop refusal above
+	// already closed).
+	var continuationRect Rectangle
+	var continuationHeight float64
+	var sz PageSize
+	if p.obj == nil {
+		overflowTop, overflowBottom := t.OverflowMargins()
+		var err error
+		sz, err = p.Size()
+		if err != nil {
+			return 0, fmt.Errorf("add table: page size: %w", err)
+		}
+		continuationRect = Rectangle{
+			LLX: rect.LLX,
+			LLY: overflowBottom,
+			URX: rect.URX,
+			URY: sz.Height - overflowTop,
+		}
+		continuationHeight = continuationRect.URY - continuationRect.LLY
+		if continuationHeight <= 0 {
+			return 0, fmt.Errorf(
+				"add table: continuation rect has non-positive height (page %g, margins top=%g bottom=%g)",
+				sz.Height, overflowTop, overflowBottom)
+		}
 	}
 
 	// Compute spanning groups for the body (skip header rows).
@@ -105,18 +131,20 @@ func (p *Page) AddTable(t *Table, rect Rectangle) (int, error) {
 		return 0, fmt.Errorf("add table: header rows height %g exceeds initial rect height %g",
 			headerHeight, rect.URY-rect.LLY)
 	}
-	if headerHeight > continuationHeight {
-		return 0, fmt.Errorf("add table: header rows height %g exceeds continuation rect height %g",
-			headerHeight, continuationHeight)
-	}
-	for _, g := range groups {
-		gh := 0.0
-		for r := g.start; r <= g.end; r++ {
-			gh += heights[r]
+	if p.obj == nil {
+		if headerHeight > continuationHeight {
+			return 0, fmt.Errorf("add table: header rows height %g exceeds continuation rect height %g",
+				headerHeight, continuationHeight)
 		}
-		if gh > continuationHeight-headerHeight {
-			return 0, fmt.Errorf("add table: group [%d..%d] height %g exceeds continuation rect body height %g",
-				g.start, g.end, gh, continuationHeight-headerHeight)
+		for _, g := range groups {
+			gh := 0.0
+			for r := g.start; r <= g.end; r++ {
+				gh += heights[r]
+			}
+			if gh > continuationHeight-headerHeight {
+				return 0, fmt.Errorf("add table: group [%d..%d] height %g exceeds continuation rect body height %g",
+					g.start, g.end, gh, continuationHeight-headerHeight)
+			}
 		}
 	}
 

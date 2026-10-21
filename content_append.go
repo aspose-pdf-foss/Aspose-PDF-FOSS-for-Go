@@ -192,14 +192,57 @@ func (p *Page) appendToContentStream(data []byte) error {
 	if pageDict == nil {
 		return fmt.Errorf("page has no dict")
 	}
-	entries, bounded := contentsEntries(p.doc.objects, pageDict["/Contents"])
 	newRef := newContentStream(p.doc, data, nil)
 
+	// Fast path: this *Page already established, on an earlier call,
+	// that /Contents is a direct pdfArray it exclusively owns, already
+	// carrying the one-time q...Q wrap — append to it in place instead
+	// of paying contentsEntries' O(n) resolve-and-scan-for-the-marker
+	// again, which otherwise costs O(n) on every one of n draw calls on
+	// one page/canvas, O(n²) overall (GitHub issue #20 point 1,
+	// shadowhunter1470-svg; the O(n) cache this method itself uses
+	// elsewhere, newContentStream, is unaffected — only the array
+	// bookkeeping here was quadratic).
+	//
+	// The type assertion alone already rules out the aliasing risk
+	// contentsEntries' own doc comment worries about (an indirect
+	// /Contents array shared by more than one page resolves through a
+	// pdfRef, never a direct pdfArray — this method only ever stores a
+	// freshly-built array it alone holds). The length check catches a
+	// DIFFERENT, real risk: something else (replacePageContents, for
+	// ApplyRedactions/ConvertToGrayscale/ImageInfo.Remove, most
+	// commonly) replacing /Contents with its OWN direct pdfArray that
+	// was never wrapped with this method's own q...Q isolation
+	// (pdf-go-p1yc) — reading /Contents fresh each time means blindly
+	// trusting such an array couldn't lose or corrupt ITS bytes either
+	// way, but it WOULD append the new content completely unprotected,
+	// able to inherit whatever graphics state that array's own content
+	// leaves open, exactly the bug the wrap exists to prevent. Either
+	// check failing clears the cache and falls to the slow path below,
+	// which re-derives bounded/entries correctly (including re-wrapping
+	// an unmarked array) — this is a performance cache, never a source
+	// of truth.
+	if p.contentsBounded {
+		if arr, ok := pageDict["/Contents"].(pdfArray); ok && len(arr) == p.contentsLen {
+			grown := append(arr, newRef)
+			pageDict["/Contents"] = grown
+			p.contentsLen = len(grown)
+			return nil
+		}
+		p.contentsBounded = false
+	}
+
+	entries, bounded := contentsEntries(p.doc.objects, pageDict["/Contents"])
 	switch {
 	case len(entries) == 0:
+		// /Contents becomes a bare stream reference, not an array yet —
+		// the fast path above doesn't apply until the NEXT append wraps
+		// it (the default case below), so contentsBounded stays false.
 		pageDict["/Contents"] = newRef
 	case bounded:
-		pageDict["/Contents"] = pdfArray(append(entries, newRef))
+		grown := append(entries, newRef)
+		pageDict["/Contents"] = pdfArray(grown)
+		p.contentsBounded, p.contentsLen = true, len(grown)
 	default:
 		qRef := newContentStream(p.doc, []byte("q\n"), nil)
 		endRef := newContentStream(p.doc, []byte("Q\n"), pdfDict{contentAppendMarkerKey: true})
@@ -209,6 +252,7 @@ func (p *Page) appendToContentStream(data []byte) error {
 		wrapped = append(wrapped, endRef)
 		wrapped = append(wrapped, newRef)
 		pageDict["/Contents"] = wrapped
+		p.contentsBounded, p.contentsLen = true, len(wrapped)
 	}
 	return nil
 }

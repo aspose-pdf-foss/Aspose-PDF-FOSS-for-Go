@@ -252,6 +252,13 @@ func (p *Page) AddMarkdown(md string, rect Rectangle, opts ...MarkdownOptions) e
 	if err := rect.validate(); err != nil {
 		return fmt.Errorf("add markdown: %w", err)
 	}
+	// Checked here, not only in appendToContentStream below: rendered
+	// blocks register fonts/images into /Resources well before this
+	// method reaches its own appendToContentStream call (GitHub issue
+	// #20 point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	o := firstMarkdownOptions(opts)
 	o.resolveFamilyFonts(p.doc)
 	f := &Flow{doc: p.doc, w: rect.URX, h: rect.URY, mL: rect.LLX, paraGap: 6}

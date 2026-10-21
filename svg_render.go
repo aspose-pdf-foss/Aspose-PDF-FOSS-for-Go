@@ -16,6 +16,15 @@ func renderSVG(p *Page, svg *SVG, rect Rectangle) error {
 	if rect.URX-rect.LLX <= 0 || rect.URY-rect.LLY <= 0 {
 		return nil
 	}
+	// Checked here, the single entry point behind AddSVG/AddSVGFromStream/
+	// AddSVGObject, not only in appendToContentStream below: node
+	// rendering registers images/fonts/gradients/masks into /Resources
+	// well before this function ever reaches its own
+	// appendToContentStream call (GitHub issue #20 point 2,
+	// shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 
 	var buf bytes.Buffer
 	outer := computeViewBoxMatrix(svg.viewBox, svg.width, svg.height, svg.par, rect)

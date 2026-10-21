@@ -267,6 +267,13 @@ func (p *Page) AddStamp(s Stamp) error {
 	if s == nil {
 		return fmt.Errorf("add stamp: nil stamp")
 	}
+	// Checked here, not only in appendToContentStream below: a stamp
+	// builds its own appearance (fonts/images/forms registered into
+	// /Resources) before drawing it onto the page (GitHub issue #20
+	// point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	return s.applyToPage(p)
 }
 

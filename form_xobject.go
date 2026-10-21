@@ -162,6 +162,14 @@ func (p *Page) AddForm(form *XForm, rect Rectangle) error {
 	if form == nil {
 		return fmt.Errorf("AddForm: nil form")
 	}
+	// Checked here, not only in appendToContentStream below:
+	// registerFormXObject registers a resource into p's own /Resources
+	// before p ever reaches its own appendToContentStream call (GitHub
+	// issue #20 point 2, shadowhunter1470-svg) — relevant when p itself
+	// is a detached canvas (nesting one form's placement inside another).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if form.doc != p.doc {
 		return fmt.Errorf("AddForm: form belongs to a different document (use Document.ImportForm first)")
 	}

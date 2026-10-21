@@ -83,6 +83,13 @@ func (p *Page) AddFloatingBox(box *FloatingBox, rect Rectangle) error {
 	if rect.URX <= rect.LLX || rect.URY <= rect.LLY {
 		return fmt.Errorf("AddFloatingBox: empty rect")
 	}
+	// Checked here, not only in appendToContentStream below: the box's
+	// own content (text/images/lists) registers resources before this
+	// method reaches its own appendToContentStream call (GitHub issue
+	// #20 point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := drawBoxFrame(p, box, rect); err != nil {
 		return err
 	}

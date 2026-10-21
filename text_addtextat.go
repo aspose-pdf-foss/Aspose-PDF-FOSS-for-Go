@@ -83,6 +83,17 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	if text == "" {
 		return nil
 	}
+	// Checked here, not only in appendToContentStream below: see
+	// AddText's identical comment — resolveFontForPage/useGlyph happen
+	// well before this method's own appendToContentStream call
+	// (GitHub issue #20 point 2, shadowhunter1470-svg).
+	// Checked here, not only in appendToContentStream below: see
+	// AddText's identical comment — resolveFontForPage/useGlyph happen
+	// well before this method's own appendToContentStream call
+	// (GitHub issue #20 point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := checkFontSize("add text at", style.Size); err != nil {
 		return err
 	}

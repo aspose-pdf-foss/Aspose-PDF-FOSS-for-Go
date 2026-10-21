@@ -895,6 +895,18 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	if text == "" {
 		return nil
 	}
+	// Checked here, not only in appendToContentStream below: font
+	// resolution (resolveFontForPage, a few lines down) registers the
+	// font into /Resources and, via the embedded-font encode closure's
+	// useGlyph call, permanently marks glyphs used in the FONT OBJECT
+	// ITSELF (a document-wide resource, affecting /ToUnicode and /W at
+	// save time) — both happen before this method ever reaches its own
+	// appendToContentStream call, so a frozen-canvas rejection there
+	// alone would still leave those traces of rejected content in the
+	// saved file (GitHub issue #20 point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if err := rect.validate(); err != nil {
 		return fmt.Errorf("add text: %w", err)
 	}

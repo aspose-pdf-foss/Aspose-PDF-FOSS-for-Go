@@ -37,6 +37,14 @@ func (p *Page) AddInlineImageFromStream(r io.Reader, rect Rectangle) error {
 }
 
 func (p *Page) addInlineImage(data []byte, rect Rectangle) error {
+	// Checked here, not only in appendToContentStream below — same
+	// reasoning as addImageFromBytes (image_add.go): decoding allocates
+	// objects (createPNGXObject for a PNG source) before this method
+	// ever reaches its own appendToContentStream call (GitHub issue #20
+	// point 2, shadowhunter1470-svg).
+	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
 	if rect.URX <= rect.LLX || rect.URY <= rect.LLY {
 		return fmt.Errorf("AddInlineImage: rect must be non-empty")
 	}

@@ -293,7 +293,13 @@ func TestXFormCanvasAddTableFits(t *testing.T) {
 	tbl := pdf.NewTable()
 	tbl.SetColumnWidths([]float64{40, 40})
 	tbl.AddRow().AddCells("a", "b")
-	tbl.SetOverflowMargins(0, 0) // the 50pt default margins don't fit this 50pt-tall canvas
+	// Default overflow margins (50pt top + 50pt bottom) deliberately left
+	// as-is: a detached canvas never continues onto a next page at all,
+	// so the continuation rect those margins would otherwise produce is
+	// skipped entirely for one (GitHub issue #20 point 3,
+	// shadowhunter1470-svg) — this table used to fail here purely
+	// because 50+50 >= this 50pt-tall canvas's own height, regardless of
+	// whether the one-row table itself fit (it does, easily).
 
 	pages, err := c.AddTable(tbl, pdf.Rectangle{URX: 100, URY: 50})
 	if err != nil {
