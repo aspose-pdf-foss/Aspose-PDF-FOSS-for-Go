@@ -8,6 +8,97 @@ import (
 	"strings"
 )
 
+// nonFinite reports whether v cannot be written as a PDF number at all
+// (ISO 32000-1 §7.3.3 defines no NaN/Infinity encoding) — used to reject
+// a caller-supplied coordinate/size/angle before it reaches formatFloat,
+// which would otherwise write the literal text "NaN"/"+Inf"/"-Inf" into
+// a content stream, unparseable PDF syntax no reader can read back
+// (GitHub issue #19, shadowhunter1470-svg).
+func nonFinite(v float64) bool {
+	return math.IsNaN(v) || math.IsInf(v, 0)
+}
+
+// minRepresentableSize is the smallest positive font size that survives
+// formatFloat's 6-decimal-place rounding (appearance_builder.go) without
+// collapsing to the literal text "0" — half the smallest representable
+// unit at that precision. A caller-supplied size below this (e.g. 1e-9)
+// is neither zero (which AddText/AddTextAt/MeasureText/GetFontMetrics
+// all treat as "unspecified, use 12") nor large enough to survive
+// rounding, so it would silently write `/F0 0 Tf` — a real, present font
+// size of zero — making the text invisible rather than merely small
+// (GitHub issue #19, shadowhunter1470-svg).
+const minRepresentableSize = 5e-7
+
+// fontHasGlyph reports whether font can show r, used by
+// applyMissingGlyphPolicy to detect a character that would otherwise
+// draw .notdef (or, for Type3, be silently dropped) with no signal at
+// all (TextStyle.MissingGlyph, GitHub issue #19 point 2). Mirrors the
+// exact per-type glyph resolution fontWidthAndAscent already uses, so
+// "has a glyph" here always agrees with what actually gets drawn.
+func fontHasGlyph(font Font, r rune) bool {
+	switch f := font.(type) {
+	case standardFont:
+		_, ok := encodeRuneForStandardFont("/"+f.name, r)
+		return ok
+	case *embeddedFont:
+		return f.ttf.glyphID(r) != 0
+	case *Type3Font:
+		_, ok := f.byRune[r]
+		return ok
+	default:
+		return false
+	}
+}
+
+// applyMissingGlyphPolicy implements TextStyle.MissingGlyph. The zero
+// value (MissingGlyphAllow) is a no-op — text passes through unchanged,
+// so a caller who never sets this field pays nothing for the check.
+// Otherwise it scans every rune in text (skipping default-ignorables,
+// which draw nothing by design, not because they're missing) for one
+// font has no glyph for: MissingGlyphError names the first such
+// character and returns an error instead of the text; MissingGlyphReplace
+// substitutes style.ReplacementRune (U+FFFD when zero) for each one and
+// returns the modified text to draw/measure instead of the original.
+func applyMissingGlyphPolicy(font Font, text string, style TextStyle) (string, error) {
+	if style.MissingGlyph == MissingGlyphAllow {
+		return text, nil
+	}
+	var sb strings.Builder
+	changed := false
+	for _, r := range text {
+		if isDefaultIgnorable(r) || fontHasGlyph(font, r) {
+			sb.WriteRune(r)
+			continue
+		}
+		if style.MissingGlyph == MissingGlyphError {
+			return "", fmt.Errorf("text contains %q (%U), which the font has no glyph for", r, r)
+		}
+		rep := style.ReplacementRune
+		if rep == 0 {
+			rep = '�'
+		}
+		sb.WriteRune(rep)
+		changed = true
+	}
+	if !changed {
+		return text, nil
+	}
+	return sb.String(), nil
+}
+
+func checkFontSize(context string, size float64) error {
+	if nonFinite(size) {
+		return fmt.Errorf("%s: font size must be finite, got %v", context, size)
+	}
+	if size < 0 {
+		return fmt.Errorf("%s: font size must be non-negative, got %g", context, size)
+	}
+	if size > 0 && size < minRepresentableSize {
+		return fmt.Errorf("%s: font size %g is too small to represent (rounds to 0)", context, size)
+	}
+	return nil
+}
+
 // widthFn returns advance width in points for a single rune.
 type widthFn func(r rune) float64
 
@@ -219,13 +310,20 @@ func renderTextInBuilder(
 	if err := rect.validate(); err != nil {
 		return fmt.Errorf("render text: %w", err)
 	}
-	if style.Size < 0 {
-		return fmt.Errorf("render text: font size must be non-negative, got %g", style.Size)
+	if err := checkFontSize("render text", style.Size); err != nil {
+		return err
+	}
+	if nonFinite(style.Skew) {
+		return fmt.Errorf("render text: skew must be finite, got %v", style.Skew)
 	}
 
 	font := style.Font
 	if font == nil {
 		font = FontHelvetica
+	}
+	text, err := applyMissingGlyphPolicy(font, text, style)
+	if err != nil {
+		return fmt.Errorf("render text: %w", err)
 	}
 	fontSize := style.Size
 	if fontSize == 0 {
@@ -800,8 +898,11 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	if err := rect.validate(); err != nil {
 		return fmt.Errorf("add text: %w", err)
 	}
-	if style.Size < 0 {
-		return fmt.Errorf("add text: font size must be non-negative, got %g", style.Size)
+	if err := checkFontSize("add text", style.Size); err != nil {
+		return err
+	}
+	if nonFinite(style.Rotation) {
+		return fmt.Errorf("add text: rotation must be finite, got %v", style.Rotation)
 	}
 
 	fontSize := style.Size

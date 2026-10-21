@@ -72,6 +72,66 @@ func TestValidatePDFAEmbeddedFont(t *testing.T) {
 	}
 }
 
+// TestValidatePDFANotdefGlyphUsed reproduces GitHub issue #19 point 2
+// (shadowhunter1470-svg): a character the embedded font has no glyph
+// for draws .notdef (glyph 0) silently under the default
+// MissingGlyphAllow policy, and that is a real PDF/A violation
+// (veraPDF 6.2.11.8-1) ValidatePDFA/ConvertToPDFA used to miss
+// entirely. AddTextAt (not AddText) is used here because AddText
+// normalizes a bare TAB away via strings.Fields before it ever reaches
+// the font.
+func TestValidatePDFANotdefGlyphUsed(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Skipf("embed font unavailable: %v", err)
+	}
+	p, _ := doc.Page(1)
+	if err := p.AddTextAt("a\tb", pdf.TextStyle{Font: font, Size: 12}, 50, 700); err != nil {
+		t.Fatal(err)
+	}
+	rep := doc.ValidatePDFA(pdf.PDFA2B)
+	if !hasRule(rep, "NOTDEF_GLYPH_USED") {
+		t.Errorf("expected NOTDEF_GLYPH_USED for a drawn .notdef glyph, got: %+v", rep.Issues)
+	}
+	if rep.Conformant {
+		t.Error("document with a used .notdef glyph reported PDF/A-conformant")
+	}
+
+	// ConvertToPDFA's own returned report must reflect the same
+	// violation -- it used to report Conformant:true (the exact bug
+	// the issue reported) because this check didn't exist yet.
+	convRep, err := doc.ConvertToPDFA(pdf.PDFA2B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRule(convRep, "NOTDEF_GLYPH_USED") {
+		t.Errorf("ConvertToPDFA's report missing NOTDEF_GLYPH_USED: %+v", convRep.Issues)
+	}
+	if convRep.Conformant {
+		t.Error("ConvertToPDFA reported Conformant:true for a document with a used .notdef glyph")
+	}
+}
+
+// TestValidatePDFANoFalsePositiveWithoutMissingGlyphs confirms ordinary
+// text that the font fully covers never trips NOTDEF_GLYPH_USED.
+func TestValidatePDFANoFalsePositiveWithoutMissingGlyphs(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Skipf("embed font unavailable: %v", err)
+	}
+	p, _ := doc.Page(1)
+	if err := p.AddText("Hello, world!", pdf.TextStyle{Font: font, Size: 12},
+		pdf.Rectangle{LLX: 50, LLY: 700, URX: 500, URY: 760}); err != nil {
+		t.Fatal(err)
+	}
+	rep := doc.ValidatePDFA(pdf.PDFA2B)
+	if hasRule(rep, "NOTDEF_GLYPH_USED") {
+		t.Errorf("ordinary fully-covered text wrongly flagged NOTDEF_GLYPH_USED: %+v", rep.Issues)
+	}
+}
+
 // TestValidatePDFAXMP: a pdfaid packet clears the XMP violations for the matching
 // part and triggers a part mismatch for a different level.
 func TestValidatePDFAXMP(t *testing.T) {

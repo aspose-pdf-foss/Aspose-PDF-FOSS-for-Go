@@ -83,8 +83,17 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	if text == "" {
 		return nil
 	}
-	if style.Size < 0 {
-		return fmt.Errorf("add text at: font size must be non-negative, got %g", style.Size)
+	if err := checkFontSize("add text at", style.Size); err != nil {
+		return err
+	}
+	if nonFinite(x) || nonFinite(y) {
+		return fmt.Errorf("add text at: x and y must be finite, got (%v, %v)", x, y)
+	}
+	if nonFinite(style.Rotation) {
+		return fmt.Errorf("add text at: rotation must be finite, got %v", style.Rotation)
+	}
+	if nonFinite(style.Skew) {
+		return fmt.Errorf("add text at: skew must be finite, got %v", style.Skew)
 	}
 
 	fontSize := style.Size
@@ -94,6 +103,10 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	font := style.Font
 	if font == nil {
 		font = FontHelvetica
+	}
+	text, err := applyMissingGlyphPolicy(font, text, style)
+	if err != nil {
+		return fmt.Errorf("add text at: %w", err)
 	}
 
 	resName, width, encode, _, _, err := p.resolveFontForPage(font, fontSize)
@@ -208,12 +221,16 @@ func MeasureText(text string, style TextStyle) (float64, error) {
 	if text == "" {
 		return 0, nil
 	}
-	if style.Size < 0 {
-		return 0, fmt.Errorf("measure text: font size must be non-negative, got %g", style.Size)
+	if err := checkFontSize("measure text", style.Size); err != nil {
+		return 0, err
 	}
 	font := style.Font
 	if font == nil {
 		font = FontHelvetica
+	}
+	text, err := applyMissingGlyphPolicy(font, text, style)
+	if err != nil {
+		return 0, fmt.Errorf("measure text: %w", err)
 	}
 	fontSize := style.Size
 	if fontSize == 0 {
@@ -254,11 +271,19 @@ type FontMetrics struct {
 // descender), so none is fabricated here either — Descent comes back 0
 // for those.
 func GetFontMetrics(f Font, size float64) (FontMetrics, error) {
-	if size < 0 {
-		return FontMetrics{}, fmt.Errorf("get font metrics: size must be non-negative, got %g", size)
+	if err := checkFontSize("get font metrics", size); err != nil {
+		return FontMetrics{}, err
 	}
 	if size == 0 {
 		size = 12
+	}
+	// AddText/AddTextAt/MeasureText all default a nil Font to
+	// FontHelvetica; this stayed an error instead ("font: unsupported
+	// type <nil>"), breaking a caller that pairs MeasureText (which
+	// accepts nil) with GetFontMetrics (which didn't) for its own layout
+	// math (GitHub issue #19, shadowhunter1470-svg).
+	if f == nil {
+		f = FontHelvetica
 	}
 	_, ascentFactor, err := fontWidthAndAscent(f, size)
 	if err != nil {
