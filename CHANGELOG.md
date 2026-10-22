@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-22
+
 A security follow-up. v0.13.0's fix for the combining-marks quadratic-time bug (`GHSA-7jjg-q5vf-8592`) was itself incomplete: re-testing with more bases/scripts/fonts found two more independent O(n²) hot spots in text shaping, plus an unrelated (non-security) dead stream-byte scan in `Validate`. See the Security Advisory for the full writeup. Also fixed: the text functions accepted NaN/Infinity and silently drew characters the font has no glyph for, and `ConvertToPDFA`/`ValidatePDFA` never caught either (GitHub issue #19); and `appendToContentStream` was quadratic for a long run of draw calls, a rejected draw on a frozen detached canvas still mutated the document, and `AddTable` could fail on a short canvas even when the table fit (GitHub issue #20). `ApplyRedactions` closes its last known gaps: a tiling pattern whose every fill was redacted no longer keeps its cell content in the file, fonts named by a Standard-14 alias such as `/Arial` are no longer refused, and a marked-content span left open at end-of-stream is now scrubbed like any other.
 
 ### Added
@@ -549,7 +551,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.10.0...v0.11.0
