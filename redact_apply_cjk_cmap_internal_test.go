@@ -162,7 +162,7 @@ func TestGlyphAdvanceCIDWidthKeyedByCID(t *testing.T) {
 	// glyph might have had (e.g. 0x999, which has no entry): a
 	// code-keyed lookup would wrongly fall back to defaultW (1000);
 	// a CID-keyed one correctly finds 600.
-	got := glyphAdvanceCID(fi, 65, 2, 10, 0, 0, 1)
+	got := glyphAdvanceCID(&fi, 65, 2, 10, 0, 0, 1)
 	want := 600.0 / 1000.0 * 10
 	if got != want {
 		t.Errorf("glyphAdvanceCID(cid=65) = %v, want %v (width should be keyed by CID)", got, want)
@@ -175,13 +175,13 @@ func TestGlyphAdvanceCIDWidthKeyedByCID(t *testing.T) {
 // multi-byte one, even if a multi-byte code happens to resolve to CID 32.
 func TestGlyphAdvanceCIDWordSpacingOnlyForSingleByteCode32(t *testing.T) {
 	fi := fontInfo{defaultW: 1000, cidWidths: map[uint16]float64{32: 1000}}
-	withTw := glyphAdvanceCID(fi, 32, 1, 10, 0, 5, 1)
-	withoutTw := glyphAdvanceCID(fi, 32, 1, 10, 0, 0, 1)
+	withTw := glyphAdvanceCID(&fi, 32, 1, 10, 0, 5, 1)
+	withoutTw := glyphAdvanceCID(&fi, 32, 1, 10, 0, 0, 1)
 	if withTw-withoutTw != 5 {
 		t.Errorf("1-byte code 32 (CID 32): Tw not applied (delta %v, want 5)", withTw-withoutTw)
 	}
-	twoByte := glyphAdvanceCID(fi, 32, 2, 10, 0, 5, 1)
-	twoByteNoTw := glyphAdvanceCID(fi, 32, 2, 10, 0, 0, 1)
+	twoByte := glyphAdvanceCID(&fi, 32, 2, 10, 0, 5, 1)
+	twoByteNoTw := glyphAdvanceCID(&fi, 32, 2, 10, 0, 0, 1)
 	if twoByte != twoByteNoTw {
 		t.Errorf("2-byte code resolving to CID 32: Tw wrongly applied (%v vs %v)", twoByte, twoByteNoTw)
 	}

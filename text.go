@@ -127,13 +127,19 @@ type textFragment struct {
 type textExtractor struct {
 	objects map[int]*pdfObject
 	fonts   map[string]fontInfo
+	// fontPtrs interns fonts: e.font and every q/Q snapshot point at one
+	// shared fontInfo per name instead of carrying ~3 KB copies (see
+	// textGState in redact_apply_text.go, pdf-go-ifpy point 3). Swapped
+	// together with fonts by doFormXObject.
+	fontPtrs    *fontInterner
+	defaultFont *fontInfo // lazily built defaultFontInfo, shared
 
 	// Form-XObject recursion guard (see doFormXObject).
 	formDepth   int
 	activeForms map[int]bool
 
 	// Text state.
-	font         fontInfo
+	font         *fontInfo
 	fontSize     float64
 	charSpace    float64
 	wordSpace    float64
@@ -168,7 +174,7 @@ type textExtractor struct {
 // wrong encoding (Binder1.pdf: TOTAL rows became "3?3>;").
 type extractorGState struct {
 	ctm          [6]float64
-	font         fontInfo
+	font         *fontInfo
 	fontSize     float64
 	charSpace    float64
 	wordSpace    float64
@@ -190,6 +196,8 @@ func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *te
 	return &textExtractor{
 		objects:      objects,
 		fonts:        fonts,
+		fontPtrs:     newFontInterner(fonts),
+		font:         emptyFontInfo,
 		ctm:          identityMatrix(),
 		horizScaling: 1.0,
 	}
@@ -295,13 +303,17 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 		case "Tf":
 			if len(op.Operands) >= 2 {
 				fontName := operandName(op.Operands[0])
-				if fi, ok := e.fonts[fontName]; ok {
-					e.font = fi
+				if _, ok := e.fonts[fontName]; ok {
+					e.font = e.fontPtrs.get(fontName)
 				} else {
 					// Font absent from /Resources/Font (e.g. an empty dict,
 					// 44963.pdf): viewers substitute a default text face
 					// rather than dropping the text — decode via Helvetica.
-					e.font = defaultFontInfo(e.objects)
+					if e.defaultFont == nil {
+						d := defaultFontInfo(e.objects)
+						e.defaultFont = &d
+					}
+					e.font = e.defaultFont
 				}
 				e.fontSize = operandFloat(op.Operands[1])
 			}
@@ -860,11 +872,14 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 	for k, v := range formFonts {
 		merged[k] = v
 	}
+	savedFontPtrs := e.fontPtrs
 	e.fonts = merged
+	e.fontPtrs = newFontInterner(merged)
 
 	e.process(ops, formResources)
 
 	e.fonts = savedFonts
+	e.fontPtrs = savedFontPtrs
 	e.ctm = savedCTM
 }
 

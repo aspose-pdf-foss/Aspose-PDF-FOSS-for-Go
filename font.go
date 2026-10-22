@@ -114,6 +114,17 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 		if isStandard14(name) {
 			fi.encoding = defaultEncodingForFont(name)
 			fi.known = true
+		} else if canon, ok := standard14WidthAlias(name); ok && !fontDescriptorHasFile(objects, fontDict) {
+			// A non-embedded font named by a common alias of a Standard-14
+			// face (Arial, Times New Roman, Courier New, …) is drawn by
+			// every viewer — and by our own renderer and width tables — as
+			// that face, so it reads with the same built-in encoding
+			// (pdf-go-tnsb). An embedded program is excluded: its own
+			// built-in encoding is unrelated to its name, and marking it
+			// known would make the renderer prefer the guess over the
+			// program's cmap.
+			fi.encoding = defaultEncodingForFont(canon)
+			fi.known = true
 		} else {
 			for i := range fi.encoding {
 				fi.encoding[i] = '\uFFFD'

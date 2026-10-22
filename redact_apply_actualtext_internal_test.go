@@ -473,3 +473,66 @@ func TestApplyRedactionsActualTextScrubDoesNotMutateSharedProperties(t *testing.
 		t.Errorf("rewritten content references /MC0 %d time(s), want exactly 1 (span A's redacted occurrence should have been converted to an inline dict): %s", n, data)
 	}
 }
+
+// TestApplyRedactionsScrubsActualTextOfUnterminatedSpan pins pdf-go-tnsb
+// point 1: a malformed stream that ends with a BDC still open (no EMC)
+// used to leave that span's scrub decision unmade — its /ActualText
+// survived in the saved bytes even though the glyphs inside the span
+// were redacted. Open spans are now closed at end-of-stream exactly as
+// EMC would close them.
+func TestApplyRedactionsScrubsActualTextOfUnterminatedSpan(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fontName, err := page.ensureStandardFontResource("/Helvetica")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const secret = "UNTERMINATED-ACTUALTEXT-445566"
+	// Deliberately no EMC: the span is still open when the stream ends.
+	content := "BT\n" + fontName + " 12 Tf\n100 700 Td\n" +
+		"/Span << /ActualText (" + secret + ") >> BDC\n" +
+		"(VISIBLE) Tj\nET\n"
+	if err := page.appendToContentStream([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	ra := NewRedactAnnotation(page, Rectangle{LLX: 95, LLY: 695, URX: 200, URY: 715})
+	if err := page.Annotations().Add(ra); err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.ApplyRedactions(); err != nil {
+		t.Fatalf("ApplyRedactions: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, n := documentContainsBytes(reopened, secret); found {
+		t.Errorf("%q from an unterminated span's /ActualText still recoverable from %d object(s) after ApplyRedactions", secret, n)
+	}
+}
+
+// TestUnterminatedSpanWithNothingRedactedKeepsActualText is the other
+// side: closing open spans at end-of-stream must not scrub a span whose
+// content was untouched — only the "dropped" decision decides.
+func TestUnterminatedSpanWithNothingRedactedKeepsActualText(t *testing.T) {
+	const keep = "UNTOUCHED-ACTUALTEXT"
+	in := []byte("BT /F1 12 Tf 100 700 Td /Span << /ActualText (" + keep + ") >> BDC (VISIBLE) Tj ET")
+	// Region far away from the text.
+	regions := []QuadPoint{{X1: 0, Y1: 20, X2: 20, Y2: 20, X3: 0, Y3: 0, X4: 20, Y4: 0}}
+	out, err := rewriteTextOperatorsInStream(in, regions, testRewriteFontMap(), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), keep) {
+		t.Errorf("untouched unterminated span lost its /ActualText:\n%s", out)
+	}
+}

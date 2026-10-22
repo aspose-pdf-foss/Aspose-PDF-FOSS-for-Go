@@ -14,7 +14,14 @@ type textState struct {
 	fontSize   float64
 	charSpace  float64 // Tc
 	wordSpace  float64 // Tw
-	hScale     float64 // Th = Tz/100
+	// hScale is Th = Tz/100, taken literally — including 0, which
+	// squeezes every glyph to zero width (pdf.js and MuPDF do the same).
+	// The renderer used to treat 0 as "unset" and draw at 100%, which
+	// disagreed with text extraction and the redaction rewriter, both of
+	// which already used 0 as given; a region drawn by eye over our own
+	// render could then miss text the rewriter placed elsewhere
+	// (pdf-go-ifpy point 1). The default 1 comes from newRenderer.
+	hScale float64
 	leading    float64 // TL
 	rise       float64 // Ts
 	renderMode int     // Tr (0 fill, 1 stroke, 2 fill+stroke, 3 invisible, 4-7 add clip)
@@ -68,9 +75,6 @@ func (rd *renderer) textBegin() {
 
 func (rd *renderer) setFont(name string, size float64) {
 	rd.ts.fontSize = size
-	if rd.ts.hScale == 0 {
-		rd.ts.hScale = 1
-	}
 	rd.ts.font = rd.resolveRenderFont(name)
 }
 
@@ -89,9 +93,6 @@ func (rd *renderer) textNextLine() { rd.textMove(0, -rd.ts.leading) }
 // showText draws a PDF string and advances the text matrix.
 func (rd *renderer) showText(s string) {
 	f := rd.ts.font
-	if rd.ts.hScale == 0 {
-		rd.ts.hScale = 1
-	}
 	if f != nil && f.isType0 {
 		if f.fi.cidCMap != nil {
 			// Predefined/embedded CMap: the codespace dictates each code's byte
@@ -128,9 +129,6 @@ func (rd *renderer) showTJ(v pdfValue) {
 	arr, ok := v.(pdfArray)
 	if !ok {
 		return
-	}
-	if rd.ts.hScale == 0 {
-		rd.ts.hScale = 1
 	}
 	for _, el := range arr {
 		if s, ok := el.(string); ok {

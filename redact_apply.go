@@ -229,13 +229,18 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // through to the rewriter's default case and pass through completely
 // unexamined, the same class of leak as pdf-go-ye1z's XObject-image case
 // but for pixel data that was never a separate XObject to begin with.
-// Tiling-pattern cell content and Type3 font /CharProcs remain open,
-// deliberately deferred as pdf-go-ifik — see that ticket for why each is
-// narrower/more involved than the two fixes above (in short: a pattern
-// cell has no single page-space placement to redact into, and a Type3
-// CharProc is shared by every occurrence of that glyph document-wide, so
-// redacting "inside" one based on one occurrence's position would blank
-// every other, legitimately-unredacted occurrence of the same character).
+// A tiling pattern whose every fill was redacted away is now dropped from
+// the page's /Resources/Pattern (pdf-go-ifik, closed; prunePagePatterns,
+// redact_apply_pattern.go), so its cell content — which can hold text —
+// no longer stays reachable in the saved file. A pattern still painted
+// somewhere on the page is kept: its cell repeats the same content
+// everywhere, so what a region clips away is also visible outside it. A
+// pattern used only inside a Form XObject with its own /Resources is not
+// pruned (that dict still names it). Type3 /CharProcs are deliberately
+// left alone: a glyph procedure is shared by every occurrence of that
+// glyph, the text rewriter already drops the Tj/TJ that would run it
+// inside a region, and redacting "into" it would blank every other,
+// legitimately-unredacted occurrence of the same character.
 //
 // A Form XObject whose own content relies on a font inherited from the
 // page (no Tf of its own, legal per ISO 32000-1 §8.10.1) can now actually
@@ -272,13 +277,12 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // `redact_apply_text.go`). This also closes `pdf-go-ifpy`'s word-spacing
 // point as a side effect: Tw now applies only to a single-byte code 32,
 // never a multi-byte one resolving to CID 32, mirroring the extractor
-// exactly — its other two points (`Tz=0` handling,
-// `textGState`'s by-value `fontInfo` memory amplification) remain open.
+// exactly. Its other two points are closed too: the renderer now takes
+// `0 Tz` literally (zero-width glyphs) like the extractor and this
+// rewriter, and the q/Q snapshots hold a shared *fontInfo instead of
+// copying the whole font on every q.
 //
-// The rest: text rise (Ts) is not tracked, so a region drawn
-// tightly around a rendered superscript/subscript may miss its
-// (untracked, baseline-only) test point (pdf-go-lx1f). Redacting a
-// document that is later saved incrementally (already signed, or
+// The rest: redacting a document that is later saved incrementally (already signed, or
 // AddValidationInfo) keeps the original text in the earlier,
 // byte-preserved revision by design.
 //
@@ -436,6 +440,13 @@ func applyRedactionsToPage(p *Page) error {
 	if err := redactAnnotationAppearances(p, regions, resources, budget); err != nil {
 		return fmt.Errorf("annotation appearance: %w", err)
 	}
+
+	// 5c. Drop /Pattern resources nothing on the page paints with any more
+	// (pdf-go-ifik): a tiling pattern's cell content is otherwise kept
+	// reachable through /Resources/Pattern after every shape filled with
+	// it was redacted away. Runs after 5b, so annotation appearances are
+	// in their final, redacted form.
+	prunePagePatterns(p, data, resources, budget)
 
 	// 6. Render overlay (fill + optional text) for each redact region.
 	// Must happen BEFORE deleting the annotations so accessors still work.

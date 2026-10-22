@@ -151,22 +151,13 @@ import "fmt"
 //     inside the region while the enclosing span's own direct glyphs
 //     were unrelated filler outside it.
 //
-// Known gaps in this mechanism, found by the same review round and
-// deliberately deferred (bundled as pdf-go-tnsb, both low-severity):
-// an unterminated BDC (a malformed/truncated stream with no matching
-// EMC before end-of-stream) leaves that span's mcStack entry simply
-// discarded when this function returns — its scrub decision is never
-// made, but this needs a malformed input to begin with, and the rest
-// of the document is unaffected; and the unknown-font refusal below
-// (pdf-go-oq9i) checks fontInfo.known, which font.go's resolveFont
-// sets via an exact PostScript-name match — a simple font using a
-// common alias like /Arial (not literally one of the Standard-14
-// names) with no /Encoding/ToUnicode is refused even though
-// render_std14.go's own standard14WidthAlias table would recognize it
-// as Helvetica-equivalent, so this over-refuses on a wider set of
-// real documents than strictly necessary (always the safe direction —
-// over-refusing, never under-redacting — but a usability regression
-// worth revisiting by widening font.go's own resolution path).
+// Two gaps the same review round found were closed later (pdf-go-tnsb):
+// a BDC left unterminated at end-of-stream (a malformed or truncated
+// stream) is now closed as if by EMC, so its scrub decision is still
+// made; and a non-embedded simple font named by a Standard-14 alias
+// (/Arial, /TimesNewRoman, …) with no /Encoding or /ToUnicode now
+// resolves as known (font.go's resolveFont), instead of being refused
+// by the unknown-font check below.
 func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict, initial *textGState) ([]byte, error) {
 	if len(regions) == 0 {
 		return data, nil
@@ -178,8 +169,9 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	}
 
 	// Walker state mirrors textExtractor but outputs contentOps instead of fragments.
+	fonts := newFontInterner(fontMap)
 	var (
-		font       fontInfo
+		font       = emptyFontInfo
 		fontName   string // current resource name like "/F1"
 		fontSize   float64
 		charSpace  float64
@@ -215,6 +207,31 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	markDropped := func() {
 		for _, span := range mcStack {
 			span.dropped = true
+		}
+	}
+
+	// closeSpan applies a just-popped span's scrub decision: a span with
+	// something redacted inside it loses its /ActualText, and the
+	// enclosing span (now the top of mcStack) inherits "dropped", since
+	// its own /ActualText is stale too.
+	closeSpan := func(span *mcSpan) {
+		if span.dropped && span.props != nil {
+			if _, hasActualText := span.props["/ActualText"]; hasActualText {
+				scrubbed := make(pdfDict, len(span.props))
+				for k, v := range span.props {
+					if k == "/ActualText" {
+						continue
+					}
+					scrubbed[k] = v
+				}
+				// Always a FRESH inline dict — even if the original BDC
+				// referenced /Properties by name — so a /Properties entry
+				// shared by other, untouched spans is never mutated.
+				out[span.outIdx] = contentOp{Operator: "BDC", Operands: []pdfValue{span.tagOperand, scrubbed}}
+			}
+		}
+		if span.dropped && len(mcStack) > 0 {
+			mcStack[len(mcStack)-1].dropped = true
 		}
 	}
 
@@ -282,29 +299,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				if ax, ay := matApplyPoint(matMul(tm, ctm), 0, 0); pointInAnyQuad(ax, ay, regions) {
 					span.dropped = true
 				}
-
-				if span.dropped && span.props != nil {
-					if _, hasActualText := span.props["/ActualText"]; hasActualText {
-						scrubbed := make(pdfDict, len(span.props))
-						for k, v := range span.props {
-							if k == "/ActualText" {
-								continue
-							}
-							scrubbed[k] = v
-						}
-						// Always a FRESH inline dict — even if the
-						// original BDC referenced /Properties by name —
-						// so a /Properties entry shared by other,
-						// untouched spans is never mutated.
-						out[span.outIdx] = contentOp{Operator: "BDC", Operands: []pdfValue{span.tagOperand, scrubbed}}
-					}
-				}
-				// A span's content (including anything nested inside it)
-				// being redacted means the ENCLOSING span's own
-				// /ActualText, if any, is now stale too — propagate up.
-				if span.dropped && len(mcStack) > 0 {
-					mcStack[len(mcStack)-1].dropped = true
-				}
+				closeSpan(span)
 			}
 
 		case "q":
@@ -347,12 +342,9 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		case "Tf":
 			if len(op.Operands) >= 2 {
 				fontName = operandName(op.Operands[0])
-				if fi, ok := fontMap[fontName]; ok {
-					font = fi
-				} else {
-					// Unknown font: zero out so known==false is preserved.
-					font = fontInfo{}
-				}
+				// An unknown font resolves to emptyFontInfo, so known==false
+				// is preserved for the refusal below.
+				font = fonts.get(fontName)
 				fontSize = operandFloat(op.Operands[1])
 			}
 			out = append(out, op)
@@ -582,6 +574,18 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		}
 	}
 
+	// A malformed or truncated stream can end with spans still open (a
+	// BDC with no EMC). Close them innermost-first exactly as EMC would,
+	// so a span with redacted content inside still loses its /ActualText
+	// instead of carrying the original text out in the saved bytes
+	// (pdf-go-tnsb point 1). The EMC-position check is skipped: with no
+	// EMC, the extractor never emits the span's text at all.
+	for len(mcStack) > 0 {
+		span := mcStack[len(mcStack)-1]
+		mcStack = mcStack[:len(mcStack)-1]
+		closeSpan(span)
+	}
+
 	return serializeContentOps(out), nil
 }
 
@@ -642,9 +646,17 @@ func resolveBDCProperties(objects map[int]*pdfObject, resources pdfDict, operand
 // saves and "Q" restores — the graphics-state (not text-object-state)
 // parameters of ISO 32000-1 Table 52, the same fields textExtractor's
 // own gsStack (text.go) saves/restores.
+//
+// font is a pointer into a shared, never-mutated fontInfo (see
+// fontInterner), not a copy: a fontInfo is ~3 KB (two 256-entry arrays),
+// so snapshotting it by value let a flood of unmatched "q" operators —
+// two bytes each, highly compressible — cost ~3 KB of live memory apiece
+// and ~17 KB of allocation once the stack's growth copies are counted
+// (pdf-go-ifpy point 3; ~900 bytes per q now). text.go's extractorGState
+// had the identical pattern and holds a pointer too.
 type textGState struct {
 	ctm        [6]float64
-	font       fontInfo
+	font       *fontInfo
 	fontName   string
 	fontSize   float64
 	charSpace  float64
@@ -654,9 +666,43 @@ type textGState struct {
 	rise       float64 // Ts (pdf-go-lx1f)
 }
 
+// emptyFontInfo is the shared state for "no font selected" or "the named
+// font did not resolve": known == false. Shared and never mutated, like
+// every *fontInfo the walkers hand around.
+var emptyFontInfo = &fontInfo{}
+
+// fontInterner hands out one shared *fontInfo per font resource name, so
+// a content-stream walker and every q/Q snapshot it takes point at the
+// same fontInfo rather than each holding a ~3 KB copy. Scoped to one font
+// map: a walker whose map changes (a Form XObject with its own
+// /Resources) uses a fresh interner for it.
+type fontInterner struct {
+	src  map[string]fontInfo
+	ptrs map[string]*fontInfo
+}
+
+func newFontInterner(src map[string]fontInfo) *fontInterner {
+	return &fontInterner{src: src, ptrs: make(map[string]*fontInfo)}
+}
+
+// get returns the shared fontInfo for name, or emptyFontInfo when the map
+// has no such font.
+func (fi *fontInterner) get(name string) *fontInfo {
+	if p, ok := fi.ptrs[name]; ok {
+		return p
+	}
+	v, ok := fi.src[name]
+	if !ok {
+		return emptyFontInfo
+	}
+	p := &v
+	fi.ptrs[name] = p
+	return p
+}
+
 // glyphFilterState holds the current text rendering state for glyph filtering.
 type glyphFilterState struct {
-	font fontInfo
+	font *fontInfo
 	// fontName is the resource name (e.g. "/F1") font was resolved
 	// from — carried only so an unknown-font refusal (pdf-go-oq9i) can
 	// name which font resource is the problem.
@@ -680,7 +726,7 @@ type glyphFilterState struct {
 
 // glyphAdvance computes the text-space advance for a single-byte glyph code.
 // Returns advance in text space units (same space as the text matrix translation).
-func glyphAdvance(fi fontInfo, code byte, fontSize, charSpace, wordSpace, horizScale float64) float64 {
+func glyphAdvance(fi *fontInfo, code byte, fontSize, charSpace, wordSpace, horizScale float64) float64 {
 	w := fi.widths[code]
 	if w == 0 {
 		w = 500 // fallback per spec
@@ -704,7 +750,7 @@ func glyphAdvance(fi fontInfo, code byte, fontSize, charSpace, wordSpace, horizS
 // re-deriving the condition independently (pdf-go-eys1/pdf-go-ifpy point 2,
 // both closed by this same nbytes/cid-aware rewrite — see
 // filterTjStringType0's own doc comment).
-func glyphAdvanceCID(fi fontInfo, cid uint16, nbytes int, fontSize, charSpace, wordSpace, horizScale float64) float64 {
+func glyphAdvanceCID(fi *fontInfo, cid uint16, nbytes int, fontSize, charSpace, wordSpace, horizScale float64) float64 {
 	w := fi.defaultW
 	if cw, ok := fi.cidWidths[cid]; ok {
 		w = cw

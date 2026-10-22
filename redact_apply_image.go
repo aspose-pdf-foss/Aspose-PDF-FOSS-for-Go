@@ -108,9 +108,9 @@ type formCloneKey struct {
 	ctm  [6]float64
 
 	// The inherited-text-state fields, flattened rather than embedding
-	// *textGState directly: textGState embeds fontInfo, which carries map
-	// fields and so is not comparable — unusable as a map key component.
-	// fontName (the resource name "/F1" etc. the state was resolved
+	// *textGState directly: textGState holds a *fontInfo, whose identity
+	// belongs to one rewriter's font interner — two passes over the same
+	// resources resolve the same font to different pointers. fontName (the resource name "/F1" etc. the state was resolved
 	// under) is a faithful proxy for font identity within the one
 	// resources dict a given redaction pass works from.
 	hasInherited bool
@@ -265,11 +265,11 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 	if doc != nil {
 		objects = doc.objects
 	}
-	fontMap := resolveFontResources(objects, resources)
+	fonts := newFontInterner(resolveFontResources(objects, resources))
 
 	ctm := identityMatrix()
 	var (
-		font       fontInfo
+		font       = emptyFontInfo
 		fontName   string
 		fontSize   float64
 		charSpace  float64
@@ -315,11 +315,7 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 		case "Tf":
 			if len(op.Operands) >= 2 {
 				fontName = operandName(op.Operands[0])
-				if fi, ok := fontMap[fontName]; ok {
-					font = fi
-				} else {
-					font = fontInfo{}
-				}
+				font = fonts.get(fontName)
 				fontSize = operandFloat(op.Operands[1])
 			}
 			out = append(out, op)
