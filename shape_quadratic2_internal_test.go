@@ -128,6 +128,26 @@ func TestResolveAttachmentsMatchesReferenceOnRandomInput(t *testing.T) {
 	}
 }
 
+// minDuration runs f once to warm up, then reps more times, and returns
+// the fastest run. The growth-ratio tests below compare two durations
+// that are each well under a millisecond on a fast machine; a single
+// run picks up GC pauses and scheduler noise on a shared CI runner
+// (a macOS runner once reported a 19x "growth" for a linear function),
+// while the minimum of several runs tracks the work itself.
+func minDuration(reps int, f func() time.Duration) time.Duration {
+	f()
+	best := f()
+	for i := 1; i < reps; i++ {
+		if d := f(); d < best {
+			best = d
+		}
+	}
+	return best
+}
+
+// growthReps is how many timed runs minDuration takes per input size.
+const growthReps = 5
+
 // TestMeasureTextManyMarksOnNonARecomposingBaseStaysFast reproduces the
 // advisory's own repro: a long run of combining marks on several base
 // letters that do NOT recompose into a single precomposed character
@@ -183,8 +203,8 @@ func TestMeasureTextManyMarksOnNonARecomposingBaseStaysFast(t *testing.T) {
 				}
 				return time.Since(start)
 			}
-			tSmall := timeFor(small)
-			tLarge := timeFor(large)
+			tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+			tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 			// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
 			// A generous 8x ceiling comfortably separates the two without
 			// being sensitive to machine noise on the (already small)
@@ -226,8 +246,8 @@ func TestShapeManyLigaturesStaysFast(t *testing.T) {
 		shapeRun(f, text, false)
 		return time.Since(start)
 	}
-	tSmall := timeFor(small)
-	tLarge := timeFor(large)
+	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 	// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
 	if tSmall > 0 && tLarge > 8*tSmall {
 		t.Errorf("time grew %vx (n=%d pairs: %v, n=%d pairs: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
@@ -405,8 +425,8 @@ func TestGsubMultipleDeletionHeavyStaysFast(t *testing.T) {
 		s.applyLookup(otPlanLookup{index: 0, mask: otMaskGlobal}, true)
 		return time.Since(start)
 	}
-	tSmall := timeFor(small)
-	tLarge := timeFor(large)
+	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 	if tSmall > 0 && tLarge > 8*tSmall {
 		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
 			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
@@ -494,8 +514,8 @@ func TestAddTextManyMarksStaysFast(t *testing.T) {
 		}
 		return time.Since(start)
 	}
-	tSmall := timeFor(small)
-	tLarge := timeFor(large)
+	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 	if tSmall > 0 && tLarge > 8*tSmall {
 		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
 			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)

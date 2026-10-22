@@ -35,8 +35,8 @@ func TestAppendToContentStreamManyDrawsStaysFast(t *testing.T) {
 		}
 		return time.Since(start)
 	}
-	tSmall := timeFor(small)
-	tLarge := timeFor(large)
+	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 	// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
 	if tSmall > 0 && tLarge > 8*tSmall {
 		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GitHub issue #20)",
@@ -61,8 +61,8 @@ func TestAppendToContentStreamManyDrawsOnCanvasStaysFast(t *testing.T) {
 		}
 		return time.Since(start)
 	}
-	tSmall := timeFor(small)
-	tLarge := timeFor(large)
+	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
+	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
 	if tSmall > 0 && tLarge > 8*tSmall {
 		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GitHub issue #20)",
 			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
