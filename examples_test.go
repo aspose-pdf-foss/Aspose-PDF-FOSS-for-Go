@@ -597,3 +597,25 @@ func ExampleDocument_FlattenTransparency() {
 	fmt.Println("pages flattened:", n)
 	// Output: pages flattened: 1
 }
+
+// Tag a PDF that was produced without a structure tree, so screen readers
+// can follow it: headings, paragraphs and figures in reading order,
+// decoration marked as artifacts.
+func ExampleDocument_AutoTag() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("Annual Report", pdf.TextStyle{Font: pdf.FontHelveticaBold, Size: 28},
+		pdf.Rectangle{LLX: 72, LLY: 740, URX: 520, URY: 780})
+	_ = page.AddText("The year in review.", pdf.TextStyle{Size: 11},
+		pdf.Rectangle{LLX: 72, LLY: 700, URX: 520, URY: 720})
+
+	res, err := doc.AutoTag(pdf.DefaultAutoTaggingSettings())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(res.Headings, "heading,", res.Paragraphs, "paragraph")
+	fmt.Println("PDF/UA conformant:", doc.ValidatePDFUA().Conformant)
+	// Output:
+	// 1 heading, 1 paragraph
+	// PDF/UA conformant: true
+}

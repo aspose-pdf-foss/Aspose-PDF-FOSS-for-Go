@@ -153,8 +153,10 @@ flowchart TD
 - **Tagged PDF and PDF/UA accessibility** — `Document.TaggedContent()` builds a logical structure
   tree as content is drawn (`TagContent`, `AddTaggedTable`, `AddTaggedList`), links and other
   annotations join the tree via `StructElement.AddObjectReference` (an `/OBJR` to the annotation
-  itself, not marked content), and `Document.ValidatePDFUA()` reports the PDF/UA-1 prerequisites
-  still missing.
+  itself, not marked content), `Document.AutoTag()` tags a PDF made elsewhere after the fact
+  (headings, paragraphs, lists, tables, figures in reading order; headers, footers and drawings
+  as artifacts) without changing how it looks, and `Document.ValidatePDFUA()` reports the
+  PDF/UA-1 prerequisites still missing.
 - **PDF/A and structural validation** — `Validate` checks structural integrity;
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
@@ -467,6 +469,8 @@ stays free of network code.
 | `Annotation` | Annotation is the common interface implemented by every concrete annotation type. |
 | `AnnotationCollection` | AnnotationCollection is the live, ordered set of annotations attached to a single page. |
 | `AnnotationType` | AnnotationType identifies the kind of annotation. |
+| `AutoTagResult` | AutoTagResult counts the structure elements AutoTag created. |
+| `AutoTaggingSettings` | AutoTaggingSettings configures AutoTag. |
 | `BmpDevice` | BmpDevice renders a page to BMP. |
 | `BookletBinding` | BookletBinding selects the binding edge of a booklet. |
 | `BookletOptions` | BookletOptions configures Booklet imposition. |
@@ -537,6 +541,7 @@ stays free of network code.
 | `HAlign` | HAlign specifies horizontal text alignment within a rectangle. |
 | `HTMLMode` | HTMLMode selects how SaveHTML / WriteHTML represents page text. |
 | `HTMLSaveOptions` | HTMLSaveOptions configures SaveHTML / WriteHTML. |
+| `HeadingRecognitionStrategy` | HeadingRecognitionStrategy selects how AutoTag finds headings. |
 | `HighlightAnnotation` | HighlightAnnotation marks a region with semi-transparent highlight color. |
 | `Image` | Image holds an extracted image with its encoded data and metadata. |
 | `ImageColorSpace` | ImageColorSpace describes the original color space of the image in the PDF. |
@@ -882,6 +887,14 @@ stays free of network code.
 - `StructElement.AddObjectReference` associates a structure element directly with an annotation via
   an `/OBJR` (ISO 32000-1 §14.7.4.4) instead of marked content — the way a `/Link` element points at
   its `LinkAnnotation` — and composes with `AddChild`/`TagContent` rather than replacing them.
+- `Document.AutoTag(AutoTaggingSettings)` tags a document that has no structure tree: text is
+  grouped into headings, paragraphs, lists and tables (with header rows and cell spans) in reading
+  order, images become figures, and repeating headers/footers, watermarks and drawn graphics are
+  marked as artifacts. Headings come from the bookmarks or from font sizes
+  (`HeadingRecognitionStrategy`, as in Aspose.PDF for .NET). Only marked-content operators are
+  inserted, so pages render and extract exactly as before. Figures carry no alternate text —
+  `ImageDescriptionCopilot.FillAltTexts` writes it. Follow with `ConvertToPDFA(PDFA2A)` for an
+  accessible archive.
 
 ### Rendering to Images
 

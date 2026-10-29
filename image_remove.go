@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -37,7 +38,15 @@ func serializeOperand(buf *bytes.Buffer, v pdfValue) {
 	case int:
 		buf.WriteString(strconv.Itoa(val))
 	case float64:
-		buf.WriteString(formatFloat(val))
+		// Shortest exact form, never the 6-decimal formatFloat: a rewritten
+		// stream must keep the original's numbers, and a small-scale cm
+		// (0.001968504) rounded to six places shifts everything drawn after
+		// it by up to a point.
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			buf.WriteByte('0')
+			break
+		}
+		buf.WriteString(strconv.FormatFloat(val, 'f', -1, 64))
 	case pdfName:
 		// Same escaping as the main writer's pdfValue path (writeValue,
 		// writer.go) — content-stream operands go through this

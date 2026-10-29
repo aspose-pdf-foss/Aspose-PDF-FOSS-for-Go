@@ -111,6 +111,15 @@ func buildFlowDoc(pages []*Page, sel []int, opt flowDocOptions) (*flowDoc, error
 							exemplars[key] = newFurnitureExemplar(para, sel[i], pageHs[i], pageWs[i])
 						}
 					}
+					// A footer the extractor merged into the page's last
+					// content paragraph counts too, by segment — otherwise
+					// it repeats on every page yet is never seen repeating.
+					for _, seg := range segmentParagraph(para) {
+						if key := furnitureSegKey(seg, pageHs[i]); key != "" && !seen[key] {
+							seen[key] = true
+							keys[key]++
+						}
+					}
 				}
 			}
 		}
@@ -487,19 +496,32 @@ func (fk *furnitureFilter) dropParagraph(para *MarkupParagraph, pageH float64) b
 // dropSegment is the segment-level filter (the paragraph-level one misses
 // furniture the extractor merged into a content paragraph).
 func (fk *furnitureFilter) dropSegment(seg docSeg, pageH float64) bool {
-	if fk == nil || pageH <= 0 || len(seg.lines) == 0 {
+	if fk == nil {
 		return false
+	}
+	key := furnitureSegKey(seg, pageH)
+	return key != "" && fk.keys[key] >= fk.min
+}
+
+// furnitureSegKey is furnitureKey for one segment: its digit-masked text
+// when its first line sits in the header/footer band, else "".
+func furnitureSegKey(seg docSeg, pageH float64) string {
+	if pageH <= 0 || len(seg.lines) == 0 {
+		return ""
 	}
 	y := seg.lines[0].Y
 	if y < 0.88*pageH && y > 0.12*pageH {
-		return false
+		return ""
 	}
 	var texts []string
 	for _, l := range seg.lines {
 		texts = append(texts, lineJoinedText(l))
 	}
-	key := flowDigitsRe.ReplaceAllString(collapseWS(strings.Join(texts, " ")), "#")
-	return fk.keys[key] >= fk.min
+	text := collapseWS(strings.Join(texts, " "))
+	if text == "" || len([]rune(text)) > 120 {
+		return ""
+	}
+	return flowDigitsRe.ReplaceAllString(text, "#")
 }
 
 // newFurnitureExemplar captures a furniture sighting's text and look.

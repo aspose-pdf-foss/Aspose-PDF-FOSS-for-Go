@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Document.AutoTag(AutoTaggingSettings)`** — tags an existing PDF that has no structure tree: each page's text is grouped into headings, paragraphs, lists (`/L → /LI → /Lbl` + `/LBody`) and tables (`/Table → /TR → /TH`/`/TD`, with row/column spans) in reading order, images become `/Figure`s, and repeating headers/footers, rotated watermarks, drawn rules and backgrounds (including a scanned page under its OCR text) are marked as artifacts. Headings are recognised from the bookmarks or by font size — `HeadingRecognitionStrategy` `Auto`/`Outlines`/`Heuristic`/`None` and `HeadingLevels`, mirroring Aspose.PDF for .NET's `AutoTaggingSettings`. Page content is rewritten only to insert marked-content operators (a text operator whose glyphs belong to two elements is split exactly), so every page renders and extracts exactly as before. Figures get no alternate text; `ai.ImageDescriptionCopilot.FillAltTexts` writes it. A document that already has a structure tree is refused (`ErrAlreadyTagged`). (`pdf-go-u8ol`)
+
 ### Fixed
+
+- **Rewriting a page's content moved what it drew** — redaction, `ReplaceText`, `ConvertToGrayscale` and the new auto-tagger all write a content stream back after editing it, and every number in it was rounded to six decimals. A small-scale transformation (`0.001968504 0 0 0.001968504 0 0 cm`, a page drawn in tiny units) became `0.001969`, shifting everything after it by up to a point, and spacing changes could alter extracted text. Numbers are now written back exactly.
+- **Repeating footers the text extractor merged into a page's last paragraph were not recognised as footers** by the flow exporters (Markdown, DOCX, EPUB, HTML flow): repeats were counted per paragraph only, so a footer glued to body text never looked like it repeated and stayed in the output as body text. Repeats are now counted per segment too.
 
 - **Markdown output did not escape `~`**, so a tilde in exported text could open or close GFM strikethrough when the Markdown was read — most visibly in `MarkdownDiffOutputGenerator`, which wraps a deletion in `~~…~~`: deleted text containing `~~` ended the strikethrough early and leaked the rest as plain text, and a single `~` produced a nested strikethrough. `~` is now backslash-escaped like the other Markdown-significant characters, in `SaveMarkdown`/`WriteMarkdown` and in every diff output. (`pdf-go-tqtb`)
 
