@@ -151,6 +151,13 @@ type lineMeasurer struct {
 	spaceW      float64
 	spaceSet    bool
 	shapedCache map[string]shapedLine // populated by exact(); reused by renderTextInBuilder's draw loop so a finished line is shaped only once
+
+	// pre, when set, transforms text before it is measured: the Arabic
+	// Presentation-Forms pass AddText applies before wrapping (see
+	// arabicFormsFor), for a measurer built from the caller's still
+	// unshaped text by lineMeasurerForFont. Never set on the measurer
+	// renderTextInBuilder builds — its text is already shaped.
+	pre func(string) string
 }
 
 // newLineMeasurer wraps a plain unshaped widthFn: word/space/exact are all
@@ -177,24 +184,50 @@ func newShapedLineMeasurer(shaper *ttfFont, size float64, baseLevel int, bidi bo
 // heights, Flow paragraphs, TOC entries, text flowing around floats, …—
 // so the line breaks it predicts agree with what AddText actually draws.
 //
-// Known gap, not closed here (pdf-go-qxsz): unlike renderTextInBuilder,
-// this does not apply the synthetic Arabic Presentation-Forms shaping
-// pass (shapeArabic) for a font whose own GSUB doesn't shape Arabic, so
-// a caller's prediction for such Arabic text can still disagree with
-// what AddText draws — the same symptom class as GitHub issue #14, via a
-// different, non-OpenType shaping path, pre-existing and left out of
-// scope for that fix.
+// The caller keeps its own (unshaped) text and hands pieces of it to
+// AddText, which applies the Arabic Presentation-Forms pass to each piece
+// before wrapping; the measurer applies the same pass to whatever it
+// measures (pdf-go-qxsz), so its widths are the drawn ones. Arabic joining
+// never crosses a space, so shaping a word alone gives the same forms as
+// shaping the line it ends up in. One remaining divergence: a word too
+// long for the line is split by the caller before AddText sees it, so its
+// pieces take the forms of separate words.
 func lineMeasurerForFont(font Font, size float64, text string, rtl bool, width widthFn) *lineMeasurer {
+	var m *lineMeasurer
 	ef, ok := font.(*embeddedFont)
 	if !ok || !fontHasShaping(ef.ttf) {
-		return newLineMeasurer(width)
+		m = newLineMeasurer(width)
+	} else {
+		needBidi := rtl || bidiHasStrongRTL(text)
+		baseLevel := 0
+		if needBidi {
+			baseLevel = bidiBaseLevel(text, rtl)
+		}
+		m = newShapedLineMeasurer(ef.ttf, size, baseLevel, needBidi, width)
 	}
-	needBidi := rtl || bidiHasStrongRTL(text)
-	baseLevel := 0
-	if needBidi {
-		baseLevel = bidiBaseLevel(text, rtl)
+	if bidiHasArabic(text) && needsArabicForms(font) {
+		m.pre = shapeArabic
 	}
-	return newShapedLineMeasurer(ef.ttf, size, baseLevel, needBidi, width)
+	return m
+}
+
+// needsArabicForms reports whether AddText applies the synthetic Arabic
+// Presentation-Forms pass for font: every font except one whose own GSUB
+// shapes Arabic (that one would otherwise be handed glyphs already shaped).
+func needsArabicForms(font Font) bool {
+	if ef, ok := font.(*embeddedFont); ok && fontHasShaping(ef.ttf) {
+		return !fontShapesArabic(ef.ttf)
+	}
+	return true
+}
+
+// arabicFormsFor applies the Presentation-Forms pass to text exactly when
+// AddText would: Arabic text in a font that does not shape Arabic itself.
+func arabicFormsFor(font Font, text string) string {
+	if bidiHasArabic(text) && needsArabicForms(font) {
+		return shapeArabic(text)
+	}
+	return text
 }
 
 // shapedOrPlainWidth returns s's width exactly as AddText would draw it in
@@ -204,6 +237,7 @@ func lineMeasurerForFont(font Font, size float64, text string, rtl bool, width w
 // Markdown code lines and list labels — where the full lineMeasurer's
 // word/space/exact split isn't needed.
 func shapedOrPlainWidth(font Font, size float64, s string, width widthFn) float64 {
+	s = arabicFormsFor(font, s)
 	if ef, ok := font.(*embeddedFont); ok && fontHasShaping(ef.ttf) {
 		return shapeLine(ef.ttf, s, 0, false).width(size)
 	}
@@ -214,6 +248,9 @@ func shapedOrPlainWidth(font Font, size float64, s string, width widthFn) float6
 // whitespace): exact for an unshaped font, shaped-in-isolation (cached)
 // for a shaped font — see lineMeasurer.
 func (m *lineMeasurer) word(s string) float64 {
+	if m.pre != nil {
+		s = m.pre(s)
+	}
 	if m.shaper == nil {
 		return measureString(s, m.width)
 	}
@@ -244,6 +281,9 @@ func (m *lineMeasurer) space() float64 {
 // needs the same shapedLine to emit glyphs, doesn't reshape it a second
 // time; see shapedLineFor.
 func (m *lineMeasurer) exact(s string) float64 {
+	if m.pre != nil {
+		s = m.pre(s)
+	}
 	if m.shaper == nil {
 		return measureString(s, m.width)
 	}
@@ -358,9 +398,7 @@ func renderTextInBuilder(
 	// Forms-B glyphs in logical order, before wrapping and BiDi reordering —
 	// unless the font's own GSUB chooses the forms, which would otherwise be
 	// handed glyphs that are already shaped.
-	if bidiHasArabic(text) && (shaper == nil || !fontShapesArabic(shaper.ttf)) {
-		text = shapeArabic(text)
-	}
+	text = arabicFormsFor(font, text)
 
 	// Bidirectional (RTL) layout: when the text is explicitly RTL or contains
 	// any strong right-to-left character, reorder each line into visual order

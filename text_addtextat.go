@@ -33,9 +33,7 @@ func resolveSingleLine(font Font, size float64, text string, rtl bool, width wid
 	if ef, ok := font.(*embeddedFont); ok && fontHasShaping(ef.ttf) {
 		shaper = ef
 	}
-	if bidiHasArabic(text) && (shaper == nil || !fontShapesArabic(shaper.ttf)) {
-		text = shapeArabic(text)
-	}
+	text = arabicFormsFor(font, text)
 	needBidi := rtl || bidiHasStrongRTL(text)
 	baseLevel := 0
 	if needBidi {
