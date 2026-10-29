@@ -481,6 +481,10 @@ var mdEscaper = strings.NewReplacer(
 	"[", `\[`,
 	"]", `\]`,
 	"<", `\<`,
+	// GFM strikethrough: a literal "~" in text — or in a deletion the diff
+	// generator wraps in "~~…~~" — would otherwise open or close one
+	// (pdf-go-tqtb).
+	"~", `\~`,
 )
 
 // mdEscapeText escapes Markdown-significant characters in plain text.
