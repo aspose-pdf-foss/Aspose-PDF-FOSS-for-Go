@@ -4,20 +4,50 @@ package asposepdf
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-// ReplaceOptions tunes how ReplaceText matches the search text. The zero value
-// matches the literal string, case-sensitively. Mirrors the matching half of
+// ReplaceOptions tunes how ReplaceText matches the search text and lays out
+// the replacement. The zero value matches the literal string,
+// case-sensitively, and leaves the rest of the line where it is. Mirrors
 // Aspose.PDF for .NET's TextReplaceOptions / TextSearchOptions.
 type ReplaceOptions struct {
 	// CaseInsensitive folds case when matching.
 	CaseInsensitive bool
 	// Regex treats the search string as an RE2 regular expression.
 	Regex bool
+	// Adjustment says what happens to the text after a replacement of a
+	// different width. ReplaceAdjustmentNone (the zero value) leaves it in
+	// place; ReplaceAdjustmentShiftRestOfLine moves it.
+	Adjustment ReplaceAdjustment
 }
+
+// ReplaceAdjustment selects how ReplaceText makes room for (or closes the
+// gap after) a replacement whose width differs from the text it replaces.
+// Mirrors Aspose.PDF for .NET's TextReplaceOptions.ReplaceAdjustment; note
+// Aspose's default is ShiftRestOfLine, while the zero value here keeps the
+// line as it is.
+type ReplaceAdjustment int
+
+const (
+	// ReplaceAdjustmentNone leaves the rest of the line in place: a longer
+	// replacement may overlap the text after it.
+	ReplaceAdjustmentNone ReplaceAdjustment = 0
+	// ReplaceAdjustmentAdjustSpaceWidth would keep the line length by
+	// changing word spacing. Not implemented: ReplaceText returns an error.
+	ReplaceAdjustmentAdjustSpaceWidth ReplaceAdjustment = 1
+	// ReplaceAdjustmentWholeWordsHyphenation would re-wrap the paragraph.
+	// Not implemented: ReplaceText returns an error.
+	ReplaceAdjustmentWholeWordsHyphenation ReplaceAdjustment = 2
+	// ReplaceAdjustmentShiftRestOfLine moves the text after the
+	// replacement on the same line by the difference in width, so nothing
+	// overlaps and no gap is left; the line gets longer or shorter. Text on
+	// other lines, and graphics, do not move.
+	ReplaceAdjustmentShiftRestOfLine ReplaceAdjustment = 8
+)
 
 func replaceToSearchOptions(opts []ReplaceOptions) SearchOptions {
 	if len(opts) == 0 {
@@ -27,13 +57,28 @@ func replaceToSearchOptions(opts []ReplaceOptions) SearchOptions {
 	return SearchOptions{CaseInsensitive: o.CaseInsensitive, Regex: o.Regex}
 }
 
+func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, error) {
+	if len(opts) == 0 {
+		return ReplaceAdjustmentNone, nil
+	}
+	switch a := opts[len(opts)-1].Adjustment; a {
+	case ReplaceAdjustmentNone, ReplaceAdjustmentShiftRestOfLine:
+		return a, nil
+	default:
+		return 0, fmt.Errorf("replace text: adjustment %d is not supported (use ReplaceAdjustmentNone or ReplaceAdjustmentShiftRestOfLine)", a)
+	}
+}
+
 // ReplaceText replaces every occurrence of old with replacement on the page and
 // returns the number of replacements made. The matched glyphs are removed and
 // the replacement is drawn at the same baseline, size, and colour in a
 // metric-compatible Standard-14 face chosen from the original's family and
 // style (so any replacement text renders, even when the original used an
-// embedded subset font that lacks the new glyphs). The line is not re-flowed: a
-// much longer replacement may overrun following content. Matches are located
+// embedded subset font that lacks the new glyphs). By default the line is not
+// re-flowed: a much longer replacement may overrun following content; with
+// ReplaceOptions.Adjustment = ReplaceAdjustmentShiftRestOfLine the text after
+// each replacement on its line moves by the difference in width instead (the
+// paragraph is not re-wrapped, so a line can run past its margin). Matches are located
 // within a single line, like SearchText. Mirrors the find-and-replace idiom of
 // Aspose.PDF for .NET's TextFragmentAbsorber + TextFragment.Text.
 //
@@ -58,7 +103,11 @@ func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int
 	if err != nil {
 		return 0, err
 	}
-	n, err := applyReplaceToPage(p, re, replacement)
+	adj, err := replaceAdjustment(opts)
+	if err != nil {
+		return 0, err
+	}
+	n, err := applyReplaceToPage(p, re, replacement, adj)
 	if n > 0 {
 		p.doc.RemoveUnusedObjects()
 	}
@@ -73,10 +122,14 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 	if err != nil {
 		return 0, err
 	}
+	adj, err := replaceAdjustment(opts)
+	if err != nil {
+		return 0, err
+	}
 	total := 0
 	for i := range d.pages {
 		p := &Page{doc: d, index: i}
-		n, err := applyReplaceToPage(p, re, replacement)
+		n, err := applyReplaceToPage(p, re, replacement, adj)
 		total += n
 		if err != nil {
 			// As with ApplyRedactions: any EARLIER page that already
@@ -105,7 +158,7 @@ type replaceMatch struct {
 	font  Font      // Standard-14 face matched to the original's family/style
 }
 
-func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string) (int, error) {
+func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment) (int, error) {
 	lines, err := p.ExtractTextWithLayout()
 	if err != nil {
 		return 0, err
@@ -135,6 +188,30 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string) (int, er
 	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, p.pageResources(), nil)
 	if err != nil {
 		return 0, fmt.Errorf("remove matched text: %w", err)
+	}
+
+	// ShiftRestOfLine: move what follows each match on its line by the
+	// width difference, and each later replacement on that line with it.
+	if adj == ReplaceAdjustmentShiftRestOfLine {
+		shifts := make([]lineShift, 0, len(matches))
+		for _, m := range matches {
+			width, _, err := fontWidthAndAscent(m.font, m.size)
+			if err != nil {
+				return 0, err
+			}
+			newW := 0.0
+			if replacement != "" {
+				newW = measureString(replacement, width)
+			}
+			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)})
+		}
+		for i := range matches {
+			matches[i].x += lineShiftAt(shifts, matches[i].x, matches[i].y)
+		}
+		data, err = shiftLineText(data, p.doc.objects, p.pageResources(), shifts)
+		if err != nil {
+			return 0, fmt.Errorf("shift rest of line: %w", err)
+		}
 	}
 
 	// Redraw the replacement at each match's baseline (skipped for an empty
@@ -255,4 +332,82 @@ func standard14ForFragment(name string, bold, italic bool) Font {
 			return FontHelvetica
 		}
 	}
+}
+
+// lineShift moves text on one line: glyphs whose baseline is within tol of
+// y and that start at or after fromX move by dx along the line.
+type lineShift struct {
+	y, tol, fromX, dx float64
+}
+
+// lineShiftAt is the total shift for a glyph at (x, y).
+func lineShiftAt(shifts []lineShift, x, y float64) float64 {
+	d := 0.0
+	for _, s := range shifts {
+		if math.Abs(y-s.y) <= s.tol && x >= s.fromX-0.01 {
+			d += s.dx
+		}
+	}
+	return d
+}
+
+// shiftLineText moves glyphs by the given line shifts by inserting TJ
+// kerning numbers in front of them. That is exact: a TJ number moves every
+// glyph after it, and the shift already applied is tracked through the
+// text object until the next operator that sets the position afresh (BT,
+// Td, TD, Tm, T*, ' and "). A show operator that needs a shift becomes a
+// TJ. Glyphs on a rotated or skewed baseline are left alone.
+func shiftLineText(data []byte, objects map[int]*pdfObject, resources pdfDict, shifts []lineShift) ([]byte, error) {
+	items, err := atWalk(data, objects, resources)
+	if err != nil {
+		return nil, err
+	}
+	var out []contentOp
+	applied := 0.0
+	for _, it := range items {
+		if len(it.ops) == 1 {
+			switch it.ops[0].Operator {
+			case "BT", "Td", "TD", "Tm", "T*":
+				applied = 0
+			}
+		}
+		if it.kind != atText {
+			out = append(out, it.ops...)
+			continue
+		}
+		if it.textOp == "'" || it.textOp == "\"" {
+			applied = 0
+		}
+		if !it.horizontal || it.kernUnit == 0 {
+			out = append(out, it.ops...)
+			continue
+		}
+		var arr pdfArray
+		changed := false
+		for _, t := range it.toks {
+			if !t.glyph {
+				arr = append(arr, t.kern)
+				continue
+			}
+			if want := lineShiftAt(shifts, t.x, t.y); math.Abs(want-applied) > 1e-6 {
+				arr = append(arr, -(want-applied)/it.kernUnit)
+				applied = want
+				changed = true
+			}
+			if n := len(arr); n > 0 {
+				if str, ok := arr[n-1].(string); ok {
+					arr[n-1] = str + t.raw
+					continue
+				}
+			}
+			arr = append(arr, t.raw)
+		}
+		if !changed {
+			out = append(out, it.ops...)
+			continue
+		}
+		out = append(out, it.pre...)
+		out = append(out, contentOp{Operator: "TJ", Operands: []pdfValue{arr}})
+	}
+	return serializeContentOps(out), nil
 }

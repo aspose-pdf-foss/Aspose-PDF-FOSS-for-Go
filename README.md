@@ -633,7 +633,8 @@ stays free of network code.
 | `Rectangle` | Rectangle represents a PDF rectangle [llx, lly, urx, ury] in points (1/72 inch). |
 | `RedactAnnotation` | RedactAnnotation marks regions for redaction. |
 | `RenderOptions` | RenderOptions controls page rasterization. |
-| `ReplaceOptions` | ReplaceOptions tunes how ReplaceText matches the search text. |
+| `ReplaceAdjustment` | ReplaceAdjustment selects how ReplaceText makes room for (or closes the gap after) a replacement whose width differs from the text it replaces. |
+| `ReplaceOptions` | ReplaceOptions tunes how ReplaceText matches the search text and lays out the replacement. |
 | `ResetFormAction` | ResetFormAction resets named form fields to their /DV defaults. |
 | `Resolution` | Resolution is a rendering resolution in DPI. |
 | `RevocationCheck` | RevocationCheck selects how far verification goes in establishing whether a signing certificate was revoked. |
@@ -948,8 +949,9 @@ stays free of network code.
 
 - `SearchText` (literal, case-insensitive, or RE2 regex, with an optional region) returns
   per-match bounding boxes built from per-glyph positions; `ReplaceText` redraws the replacement
-  at the same baseline/size/colour in a metric-compatible Standard-14 face. Both match within a
-  single text line only.
+  at the same baseline/size/colour in a metric-compatible Standard-14 face, and with
+  `ReplaceAdjustmentShiftRestOfLine` moves the rest of the line by the change in width so a
+  longer replacement does not overlap what follows. Both match within a single text line only.
 - `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
   as JPEG (DCTDecode passthrough) or PNG, across DeviceRGB/DeviceGray/DeviceCMYK/Indexed/ICCBased
   color spaces with soft masks applied as PNG alpha; `Document.ImageInfos()`/`Page.ImageInfos()`

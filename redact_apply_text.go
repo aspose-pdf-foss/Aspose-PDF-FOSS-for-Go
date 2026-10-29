@@ -850,8 +850,9 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 	}
 
 	if droppedCount == len(glyphs) {
-		// All dropped: emit nothing.
-		return nil, totalAdvance, true
+		// All dropped: keep only the advance, so text drawn after this
+		// operator in the same text object stays where it was.
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true
 	}
 
 	// Mixed: build TJ array with kerning gaps.
@@ -874,7 +875,7 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 
 	arr := buildTJArraySingleByte(glyphs, state)
 	if len(arr) == 0 {
-		return nil, totalAdvance, true
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true
 	}
 	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance, true
 }
@@ -1025,7 +1026,7 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 		return []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, totalAdvance, false
 	}
 	if droppedCount == len(glyphs) {
-		return nil, totalAdvance, true
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true
 	}
 
 	// Build TJ array for CID font.
@@ -1071,7 +1072,7 @@ func filterTjStringType0(s string, state glyphFilterState, regions []QuadPoint) 
 	}
 
 	if len(arr) == 0 {
-		return nil, totalAdvance, true
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true
 	}
 	return []contentOp{{Operator: "TJ", Operands: []pdfValue{arr}}}, totalAdvance, true
 }
@@ -1230,21 +1231,26 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 	}
 
 	if len(outArr) == 0 {
-		return nil, totalAdvance, true, nil
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true, nil
 	}
 
 	// Compact adjacent strings in outArr.
 	outArr = compactTJArray(outArr)
 
 	if len(outArr) == 0 {
-		return nil, totalAdvance, true, nil
+		return advanceOnlyTJ(totalAdvance, state), totalAdvance, true, nil
 	}
 
 	return []contentOp{{Operator: "TJ", Operands: []pdfValue{outArr}}}, totalAdvance, true, nil
 }
 
-// compactTJArray merges adjacent string elements and removes zero-advance kerning entries
-// at the start or end of the array to produce a cleaner output.
+// compactTJArray merges adjacent string elements and drops zero kerning
+// entries. Non-zero numbers stay wherever they are, including at the start
+// or end of the array: a leading number positions the first glyph shown,
+// and a trailing one moves the text matrix for whatever the text object
+// draws next — stripping them (as this function once did, believing they
+// "shift nothing visible") moved the surviving text, or the text after
+// it, onto the redacted area.
 func compactTJArray(arr pdfArray) pdfArray {
 	if len(arr) == 0 {
 		return arr
@@ -1286,27 +1292,22 @@ func compactTJArray(arr pdfArray) pdfArray {
 		}
 	}
 
-	// Remove leading/trailing kerning-only entries (they shift nothing visible).
-	for len(result) > 0 {
-		switch result[0].(type) {
-		case float64, int:
-			result = result[1:]
-		default:
-			goto doneLeading
-		}
-	}
-doneLeading:
-	for len(result) > 0 {
-		switch result[len(result)-1].(type) {
-		case float64, int:
-			result = result[:len(result)-1]
-		default:
-			goto doneTrailing
-		}
-	}
-doneTrailing:
-
 	return result
+}
+
+// advanceOnlyTJ replaces a show operator whose every glyph was removed: a
+// TJ holding just the number that advances the text matrix by the removed
+// glyphs' width, so text the same text object draws next stays in place.
+// The width is no secret — the redaction region itself shows it — and the
+// partly-redacted case already keeps the same numbers between survivors.
+// Nothing is emitted when the advance cannot be expressed (zero font size
+// or horizontal scaling) or is zero.
+func advanceOnlyTJ(advance float64, state glyphFilterState) []contentOp {
+	unit := state.fontSize * state.horizScale
+	if advance == 0 || unit == 0 {
+		return nil
+	}
+	return []contentOp{{Operator: "TJ", Operands: []pdfValue{pdfArray{-advance * 1000 / unit}}}}
 }
 
 // pointInAnyQuad reports whether (x, y) lies inside the axis-aligned

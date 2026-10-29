@@ -2,6 +2,8 @@
 
 package asposepdf
 
+import "math"
+
 // Content-stream side of auto-tagging (autotag.go): walk a page's top-level
 // operators, record what each painting operator draws and where, and — once
 // every glyph, image and form has an owner — write the operators back with
@@ -44,6 +46,12 @@ type atItem struct {
 	textOp string
 	toks   []atTok
 	pre    []contentOp // line move for ' and ", emitted ahead of split pieces
+	// kernUnit is how far, in page units along the baseline, a TJ number
+	// of -1 moves the glyphs after it (fontSize·Th·|baseline scale|/1000);
+	// horizontal reports a baseline along the page's x axis. Used by
+	// ReplaceText's ShiftRestOfLine to move glyphs with kerning numbers.
+	kernUnit   float64
+	horizontal bool
 
 	// atImage / atForm: page-space placement
 	minX, minY, maxX, maxY float64
@@ -88,6 +96,9 @@ func atWalk(data []byte, objects map[int]*pdfObject, resources pdfDict) ([]atIte
 
 	showText := func(op contentOp, str pdfValue, isTJ bool) atItem {
 		it := atItem{kind: atText, textOp: op.Operator, ops: []contentOp{op}}
+		trm := matMul(tm, ctm)
+		it.kernUnit = gs.fontSize * gs.horizScale * math.Hypot(trm[0], trm[1]) / 1000
+		it.horizontal = math.Abs(trm[1]) < 1e-9 && trm[0] > 0
 		place := func(s string) {
 			it.toks = append(it.toks, atTextGlyphs(s, &gs, &tm)...)
 		}
