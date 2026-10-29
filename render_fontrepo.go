@@ -165,9 +165,14 @@ func (r *fontRepository) findCJK(fi fontInfo, ordering string) *ttfFont {
 // sysFamilyPrefix finds an indexed system font whose family name equals fam or
 // begins with "fam " (a word-boundary prefix) and whose style matches. Families
 // carrying a CJK extension block ("ext-a"/"ext-b"/…) are skipped — they hold
-// only rare supplementary ideographs, not the common ones. Caller holds r.mu.
+// only rare supplementary ideographs, not the common ones. When several
+// families match, the closest (shortest name, then alphabetical) wins — the
+// index is a map, and returning the first match in iteration order made the
+// chosen face, and so the rendering, change from run to run (pdf-go-amjo).
+// Caller holds r.mu.
 func (r *fontRepository) sysFamilyPrefix(fam, style string) (fontRef, bool) {
 	suffix := "|" + style
+	best, bestName, found := fontRef{}, "", false
 	for key, ref := range r.sysByFamily {
 		name, ok := strings.CutSuffix(key, suffix)
 		if !ok || !strings.HasPrefix(name, fam+" ") {
@@ -177,9 +182,11 @@ func (r *fontRepository) sysFamilyPrefix(fam, style string) (fontRef, bool) {
 			strings.Contains(name, "exta") || strings.Contains(name, "extg") {
 			continue
 		}
-		return ref, true
+		if !found || len(name) < len(bestName) || (len(name) == len(bestName) && name < bestName) {
+			best, bestName, found = ref, name, true
+		}
 	}
-	return fontRef{}, false
+	return best, found
 }
 
 // findSystemStd14 resolves a Standard-14-family font (Courier/Helvetica/Times
