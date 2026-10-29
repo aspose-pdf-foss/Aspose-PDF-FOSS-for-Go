@@ -619,3 +619,17 @@ func ExampleDocument_AutoTag() {
 	// 1 heading, 1 paragraph
 	// PDF/UA conformant: true
 }
+
+// Rescale an A4 page — content included — onto US Letter.
+func ExampleDocument_ResizeContents() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	_ = page.AddText("Hello", pdf.TextStyle{Size: 24}, pdf.Rectangle{LLX: 72, LLY: 700, URX: 300, URY: 740})
+
+	if err := doc.ResizeContents(pdf.ResizePage(612, 792)); err != nil {
+		log.Fatal(err)
+	}
+	size, _ := page.Size()
+	fmt.Printf("%.0fx%.0f pt\n", size.Width, size.Height)
+	// Output: 612x792 pt
+}

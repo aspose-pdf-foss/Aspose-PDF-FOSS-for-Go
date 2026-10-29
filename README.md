@@ -93,7 +93,9 @@ flowchart TD
   `Number()`, `Size()` (a `PageSize{Width, Height}` in points), and `Rotation()` getters, and page
   geometry (`MediaBox`/`CropBox`/`TrimBox`/`BleedBox`/`ArtBox`) is readable and, via
   `SetMediaBox`/`SetCropBox`/`SetTrimBox`/`SetBleedBox`/`SetArtBox` (plus the `SetPageSize`
-  shorthand for resizing the MediaBox), writable without scaling existing content; the `/Info`
+  shorthand for resizing the MediaBox), writable without scaling existing content —
+  `Document.ResizeContents` (`ResizePage`, `ResizeMargins`, `ResizeContentSize`, …) rescales the
+  content with the page instead, annotations included; the `/Info`
   dictionary round-trips through `Document.Info()`/`SetInfo()`/`ClearInfo()` and a `DocumentInfo`
   struct, distinct from the XMP metadata packet available via
   `Document.XMP()`/`SetXMP()`/`ClearXMP()` (backed by the `/Catalog/Metadata` stream, with a raw
@@ -500,6 +502,8 @@ stays free of network code.
 | `ComboBoxField` | ComboBoxField is a single-select dropdown choice field. |
 | `CompletionRequest` | CompletionRequest describes one chat-completion call. |
 | `CompletionResponse` | CompletionResponse is the model's reply. |
+| `ContentsResizeParameters` | ContentsResizeParameters says how ResizeContents rescales a page. |
+| `ContentsResizeValue` | ContentsResizeValue is one dimension of a ContentsResizeParameters: a length in points, a percentage of the page's original size along the same axis, or — the zero value — automatic. |
 | `DateField` | DateField is a text field with a JavaScript date-format action and a format mask (e.g. "mm/dd/yyyy"). |
 | `Destination` | Destination is the common interface for all explicit destinations. |
 | `DestinationFit` | DestinationFit — [page /Fit]. |
