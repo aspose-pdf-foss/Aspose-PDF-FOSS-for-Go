@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-11-02
+
+Accessibility and archiving, checked against veraPDF for the first time. Adds `AutoTag`, `ConvertToPDFUA`, `ResizeContents` and `ShiftRestOfLine`. `ValidatePDFA` and `ValidatePDFUA` are stricter, so a document they accepted may now fail.
+
 ### Added
 
 - **`Document.ConvertToPDFUA()`** — prepares a tagged document for PDF/UA-1: embeds the fonts it draws with, makes `/Info` and XMP agree, writes the `pdfuaid` identifier and the XMP title, and has viewers show the title. A file may be both PDF/A and PDF/UA, whichever conversion runs first. `AutoTag` + `ConvertToPDFUA` output now passes veraPDF, apart from figures with no alternate text, which the report names. Mirrors Aspose.PDF for .NET's `Document.Convert(PdfFormat.PDF_UA_1)`
@@ -579,7 +583,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.11.0...v0.12.0
