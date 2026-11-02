@@ -220,7 +220,14 @@ func encodeOutlineItem(e *outlineEntry, rootObjNum int) pdfDict {
 			dict["/Dest"] = arr
 		}
 	}
-	if a := o.Action(); a != nil {
+	if o.dict != nil {
+		// Read from a file: written back as it came. Action types carry less
+		// than the entry can (a GoToAction is /XYZ top only), and an action
+		// they do not model at all would be dropped.
+		if a, ok := resolveRefToDict(o.doc.objects, o.dict["/A"]); ok {
+			dict["/A"] = a
+		}
+	} else if a := o.Action(); a != nil {
 		dict["/A"] = a.encode()
 	}
 	return dict

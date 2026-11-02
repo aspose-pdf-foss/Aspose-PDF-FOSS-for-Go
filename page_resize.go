@@ -108,10 +108,10 @@ func ResizeMarginsPercent(left, right, top, bottom float64) ContentsResizeParame
 // annotations — is scaled and moved into place as params describe. The
 // content streams are not rewritten; they are wrapped in one scaling
 // transformation, so text stays extractable and searchable at its new
-// position. Every page is checked before any is changed. Destinations that
-// point at a position on a resized page (outline items, links) keep their
-// old coordinates. Mirrors Aspose.PDF for .NET's
-// PdfFileEditor.ResizeContents.
+// position. Destinations pointing at a position on a resized page — outline
+// items, named destinations, link annotations, the open action — move with
+// its content. Every page is checked before any is changed. Mirrors Aspose.PDF
+// for .NET's PdfFileEditor.ResizeContents.
 func (d *Document) ResizeContents(params ContentsResizeParameters, pageNums ...int) error {
 	if len(pageNums) == 0 {
 		for i := range d.pages {
@@ -139,9 +139,12 @@ func (d *Document) ResizeContents(params ContentsResizeParameters, pageNums ...i
 		}
 		plans = append(plans, plan{p, rp})
 	}
+	moved := make(map[int][6]float64, len(plans))
 	for _, pl := range plans {
 		pl.page.applyResize(pl.rp)
+		moved[pl.page.pageObj().Num] = pl.rp.m
 	}
+	d.moveDestinations(moved)
 	return nil
 }
 
@@ -152,6 +155,7 @@ func (p *Page) ResizeContents(params ContentsResizeParameters) error {
 		return fmt.Errorf("ResizeContents: %w", err)
 	}
 	p.applyResize(rp)
+	p.doc.moveDestinations(map[int][6]float64{p.pageObj().Num: rp.m})
 	return nil
 }
 
@@ -348,4 +352,137 @@ func resizeAnnotation(objects map[int]*pdfObject, ad pdfDict, m [6]float64) {
 		}
 		ad["/InkList"] = out
 	}
+}
+
+// moveDestinations moves every explicit destination that points at a resized
+// page through that page's matrix (keyed by page object number): outline
+// items, named destinations, link annotations and the open action. A
+// destination reached through a name is moved once, in the named collection.
+// A resize matrix never rotates, so each axis maps on its own.
+func (d *Document) moveDestinations(moved map[int][6]float64) {
+	// Raw entries. An action object can be shared, so each is moved once.
+	seen := map[int]bool{}
+	moveRaw := func(dict pdfDict, key string) {
+		arr, ok := resolveRef(d.objects, dict[key]).(pdfArray)
+		if !ok {
+			return
+		}
+		if nd, ok := movedDestination(parseDestinationArray(d, arr), moved); ok {
+			dict[key] = encodeDestination(nd)
+		}
+	}
+	moveAction := func(v pdfValue) {
+		if ref, ok := v.(pdfRef); ok {
+			if seen[ref.Num] {
+				return
+			}
+			seen[ref.Num] = true
+		}
+		if act, ok := resolveRefToDict(d.objects, v); ok && dictGetName(act, "/S") == "/GoTo" {
+			moveRaw(act, "/D")
+		}
+	}
+
+	// An item read from a file is moved in its dictionary: going through
+	// GoToAction would turn a /FitH action into /XYZ.
+	var walk func(items []*OutlineItemCollection)
+	walk = func(items []*OutlineItemCollection) {
+		for _, it := range items {
+			if it.dict != nil {
+				moveRaw(it.dict, "/Dest")
+				if v, ok := it.dict["/A"]; ok {
+					moveAction(v)
+				}
+			} else {
+				if nd, ok := movedDestination(it.destination, moved); ok {
+					it.destination = nd
+				}
+				if act, ok := it.action.(*GoToAction); ok && act.pageNum >= 1 && act.pageNum <= len(d.pages) {
+					if m, ok := moved[d.pages[act.pageNum-1].Num]; ok {
+						act.top = m[3]*act.top + m[5]
+					}
+				}
+			}
+			walk(it.All())
+		}
+	}
+	walk(d.Outlines().All())
+
+	names := d.NamedDestinations()
+	for _, name := range names.Names() {
+		if nd, ok := movedDestination(names.Get(name), moved); ok {
+			_ = names.Add(name, nd) // name and destination are valid: they came from the collection
+		}
+	}
+
+	for _, pg := range d.pages {
+		pd, ok := pg.Value.(pdfDict)
+		if !ok {
+			continue
+		}
+		annots, _ := resolveRef(d.objects, pd["/Annots"]).(pdfArray)
+		for _, a := range annots {
+			ad, ok := resolveRefToDict(d.objects, a)
+			if !ok {
+				continue
+			}
+			moveRaw(ad, "/Dest")
+			if v, ok := ad["/A"]; ok {
+				moveAction(v)
+			}
+		}
+	}
+	if d.catalog != nil {
+		switch resolveRef(d.objects, d.catalog["/OpenAction"]).(type) {
+		case pdfArray:
+			moveRaw(d.catalog, "/OpenAction")
+		case pdfDict:
+			moveAction(d.catalog["/OpenAction"])
+		}
+	}
+}
+
+// movedDestination returns dest moved through its page's matrix, and whether
+// there was anything to move: a destination on another page, a fit-the-page
+// one with no coordinates, and a name reference are left alone.
+func movedDestination(dest Destination, moved map[int][6]float64) (Destination, bool) {
+	if dest == nil || dest.Page() == nil {
+		return nil, false
+	}
+	if _, isName := dest.(*NamedDestination); isName {
+		return nil, false
+	}
+	m, ok := moved[dest.Page().pageObj().Num]
+	if !ok {
+		return nil, false
+	}
+	x := func(v float64) float64 { return m[0]*v + m[4] }
+	y := func(v float64) float64 { return m[3]*v + m[5] }
+	switch v := dest.(type) {
+	case *DestinationXYZ:
+		c := *v
+		c.left, c.top = x(v.left), y(v.top)
+		return &c, true
+	case *DestinationFitH:
+		c := *v
+		c.top = y(v.top)
+		return &c, true
+	case *DestinationFitV:
+		c := *v
+		c.left = x(v.left)
+		return &c, true
+	case *DestinationFitR:
+		c := *v
+		c.left, c.bottom, c.right, c.top = x(v.left), y(v.bottom), x(v.right), y(v.top)
+		return &c, true
+	case *DestinationFitBH:
+		c := *v
+		c.top = y(v.top)
+		return &c, true
+	case *DestinationFitBV:
+		c := *v
+		c.left = x(v.left)
+		return &c, true
+	}
+	return nil, false
 }
