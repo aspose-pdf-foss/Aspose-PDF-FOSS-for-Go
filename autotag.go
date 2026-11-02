@@ -59,6 +59,9 @@ type AutoTagResult struct {
 	Lists      int
 	Tables     int
 	Figures    int
+	// Annotations counts links, form fields and other annotations placed in
+	// the tree.
+	Annotations int
 }
 
 // ErrAlreadyTagged is returned by AutoTag for a document that already has
@@ -75,8 +78,15 @@ var ErrAlreadyTagged = errors.New("asposepdf: document is already tagged")
 // The result is best-effort: it is built from the same layout analysis as
 // Paragraphs and the table detector, so complex layouts may be grouped
 // imperfectly. Figures get no alternate text (ValidatePDFUA reports them);
-// ai.ImageDescriptionCopilot.FillAltTexts can write it. Annotations are not
-// tagged, and a Form XObject is tagged as one unit.
+// ai.ImageDescriptionCopilot.FillAltTexts can write it. A Form XObject is
+// tagged as one unit.
+//
+// Annotations join the tree as PDF/UA asks: a link in a /Link element, a form
+// field in /Form, any other in /Annot, each under the text it covers or by
+// position among the page's elements; hidden ones and popups stay out. A link
+// with no /Contents gets the text under it or its URI, and the page gets /Tabs
+// /S. A /Link holds the annotation only: the words it covers stay in the
+// surrounding text element.
 //
 // It refuses a document that already has a structure tree
 // (ErrAlreadyTagged). Rewriting page content invalidates existing digital
@@ -150,16 +160,22 @@ func (d *Document) AutoTag(s AutoTaggingSettings) (*AutoTagResult, error) {
 		if err := replacePageContents(w.page, w.data); err != nil {
 			return nil, fmt.Errorf("AutoTag: page %d: %w", w.page.Number(), err)
 		}
+		pageObj := w.page.pageObj()
+		pageDict := pageObj.Value.(pdfDict)
+		tops := w.tops
+		if annots, _ := resolveRef(d.objects, pageDict["/Annots"]).(pdfArray); len(annots) > 0 {
+			// PDF/UA: tab order follows the structure on a page with annotations.
+			pageDict["/Tabs"] = pdfName("/S")
+			tops = atPlaceAnnots(tops, atPageAnnots(d, w.page))
+		}
+		for _, e := range tops {
+			atWriteElem(tc, tc.root, e, pageObj.Num, res)
+		}
 		if len(w.mcid) == 0 {
 			continue
 		}
-		pageObj := w.page.pageObj()
-		pageDict := pageObj.Value.(pdfDict)
 		info := tc.pageInfo(w.page.index, pageDict)
 		info.kids = make(pdfArray, len(w.mcid))
-		for _, e := range w.tops {
-			atWriteElem(tc, tc.root, e, pageObj.Num, res)
-		}
 		for i, e := range w.mcid {
 			info.kids[i] = pdfRef{Num: e.objID}
 		}
@@ -214,6 +230,8 @@ type atElem struct {
 
 	mcids []int
 	objID int
+
+	annots []*atAnnot // written as children of this element, or as it
 }
 
 // atPageAnalysis turns one page's flow blocks into structure elements.
@@ -581,6 +599,10 @@ func atWriteElem(tc *TaggedContent, parent *StructElement, e *atElem, pageNum in
 		return
 	}
 	if len(e.mcids) == 0 && !e.keep {
+		// An annotation over no text: the element is the annotation's own.
+		for _, a := range e.annots {
+			atWriteAnnot(tc, parent, a, pageNum, res)
+		}
 		return
 	}
 	dict := pdfDict{
@@ -605,6 +627,9 @@ func atWriteElem(tc *TaggedContent, parent *StructElement, e *atElem, pageNum in
 	}
 	e.objID = tc.doc.addObject(dict)
 	parent.addKidRef(pdfRef{Num: e.objID})
+	for _, a := range e.annots {
+		atWriteAnnot(tc, &StructElement{tc: tc, objID: e.objID, dict: dict}, a, pageNum, res)
+	}
 	switch {
 	case e.typ == StructP:
 		res.Paragraphs++

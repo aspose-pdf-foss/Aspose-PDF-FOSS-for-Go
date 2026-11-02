@@ -250,20 +250,25 @@ func (e *StructElement) AddObjectReference(annot Annotation) error {
 	if _, tagged := base.dict["/StructParent"]; tagged {
 		return fmt.Errorf("AddObjectReference: annotation is already referenced by a structure element")
 	}
-	objr := pdfDict{
-		"/Type": pdfName("/OBJR"),
-		"/Pg":   pdfRef{Num: base.attachedPage.Num},
-		"/Obj":  pdfRef{Num: base.objID},
-	}
-	e.addKidRef(objr)
+	e.addAnnotRef(base.attachedPage.Num, base.objID, base.dict)
+	e.tc.rebuildParentTree()
+	return nil
+}
 
+// addAnnotRef adds an /OBJR kid for the annotation object annotNum on page
+// pageNum and records it in the parent tree's bookkeeping. The caller rebuilds
+// the parent tree.
+func (e *StructElement) addAnnotRef(pageNum, annotNum int, annot pdfDict) {
+	e.addKidRef(pdfDict{
+		"/Type": pdfName("/OBJR"),
+		"/Pg":   pdfRef{Num: pageNum},
+		"/Obj":  pdfRef{Num: annotNum},
+	})
 	tc := e.tc
 	idx := tc.nextSP
 	tc.nextSP++
-	base.dict["/StructParent"] = idx
+	annot["/StructParent"] = idx
 	tc.objRefs[idx] = pdfRef{Num: e.objID}
-	tc.rebuildParentTree()
-	return nil
 }
 
 // TagContent draws a block of page content (everything the draw callback emits)
