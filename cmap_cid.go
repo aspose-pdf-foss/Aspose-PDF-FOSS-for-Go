@@ -15,11 +15,14 @@ import (
 // predefined Adobe CMaps (embedded, gzip'd) and a PDF's own embedded /Encoding
 // CMap stream.
 type cidCMap struct {
-	name      string
-	wmode     int // 0 = horizontal, 1 = vertical
-	codespace []cmapCodespace
-	singles   map[uint32]uint16 // cidchar: code → CID
-	ranges    []cmapCIDRange    // cidrange: sorted by lo for binary search
+	name  string
+	wmode int // 0 = horizontal, 1 = vertical
+	// What the CMap's own /CIDSystemInfo declares.
+	registry, ordering string
+	supplement         int
+	codespace          []cmapCodespace
+	singles            map[uint32]uint16 // cidchar: code → CID
+	ranges             []cmapCIDRange    // cidrange: sorted by lo for binary search
 }
 
 type cmapCodespace struct {
@@ -124,6 +127,15 @@ func (c *cidCMap) finalize() {
 // supplies a parent CMap by name for the `usecmap` operator (predefined chaining).
 func parseCIDCMap(data []byte, usecmapResolver func(name string) *cidCMap) *cidCMap {
 	c := &cidCMap{singles: map[uint32]uint16{}}
+	if m := reCMapOrdering.FindSubmatch(data); m != nil {
+		c.ordering = string(m[1])
+		if m := reCMapRegistry.FindSubmatch(data); m != nil {
+			c.registry = string(m[1])
+		}
+		if m := reCMapSupplement.FindSubmatch(data); m != nil {
+			c.supplement, _ = strconv.Atoi(string(m[1]))
+		}
+	}
 	toks := cmapTokenize(data)
 	i := 0
 	for i < len(toks) {

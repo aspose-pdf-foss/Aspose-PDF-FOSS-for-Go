@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 )
@@ -88,8 +89,13 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.removeObjectMetadata()
 	d.removeTransferFunctions()
 	d.fixSharedConformance()
+	d.signaturesRewritten = d.hasSignature()
+	d.fixFontDicts(format.part())
 	d.embedStandardFonts()
 	d.embedCompositeFonts()
+	if format.part() == 1 {
+		d.embedPredefinedCMaps()
+	}
 	d.fixCIDSets(format.part())
 	d.addSRGBOutputIntent()
 	if err := d.setPDFAMetadata(format); err != nil {
@@ -107,6 +113,11 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 // reported violation; composite (Type0) and Type3 fonts are out of scope.
 func (d *Document) embedStandardFonts() {
 	used := d.pdfaUsedFonts()
+	usedCodes := map[int]map[uint32]bool{}
+	for _, gf := range d.glyphFontsInUse() {
+		usedCodes[gf.num] = gf.seen
+		maps.Copy(gf.seen, gf.seenTr3)
+	}
 	for _, obj := range d.objects {
 		dict, ok := obj.Value.(pdfDict)
 		if !ok || dictGetName(dict, "/Type") != "/Font" {
@@ -138,7 +149,7 @@ func (d *Document) embedStandardFonts() {
 		if f == nil {
 			continue // no substitute and no installed face to embed
 		}
-		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f, nonsymbolic)
+		obj.Value = d.buildEmbeddedSimpleFont(dict, fi, f, nonsymbolic, usedCodes[obj.Num])
 	}
 }
 
@@ -164,8 +175,10 @@ func symbolFaceFor(fi fontInfo) *ttfFont {
 
 // buildEmbeddedSimpleFont constructs an embedded simple TrueType font dict that
 // substitutes f for the non-embedded font orig, preserving its character codes
-// and per-code widths (computed from f's own glyph advances so the dictionary
-// and font program agree, as PDF/A requires). nonsymbolic flags the descriptor
+// and per-code widths. Text is laid out by /Widths, so a width the document gives
+// a code it draws is kept and the program's advance is set to match
+// (fitAdvances), which PDF/A requires them to do: the substitute need not have
+// the metrics of the font it stands for. nonsymbolic flags the descriptor
 // Nonsymbolic instead of Symbolic and governs whether /Encoding is written at
 // all (ISO 32000-1 §9.6.6.2 requires exactly one of: Nonsymbolic + /Encoding,
 // or Symbolic + no /Encoding) — true for a Latin substitute (fallbackFontFor),
@@ -174,7 +187,10 @@ func symbolFaceFor(fi fontInfo) *ttfFont {
 // /Encoding entirely. An earlier version of this fix (GitHub issue #12) wrote
 // /Encoding unconditionally, which still left the Symbol/ZapfDingbats branch
 // violating the same rule the fix was meant to close — caught in review.
-func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont, nonsymbolic bool) pdfDict {
+func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont, nonsymbolic bool, usedCodes map[uint32]bool) pdfDict {
+	if nonsymbolic {
+		f = fitAdvances(f, d.documentAdvances(orig, fi, f, usedCodes))
+	}
 	scale := func(w uint16) int {
 		return int(float64(w)*1000.0/float64(f.unitsPerEm) + 0.5)
 	}
@@ -198,6 +214,16 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 		"/Widths":         widths,
 		"/FontDescriptor": pdfRef{Num: descID},
 	}
+	// The text has to keep extracting: /ToUnicode may be all that says what the
+	// codes mean. A symbol font has no /Encoding to go by once embedded, so what
+	// its standard encoding says goes into one.
+	if tu, ok := orig["/ToUnicode"]; ok {
+		out["/ToUnicode"] = tu
+	} else if !nonsymbolic {
+		if st := simpleToUnicode(fi); st != nil {
+			out["/ToUnicode"] = pdfRef{Num: d.addObject(st)}
+		}
+	}
 	if nonsymbolic {
 		if name, ok := resolveRef(d.objects, orig["/Encoding"]).(pdfName); ok {
 			out["/Encoding"] = name // keep the original code→glyph mapping
@@ -208,7 +234,19 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 				out["/Encoding"] = fullDifferencesEncoding(enc, fi)
 			}
 		} else {
+			// No /Encoding means the font's own, StandardEncoding for these: 0xAE
+			// is "fi" there and "registered" in WinAnsi. The codes it draws keep
+			// their characters.
 			out["/Encoding"] = pdfName("/WinAnsiEncoding")
+			drawn := fi
+			for c := range drawn.encoding {
+				if !usedCodes[uint32(c)] {
+					drawn.encoding[c] = 0
+				}
+			}
+			if enc := fullDifferencesEncoding(pdfDict{}, drawn); enc["/Differences"] != nil {
+				out["/Encoding"] = enc
+			}
 		}
 	}
 	// nonsymbolic == false (Symbol/ZapfDingbats, symbolFaceFor): ISO

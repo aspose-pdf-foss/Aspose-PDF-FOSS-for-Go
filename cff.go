@@ -21,14 +21,16 @@ import (
 type cffFont struct {
 	charStrings [][]byte
 	globalSubrs [][]byte
-	localSubrs  [][]byte // non-CID local subrs (or the matched FD's for CID)
+	localSubrs  [][]byte  // non-CID local subrs (or the matched FD's for CID)
+	widthX      cffWidths // non-CID default and nominal width
 
 	// CID-keyed fonts select a per-glyph Private DICT (and its local subrs)
 	// through FDSelect; charset maps glyph ID → CID.
 	isCID        bool
 	fdSelect     []uint8    // GID → FD index
 	fdLocalSubrs [][][]byte // local subrs per FD
-	charset      []uint16   // GID → CID (CID-keyed) or SID (name-keyed)
+	fdWidths     []cffWidths
+	charset      []uint16 // GID → CID (CID-keyed) or SID (name-keyed)
 	cidToGID     map[uint16]uint16
 	simpleGID    map[uint16]uint16 // code → GID for simple (non-CID) fonts
 	strings      [][]byte          // String INDEX (custom SIDs ≥ 391)
@@ -37,6 +39,28 @@ type cffFont struct {
 
 	unitsPerEm float64
 	numGlyphs  int
+}
+
+// cffWidths holds a Private DICT's defaultWidthX and nominalWidthX (Technical
+// Note #5176, Table 23): a charstring's width is the nominal plus what it states,
+// or the default when it states none.
+type cffWidths struct{ def, nominal float64 }
+
+// readCFFWidths reads them from the Private DICT at priv = [size, offset].
+func readCFFWidths(data []byte, priv []float64) cffWidths {
+	size, off := int(priv[0]), int(priv[1])
+	if off < 0 || size < 0 || off+size > len(data) {
+		return cffWidths{}
+	}
+	d := parseCFFDict(data[off : off+size])
+	var w cffWidths
+	if v := d[20]; len(v) > 0 {
+		w.def = v[0]
+	}
+	if v := d[21]; len(v) > 0 {
+		w.nominal = v[0]
+	}
+	return w
 }
 
 // parseCFFProgram parses /FontFile3 (or .otf) bytes: a bare CFF table, or an
@@ -110,6 +134,7 @@ func parseCFF(data []byte) (*cffFont, error) {
 	} else {
 		if priv, ok := top[cffOp(18, 0)]; ok && len(priv) >= 2 {
 			f.localSubrs = readPrivateSubrs(data, int(priv[1]), int(priv[0]))
+			f.widthX = readCFFWidths(data, priv)
 		}
 		f.buildSimpleEncoding(data, top)
 	}
@@ -233,10 +258,13 @@ func (f *cffFont) parseCIDParts(data []byte, top map[int][]float64) error {
 		for _, fd := range fdDicts {
 			d := parseCFFDict(fd)
 			var subrs [][]byte
+			var widths cffWidths
 			if priv, ok := d[cffOp(18, 0)]; ok && len(priv) >= 2 {
 				subrs = readPrivateSubrs(data, int(priv[1]), int(priv[0]))
+				widths = readCFFWidths(data, priv)
 			}
 			f.fdLocalSubrs = append(f.fdLocalSubrs, subrs)
+			f.fdWidths = append(f.fdWidths, widths)
 		}
 	}
 	if fdsOff := intOp(top, cffOp(12, 37)); fdsOff > 0 && fdsOff < len(data) {
@@ -265,6 +293,35 @@ func (f *cffFont) gidForCID(cid uint16) uint16 {
 
 // glyphContours interprets glyph gid's Type2 charstring and returns its outline
 // as flattened on-curve contours in glyph units (matching ttfFont.glyphContours).
+// glyphAdvance returns the glyph's advance in font units; false when the glyph
+// does not exist or its charstring is malformed.
+func (f *cffFont) glyphAdvance(gid uint16) (w float64, ok bool) {
+	defer func() {
+		if recover() != nil {
+			w, ok = 0, false
+		}
+	}()
+	if int(gid) >= len(f.charStrings) {
+		return 0, false
+	}
+	local, widths := f.localSubrs, f.widthX
+	if f.isCID && int(gid) < len(f.fdSelect) {
+		fd := int(f.fdSelect[gid])
+		if fd < len(f.fdLocalSubrs) {
+			local = f.fdLocalSubrs[fd]
+		}
+		if fd < len(f.fdWidths) {
+			widths = f.fdWidths[fd]
+		}
+	}
+	in := &t2interp{font: f, local: local, lbias: subrBias(len(local)), gbias: subrBias(len(f.globalSubrs)), fl: newFlattener(f.unitsPerEm / 400)}
+	in.run(f.charStrings[gid], 0)
+	if in.hasWidth {
+		return widths.nominal + in.width, true
+	}
+	return widths.def, true
+}
+
 func (f *cffFont) glyphContours(gid uint16) (contours []glyphContour) {
 	defer func() {
 		if recover() != nil {
@@ -318,6 +375,8 @@ type t2interp struct {
 	x, y         float64
 	nStems       int
 	widthParsed  bool
+	width        float64 // the leading width operand, relative to nominalWidthX
+	hasWidth     bool
 	open         bool
 	done         bool
 }
@@ -525,6 +584,7 @@ func (in *t2interp) call(subrs [][]byte, bias, depth int) {
 // taking a leading width on the first hint operator.
 func (in *t2interp) countStems() {
 	if !in.widthParsed && len(in.stack)%2 == 1 {
+		in.width, in.hasWidth = in.stack[0], true
 		in.stack = in.stack[1:]
 	}
 	in.widthParsed = true
@@ -536,6 +596,7 @@ func (in *t2interp) countStems() {
 // the operator's expected operand count.
 func (in *t2interp) takeWidth(expected int) {
 	if !in.widthParsed && len(in.stack) > expected {
+		in.width, in.hasWidth = in.stack[0], true
 		in.stack = in.stack[1:]
 	}
 	in.widthParsed = true

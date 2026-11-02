@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func pdfaHasRule(r *PDFAValidationReport, rule string) bool {
 	for _, is := range r.Issues {
@@ -134,5 +137,68 @@ func TestConvertToPDFAEmbedsCompositeFont(t *testing.T) {
 	}
 	if w, ok := cid["/W"].(pdfArray); !ok || len(w) == 0 {
 		t.Error("the descendant carries no widths for its CIDs")
+	}
+}
+
+// Producers write one CIDFont once and point several Type0 fonts at it. The
+// program embedded for it has to cover what every one of them draws: built for
+// the first alone, it left the others' text with no glyphs, so a converted
+// document lost that text on the page.
+func TestConvertToPDFASharedCIDFontCoversAllItsFonts(t *testing.T) {
+	if fontRepo.findCJK(fontInfo{name: "/SimSun"}, "GB1") == nil {
+		t.Skip("no CJK face installed")
+	}
+	doc := NewDocument(300, 200)
+	page, _ := doc.Page(1)
+	cidID := doc.addObject(pdfDict{
+		"/Type":          pdfName("/Font"),
+		"/Subtype":       pdfName("/CIDFontType2"),
+		"/BaseFont":      pdfName("/SimSun"),
+		"/CIDSystemInfo": pdfDict{"/Registry": "Adobe", "/Ordering": "GB1", "/Supplement": 2},
+		"/DW":            1000,
+	})
+	newFont := func() int {
+		return doc.addObject(pdfDict{
+			"/Type":            pdfName("/Font"),
+			"/Subtype":         pdfName("/Type0"),
+			"/BaseFont":        pdfName("/SimSun"),
+			"/Encoding":        pdfName("/UniGB-UCS2-H"),
+			"/DescendantFonts": pdfArray{pdfRef{Num: cidID}},
+		})
+	}
+	f0, f1 := newFont(), newFont()
+	pd, _ := page.pageObj().Value.(pdfDict)
+	pd["/Resources"] = pdfDict{"/Font": pdfDict{"/C0": pdfRef{Num: f0}, "/C1": pdfRef{Num: f1}}}
+	// Each font draws a character the other does not.
+	if err := page.appendToContentStream([]byte("BT /C0 24 Tf 20 100 Td <4F60> Tj /C1 24 Tf 40 0 Td <597D> Tj ET\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ConvertToPDFA(PDFA2B); err != nil {
+		t.Fatal(err)
+	}
+	if rep := doc.ValidatePDFA(PDFA2B); pdfaHasRule(rep, "NOTDEF_GLYPH_USED") || pdfaHasRule(rep, "GLYPH_MISSING") {
+		t.Errorf("text lost its glyphs: %+v", rep.Issues)
+	}
+	for _, id := range []int{f0, f1} {
+		font := doc.objects[id].Value.(pdfDict)
+		if dictGetName(font, "/BaseFont") == "" || !pdfaFontEmbedded(doc.objects, font) {
+			t.Errorf("font %d not embedded: %v", id, font)
+		}
+	}
+}
+
+// A font's name says more than its descriptor's flags: producers write the
+// Serif flag on Helvetica, and the text must not come back in a serif face.
+func TestFallbackFontNameBeatsSerifFlag(t *testing.T) {
+	for name, want := range map[string]string{
+		"/Helvetica-Bold": "Arimo",
+		"/Helvetica":      "Arimo",
+		"/ArialMT":        "Arimo",
+		"/Garamond":       "Tinos", // the flag is all there is to go on
+	} {
+		f := fallbackFontFor(fontInfo{name: name, serif: true})
+		if f == nil || !strings.HasPrefix(f.postScriptName, want) {
+			t.Errorf("%s: wrong substitute, want %s", name, want)
+		}
 	}
 }

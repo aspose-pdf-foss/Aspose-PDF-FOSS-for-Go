@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ConvertToPDFA` and `ConvertToPDFUA` could damage the document they converted**, with no sign in the report. Every case below is now preserved; a comparison of text and pixels across 1,007 corpus documents before and after conversion now finds only the substitutes' letterforms and, in a few documents, a space more or less between words.
+  - Text vanished from the page when several composite fonts shared one CIDFont: the program embedded for it covered only the first font's characters.
+  - Text vanished when a CJK font drew Latin through CIDs the ordering table leaves without Unicode.
+  - Text moved and overlapped when the substitute's metrics differed from the original font's, because `/Widths` and `/W` were replaced with the substitute's. The document's widths now stay, and the embedded program's advances are set to match them, which PDF/A also requires.
+  - Text drew the wrong characters when a font had no `/Encoding`: it means StandardEncoding, but WinAnsi was written, so "fi" became "®". The drawn codes keep their characters.
+  - Text stopped extracting because `/ToUnicode` was dropped from a substituted font. It is now kept, and a symbol font embedded from an installed face gets one built from its encoding.
+- **Helvetica and Arial were substituted with a serif face** when a producer set the Serif flag in the font descriptor. This also affected rendering.
+- A used font with no `/Type` entry was neither embedded nor reported.
+- Transparency in an ExtGState written directly into a page's `/Resources` was neither reported nor flattened for PDF/A-1.
+
+### Changed
+
+- **`ValidatePDFA` and `ValidatePDFUA` report more, so a document they accepted may now fail.** On a sample of 169 corpus documents converted to PDF/A, the documents accepted but rejected by veraPDF fell to 0 for PDF/A-1b and to 2 for PDF/A-2b. New rules, which read the embedded font programs and follow veraPDF's profiles:
+  - `FONT_WIDTH_MISMATCH`, `GLYPH_MISSING`, and `NOTDEF_GLYPH_USED` for every font type (it covered only Identity-encoded composite fonts). PDF/A-1 has no rule against `.notdef` itself, so it is no longer reported there.
+  - `FONT_NO_TYPE`, `CIDSYSTEMINFO_MISMATCH`, `CMAP_NOT_EMBEDDED` (PDF/A-1), `CHARSET_INCOMPLETE`, `TRUETYPE_ENCODING`, `TRUETYPE_CMAPS` (PDF/A-1).
+  - `SIGNATURE_STALE`: a conversion rewrites the file, so its signatures no longer verify (PDF/A-2 and PDF/A-3).
+  - `FILESPEC_NO_UF`, `EMBEDDED_FILE_NOT_PDFA` (PDF/A-2; it reads the attachment's own claim and does not validate it), `NUMBER_OUT_OF_RANGE`, `NAME_NOT_UTF8`, `ANNOTATION_TYPE_FORBIDDEN`.
+  - `UA_NO_UNICODE_MAPPING`, and the font rules above under `UA_` codes.
+- `ConvertToPDFA` and `ConvertToPDFUA` repair more: `/Type` on a used font, a Type1 subset's `/CharSet`, a CIDFont `/Supplement` ahead of its CMap's, `/F` and `/UF` on file specifications, integers written as unsigned 32-bit values. For PDF/A-1, `ConvertToPDFA` embeds predefined CMaps.
+
 ## [0.15.0] — 2026-11-02
 
 Accessibility and archiving, checked against veraPDF for the first time. Adds `AutoTag`, `ConvertToPDFUA`, `ResizeContents` and `ShiftRestOfLine`. `ValidatePDFA` and `ValidatePDFUA` are stricter, so a document they accepted may now fail.

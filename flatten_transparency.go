@@ -106,19 +106,15 @@ func pageNeedsTransparencyFlatten(objects map[int]*pdfObject, pageDict pdfDict) 
 	if !ok {
 		return false, nil
 	}
+	if pdfaValueHasTransparency(objects, resources) {
+		return true, nil // written directly into the page's resources
+	}
 	deps := map[int]*pdfObject{}
 	visited := map[int]bool{}
 	collectValueDepsDoc(objects, resources, deps, visited)
 	for _, obj := range deps {
-		switch v := obj.Value.(type) {
-		case pdfDict:
-			if pdfaDictHasTransparency(objects, v) {
-				return true, nil
-			}
-		case *pdfStream:
-			if pdfaDictHasTransparency(objects, v.Dict) {
-				return true, nil
-			}
+		if pdfaValueHasTransparency(objects, obj.Value) {
+			return true, nil
 		}
 	}
 	return false, nil

@@ -69,7 +69,7 @@ func TestBuildEmbeddedSimpleFontSymbolicOmitsEncoding(t *testing.T) {
 	// §9.6.6.2 requires NO /Encoding on a Symbolic simple font regardless
 	// of what the substituted-away font happened to carry.
 	orig := pdfDict{"/Encoding": pdfName("/WinAnsiEncoding")}
-	out := d.buildEmbeddedSimpleFont(orig, fontInfo{}, f, false)
+	out := d.buildEmbeddedSimpleFont(orig, fontInfo{}, f, false, nil)
 	if _, ok := out["/Encoding"]; ok {
 		t.Errorf("/Encoding = %v, want absent on the Symbolic (nonsymbolic=false) branch", out["/Encoding"])
 	}

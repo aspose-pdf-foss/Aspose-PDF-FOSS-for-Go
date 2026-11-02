@@ -201,44 +201,8 @@ func (rd *renderer) buildRenderFont(name string) *renderFont {
 	} else {
 		descriptor, _ = resolveRefToDict(objects, fontDict["/FontDescriptor"])
 	}
-	if stream, ok := resolveRef(objects, descriptor["/FontFile2"]).(*pdfStream); ok {
-		if prog, err := parseTTF(decodedStreamData(stream)); err == nil {
-			rf.prog = prog
-			if prog.unitsPerEm != 0 {
-				rf.em = float64(prog.unitsPerEm)
-			}
-			return rf
-		}
-	}
-	// Embedded classic Type1 outlines (/FontFile: eexec-encrypted PostScript
-	// charstrings). Glyphs are keyed by name; gid() resolves code → name → GID.
-	if stream, ok := resolveRef(objects, descriptor["/FontFile"]).(*pdfStream); ok {
-		len1 := dictGetInt(stream.Dict, "/Length1")
-		len2 := dictGetInt(stream.Dict, "/Length2")
-		if v := resolveRef(objects, stream.Dict["/Length1"]); v != nil {
-			len1 = int(operandFloat(v))
-		}
-		if v := resolveRef(objects, stream.Dict["/Length2"]); v != nil {
-			len2 = int(operandFloat(v))
-		}
-		if t1 := parseType1(decodedStreamData(stream), len1, len2); t1 != nil {
-			rf.t1 = t1
-			if t1.unitsPerEm != 0 {
-				rf.em = t1.unitsPerEm
-			}
-			return rf
-		}
-	}
-	// Embedded CFF outlines (/FontFile3: Type1C, CIDFontType0C, or an OpenType
-	// wrapper). The bytes may be a bare CFF or an sfnt with a 'CFF ' table.
-	if stream, ok := resolveRef(objects, descriptor["/FontFile3"]).(*pdfStream); ok {
-		if cff, err := parseCFFProgram(decodedStreamData(stream)); err == nil {
-			rf.cff = cff
-			if cff.unitsPerEm != 0 {
-				rf.em = cff.unitsPerEm
-			}
-			return rf
-		}
+	if loadEmbeddedFontProgram(objects, rf, descriptor) {
+		return rf
 	}
 
 	// No embedded program. For a simple (non-Type0) font — chiefly
@@ -608,6 +572,23 @@ func renderGlyphContour(fl *flattener, c glyphContour, m [6]float64, em float64)
 	fl.close()
 }
 
+// t1Name resolves a code of a simple Type1 font to its glyph name.
+func (f *renderFont) t1Name(code uint32) string {
+	var name string
+	if f.fi.glyphNames != nil {
+		name = f.fi.glyphNames[byte(code)]
+	}
+	if name == "" && f.fi.known {
+		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+			name = runeToStdGlyphName(r)
+		}
+	}
+	if name == "" {
+		name = f.t1.builtinEnc[code]
+	}
+	return name
+}
+
 // gid maps a character code to a glyph ID for this font.
 func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
@@ -638,19 +619,7 @@ func (f *renderFont) gid(code uint32) uint16 {
 	// encoding's standard name, then the font's own built-in encoding — and
 	// look up the synthetic GID (ISO 32000-1 §9.6.6.1).
 	if code < 256 && f.t1 != nil {
-		var name string
-		if f.fi.glyphNames != nil {
-			name = f.fi.glyphNames[byte(code)]
-		}
-		if name == "" && f.fi.known {
-			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
-				name = runeToStdGlyphName(r)
-			}
-		}
-		if name == "" {
-			name = f.t1.builtinEnc[code]
-		}
-		if g, ok := f.t1.nameToGID[name]; ok {
+		if g, ok := f.t1.nameToGID[f.t1Name(code)]; ok {
 			return g
 		}
 		return 0

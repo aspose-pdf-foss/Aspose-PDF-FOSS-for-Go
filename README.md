@@ -866,8 +866,9 @@ stays free of network code.
 - `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` inspects the XMP `pdfaid` identifier and undeclared XMP
   properties, font embedding and `/CIDSet`, encryption, forbidden actions, the ICC OutputIntent
   against device colour, transparency and layers (PDF/A-1), image interpolation, XFA, annotation
-  flags and appearances, and metadata compression; the "a" levels additionally require a Tagged
-  PDF (structure tree + `/Lang`).
+  flags and appearances, and metadata compression, and reads the embedded font programs for widths
+  that disagree with the font dictionary, glyphs they do not define, and `.notdef`; the "a" levels
+  additionally require a Tagged PDF (structure tree + `/Lang`).
 - `ConvertToPDFA` strips encryption and forbidden actions, removes embedded files and flattens
   transparency for PDF/A-1, sets annotation print flags and draws the appearances annotations are
   missing, turns off image interpolation, removes XFA and transfer functions, embeds the fonts the

@@ -286,6 +286,8 @@ func pdfDateWithZone(s string) string {
 // XFA, a layer configuration needs a name, no /AS and an /Order naming every
 // layer, and an embedded Type 2 CIDFont must state its /CIDToGIDMap.
 func (d *Document) fixSharedConformance() {
+	d.fixFilespecNames()
+	d.fixOutOfRangeIntegers()
 	if d.catalog != nil {
 		delete(d.catalog, "/NeedsRendering")
 		if form, ok := resolveRefToDict(d.objects, d.catalog["/AcroForm"]); ok {
@@ -413,6 +415,9 @@ func (d *Document) sharedConformanceIssues() (rule, msg string) {
 		if name == "" || hasAS || len(d.ocMissingFromOrder(cfg)) > 0 {
 			return "LAYER_CONFIG", "a layer configuration lacks /Name, has /AS, or its /Order omits a layer"
 		}
+	}
+	if n := d.filespecMissingName(); n != nil {
+		return "FILESPEC_NO_UF", "an embedded file's specification lacks /F or /UF; PDF/A and PDF/UA ask for both"
 	}
 	if ids := d.cidType2Missing(); len(ids) > 0 {
 		return "CIDFONT_NO_CIDTOGIDMAP", fmt.Sprintf("embedded Type 2 CIDFont object %d has no /CIDToGIDMap", ids[0])
@@ -700,6 +705,15 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 		r.add("LAYERS_FORBIDDEN", "the document has layers (/OCProperties); PDF/A-1 does not allow them")
 	}
 	d.pdfaCheckCIDSets(format, r)
+	d.pdfaCheckFontConformance(format, r)
+	d.pdfaCheckLimits(format, r)
+	d.pdfaCheckAnnotationTypes(format, r)
+	if format.part() == 2 {
+		d.pdfaCheckAttachedPDFA(r)
+	}
+	if format.part() > 1 && d.signatureStale() {
+		r.add("SIGNATURE_STALE", "a signature's /ByteRange does not span the file; a conversion rewrites the file, so this signature no longer verifies")
+	}
 	d.pdfaCheckDeviceColorMatch(r)
 	if format.part() == 1 {
 		d.pdfaCheckICCComponents(r)
@@ -861,4 +875,38 @@ func (d *Document) outputIntentComponents() int {
 		}
 	}
 	return 0
+}
+
+// filespecMissingName returns a file specification that embeds a file but lacks
+// /F or /UF, or nil.
+func (d *Document) filespecMissingName() pdfDict {
+	var found pdfDict
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		if _, embeds := dict["/EF"]; !embeds || found != nil {
+			return
+		}
+		f, _ := resolveRef(d.objects, dict["/F"]).(string)
+		uf, _ := resolveRef(d.objects, dict["/UF"]).(string)
+		if f == "" || uf == "" {
+			found = dict
+		}
+	})
+	return found
+}
+
+// fixFilespecNames gives each file specification both names from whichever it has.
+func (d *Document) fixFilespecNames() {
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		if _, embeds := dict["/EF"]; !embeds {
+			return
+		}
+		f, _ := resolveRef(d.objects, dict["/F"]).(string)
+		uf, _ := resolveRef(d.objects, dict["/UF"]).(string)
+		switch {
+		case f == "" && uf != "":
+			dict["/F"] = uf
+		case uf == "" && f != "":
+			dict["/UF"] = encodeFormString(f)
+		}
+	})
 }

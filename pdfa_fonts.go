@@ -2,7 +2,15 @@
 
 package asposepdf
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+	"maps"
+	"math"
+	"regexp"
+	"slices"
+	"strings"
+)
 
 // Font work for PDF/A conversion: finding out which fonts a document actually
 // draws with, and giving a composite (CJK) font a program of its own.
@@ -143,23 +151,23 @@ func (d *Document) pdfaUsedCIDs() map[int]map[uint16]bool {
 // A font whose licensing bits forbid embedding, one with no installed face,
 // and one whose CIDs do not resolve to Unicode are left alone and stay a
 // reported violation.
+//
+// Several Type0 fonts may share one CIDFont, so the fonts are grouped by it: the
+// one program embedded has to cover what all of them draw.
 func (d *Document) embedCompositeFonts() {
-	for num, cids := range d.pdfaUsedCIDs() {
+	type group struct {
+		fonts []pdfDict
+		cids  map[uint16]bool
+	}
+	groups := map[int]*group{}
+	used := d.pdfaUsedCIDs()
+	for _, num := range slices.Sorted(maps.Keys(used)) {
 		obj, ok := d.objects[num]
 		if !ok {
 			continue
 		}
 		dict, ok := obj.Value.(pdfDict)
 		if !ok || pdfaFontEmbedded(d.objects, dict) {
-			continue
-		}
-		fi := resolveFont(d.objects, dict)
-		sys := fontRepo.findCJK(fi, fi.ordering)
-		if sys == nil || !sys.embeddingAllowed() {
-			continue
-		}
-		cidFont, ok := d.buildEmbeddedCompositeFont(dict, fi, sys, cids)
-		if !ok {
 			continue
 		}
 		descs, ok := resolveRefToArray(d.objects, dict["/DescendantFonts"])
@@ -170,8 +178,35 @@ func (d *Document) embedCompositeFonts() {
 		if !ok {
 			continue
 		}
-		d.objects[ref.Num].Value = cidFont
-		dict["/BaseFont"] = cidFont["/BaseFont"]
+		g := groups[ref.Num]
+		if g == nil {
+			g = &group{cids: map[uint16]bool{}}
+			groups[ref.Num] = g
+		}
+		g.fonts = append(g.fonts, dict)
+		maps.Copy(g.cids, used[num])
+	}
+	for _, descNum := range slices.Sorted(maps.Keys(groups)) {
+		g := groups[descNum]
+		fi := resolveFont(d.objects, g.fonts[0])
+		sys := fontRepo.findCJK(fi, fi.ordering)
+		if sys == nil || !sys.embeddingAllowed() {
+			continue
+		}
+		// Latin codes a CMap sends to CIDs the ordering table leaves without
+		// Unicode, which the renderer reaches the same way.
+		latin := map[uint16]rune{}
+		for _, font := range g.fonts {
+			maps.Copy(latin, cjkASCIIFallback(resolveFont(d.objects, font).cidCMap, fi.cidToUni))
+		}
+		cidFont, ok := d.buildEmbeddedCompositeFont(g.fonts[0], fi, sys, g.cids, latin)
+		if !ok {
+			continue
+		}
+		d.objects[descNum].Value = cidFont
+		for _, font := range g.fonts {
+			font["/BaseFont"] = cidFont["/BaseFont"]
+		}
 	}
 }
 
@@ -180,7 +215,7 @@ func (d *Document) embedCompositeFonts() {
 // /FontFile2, a /CIDToGIDMap translating the document CIDs into the subset
 // glyphs, and /W widths taken from the subset itself, so the dictionary and
 // the program agree as PDF/A requires.
-func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *ttfFont, cids map[uint16]bool) (pdfDict, bool) {
+func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *ttfFont, cids map[uint16]bool, latin map[uint16]rune) (pdfDict, bool) {
 	// A collection sub-font tables do not start at the head of the file, so
 	// re-wrap it as a standalone sfnt before subsetting.
 	if len(sys.data) > 4 && binary.BigEndian.Uint32(sys.data[0:4]) == 0x74746366 {
@@ -203,6 +238,9 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 		r := rune(0)
 		if fi.cidToUni != nil {
 			r = fi.cidToUni[cid]
+		}
+		if r == 0 {
+			r = latin[cid]
 		}
 		if r == 0 && fi.toUnicode != nil {
 			r = fi.toUnicode[cid]
@@ -228,6 +266,13 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 	if err != nil {
 		return nil, false
 	}
+	// Text is laid out by the document's widths, so they stay and the subset's
+	// advances follow; the lower CID decides for a glyph two CIDs share.
+	sortedCIDs := slices.Sorted(maps.Keys(cidGID))
+	docWidth := func(cid uint16) (float64, bool) {
+		w, ok := fi.cidWidths[cid]
+		return w, ok
+	}
 	subsetGID := func(orig uint16) uint16 {
 		if int(orig)*2+2 > len(res.cidToGID) {
 			return 0
@@ -240,13 +285,26 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 
 	cidMap := make([]byte, (int(maxCID)+1)*2) // /CIDToGIDMap: two bytes per CID
 	widths := make(pdfArray, 0, len(cidGID)*2)
-	for cid, gid := range cidGID {
+	advances := map[uint16]float64{}
+	for _, cid := range sortedCIDs {
+		gid := cidGID[cid]
 		binary.BigEndian.PutUint16(cidMap[int(cid)*2:], subsetGID(gid))
-		w := defaultCIDWidth
+		var w any = defaultCIDWidth
 		if int(gid) < len(sys.glyphWidths) {
 			w = scale(sys.glyphWidths[gid])
 		}
+		if dw, ok := docWidth(cid); ok && dw > 0 {
+			w = dw
+			if _, seen := advances[subsetGID(gid)]; !seen {
+				advances[subsetGID(gid)] = dw
+			}
+		}
 		widths = append(widths, int(cid), pdfArray{w})
+	}
+	if subset, err := parseTTF(res.program); err == nil {
+		if fitted := fitAdvances(subset, advances); fitted != subset {
+			res.program = fitted.data
+		}
 	}
 
 	fontFileID := d.addObject(buildFontFile2StreamBytes(res.program))
@@ -282,3 +340,161 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 	}
 	return out, true
 }
+
+// documentAdvances returns, per glyph of the substitute f, the advance (1/1000 em)
+// the document's own /Widths give the codes it draws through it. When two codes
+// reach one glyph with different widths the lower code decides, and the validator
+// reports the other.
+func (d *Document) documentAdvances(orig pdfDict, fi fontInfo, f *ttfFont, usedCodes map[uint32]bool) map[uint16]float64 {
+	arr, ok := resolveRefToArray(d.objects, orig["/Widths"])
+	if !ok {
+		return nil // the standard metrics, which the bundled clones share
+	}
+	first := dictGetInt(orig, "/FirstChar")
+	out := map[uint16]float64{}
+	for _, code := range slices.Sorted(maps.Keys(usedCodes)) {
+		i := int(code) - first
+		if i < 0 || i >= len(arr) || code > 255 {
+			continue
+		}
+		w := operandFloat(resolveRef(d.objects, arr[i]))
+		gid := substituteGlyphFor(f, fi, int(code))
+		if _, seen := out[gid]; !seen && gid != 0 && w > 0 {
+			out[gid] = w
+		}
+	}
+	return out
+}
+
+// fitAdvances returns f with the given glyphs' advances (1/1000 em) in its hmtx,
+// or f itself when they already agree. Only the advance changes: the outlines stay
+// as they are, and a viewer draws each one where /Widths puts it.
+func fitAdvances(f *ttfFont, advances map[uint16]float64) *ttfFont {
+	changed := false
+	for gid, w := range advances {
+		if int(gid) < len(f.glyphWidths) && math.Abs(float64(f.glyphWidths[gid])*1000/float64(f.unitsPerEm)-w) > 0.5 {
+			changed = true
+		}
+	}
+	if !changed {
+		return f
+	}
+	data, err := setAdvances(f.data, f.glyphWidths, f.unitsPerEm, advances)
+	if err != nil {
+		return f
+	}
+	out, err := parseTTF(data)
+	if err != nil {
+		return f
+	}
+	out.postScriptName = f.postScriptName
+	return out
+}
+
+// setAdvances rewrites an sfnt's hmtx with the given advances (1/1000 em), every
+// glyph getting a full record, and hhea to match.
+func setAdvances(data []byte, current []uint16, unitsPerEm uint16, advances map[uint16]float64) ([]byte, error) {
+	dir := tableDir(data)
+	hmtx, hhea := tableSlice(data, dir, "hmtx"), tableSlice(data, dir, "hhea")
+	if len(hhea) < 36 || len(hmtx) == 0 {
+		return nil, fmt.Errorf("font has no usable hmtx")
+	}
+	nLong := int(binary.BigEndian.Uint16(hhea[34:36]))
+	out := make([]byte, len(current)*4)
+	var maxAdvance uint16
+	for g, adv := range current {
+		if w, ok := advances[uint16(g)]; ok {
+			adv = uint16(w*float64(unitsPerEm)/1000 + 0.5)
+		}
+		maxAdvance = max(maxAdvance, adv)
+		var lsb []byte
+		switch {
+		case g < nLong && g*4+4 <= len(hmtx):
+			lsb = hmtx[g*4+2 : g*4+4]
+		case nLong*4+(g-nLong)*2+2 <= len(hmtx):
+			lsb = hmtx[nLong*4+(g-nLong)*2 : nLong*4+(g-nLong)*2+2]
+		default:
+			lsb = []byte{0, 0}
+		}
+		binary.BigEndian.PutUint16(out[g*4:], adv)
+		copy(out[g*4+2:], lsb)
+	}
+	newHhea := slices.Clone(hhea)
+	binary.BigEndian.PutUint16(newHhea[10:12], maxAdvance)
+	binary.BigEndian.PutUint16(newHhea[34:36], uint16(len(current)))
+	tbls := make(map[string][]byte, len(dir))
+	for tag := range dir {
+		tbls[tag] = tableSlice(data, dir, tag)
+	}
+	tbls["hmtx"], tbls["hhea"] = out, newHhea
+	return assembleSFNT(tbls), nil
+}
+
+// simpleToUnicode builds a /ToUnicode CMap from a simple font's encoding; nil when
+// the encoding says nothing.
+func simpleToUnicode(fi fontInfo) *pdfStream {
+	var lines []string
+	for c, r := range fi.encoding {
+		if r != 0 && r != 0xFFFD {
+			lines = append(lines, fmt.Sprintf("<%02X> <%04X>", c, r))
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n")
+	for len(lines) > 0 {
+		n := min(100, len(lines)) // a section holds at most 100 entries
+		fmt.Fprintf(&b, "%d beginbfchar\n%s\nendbfchar\n", n, strings.Join(lines[:n], "\n"))
+		lines = lines[n:]
+	}
+	b.WriteString("endcmap\nend\nend\n")
+	return buildFlateStream([]byte(b.String()))
+}
+
+// embedPredefinedCMaps writes the CMaps of the used composite fonts into the file,
+// which PDF/A-1 requires of every CMap but Identity (ISO 19005-1 §6.3.3.3).
+func (d *Document) embedPredefinedCMaps() {
+	embedded := map[string]pdfRef{}
+	var embed func(name string) (pdfRef, bool)
+	embed = func(name string) (pdfRef, bool) {
+		if ref, ok := embedded[name]; ok {
+			return ref, true
+		}
+		data, err := readGzipEmbed("cjk_cmaps/" + name + ".cmap.gz")
+		if err != nil {
+			return pdfRef{}, false
+		}
+		cm := predefinedCMap(name)
+		if cm == nil {
+			return pdfRef{}, false
+		}
+		st := buildFlateStream(data)
+		st.Dict["/Type"] = pdfName("/CMap")
+		st.Dict["/CMapName"] = pdfName("/" + name)
+		st.Dict["/CIDSystemInfo"] = pdfDict{"/Registry": cm.registry, "/Ordering": cm.ordering, "/Supplement": cm.supplement}
+		st.Dict["/WMode"] = cm.wmode
+		if m := reCMapUse.FindSubmatch(data); m != nil {
+			if parent, ok := embed(string(m[1])); ok {
+				st.Dict["/UseCMap"] = parent
+			}
+		}
+		ref := pdfRef{Num: d.addObject(st)}
+		embedded[name] = ref
+		return ref, true
+	}
+	fonts, _ := d.compositeFontsInUse()
+	for _, font := range fonts {
+		enc, ok := resolveRef(d.objects, font["/Encoding"]).(pdfName)
+		if !ok || enc == "/Identity-H" || enc == "/Identity-V" {
+			continue
+		}
+		if ref, ok := embed(strings.TrimPrefix(string(enc), "/")); ok {
+			font["/Encoding"] = ref
+		}
+	}
+}
+
+// reCMapUse finds the CMap a CMap file builds on ("/H usecmap").
+var reCMapUse = regexp.MustCompile(`/([A-Za-z0-9-]+)\s+usecmap`)

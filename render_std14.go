@@ -76,6 +76,9 @@ func fallbackFontFor(fi fontInfo) *ttfFont {
 		family = "Carlito" // metric-compatible Calibri clone (narrower than Arial)
 	case strings.Contains(name, "times") || strings.Contains(name, "serif") || strings.Contains(name, "georgia") || strings.Contains(name, "roman"):
 		family = "Tinos"
+	case strings.Contains(name, "helvetica") || strings.Contains(name, "arial"):
+		// Named outright, whatever the descriptor says: producers write the
+		// Serif flag on Helvetica, and it must not come back in a serif face.
 	case fi.serif:
 		// The /FontDescriptor marks this a serif face (e.g. Garamond, Minion)
 		// with no Times/serif keyword in the name — use the serif substitute so

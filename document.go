@@ -66,6 +66,10 @@ type Document struct {
 	// document would drop that revision, so it is written back verbatim.
 	revisionAppended bool
 
+	// signaturesRewritten marks a signed document a conversion has changed: the
+	// next save rewrites the file, which its signatures do not cover.
+	signaturesRewritten bool
+
 	// compressObjects makes Save/WriteTo pack non-stream objects into object
 	// streams and write a cross-reference stream (OptimizationOptions.CompressObjects).
 	compressObjects bool

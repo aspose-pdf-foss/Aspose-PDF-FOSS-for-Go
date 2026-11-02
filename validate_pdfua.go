@@ -160,7 +160,13 @@ func (d *Document) uaCheckFonts(r *PDFUAValidationReport) {
 			continue
 		}
 		r.add("UA_FONT_NOT_EMBEDDED", fmt.Sprintf("font %s is not embedded; PDF/UA requires it", dictGetName(font, "/BaseFont")))
-		return
+		break
+	}
+	for _, is := range d.fontDictIssues(2) {
+		r.add("UA_"+is.rule, is.msg)
+	}
+	for _, is := range d.fontGlyphIssues(true) {
+		r.add("UA_"+is.rule, is.msg)
 	}
 }
 

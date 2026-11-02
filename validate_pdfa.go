@@ -81,7 +81,9 @@ func (r *PDFAValidationReport) add(rule, msg string) {
 // reliance); no encryption; no JavaScript or Launch actions; an ICC OutputIntent
 // when device colours are used; no transparency for PDF/A-1; annotation flags
 // (Print set, Hidden/NoView clear) and appearance streams; an uncompressed
-// /Metadata stream; no LZWDecode (PDF/A-1); and no embedded files for PDF/A-1.
+// /Metadata stream; no LZWDecode (PDF/A-1); no embedded files for PDF/A-1; and what
+// the embedded font programs say about the glyphs drawn (pdfa_glyphs.go). These do
+// not cover every rule of the standards: veraPDF has the last word.
 //
 // Scope: the "a" (tagged/accessible) levels are not validated. This mirrors the
 // intent of Aspose.PDF for .NET's Document.Validate(PdfFormat) but returns a
@@ -91,7 +93,6 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckXMP(format, r)
 	d.pdfaCheckEncryption(r)
 	d.pdfaCheckFonts(r)
-	d.pdfaCheckNotdefUsage(r)
 	d.pdfaCheckActions(r)
 	d.pdfaCheckColor(r)
 	d.pdfaCheckTransparency(format, r)
@@ -201,15 +202,12 @@ func (d *Document) pdfaCheckFonts(r *PDFAValidationReport) {
 	used := d.pdfaUsedFonts()
 	for _, obj := range d.objects {
 		dict, ok := obj.Value.(pdfDict)
-		if !ok || dictGetName(dict, "/Type") != "/Font" {
+		if !ok || !used[obj.Num] { // a font nothing renders with is not asked about
 			continue
 		}
 		switch dictGetName(dict, "/Subtype") {
 		case "/CIDFontType0", "/CIDFontType2":
 			continue // checked via the parent Type0 font
-		}
-		if !used[obj.Num] {
-			continue // never selected for rendering
 		}
 		if !pdfaFontEmbedded(d.objects, dict) {
 			name := dictGetName(dict, "/BaseFont")
@@ -219,143 +217,6 @@ func (d *Document) pdfaCheckFonts(r *PDFAValidationReport) {
 			r.add("FONT_NOT_EMBEDDED", fmt.Sprintf("font %s is not embedded; PDF/A requires all fonts to be embedded", name))
 		}
 	}
-}
-
-// pdfaCheckNotdefUsage reports a used .notdef (glyph id 0) reference —
-// forbidden by PDF/A (veraPDF rule 6.2.11.8-1: no glyph may be shown via
-// .notdef) — drawn through an embedded, Identity-encoded composite
-// (Type0) font. GitHub issue #19 point 2 (shadowhunter1470-svg):
-// AddText/AddTextAt drew a character the font has no glyph for as
-// .notdef with no signal at all, and ValidatePDFA/ConvertToPDFA never
-// caught it either, so a file this library produced from such text
-// could report Conformant:true while veraPDF rejected it.
-//
-// Scoped to Identity-H/V Type0 fonts (resolveFont's isType0 && cidCMap
-// == nil): the code IS the CID there, so detecting a shown GID of 0
-// needs only the font's own /CIDToGIDMap (absent/Identity means
-// GID == CID == code directly) — reusing parseCIDToGIDMap, the same
-// helper the renderer uses. This is both what this library's own
-// LoadFont always embeds (CLAUDE.md: "glyph IDs are used directly as
-// the CID/GID") and the shape most third-party producers (Word,
-// Chrome, LibreOffice) use for an embedded TrueType/OTF font. A simple
-// (single-byte) embedded font, or a Type0 font with a real
-// (non-Identity) CMap, would need the font program's own charset/cmap
-// to resolve a code to a GID the way the renderer's CFF/TrueType glyph
-// lookup does — not attempted here; a documented, narrower scope, not
-// a silent gap.
-func (d *Document) pdfaCheckNotdefUsage(r *PDFAValidationReport) {
-	// notdefFont is resolved once per font object number and cached;
-	// nil means "out of scope for this check" (not Type0/Identity, not
-	// embedded, or otherwise unresolvable).
-	type notdefFont struct {
-		name     string
-		cidToGID []uint16 // nil = Identity (GID == CID == code)
-	}
-	resolved := map[int]*notdefFont{}
-	flagged := map[int]bool{} // one issue per font is enough
-
-	resolveNotdefFont := func(ref pdfRef) *notdefFont {
-		if nf, ok := resolved[ref.Num]; ok {
-			return nf
-		}
-		fontDict, ok := resolveRefToDict(d.objects, ref)
-		if !ok || dictGetName(fontDict, "/Subtype") != "/Type0" {
-			resolved[ref.Num] = nil
-			return nil
-		}
-		fi := resolveFont(d.objects, fontDict)
-		if !fi.isType0 || fi.cidCMap != nil || !pdfaFontEmbedded(d.objects, fontDict) {
-			resolved[ref.Num] = nil
-			return nil
-		}
-		var cidToGID []uint16
-		if descs, ok := resolveRefToArray(d.objects, fontDict["/DescendantFonts"]); ok && len(descs) > 0 {
-			if cidDict, ok := resolveRefToDict(d.objects, descs[0]); ok {
-				cidToGID = parseCIDToGIDMap(d.objects, cidDict["/CIDToGIDMap"])
-			}
-		}
-		name := dictGetName(fontDict, "/BaseFont")
-		if name == "" {
-			name = fmt.Sprintf("object %d", ref.Num)
-		}
-		nf := &notdefFont{name: name, cidToGID: cidToGID}
-		resolved[ref.Num] = nf
-		return nf
-	}
-
-	checkString := func(v pdfValue, nf *notdefFont, fontNum int) {
-		if nf == nil {
-			return
-		}
-		s, ok := v.(string)
-		if !ok {
-			return
-		}
-		for i := 0; i+1 < len(s); i += 2 {
-			code := uint16(s[i])<<8 | uint16(s[i+1])
-			gid := code // Identity: CID == original GID == code
-			if nf.cidToGID != nil && int(code) < len(nf.cidToGID) {
-				gid = nf.cidToGID[code]
-			}
-			if gid == 0 && !flagged[fontNum] {
-				flagged[fontNum] = true
-				r.add("NOTDEF_GLYPH_USED", fmt.Sprintf("font %s draws a character with no glyph (.notdef); PDF/A forbids rendering via .notdef (veraPDF 6.2.11.8-1)", nf.name))
-			}
-		}
-	}
-
-	d.forEachContentStream(func(data []byte, res pdfDict) {
-		if len(data) == 0 || res == nil {
-			return
-		}
-		fontRes, ok := resolveRefToDict(d.objects, res["/Font"])
-		if !ok {
-			return
-		}
-		ops, err := parseContentStream(data)
-		if err != nil {
-			return
-		}
-		var current *notdefFont
-		var currentNum int
-		for _, op := range ops {
-			if op.Operator == "Tf" {
-				current, currentNum = nil, 0
-				if len(op.Operands) == 0 {
-					continue
-				}
-				name, ok := op.Operands[0].(pdfName)
-				if !ok {
-					continue
-				}
-				ref, ok := fontRes[string(name)].(pdfRef)
-				if !ok {
-					continue
-				}
-				currentNum = ref.Num
-				current = resolveNotdefFont(ref)
-				continue
-			}
-			switch op.Operator {
-			case "Tj", "'":
-				if len(op.Operands) >= 1 {
-					checkString(op.Operands[0], current, currentNum)
-				}
-			case "\"":
-				if len(op.Operands) >= 3 {
-					checkString(op.Operands[2], current, currentNum)
-				}
-			case "TJ":
-				if len(op.Operands) >= 1 {
-					if arr, ok := op.Operands[0].(pdfArray); ok {
-						for _, el := range arr {
-							checkString(el, current, currentNum)
-						}
-					}
-				}
-			}
-		}
-	})
 }
 
 // pdfaUsedFonts returns the object numbers of the fonts that a content stream
@@ -549,19 +410,36 @@ func (d *Document) pdfaCheckTransparency(format PDFAFormat, r *PDFAValidationRep
 		return // PDF/A-2 and -3 allow transparency
 	}
 	for _, obj := range d.objects {
-		switch v := obj.Value.(type) {
-		case pdfDict:
-			if pdfaDictHasTransparency(d.objects, v) {
-				r.add("TRANSPARENCY", "document uses transparency (group, blend mode, soft mask or constant alpha); PDF/A-1 prohibits transparency")
-				return
-			}
-		case *pdfStream:
-			if pdfaDictHasTransparency(d.objects, v.Dict) {
-				r.add("TRANSPARENCY", "document uses transparency (group, blend mode, soft mask or constant alpha); PDF/A-1 prohibits transparency")
-				return
-			}
+		if pdfaValueHasTransparency(d.objects, obj.Value) {
+			r.add("TRANSPARENCY", "document uses transparency (group, blend mode, soft mask or constant alpha); PDF/A-1 prohibits transparency")
+			return
 		}
 	}
+}
+
+// pdfaValueHasTransparency looks through an object's direct contents as well: a
+// producer can write an ExtGState straight into a page's /Resources.
+func pdfaValueHasTransparency(objects map[int]*pdfObject, v pdfValue) bool {
+	switch x := v.(type) {
+	case pdfDict:
+		if pdfaDictHasTransparency(objects, x) {
+			return true
+		}
+		for _, e := range x {
+			if pdfaValueHasTransparency(objects, e) {
+				return true
+			}
+		}
+	case pdfArray:
+		for _, e := range x {
+			if pdfaValueHasTransparency(objects, e) {
+				return true
+			}
+		}
+	case *pdfStream:
+		return pdfaValueHasTransparency(objects, x.Dict)
+	}
+	return false
 }
 
 func pdfaDictHasTransparency(objects map[int]*pdfObject, dict pdfDict) bool {

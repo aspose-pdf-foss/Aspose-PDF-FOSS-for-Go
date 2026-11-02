@@ -35,6 +35,26 @@ func runeToStdGlyphName(r rune) string {
 	return runeToGlyphNameMap[r]
 }
 
+// glyphAdvance returns the width the glyph's hsbw or sbw states, in font units;
+// false when the glyph does not exist or its charstring is malformed.
+func (f *type1Font) glyphAdvance(gid uint16) (w float64, ok bool) {
+	defer func() {
+		if recover() != nil {
+			w, ok = 0, false
+		}
+	}()
+	if int(gid) >= len(f.glyphNames) {
+		return 0, false
+	}
+	cs := f.charstrings[f.glyphNames[gid]]
+	if cs == nil {
+		return 0, false
+	}
+	ip := &t1Interp{f: f}
+	ip.run(cs, 0)
+	return ip.width, true
+}
+
 // glyphContours runs the Type1 charstring for the glyph at gid and returns its
 // outline contours in font units. Recovers from a malformed charstring by
 // returning whatever was drawn so far.

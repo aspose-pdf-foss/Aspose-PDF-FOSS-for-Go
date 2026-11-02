@@ -52,6 +52,8 @@ func (d *Document) ConvertToPDFUA() (*PDFUAValidationReport, error) {
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("ConvertToPDFUA: document has no pages")
 	}
+	d.signaturesRewritten = d.hasSignature()
+	d.fixFontDicts(2)
 	d.embedStandardFonts()
 	d.embedCompositeFonts()
 	part := 0
