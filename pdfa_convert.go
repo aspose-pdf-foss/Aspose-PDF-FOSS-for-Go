@@ -18,20 +18,28 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 // safely in place:
 //
 //   - removes encryption;
-//   - removes JavaScript and Launch actions (document-level and per-annotation);
+//   - removes the actions PDF/A forbids (JavaScript, Launch, Sound, Movie,
+//     ResetForm, named actions other than page navigation, ...) and every
+//     additional-actions dictionary, wherever attached;
 //   - removes file attachments for PDF/A-1 (including a page-pinned
 //     FileAttachmentAnnotation, not just the document-level EmbeddedFiles tree);
 //   - rasterizes any page using transparency for PDF/A-1 (FlattenTransparency,
 //     which PDF/A-1 forbids outright; PDF/A-2 and -3 permit it and are left
 //     alone);
-//   - sets annotation flags (Print on, Hidden/NoView off);
+//   - sets annotation flags (Print on, Hidden/NoView off) and leaves each
+//     appearance dictionary with only its normal appearance;
+//   - turns off image interpolation;
+//   - drops XMP properties in undeclared namespaces, makes /Info and XMP agree,
+//     and writes a correct /CIDSet (PDF/A-1) or removes it (later parts);
 //   - embeds non-embedded simple fonts (Standard-14 and other single-byte
 //     Type1/TrueType) using the bundled metric-compatible substitutes;
 //   - adds an sRGB ICC OutputIntent (so device colours are colour-managed);
 //   - writes an XMP packet carrying the pdfaid identifier (synced from /Info).
 //
 // Symbol and ZapfDingbats have no Latin substitute and remain a reported
-// violation; composite (Type0/CJK) and Type3 fonts are not auto-fixed. The
+// violation; composite (Type0/CJK) and Type3 fonts are not auto-fixed. DeviceCMYK
+// content is not converted and is reported (COLOR_INTENT_MISMATCH), since the
+// only profile available is sRGB. The
 // returned report lists any remaining issues; when
 // Conformant is true the document satisfies the checks in ValidatePDFA. Mirrors
 // the intent of Aspose.PDF for .NET's Document.Convert(PdfFormat).
@@ -74,9 +82,15 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.fixPDFAAnnotations()
 	d.generatePDFAAppearances()
+	d.normalizePDFAAppearances()
 	d.clearNeedAppearances()
+	d.clearImageInterpolation()
+	d.removeObjectMetadata()
+	d.removeTransferFunctions()
+	d.fixSharedConformance()
 	d.embedStandardFonts()
 	d.embedCompositeFonts()
+	d.fixCIDSets(format.part())
 	d.addSRGBOutputIntent()
 	if err := d.setPDFAMetadata(format); err != nil {
 		return nil, err
@@ -185,8 +199,14 @@ func (d *Document) buildEmbeddedSimpleFont(orig pdfDict, fi fontInfo, f *ttfFont
 		"/FontDescriptor": pdfRef{Num: descID},
 	}
 	if nonsymbolic {
-		if enc, ok := orig["/Encoding"]; ok {
-			out["/Encoding"] = enc // keep the original code→glyph mapping
+		if name, ok := resolveRef(d.objects, orig["/Encoding"]).(pdfName); ok {
+			out["/Encoding"] = name // keep the original code→glyph mapping
+		} else if enc, ok := resolveRefToDict(d.objects, orig["/Encoding"]); ok {
+			if _, hasBase := enc["/BaseEncoding"]; hasBase {
+				out["/Encoding"] = enc
+			} else {
+				out["/Encoding"] = fullDifferencesEncoding(enc, fi)
+			}
 		} else {
 			out["/Encoding"] = pdfName("/WinAnsiEncoding")
 		}
@@ -223,44 +243,12 @@ func substituteGlyphFor(f *ttfFont, fi fontInfo, code int) uint16 {
 	return 0
 }
 
-func isPDFAForbiddenAction(dict pdfDict) bool {
-	switch dictGetName(dict, "/S") {
-	case "/JavaScript", "/Launch":
-		return true
-	}
-	return false
-}
-
-// stripPDFAActions removes JavaScript and Launch actions from the catalog,
-// annotations and the object table.
+// stripPDFAActions removes every action PDF/A forbids, wherever it is attached.
 func (d *Document) stripPDFAActions() {
 	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
 		delete(names, "/JavaScript")
 	}
-	delete(d.catalog, "/AA")
-	if act, ok := resolveRefToDict(d.objects, d.catalog["/OpenAction"]); ok && isPDFAForbiddenAction(act) {
-		delete(d.catalog, "/OpenAction")
-	}
-	for _, page := range d.pages {
-		pd, ok := page.Value.(pdfDict)
-		if !ok {
-			continue
-		}
-		annots, ok := resolveRefToArray(d.objects, pd["/Annots"])
-		if !ok {
-			continue
-		}
-		for _, a := range annots {
-			ad, ok := resolveRefToDict(d.objects, a)
-			if !ok {
-				continue
-			}
-			delete(ad, "/AA")
-			if act, ok := resolveRefToDict(d.objects, ad["/A"]); ok && isPDFAForbiddenAction(act) {
-				delete(ad, "/A")
-			}
-		}
-	}
+	d.removeForbiddenActions()
 	// Drop now-orphaned action objects so a re-scan sees no forbidden actions.
 	for num, obj := range d.objects {
 		if dict, ok := obj.Value.(pdfDict); ok && isPDFAForbiddenAction(dict) {
@@ -466,19 +454,7 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 		extensions, _ = xmpExtensionBlocks(string(raw))
 	}
 	meta, _ := d.XMP()
-	info, _ := d.Info()
-	if meta.Title == "" {
-		meta.Title = info.Title
-	}
-	if len(meta.Authors) == 0 && info.Author != "" {
-		meta.Authors = []string{info.Author}
-	}
-	if meta.Producer == "" {
-		meta.Producer = info.Producer
-	}
-	if meta.CreatorTool == "" {
-		meta.CreatorTool = info.Creator
-	}
+	d.reconcileInfoAndXMP(&meta)
 	// Replace the pdfaid properties, and drop anything else in the PDF/A
 	// namespaces: extension schemas travel as whole blocks (below), never as
 	// loose properties.
@@ -492,6 +468,7 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())},
 		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
 	)
+	custom, _ = splitDeclaredXMP(custom, extensions)
 	meta.Custom = preferExtensionSchemaPrefixes(custom, extensions)
 	if err := d.SetXMP(meta); err != nil {
 		return err

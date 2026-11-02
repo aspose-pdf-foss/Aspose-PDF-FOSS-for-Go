@@ -63,8 +63,8 @@ func readInfoFromDict(infoDict pdfDict) DocumentInfo {
 		Keywords:     infoTextString(infoDict, "/Keywords"),
 		Creator:      infoTextString(infoDict, "/Creator"),
 		Producer:     infoTextString(infoDict, "/Producer"),
-		CreationDate: infoString(infoDict, "/CreationDate"), // always plain ASCII; not a §7.9.2.2 text string
-		ModDate:      infoString(infoDict, "/ModDate"),
+		CreationDate: infoTextString(infoDict, "/CreationDate"), // ASCII, though some producers store it as UTF-16
+		ModDate:      infoTextString(infoDict, "/ModDate"),
 		Custom:       custom,
 	}
 }
@@ -128,20 +128,6 @@ func buildInfoDict(meta DocumentInfo) pdfDict {
 		}
 	}
 	return d
-}
-
-// infoString returns a string field from the Info dictionary as stored
-// (no text-string decoding), or "" if absent. Used for the two dates,
-// which are never §7.9.2.2 text strings.
-func infoString(d pdfDict, key string) string {
-	v, ok := d[key]
-	if !ok {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
 }
 
 // infoTextString returns a §7.9.2.2 text-string field from the Info

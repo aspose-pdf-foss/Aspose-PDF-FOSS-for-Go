@@ -91,3 +91,13 @@ func pageCountFromFile(t *testing.T, path string) int {
 	}
 	return doc.PageCount()
 }
+
+// uaConvert runs ConvertToPDFUA and returns its report.
+func uaConvert(t *testing.T, doc *asposepdf.Document) *asposepdf.PDFUAValidationReport {
+	t.Helper()
+	rep, err := doc.ConvertToPDFUA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}

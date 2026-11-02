@@ -175,7 +175,7 @@ func TestAutoTagFixture(t *testing.T) {
 		}
 	}
 
-	rep := doc.ValidatePDFUA()
+	rep := uaConvert(t, doc)
 	for _, is := range rep.Issues {
 		if is.Rule != "UA_FIGURE_NO_ALT" {
 			t.Errorf("PDF/UA issue: %s %s", is.Rule, is.Message)
@@ -627,7 +627,7 @@ func TestAutoTagTitleFallback(t *testing.T) {
 	if !strings.HasPrefix(info.Title, "Quarterly figures for the northern region") || len([]rune(info.Title)) > 101 {
 		t.Errorf("title = %q", info.Title)
 	}
-	for _, is := range doc.ValidatePDFUA().Issues {
+	for _, is := range uaConvert(t, doc).Issues {
 		t.Errorf("PDF/UA issue: %s", is.Rule)
 	}
 }

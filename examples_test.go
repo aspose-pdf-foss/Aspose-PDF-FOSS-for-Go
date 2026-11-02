@@ -614,7 +614,11 @@ func ExampleDocument_AutoTag() {
 		log.Fatal(err)
 	}
 	fmt.Println(res.Headings, "heading,", res.Paragraphs, "paragraph")
-	fmt.Println("PDF/UA conformant:", doc.ValidatePDFUA().Conformant)
+	report, err := doc.ConvertToPDFUA() // embeds fonts, writes the identifier and XMP title
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("PDF/UA conformant:", report.Conformant)
 	// Output:
 	// 1 heading, 1 paragraph
 	// PDF/UA conformant: true

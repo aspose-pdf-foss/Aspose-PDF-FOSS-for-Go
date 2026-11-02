@@ -101,6 +101,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckEmbeddedFiles(format, r)
 	d.pdfaCheckAssociatedFiles(format, r)
 	d.pdfaCheckTagged(format, r)
+	d.pdfaCheckConformity(format, r)
 	return r
 }
 

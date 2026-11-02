@@ -53,7 +53,7 @@ func TestFloatingBoxInFlowTagged(t *testing.T) {
 	if _, err := flow.Render(); err != nil {
 		t.Fatal(err)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("flow with box not PDF/UA-conformant: %+v", rep.Issues)
 	}
 

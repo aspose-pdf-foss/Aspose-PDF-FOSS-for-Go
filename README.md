@@ -157,8 +157,8 @@ flowchart TD
   annotations join the tree via `StructElement.AddObjectReference` (an `/OBJR` to the annotation
   itself, not marked content), `Document.AutoTag()` tags a PDF made elsewhere after the fact
   (headings, paragraphs, lists, tables, figures in reading order; headers, footers and drawings
-  as artifacts) without changing how it looks, and `Document.ValidatePDFUA()` reports the
-  PDF/UA-1 prerequisites still missing.
+  as artifacts) without changing how it looks, `Document.ConvertToPDFUA()` embeds the fonts and
+  writes the PDF/UA identifier, and `Document.ValidatePDFUA()` reports what is still missing.
 - **PDF/A and structural validation** — `Validate` checks structural integrity;
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
@@ -863,25 +863,28 @@ stays free of network code.
 - `Validate` is a structural-integrity check only (`INVALID_HEADER`/`XREF_ERROR`/`OBJECT_ERROR`/
   `PAGE_TREE_ERROR`/`STREAM_ERROR`/`ENCRYPTED` issue codes) — not a PDF/A or PDF/UA conformance
   check.
-- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` inspects the XMP `pdfaid` identifier, font embedding,
-  encryption, JavaScript/Launch actions, the ICC OutputIntent against device colour, transparency
-  (PDF/A-1), annotation flags, and metadata compression; the "a" levels additionally require a
-  Tagged PDF (structure tree + `/Lang`).
-- `ConvertToPDFA` strips encryption and JavaScript, removes embedded files for PDF/A-1, sets
-  annotation print flags and draws the appearances annotations are missing, embeds the fonts the
+- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` inspects the XMP `pdfaid` identifier and undeclared XMP
+  properties, font embedding and `/CIDSet`, encryption, forbidden actions, the ICC OutputIntent
+  against device colour, transparency and layers (PDF/A-1), image interpolation, XFA, annotation
+  flags and appearances, and metadata compression; the "a" levels additionally require a Tagged
+  PDF (structure tree + `/Lang`).
+- `ConvertToPDFA` strips encryption and forbidden actions, removes embedded files and flattens
+  transparency for PDF/A-1, sets annotation print flags and draws the appearances annotations are
+  missing, turns off image interpolation, removes XFA and transfer functions, embeds the fonts the
   document actually draws with — Standard-14 and other simple fonts through bundled
   metric-compatible clones, composite (CJK) fonts as a subset of the matching installed face, and
   Symbol or ZapfDingbats from a face registered through `AddFontFile`/`AddFontFolder` — adds a
-  pure-Go sRGB ICC OutputIntent, and writes a `pdfaid` XMP packet, then returns a report of
-  whatever still fails. Across a 1,000-document corpus, 97% convert to a clean report; confirm
-  full conformance with a dedicated validator such as veraPDF. `ConvertToPDFA` does not flatten
-  transparency (a `TRANSPARENCY` finding for PDF/A-1 stays unresolved) — call
-  `Document.FlattenTransparency()` separately first: it rasterizes only the pages that actually
-  use a transparency group, soft mask, non-Normal blend mode, or alpha < 1, leaving every other
-  page fully vector.
-- `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) prerequisites: a Tagged PDF with
-  `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, a displayed title, alternate text on
-  every figure/formula, and accessibility not blocked by encryption.
+  pure-Go sRGB ICC OutputIntent, and writes a `pdfaid` XMP packet that agrees with `/Info`, then
+  returns a report of whatever still fails. DeviceCMYK content is not converted and is reported.
+  The report covers the rules this library knows about, not every rule of the standard: on a
+  sample of 85 real-world documents, 73 pass veraPDF as PDF/A-2b and 69 as PDF/A-1b, and a few
+  that the report accepts do not (mostly defects in the source's own fonts, such as widths that
+  disagree with the font program). Confirm conformance with veraPDF when it matters.
+- `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) requirements a program can decide: a Tagged PDF
+  with `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, the `pdfuaid` identifier, a displayed
+  XMP title, embedded fonts, alternate text on every figure/formula, `/Scope` on every `/TH`,
+  headings in order, and accessibility not blocked by encryption. `ConvertToPDFUA` repairs what can
+  be repaired without knowing the content; a file may be both PDF/A and PDF/UA.
 
 ### Tagged PDF Authoring
 
@@ -898,8 +901,9 @@ stays free of network code.
   marked as artifacts. Headings come from the bookmarks or from font sizes
   (`HeadingRecognitionStrategy`, as in Aspose.PDF for .NET). Only marked-content operators are
   inserted, so pages render and extract exactly as before. Figures carry no alternate text —
-  `ImageDescriptionCopilot.FillAltTexts` writes it. Follow with `ConvertToPDFA(PDFA2A)` for an
-  accessible archive.
+  `ImageDescriptionCopilot.FillAltTexts` writes it. Links, form fields and other annotations join
+  the tree too. Follow with `ConvertToPDFUA()` for PDF/UA-1, `ConvertToPDFA(PDFA2A)` for an
+  accessible archive, or both.
 
 ### Rendering to Images
 

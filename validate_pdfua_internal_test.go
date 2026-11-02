@@ -58,7 +58,7 @@ func TestValidatePDFUAUntagged(t *testing.T) {
 func TestValidatePDFUATaggedConformant(t *testing.T) {
 	doc := NewDocumentFromFormat(PageFormatA4)
 	makeTaggedDoc(doc, true)
-	rep := doc.ValidatePDFUA()
+	rep := uaConvert(t, doc)
 	if !rep.Conformant {
 		t.Fatalf("tagged document not conformant: %+v", rep.Issues)
 	}
@@ -67,7 +67,7 @@ func TestValidatePDFUATaggedConformant(t *testing.T) {
 func TestValidatePDFUAFigureNoAlt(t *testing.T) {
 	doc := NewDocumentFromFormat(PageFormatA4)
 	makeTaggedDoc(doc, false)
-	rep := doc.ValidatePDFUA()
+	rep := uaConvert(t, doc)
 	if !hasUARule(rep, "UA_FIGURE_NO_ALT") {
 		t.Errorf("expected UA_FIGURE_NO_ALT for a figure without alt text; got %+v", rep.Issues)
 	}
@@ -90,4 +90,14 @@ func TestResolveStructType(t *testing.T) {
 	if got := resolveStructType(roleMap, "/Loop"); got != "/Loop" {
 		t.Errorf("self-referential role map should terminate, got %q", got)
 	}
+}
+
+// uaConvert runs ConvertToPDFUA and returns its report.
+func uaConvert(t *testing.T, doc *Document) *PDFUAValidationReport {
+	t.Helper()
+	rep, err := doc.ConvertToPDFUA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
 }

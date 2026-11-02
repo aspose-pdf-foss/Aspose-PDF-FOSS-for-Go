@@ -93,7 +93,10 @@ var ErrAlreadyTagged = errors.New("asposepdf: document is already tagged")
 // signatures. All pages are analysed and rewritten before anything is
 // changed, so on error the document is left as it was.
 //
-// For a PDF/A "a" level, call AutoTag and then ConvertToPDFA. Mirrors the
+// For a PDF/A "a" level, call AutoTag and then ConvertToPDFA; for PDF/UA, AutoTag
+// and then ConvertToPDFUA, which embeds the fonts and writes the identifier
+// (a file may be both). Heading levels are adjusted so the first is H1 and none
+// is skipped. Mirrors the
 // auto-tagging Aspose.PDF for .NET applies through
 // PdfFormatConversionOptions.AutoTaggingSettings.
 func (d *Document) AutoTag(s AutoTaggingSettings) (*AutoTagResult, error) {
@@ -125,6 +128,7 @@ func (d *Document) AutoTag(s AutoTaggingSettings) (*AutoTagResult, error) {
 		mcid []*atElem // MCID → owning leaf
 	}
 	var work []pageWork
+	lastHeading := 0
 	for i, fp := range fd.pages {
 		p := pages[fp.number-1]
 		data, err := p.contentStreams()
@@ -137,6 +141,7 @@ func (d *Document) AutoTag(s AutoTaggingSettings) (*AutoTagResult, error) {
 		}
 		pa := atPageAnalysis{bodySize: fd.bodySize, headings: headings, pageNum: fp.number, pageH: fp.pageH, furniture: fd.furniture, settings: s}
 		tops := pa.elements(fd.pages[i])
+		lastHeading = atNormalizeHeadings(tops, lastHeading)
 		leaves := atAssign(items, &tops, fp.pageW*fp.pageH)
 
 		var mcids []*atElem
@@ -419,13 +424,16 @@ func atTableElem(t *AbsorbedTable) *atElem {
 				typ = StructTH
 			}
 			c := &atElem{typ: typ, leaf: true, keep: true, regions: []Rectangle{cell.Rect}}
-			if cell.RowSpan > 1 || cell.ColSpan > 1 {
+			if cell.RowSpan > 1 || cell.ColSpan > 1 || typ == StructTH {
 				a := pdfDict{"/O": pdfName("/Table")}
 				if cell.RowSpan > 1 {
 					a["/RowSpan"] = cell.RowSpan
 				}
 				if cell.ColSpan > 1 {
 					a["/ColSpan"] = cell.ColSpan
+				}
+				if typ == StructTH {
+					a["/Scope"] = pdfName("/Column")
 				}
 				c.attrs = a
 			}
@@ -434,6 +442,23 @@ func atTableElem(t *AbsorbedTable) *atElem {
 		tbl.children = append(tbl.children, tr)
 	}
 	return tbl
+}
+
+// atNormalizeHeadings makes heading levels descend the way PDF/UA requires: the
+// first heading is H1 and no level is skipped. A heading deeper than one below
+// its predecessor is pulled up; font sizes rarely start at the top level, and
+// outlines do not always either.
+func atNormalizeHeadings(tops []*atElem, last int) int {
+	for _, e := range tops {
+		n := 0
+		if _, err := fmt.Sscanf(string(e.typ), "/H%d", &n); err != nil || n < 1 {
+			continue
+		}
+		n = min(n, last+1)
+		e.typ = StructType(fmt.Sprintf("/H%d", n))
+		last = n
+	}
+	return last
 }
 
 // atLeaves flattens the element tree's leaves in reading order.

@@ -39,7 +39,7 @@ func TestAddTaggedTable(t *testing.T) {
 	if pages != 0 {
 		t.Errorf("unexpected continuation pages: %d", pages)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("tagged table not PDF/UA-conformant: %+v", rep.Issues)
 	}
 
@@ -86,7 +86,7 @@ func TestAddTaggedTablePaginates(t *testing.T) {
 	if pages == 0 {
 		t.Fatal("expected the tall table to paginate")
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Errorf("paginated tagged table not conformant: %+v", rep.Issues)
 	}
 }

@@ -438,6 +438,18 @@ const xmpBlockWrapperOpen = `<xmpwrap xmlns:rdf="` + nsRDF +
 // block naming several schemas resolves each independently.
 func extensionSchemaPrefixes(blocks []string) map[string]string {
 	out := map[string]string{}
+	for ns, prefix := range extensionSchemaDeclarations(blocks) {
+		if isUsableXMLPrefix(prefix) {
+			out[ns] = prefix
+		}
+	}
+	return out
+}
+
+// extensionSchemaDeclarations returns every namespace the blocks declare, with
+// the prefix as written, usable or not.
+func extensionSchemaDeclarations(blocks []string) map[string]string {
+	out := map[string]string{}
 	for _, block := range blocks {
 		// A block carried unchanged from another producer's packet often
 		// leaves xmlns:rdf to an ancestor, and parsed on its own its
@@ -448,7 +460,7 @@ func extensionSchemaPrefixes(blocks []string) map[string]string {
 		dec := xml.NewDecoder(strings.NewReader(xmpBlockWrapperOpen + block + `</xmpwrap>`))
 		var nsURI, prefix string
 		flush := func() {
-			if nsURI != "" && isUsableXMLPrefix(prefix) {
+			if nsURI != "" {
 				out[nsURI] = prefix
 			}
 			nsURI, prefix = "", ""

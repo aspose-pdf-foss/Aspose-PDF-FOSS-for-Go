@@ -33,7 +33,7 @@ func TestAddTaggedList(t *testing.T) {
 	if ul == nil {
 		t.Fatal("nil list element")
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("tagged list not PDF/UA-conformant: %+v", rep.Issues)
 	}
 
@@ -81,7 +81,7 @@ func TestTagArtifact(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Errorf("artifact + tagged content not conformant: %+v", rep.Issues)
 	}
 }

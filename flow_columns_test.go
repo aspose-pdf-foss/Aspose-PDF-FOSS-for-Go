@@ -104,7 +104,7 @@ func TestFlowColumnsTagged(t *testing.T) {
 	if _, err := flow.Render(); err != nil {
 		t.Fatal(err)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("tagged multi-column flow not conformant: %+v", rep.Issues)
 	}
 }

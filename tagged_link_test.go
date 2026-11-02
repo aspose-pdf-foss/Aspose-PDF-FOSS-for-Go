@@ -38,7 +38,7 @@ func TestTaggedLinkObjectReferenceRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("authored document not PDF/UA-conformant: %+v", rep.Issues)
 	}
 
@@ -95,7 +95,7 @@ func TestAddObjectReferenceComposesWithBareAddChild(t *testing.T) {
 	if err := elem.AddObjectReference(link); err != nil {
 		t.Fatal(err)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Errorf("not conformant: %+v", rep.Issues)
 	}
 }

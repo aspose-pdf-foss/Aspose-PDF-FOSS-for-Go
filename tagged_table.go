@@ -58,7 +58,10 @@ func (tt *tableTagger) tagCell(page *Page, rowIdx int, draw func() error) error 
 	if rowIdx < tt.headerRows {
 		st = StructTH
 	}
-	_, err := page.TagContent(tt.rowElem(rowIdx), st, draw)
+	e, err := page.TagContent(tt.rowElem(rowIdx), st, draw)
+	if err == nil && st == StructTH {
+		e.dict["/A"] = pdfDict{"/O": pdfName("/Table"), "/Scope": pdfName("/Column")}
+	}
 	return err
 }
 

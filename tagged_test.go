@@ -58,7 +58,7 @@ func authorTagged(t *testing.T, figureAlt bool) *pdf.Document {
 // and stays conformant after a round-trip, with text and structure intact.
 func TestTaggedAuthoringConformant(t *testing.T) {
 	doc := authorTagged(t, true)
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Fatalf("authored document not PDF/UA-conformant: %+v", rep.Issues)
 	}
 
@@ -92,7 +92,7 @@ func TestTaggedAuthoringConformant(t *testing.T) {
 // TestTaggedFigureNeedsAlt: a figure without alt text fails PDF/UA.
 func TestTaggedFigureNeedsAlt(t *testing.T) {
 	doc := authorTagged(t, false)
-	rep := doc.ValidatePDFUA()
+	rep := uaConvert(t, doc)
 	if !uaHas(rep, "UA_FIGURE_NO_ALT") {
 		t.Errorf("expected UA_FIGURE_NO_ALT for an untagged figure; got %+v", rep.Issues)
 	}
@@ -116,7 +116,7 @@ func TestTaggedNesting(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if rep := doc.ValidatePDFUA(); !rep.Conformant {
+	if rep := uaConvert(t, doc); !rep.Conformant {
 		t.Errorf("nested-table document not conformant: %+v", rep.Issues)
 	}
 }

@@ -58,7 +58,7 @@ Body **text** with a [link](https://example.com/) and ` + "`code`" + `.
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep := doc.ValidatePDFUA()
+	rep := uaConvert(t, doc)
 	if !rep.Conformant {
 		for _, iss := range rep.Issues {
 			t.Errorf("PDF/UA issue %s: %s", iss.Rule, iss.Message)
