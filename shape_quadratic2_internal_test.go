@@ -128,25 +128,96 @@ func TestResolveAttachmentsMatchesReferenceOnRandomInput(t *testing.T) {
 	}
 }
 
-// minDuration runs f once to warm up, then reps more times, and returns
-// the fastest run. The growth-ratio tests below compare two durations
-// that are each well under a millisecond on a fast machine; a single
-// run picks up GC pauses and scheduler noise on a shared CI runner
-// (a macOS runner once reported a 19x "growth" for a linear function),
-// while the minimum of several runs tracks the work itself.
-func minDuration(reps int, f func() time.Duration) time.Duration {
-	f()
-	best := f()
-	for i := 1; i < reps; i++ {
-		if d := f(); d < best {
-			best = d
-		}
+// Growth-test tuning: one sample runs the work for at least growthBatch, and
+// growth counts as real only when every one of growthAttempts measurements
+// exceeds the limit.
+const (
+	growthBatch    = 100 * time.Millisecond
+	growthMaxRuns  = 10000
+	growthAttempts = 3
+	growthLimit    = 10
+)
+
+// growthSample returns the mean cost of one run of work: it repeats work until
+// clock has advanced by at least growthBatch and divides by the runs. The
+// batch is timed as one stretch, which answers both things that make short
+// timings lie. The clock moves in steps (about 0.5ms on Windows, against work
+// of about a millisecond), and over a batch the error is at most one step. And
+// on a busy machine a single short run fits in one scheduler slice while a long
+// one is preempted, whereas a batch spans many slices at either size, so both
+// pay for contention alike. Timing runs separately and keeping the fastest did
+// neither: linear functions measured 9x, 17x and 22x growth on a 4x input.
+func growthSample(clock func() time.Duration, work func()) time.Duration {
+	work() // warm up
+	start := clock()
+	n := 0
+	for clock()-start < growthBatch && n < growthMaxRuns {
+		work()
+		n++
 	}
-	return best
+	if n == 0 {
+		return 0
+	}
+	return (clock() - start) / time.Duration(n)
 }
 
-// growthReps is how many timed runs minDuration takes per input size.
-const growthReps = 5
+// A clock moving in coarse steps must not bias the sample, on work far shorter
+// than one step or about as long as one.
+func TestGrowthSampleOnCoarseClock(t *testing.T) {
+	const step = 15 * time.Millisecond
+	for _, cost := range []time.Duration{700 * time.Microsecond, 3 * time.Millisecond, 12 * time.Millisecond} {
+		var now time.Duration
+		clock := func() time.Duration { return now / step * step }
+		got := growthSample(clock, func() { now += cost })
+		if ratio := float64(got) / float64(cost); ratio < 0.75 || ratio > 1.25 {
+			t.Errorf("work of %v sampled as %v", cost, got)
+		}
+	}
+}
+
+// A preempted run must count against short work as much as long: work of 1ms
+// that loses 15ms every 20ms of clock time is sampled with that loss included,
+// as work of 16ms would be, so the ratio between the two stays honest.
+func TestGrowthSampleIncludesPreemption(t *testing.T) {
+	sample := func(cost time.Duration) time.Duration {
+		var now, sinceSlice time.Duration
+		return growthSample(func() time.Duration { return now }, func() {
+			now += cost
+			sinceSlice += cost
+			for sinceSlice >= 5*time.Millisecond {
+				now += 15 * time.Millisecond
+				sinceSlice -= 5 * time.Millisecond
+			}
+		})
+	}
+	short, long := sample(time.Millisecond), sample(16*time.Millisecond)
+	if ratio := float64(long) / float64(short); ratio < 12 || ratio > 20 {
+		t.Errorf("16x the work sampled as %.1fx (%v vs %v)", ratio, long, short)
+	}
+}
+
+var growthClockStart = time.Now()
+
+// growthClock is monotonic time since the test binary started.
+func growthClock() time.Duration { return time.Since(growthClockStart) }
+
+// assertLinearGrowth fails when going from small to large (4x the input)
+// costs more than growthLimit times as much: linear work measures 4-5x, the
+// quadratic bugs these tests guard against measured 15-24x. It fails only if every attempt exceeds the limit, since what noise is
+// left comes and goes while a quadratic algorithm never passes.
+func assertLinearGrowth(t *testing.T, what string, small, large int, work func(n int)) {
+	t.Helper()
+	var tSmall, tLarge time.Duration
+	for range growthAttempts {
+		tSmall = growthSample(growthClock, func() { work(small) })
+		tLarge = growthSample(growthClock, func() { work(large) })
+		if tSmall == 0 || tLarge <= growthLimit*tSmall {
+			return
+		}
+	}
+	t.Errorf("%s: time grew %.1fx (n=%d: %v, n=%d: %v) on all %d attempts — looks O(n²) again",
+		what, float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge, growthAttempts)
+}
 
 // TestMeasureTextManyMarksOnNonARecomposingBaseStaysFast reproduces the
 // advisory's own repro: a long run of combining marks on several base
@@ -185,10 +256,9 @@ func TestMeasureTextManyMarksOnNonARecomposingBaseStaysFast(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			timeFor := func(n int) time.Duration {
+			work := func(n int) {
 				text := tc.base + strings.Repeat(tc.mark, n)
 				style := TextStyle{Font: f, Size: 10}
-				start := time.Now()
 				// MeasureText (not shapeLine directly) so Arabic/Hebrew
 				// text goes through the same Arabic-shaping/bidi
 				// detection resolveSingleLine applies before shaping —
@@ -201,18 +271,8 @@ func TestMeasureTextManyMarksOnNonARecomposingBaseStaysFast(t *testing.T) {
 				if _, err := MeasureText(text, style); err != nil {
 					t.Fatal(err)
 				}
-				return time.Since(start)
 			}
-			tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-			tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-			// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
-			// A generous 8x ceiling comfortably separates the two without
-			// being sensitive to machine noise on the (already small)
-			// absolute durations.
-			if tSmall > 0 && tLarge > 8*tSmall {
-				t.Errorf("%s: time grew %vx (n=%d: %v, n=%d: %v) going from %d to %d marks — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
-					tc.name, float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge, small, large)
-			}
+			assertLinearGrowth(t, tc.name+" (GHSA-vj25-h6h5-3phj)", small, large, work)
 		})
 	}
 }
@@ -240,19 +300,11 @@ func TestShapeManyLigaturesStaysFast(t *testing.T) {
 	f := loadFontFile(t, "testdata/DejaVuSans.ttf")
 
 	const small, large = 4000, 16000 // pairs, so 8000/32000 runes
-	timeFor := func(n int) time.Duration {
+	work := func(n int) {
 		text := strings.Repeat("fi", n)
-		start := time.Now()
 		shapeRun(f, text, false)
-		return time.Since(start)
 	}
-	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-	// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
-	if tSmall > 0 && tLarge > 8*tSmall {
-		t.Errorf("time grew %vx (n=%d pairs: %v, n=%d pairs: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
-			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
-	}
+	assertLinearGrowth(t, "GHSA-vj25-h6h5-3phj", small, large, work)
 }
 
 // TestShapeManyLigaturesProducesCorrectGlyphs shapes a long run of "fi"
@@ -415,22 +467,15 @@ func TestGsubMultipleDeletionHeavyStaysFast(t *testing.T) {
 	lookup := &otLookup{kind: 2, subtables: []any{sub}}
 
 	const small, large = 4000, 16000
-	timeFor := func(n int) time.Duration {
+	work := func(n int) {
 		glyphs := make([]shapedGlyph, n)
 		for i := range glyphs {
 			glyphs[i] = shapedGlyph{gid: delGID, advance: 50, mask: otMaskGlobal}
 		}
 		s := &otShaper{glyphs: glyphs, table: &otLayoutTable{lookups: []*otLookup{lookup}}}
-		start := time.Now()
 		s.applyLookup(otPlanLookup{index: 0, mask: otMaskGlobal}, true)
-		return time.Since(start)
 	}
-	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-	if tSmall > 0 && tLarge > 8*tSmall {
-		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
-			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
-	}
+	assertLinearGrowth(t, "GHSA-vj25-h6h5-3phj", small, large, work)
 }
 
 // TestGsubMultipleConsecutiveDeletionsAllRemoved pins a deliberate
@@ -506,18 +551,11 @@ func TestAddTextManyMarksStaysFast(t *testing.T) {
 	}
 
 	const small, large = 4000, 16000
-	timeFor := func(n int) time.Duration {
+	work := func(n int) {
 		text := "x" + strings.Repeat("́", n)
-		start := time.Now()
 		if err := p.AddText(text, TextStyle{Font: f, Size: 10}, Rectangle{LLX: 0, LLY: 0, URX: 10000, URY: 50}); err != nil {
 			t.Fatal(err)
 		}
-		return time.Since(start)
 	}
-	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-	if tSmall > 0 && tLarge > 8*tSmall {
-		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GHSA-vj25-h6h5-3phj)",
-			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
-	}
+	assertLinearGrowth(t, "GHSA-vj25-h6h5-3phj", small, large, work)
 }

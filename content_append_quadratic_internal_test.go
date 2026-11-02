@@ -5,7 +5,6 @@ package asposepdf
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 // GitHub issue #20 (shadowhunter1470-svg), point 1: contentsEntries
@@ -21,27 +20,19 @@ import (
 func TestAppendToContentStreamManyDrawsStaysFast(t *testing.T) {
 	ls := LineStyle{Width: 1, Color: &Color{A: 1}}
 	const small, large = 2000, 8000 // 4x the input
-	timeFor := func(n int) time.Duration {
+	work := func(n int) {
 		doc := NewDocument(595, 842)
 		p, err := doc.Page(1)
 		if err != nil {
 			t.Fatal(err)
 		}
-		start := time.Now()
 		for i := 0; i < n; i++ {
 			if err := p.DrawLine(Point{X: 10, Y: 10}, Point{X: 20, Y: 20}, ls); err != nil {
 				t.Fatal(err)
 			}
 		}
-		return time.Since(start)
 	}
-	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-	// O(n): 4x input -> ~4x time. O(n^2): 4x input -> ~16x time.
-	if tSmall > 0 && tLarge > 8*tSmall {
-		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GitHub issue #20)",
-			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
-	}
+	assertLinearGrowth(t, "GitHub issue #20", small, large, work)
 }
 
 // TestAppendToContentStreamManyDrawsOnCanvasStaysFast is the detached-
@@ -50,23 +41,16 @@ func TestAppendToContentStreamManyDrawsStaysFast(t *testing.T) {
 func TestAppendToContentStreamManyDrawsOnCanvasStaysFast(t *testing.T) {
 	ls := LineStyle{Width: 1, Color: &Color{A: 1}}
 	const small, large = 2000, 8000
-	timeFor := func(n int) time.Duration {
+	work := func(n int) {
 		doc := NewDocument(595, 842)
 		canvas := doc.CreateForm(200, 200).Canvas()
-		start := time.Now()
 		for i := 0; i < n; i++ {
 			if err := canvas.DrawLine(Point{X: 10, Y: 10}, Point{X: 20, Y: 20}, ls); err != nil {
 				t.Fatal(err)
 			}
 		}
-		return time.Since(start)
 	}
-	tSmall := minDuration(growthReps, func() time.Duration { return timeFor(small) })
-	tLarge := minDuration(growthReps, func() time.Duration { return timeFor(large) })
-	if tSmall > 0 && tLarge > 8*tSmall {
-		t.Errorf("time grew %vx (n=%d: %v, n=%d: %v) — looks O(n²) again (GitHub issue #20)",
-			float64(tLarge)/float64(tSmall), small, tSmall, large, tLarge)
-	}
+	assertLinearGrowth(t, "GitHub issue #20", small, large, work)
 }
 
 // TestAppendToContentStreamFastPathMatchesSlowPath differentially
