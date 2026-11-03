@@ -65,6 +65,10 @@ type PDFAValidationReport struct {
 	// Conformant is true when no violations were found for the requested level.
 	Conformant bool
 	Issues     []PDFAIssue
+	// RasterizedPages lists, on the report ConvertToPDFA returns, the 1-based pages
+	// that had to become images because PDF/A-1 forbids their transparency. They
+	// look the same but their text can no longer be searched or copied.
+	RasterizedPages []int
 }
 
 func (r *PDFAValidationReport) add(rule, msg string) {
@@ -444,11 +448,18 @@ func pdfaValueHasTransparency(objects map[int]*pdfObject, v pdfValue) bool {
 
 func pdfaDictHasTransparency(objects map[int]*pdfObject, dict pdfDict) bool {
 	// Transparency group (page or Form XObject).
-	if grp, ok := resolveRefToDict(objects, dict["/Group"]); ok {
-		if dictGetName(grp, "/S") == "/Transparency" {
-			return true
-		}
-	}
+	return dictHasTransparencyGroup(objects, dict) || dictPaintsTransparently(objects, dict)
+}
+
+func dictHasTransparencyGroup(objects map[int]*pdfObject, dict pdfDict) bool {
+	grp, ok := resolveRefToDict(objects, dict["/Group"])
+	return ok && dictGetName(grp, "/S") == "/Transparency"
+}
+
+// dictPaintsTransparently reports what changes how content paints. A group alone
+// does not: the content of a page group with nothing translucent in it composites
+// exactly as it would without one, and many producers write one on every page.
+func dictPaintsTransparently(objects map[int]*pdfObject, dict pdfDict) bool {
 	// Soft mask — an image /SMask stream or an ExtGState /SMask other than /None.
 	if sm, ok := dict["/SMask"]; ok {
 		if pdfaResolveName(objects, sm) != "/None" {
@@ -645,4 +656,28 @@ func (d *Document) pdfaFileAttachmentAnnotations() []*FileAttachmentAnnotation {
 		}
 	}
 	return out
+}
+
+// valuePaintsTransparently looks through a value's direct contents as well.
+func valuePaintsTransparently(objects map[int]*pdfObject, v pdfValue) bool {
+	switch x := v.(type) {
+	case pdfDict:
+		if dictPaintsTransparently(objects, x) {
+			return true
+		}
+		for _, e := range x {
+			if valuePaintsTransparently(objects, e) {
+				return true
+			}
+		}
+	case pdfArray:
+		for _, e := range x {
+			if valuePaintsTransparently(objects, e) {
+				return true
+			}
+		}
+	case *pdfStream:
+		return valuePaintsTransparently(objects, x.Dict)
+	}
+	return false
 }

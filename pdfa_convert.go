@@ -24,9 +24,9 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 //     additional-actions dictionary, wherever attached;
 //   - removes file attachments for PDF/A-1 (including a page-pinned
 //     FileAttachmentAnnotation, not just the document-level EmbeddedFiles tree);
-//   - rasterizes any page using transparency for PDF/A-1 (FlattenTransparency,
-//     which PDF/A-1 forbids outright; PDF/A-2 and -3 permit it and are left
-//     alone);
+//   - rasterizes any page painting transparently for PDF/A-1 (FlattenTransparency;
+//     PDF/A-1 forbids it outright, PDF/A-2 and -3 permit it and are left alone).
+//     The report's RasterizedPages names them: their text is no longer text;
 //   - sets annotation flags (Print on, Hidden/NoView off) and leaves each
 //     appearance dictionary with only its normal appearance;
 //   - turns off image interpolation;
@@ -67,6 +67,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	if format.part() == 1 {
 		d.compressObjects = false
 	}
+	var rasterized []int
 	d.RemoveEncryption()
 	d.stripPDFAActions()
 	if format.part() == 1 {
@@ -74,7 +75,8 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 		// PDF/A-1 forbids transparency outright (ISO 19005-1); flatten it away
 		// before the font pass below, so a rasterized page's now-unused fonts
 		// are not embedded for nothing.
-		if _, err := d.FlattenTransparency(); err != nil {
+		var err error
+		if rasterized, err = d.flattenTransparencyPages(); err != nil {
 			return nil, fmt.Errorf("ConvertToPDFA: flatten transparency: %w", err)
 		}
 	}
@@ -101,7 +103,9 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	if err := d.setPDFAMetadata(format); err != nil {
 		return nil, err
 	}
-	return d.ValidatePDFA(format), nil
+	rep := d.ValidatePDFA(format)
+	rep.RasterizedPages = rasterized
+	return rep, nil
 }
 
 // embedStandardFonts replaces every non-embedded simple font (Standard-14 or any
@@ -289,9 +293,17 @@ func (d *Document) stripPDFAActions() {
 	d.removeForbiddenActions()
 	// Drop now-orphaned action objects so a re-scan sees no forbidden actions.
 	for num, obj := range d.objects {
-		if dict, ok := obj.Value.(pdfDict); ok && isPDFAForbiddenAction(dict) {
-			delete(d.objects, num)
+		dict, ok := obj.Value.(pdfDict)
+		if !ok || !isPDFAForbiddenAction(dict) {
+			continue
 		}
+		if dictGetName(dict, "/Type") == "/Page" {
+			// A page carrying an action's keys is still the page.
+			delete(dict, "/S")
+			delete(dict, "/JS")
+			continue
+		}
+		delete(d.objects, num)
 	}
 }
 

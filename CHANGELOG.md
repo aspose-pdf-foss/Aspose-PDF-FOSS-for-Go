@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-11-03
+
+Fixes for operations that silently lost content. A comparison of text and pixels before and after each operation, run over a real-world corpus, found them; no validator reports this kind of damage. Upgrading from any earlier version is recommended if you use `Flatten`, `ConvertToPDFA` or `ConvertToPDFUA`.
+
 ### Fixed
 
 - **`ConvertToPDFA` and `ConvertToPDFUA` could damage the document they converted**, with no sign in the report. Every case below is now preserved; a comparison of text and pixels across 1,007 corpus documents before and after conversion now finds only the substitutes' letterforms and, in a few documents, a space more or less between words.
@@ -15,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Text moved and overlapped when the substitute's metrics differed from the original font's, because `/Widths` and `/W` were replaced with the substitute's. The document's widths now stay, and the embedded program's advances are set to match them, which PDF/A also requires.
   - Text drew the wrong characters when a font had no `/Encoding`: it means StandardEncoding, but WinAnsi was written, so "fi" became "®". The drawn codes keep their characters.
   - Text stopped extracting because `/ToUnicode` was dropped from a substituted font. It is now kept, and a symbol font embedded from an installed face gets one built from its encoding.
+- **`Flatten` erased forms.** A form whose page `/Annots` or `/Fields` is written as a reference, as most producers do (65 of 92 corpus documents with fields), had nothing baked and its fields removed anyway: the page came out without them. `Field.Flatten` had the same fault.
+- **A form with an indirect `/Fields` or `/Kids` looked empty.** `Form.Fields` returned nothing, `AddTextField` and the like replaced the existing fields, and `RemoveField` removed nothing.
+- **PDF/A-1 conversion made text into pictures for no reason.** A page `/Group` with nothing translucent in it, which many producers write on every page, caused the page to be rasterized, losing its text (61 of 338 sampled documents). The group is now removed and the page stays as it is. `FlattenTransparency` behaves the same way.
+- **A page with `/S /JavaScript` among its keys was deleted as an action**, leaving a file with no pages.
 - **Helvetica and Arial were substituted with a serif face** when a producer set the Serif flag in the font descriptor. This also affected rendering.
 - A used font with no `/Type` entry was neither embedded nor reported.
 - Transparency in an ExtGState written directly into a page's `/Resources` was neither reported nor flattened for PDF/A-1.
@@ -27,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SIGNATURE_STALE`: a conversion rewrites the file, so its signatures no longer verify (PDF/A-2 and PDF/A-3).
   - `FILESPEC_NO_UF`, `EMBEDDED_FILE_NOT_PDFA` (PDF/A-2; it reads the attachment's own claim and does not validate it), `NUMBER_OUT_OF_RANGE`, `NAME_NOT_UTF8`, `ANNOTATION_TYPE_FORBIDDEN`.
   - `UA_NO_UNICODE_MAPPING`, and the font rules above under `UA_` codes.
+- `PDFAValidationReport.RasterizedPages` lists the pages `ConvertToPDFA` had to turn into images because PDF/A-1 forbids their transparency. They look the same, but their text can no longer be searched or copied.
 - `ConvertToPDFA` and `ConvertToPDFUA` repair more: `/Type` on a used font, a Type1 subset's `/CharSet`, a CIDFont `/Supplement` ahead of its CMap's, `/F` and `/UF` on file specifications, integers written as unsigned 32-bit values. For PDF/A-1, `ConvertToPDFA` embeds predefined CMaps.
 
 ## [0.15.0] — 2026-11-02
@@ -605,7 +614,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.12.0...v0.13.0

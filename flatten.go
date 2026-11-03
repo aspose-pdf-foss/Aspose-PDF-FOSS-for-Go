@@ -48,7 +48,7 @@ func (f *Form) Flatten() error {
 		if !ok {
 			continue
 		}
-		annots, _ := pageDict["/Annots"].(pdfArray)
+		annots, _ := resolveRefToArray(f.doc.objects, pageDict["/Annots"])
 		for _, a := range annots {
 			ref, ok := a.(pdfRef)
 			if !ok || !targetIDs[ref.Num] {
@@ -70,15 +70,12 @@ func (f *Form) Flatten() error {
 
 	// Remove field + widget objects from /AcroForm/Fields and every /Annots,
 	// then delete the objects and drop the AcroForm entirely.
-	if arr, ok := f.root["/Fields"].(pdfArray); ok {
-		f.root["/Fields"] = spliceRefs(arr, targetIDs)
-	}
 	for _, pageObj := range f.doc.pages {
 		pageDict, ok := pageObj.Value.(pdfDict)
 		if !ok {
 			continue
 		}
-		if arr, ok := pageDict["/Annots"].(pdfArray); ok {
+		if arr, ok := resolveRefToArray(f.doc.objects, pageDict["/Annots"]); ok {
 			pageDict["/Annots"] = spliceRefs(arr, targetIDs)
 		}
 	}
@@ -121,7 +118,7 @@ func (b *fieldBase) Flatten() error {
 		if !ok {
 			continue
 		}
-		annots, _ := pageDict["/Annots"].(pdfArray)
+		annots, _ := resolveRefToArray(d.objects, pageDict["/Annots"])
 		for _, a := range annots {
 			ref, ok := a.(pdfRef)
 			if !ok || !ids[ref.Num] {
@@ -143,7 +140,7 @@ func (b *fieldBase) Flatten() error {
 
 	// Remove just this field from /AcroForm/Fields and from page /Annots.
 	if root, ok := resolveRefToDict(d.objects, d.catalog["/AcroForm"]); ok {
-		if arr, ok := root["/Fields"].(pdfArray); ok {
+		if arr, ok := resolveRefToArray(d.objects, root["/Fields"]); ok {
 			root["/Fields"] = spliceRefs(arr, ids)
 		}
 	}
@@ -152,7 +149,7 @@ func (b *fieldBase) Flatten() error {
 		if !ok {
 			continue
 		}
-		if arr, ok := pageDict["/Annots"].(pdfArray); ok {
+		if arr, ok := resolveRefToArray(d.objects, pageDict["/Annots"]); ok {
 			pageDict["/Annots"] = spliceRefs(arr, ids)
 		}
 	}

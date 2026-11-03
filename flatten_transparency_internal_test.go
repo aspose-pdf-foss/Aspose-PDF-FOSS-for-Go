@@ -24,6 +24,8 @@ func TestFlattenTransparencyClearsPageGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.pageDict()["/Group"] = pdfDict{"/S": pdfName("/Transparency")}
+	res, _ := resolveRefToDict(doc.objects, p.pageDict()["/Resources"])
+	res["/ExtGState"] = pdfDict{"/G0": pdfDict{"/ca": 0.5}}
 
 	n, err := doc.FlattenTransparency()
 	if err != nil {

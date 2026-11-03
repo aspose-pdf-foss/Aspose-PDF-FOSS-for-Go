@@ -107,11 +107,7 @@ type Field interface {
 // list of leaf fields with FullName, /FT and /Ff resolved through
 // inheritance per ISO 32000-1 §12.7.3.1.
 func walkAcroForm(form *Form, objects map[int]*pdfObject, root pdfDict) []*fieldNode {
-	fieldsVal, ok := root["/Fields"]
-	if !ok {
-		return nil
-	}
-	arr, ok := fieldsVal.(pdfArray)
+	arr, ok := resolveRefToArray(objects, root["/Fields"])
 	if !ok {
 		return nil
 	}
@@ -144,13 +140,13 @@ func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName,
 		ff = toInt(v)
 	}
 
-	kidsVal, hasKids := dict["/Kids"]
+	_, hasKids := dict["/Kids"]
 	if !hasKids {
 		// Leaf without kids — the field itself is also its widget.
 		*out = append(*out, &fieldNode{form: form, dict: dict, fullName: fullName, ft: ft, ff: ff, widgets: []pdfDict{dict}})
 		return
 	}
-	arr, ok := kidsVal.(pdfArray)
+	arr, ok := resolveRefToArray(objects, dict["/Kids"])
 	if !ok {
 		*out = append(*out, &fieldNode{form: form, dict: dict, fullName: fullName, ft: ft, ff: ff})
 		return
@@ -409,7 +405,7 @@ func (f *Form) validateNewField(pageNum int, name string) error {
 // if absent.
 func (f *Form) appendToFields(ref pdfRef) {
 	f.ensureRoot()
-	arr, _ := f.root["/Fields"].(pdfArray)
+	arr, _ := resolveRefToArray(f.doc.objects, f.root["/Fields"])
 	arr = append(arr, ref)
 	f.root["/Fields"] = arr
 }
@@ -686,7 +682,7 @@ func (f *Form) AddRadioGroup(name string, items []RadioItem) (*RadioButtonField,
 		widgetRef := pdfRef{Num: widgetID}
 
 		// Append widget ref to parent's /Kids.
-		kids, _ := parentDict["/Kids"].(pdfArray)
+		kids, _ := resolveRefToArray(f.doc.objects, parentDict["/Kids"])
 		kids = append(kids, widgetRef)
 		parentDict["/Kids"] = kids
 
@@ -781,7 +777,7 @@ func (f *Form) RemoveField(name string) bool {
 	}
 
 	// Splice removed refs out of /AcroForm/Fields.
-	if arr, ok := f.root["/Fields"].(pdfArray); ok {
+	if arr, ok := resolveRefToArray(f.doc.objects, f.root["/Fields"]); ok {
 		newArr := make(pdfArray, 0, len(arr))
 		for _, item := range arr {
 			if ref, ok := item.(pdfRef); ok && idsToRemove[ref.Num] {
@@ -798,7 +794,7 @@ func (f *Form) RemoveField(name string) bool {
 		if pageDict == nil {
 			continue
 		}
-		annots, _ := pageDict["/Annots"].(pdfArray)
+		annots, _ := resolveRefToArray(f.doc.objects, pageDict["/Annots"])
 		if len(annots) == 0 {
 			continue
 		}

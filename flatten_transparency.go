@@ -38,9 +38,11 @@ type FlattenTransparencyOptions struct {
 	Pages []int   // 1-based page numbers to consider; empty -> every page
 }
 
-// FlattenTransparency rasterizes every page that uses transparency into a
-// single opaque full-page image, leaving pages without transparency
-// untouched. Returns the number of pages rasterized. A flattened page's old
+// FlattenTransparency rasterizes every page that paints transparently (constant
+// alpha, a blend mode, a soft mask) into a single opaque full-page image, so its
+// text is no longer text. Pages that only carry a transparency group with nothing
+// translucent inside lose the group and stay as they are: many producers write one
+// on every page. Returns the number of pages rasterized. A flattened page's old
 // content-stream and resource objects (the very transparency constructs
 // this method exists to remove) become unreachable; when at least one page
 // was flattened, FlattenTransparency also calls RemoveUnusedObjects so
@@ -48,6 +50,13 @@ type FlattenTransparencyOptions struct {
 // TRANSPARENCY check, which scans every object rather than only reachable
 // ones, would still trip on them.
 func (d *Document) FlattenTransparency(opts ...FlattenTransparencyOptions) (int, error) {
+	pages, err := d.flattenTransparencyPages(opts...)
+	return len(pages), err
+}
+
+// flattenTransparencyPages does the work and returns the 1-based numbers of the
+// pages it rasterized.
+func (d *Document) flattenTransparencyPages(opts ...FlattenTransparencyOptions) ([]int, error) {
 	var opt FlattenTransparencyOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -63,13 +72,13 @@ func (d *Document) FlattenTransparency(opts ...FlattenTransparencyOptions) (int,
 		targets = make([]*Page, 0, len(opt.Pages))
 		for _, n := range opt.Pages {
 			if n < 1 || n > len(pages) {
-				return 0, fmt.Errorf("asposepdf: FlattenTransparency: page %d out of range [1,%d]", n, len(pages))
+				return nil, fmt.Errorf("asposepdf: FlattenTransparency: page %d out of range [1,%d]", n, len(pages))
 			}
 			targets = append(targets, pages[n-1])
 		}
 	}
 
-	flattened := 0
+	var flattened []int
 	for _, p := range targets {
 		needs, err := pageNeedsTransparencyFlatten(d.objects, p.pageDict())
 		if err != nil {
@@ -81,43 +90,110 @@ func (d *Document) FlattenTransparency(opts ...FlattenTransparencyOptions) (int,
 		if err := p.flattenTransparency(dpi); err != nil {
 			return flattened, err
 		}
-		flattened++
+		flattened = append(flattened, p.Number())
 	}
-	if flattened > 0 {
+	if len(flattened) > 0 {
 		d.RemoveUnusedObjects()
 	}
+	d.dropIdleGroups(targets, len(opt.Pages) > 0)
 	return flattened, nil
 }
 
-// pageNeedsTransparencyFlatten reports whether pageDict's own /Group, or any
-// object reachable from its /Resources (recursively through Form XObjects,
-// Patterns, ExtGState, …), carries a transparency construct. Reuses
-// pdfaDictHasTransparency (validate_pdfa.go) — the same four-key check
-// ValidatePDFA's TRANSPARENCY issue already relies on — and
-// collectValueDepsDoc (doc.go) for the resource-graph walk.
+// pageNeedsTransparencyFlatten reports whether anything reachable from pageDict's
+// /Resources (recursively through Form XObjects, Patterns, ExtGState, …) paints
+// transparently. A group alone does not count: dropIdleGroups removes those.
+// collectValueDepsDoc (doc.go) does the resource-graph walk.
 func pageNeedsTransparencyFlatten(objects map[int]*pdfObject, pageDict pdfDict) (bool, error) {
 	if pageDict == nil {
 		return false, nil
-	}
-	if pdfaDictHasTransparency(objects, pageDict) {
-		return true, nil
 	}
 	resources, ok := pageDict["/Resources"]
 	if !ok {
 		return false, nil
 	}
-	if pdfaValueHasTransparency(objects, resources) {
-		return true, nil // written directly into the page's resources
+	return resourcesPaintTransparently(objects, resources), nil
+}
+
+func resourcesPaintTransparently(objects map[int]*pdfObject, resources pdfValue) bool {
+	if valuePaintsTransparently(objects, resources) {
+		return true // written directly into the resources
 	}
 	deps := map[int]*pdfObject{}
-	visited := map[int]bool{}
-	collectValueDepsDoc(objects, resources, deps, visited)
+	collectValueDepsDoc(objects, resources, deps, map[int]bool{})
 	for _, obj := range deps {
-		if pdfaValueHasTransparency(objects, obj.Value) {
-			return true, nil
+		if valuePaintsTransparently(objects, obj.Value) {
+			return true
 		}
 	}
-	return false, nil
+	return false
+}
+
+// dropIdleGroups removes the transparency groups that change nothing, so the
+// file has no transparency left and its pages stay vector. Run after rasterizing:
+// a form with nothing translucent inside still composites differently as a group
+// under an outer alpha, so a page that has one must be rendered first.
+//
+// A group is the soft mask's source when a mask names it, and stays. When only
+// some pages are targeted, a form is left alone if a page outside the selection
+// paints transparently, since it may draw the form under its alpha.
+func (d *Document) dropIdleGroups(targets []*Page, subset bool) {
+	maskSources := map[int]bool{}
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		if s := dictGetName(dict, "/S"); s == "/Luminosity" || s == "/Alpha" {
+			if ref, ok := dict["/G"].(pdfRef); ok {
+				maskSources[ref.Num] = true
+			}
+		}
+	})
+	dropForm := func(num int, st *pdfStream) {
+		if maskSources[num] || !dictHasTransparencyGroup(d.objects, st.Dict) {
+			return
+		}
+		if res, ok := st.Dict["/Resources"]; ok && resourcesPaintTransparently(d.objects, res) {
+			return
+		}
+		delete(st.Dict, "/Group")
+	}
+	formsToo := true
+	if subset {
+		inTargets := map[*pdfObject]bool{}
+		for _, p := range targets {
+			inTargets[p.pageObj()] = true
+		}
+		for _, obj := range d.pages {
+			if inTargets[obj] {
+				continue
+			}
+			if need, _ := pageNeedsTransparencyFlatten(d.objects, obj.Value.(pdfDict)); need {
+				formsToo = false
+			}
+		}
+	}
+	for _, p := range targets {
+		pd := p.pageDict()
+		if need, _ := pageNeedsTransparencyFlatten(d.objects, pd); !need && pd != nil {
+			if dictHasTransparencyGroup(d.objects, pd) {
+				delete(pd, "/Group")
+			}
+			if res, ok := pd["/Resources"]; ok && subset && formsToo {
+				deps := map[int]*pdfObject{}
+				collectValueDepsDoc(d.objects, res, deps, map[int]bool{})
+				for num, obj := range deps {
+					if st, ok := obj.Value.(*pdfStream); ok {
+						dropForm(num, st)
+					}
+				}
+			}
+		}
+	}
+	if subset {
+		return
+	}
+	for num, obj := range d.objects { // appearance streams and patterns as well
+		if st, ok := obj.Value.(*pdfStream); ok {
+			dropForm(num, st)
+		}
+	}
 }
 
 // flattenTransparency rasterizes p's content (not its annotations, which
