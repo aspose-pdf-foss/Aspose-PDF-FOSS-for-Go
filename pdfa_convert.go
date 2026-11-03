@@ -26,7 +26,7 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 //     FileAttachmentAnnotation, not just the document-level EmbeddedFiles tree);
 //   - rasterizes any page painting transparently for PDF/A-1 (FlattenTransparency;
 //     PDF/A-1 forbids it outright, PDF/A-2 and -3 permit it and are left alone).
-//     The report's RasterizedPages names them: their text is no longer text;
+//     Their text stays as an invisible layer; the report's RasterizedPages names them;
 //   - sets annotation flags (Print on, Hidden/NoView off) and leaves each
 //     appearance dictionary with only its normal appearance;
 //   - turns off image interpolation;
@@ -73,8 +73,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
 		// PDF/A-1 forbids transparency outright (ISO 19005-1); flatten it away
-		// before the font pass below, so a rasterized page's now-unused fonts
-		// are not embedded for nothing.
+		// before the font pass below, which embeds what the text layers still use.
 		var err error
 		if rasterized, err = d.flattenTransparencyPages(); err != nil {
 			return nil, fmt.Errorf("ConvertToPDFA: flatten transparency: %w", err)

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`FlattenTransparency` keeps a rasterized page's text**, and so does `ConvertToPDFA` for PDF/A-1, as an invisible layer over the image: it can still be searched, selected and copied, from the same fonts and positions, and a tagged page keeps its structure. On 338 corpus documents, PDF/A-1 conversion no longer loses any text. `FlattenTransparencyOptions.NoTextLayer` leaves only the image. Limits: text in a Type3 font is not kept, because its glyphs would paint over the image, and thin lines on such a page are only as fine as the raster's resolution. `Sanitize` with `ConvertPagesToImages` still removes the text.
+
 ## [0.15.1] — 2026-11-03
 
 Fixes for operations that silently lost content. A comparison of text and pixels before and after each operation, run over a real-world corpus, found them; no validator reports this kind of damage. Upgrading from any earlier version is recommended if you use `Flatten`, `ConvertToPDFA` or `ConvertToPDFUA`.

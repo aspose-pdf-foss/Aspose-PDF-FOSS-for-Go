@@ -204,7 +204,8 @@ func (d *Document) Sanitize(opts HiddenDataSanitizationOptions) (HiddenDataSanit
 		}
 		pages := d.Pages()
 		for i, p := range pages {
-			if err := p.flattenTransparency(dpi); err != nil {
+			// The point here is that nothing but the picture remains.
+			if err := p.flattenTransparency(dpi, false); err != nil {
 				// Pages [0,i) were already rasterized in place before this
 				// one failed -- report that partial progress rather than
 				// silently claiming nothing happened.

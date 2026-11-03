@@ -36,11 +36,18 @@ import (
 type FlattenTransparencyOptions struct {
 	DPI   float64 // dots per inch for the replacement raster; 0 -> DefaultDPI
 	Pages []int   // 1-based page numbers to consider; empty -> every page
+
+	// NoTextLayer leaves a rasterized page with only its image. By default the
+	// page's text stays over it as an invisible layer, so it can still be searched
+	// and copied. Text in a Type3 font is not kept: its glyphs would paint over the
+	// image, since the invisible rendering mode does not apply to them.
+	NoTextLayer bool
 }
 
 // FlattenTransparency rasterizes every page that paints transparently (constant
-// alpha, a blend mode, a soft mask) into a single opaque full-page image, so its
-// text is no longer text. Pages that only carry a transparency group with nothing
+// alpha, a blend mode, a soft mask) into a single opaque full-page image, keeping
+// its text over the image as an invisible layer (see
+// FlattenTransparencyOptions.NoTextLayer). Pages that only carry a transparency group with nothing
 // translucent inside lose the group and stay as they are: many producers write one
 // on every page. Returns the number of pages rasterized. A flattened page's old
 // content-stream and resource objects (the very transparency constructs
@@ -87,7 +94,7 @@ func (d *Document) flattenTransparencyPages(opts ...FlattenTransparencyOptions) 
 		if !needs {
 			continue
 		}
-		if err := p.flattenTransparency(dpi); err != nil {
+		if err := p.flattenTransparency(dpi, !opt.NoTextLayer); err != nil {
 			return flattened, err
 		}
 		flattened = append(flattened, p.Number())
@@ -208,7 +215,7 @@ func (d *Document) dropIdleGroups(targets []*Page, subset bool) {
 // XObject) happens before the page dict is touched at all, so a failure
 // partway through never leaves the page with /Resources already wiped but
 // /Contents still referencing names that no longer exist.
-func (p *Page) flattenTransparency(dpi float64) error {
+func (p *Page) flattenTransparency(dpi float64, keepText bool) error {
 	img, box, err := p.renderContentForFlatten(dpi)
 	if err != nil {
 		return err
@@ -242,12 +249,36 @@ func (p *Page) flattenTransparency(dpi float64) error {
 		return fmt.Errorf("asposepdf: FlattenTransparency: page has no dict")
 	}
 
+	// Read before the page's resources and content are replaced below.
+	res := pdfDict{}
+	var layer []byte
+	if keepText {
+		if content, layerRes, ok := p.textLayerFor(); ok {
+			layer, res = content, layerRes
+		}
+	}
+	xobjects, _ := res["/XObject"].(pdfDict)
+	if xobjects == nil {
+		xobjects = pdfDict{}
+		res["/XObject"] = xobjects
+	}
+	name := "/Im0"
+	for i := 1; xobjects[name] != nil; i++ {
+		name = fmt.Sprintf("/Im%d", i)
+	}
+	xobjects[name] = pdfRef{Num: imgID}
+
 	w := box.URX - box.LLX
 	h := box.URY - box.LLY
-	ops := fmt.Sprintf("q\n%s 0 0 %s %s %s cm\n/Im0 Do\nQ\n",
-		formatFloat(w), formatFloat(h), formatFloat(box.LLX), formatFloat(box.LLY))
+	// The picture is an artifact: what it shows is the text the layer carries, and
+	// in a tagged document that text keeps its place in the structure tree.
+	ops := fmt.Sprintf("/Artifact BMC\nq\n%s 0 0 %s %s %s cm\n%s Do\nQ\nEMC\n",
+		formatFloat(w), formatFloat(h), formatFloat(box.LLX), formatFloat(box.LLY), name)
+	if layer != nil {
+		ops += "q\n" + string(layer) + "\nQ\n"
+	}
 
-	pageDict["/Resources"] = pdfDict{"/XObject": pdfDict{"/Im0": pdfRef{Num: imgID}}}
+	pageDict["/Resources"] = res
 	delete(pageDict, "/Group")
 	return replacePageContents(p, []byte(ops))
 }

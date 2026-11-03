@@ -12,7 +12,7 @@
 // "pixels" lines list the pages that differ most: look at them, since a substitute
 // font's letterforms differ too. "text" lines list words that went missing; a space
 // more or less between words is not counted. pdfa1b rasterizes pages with real
-// transparency by design, so their text shows up here (see RasterizedPages).
+// transparency by design, so thin lines there look paler (see RasterizedPages).
 package main
 
 import (

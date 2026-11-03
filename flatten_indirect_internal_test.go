@@ -247,8 +247,8 @@ func TestRealTransparencyIsRasterizedAndReported(t *testing.T) {
 		if len(rep.RasterizedPages) != 1 || rep.RasterizedPages[0] != 1 {
 			t.Errorf("%s: rasterized = %v", name, rep.RasterizedPages)
 		}
-		if text, _ := p.ExtractText(); strings.Contains(text, "Hello") {
-			t.Errorf("%s: text survived rasterizing", name)
+		if text, _ := p.ExtractText(); !strings.Contains(text, "Hello") {
+			t.Errorf("%s: text lost in rasterizing: %q", name, text)
 		}
 	}
 	// PDF/A-2 allows transparency: nothing happens to it.

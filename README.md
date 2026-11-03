@@ -163,7 +163,8 @@ flowchart TD
   `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet). For
-  PDF/A-1, pages that really paint with transparency become images; the report's `RasterizedPages` names them.
+  PDF/A-1, pages that really paint with transparency become images with their text kept as an invisible,
+  searchable layer; the report's `RasterizedPages` names them.
 - **E-invoices (ZUGFeRD / Factur-X)** — `Document.AttachInvoice(xml)` turns a document into a hybrid
   e-invoice: the CII XML is embedded as `factur-x.xml` with the associated-file relationship its
   profile calls for, the Factur-X metadata and extension schema are written, and the document is

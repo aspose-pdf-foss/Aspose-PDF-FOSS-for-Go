@@ -67,7 +67,8 @@ type PDFAValidationReport struct {
 	Issues     []PDFAIssue
 	// RasterizedPages lists, on the report ConvertToPDFA returns, the 1-based pages
 	// that had to become images because PDF/A-1 forbids their transparency. They
-	// look the same but their text can no longer be searched or copied.
+	// look the same and their text can still be searched and copied, through an
+	// invisible layer, but it no longer zooms sharply as vector drawing does.
 	RasterizedPages []int
 }
 
