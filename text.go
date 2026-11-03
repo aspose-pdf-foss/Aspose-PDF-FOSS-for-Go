@@ -535,7 +535,7 @@ func (e *textExtractor) showStringMultiByte(s string) {
 		if r == 0 {
 			r = '\uFFFD'
 		}
-		e.emitMapped(code, r)
+		e.emitCID(code, code, r)
 		e.advanceGlyphCID(code, 2)
 	}
 }
@@ -561,13 +561,36 @@ func (e *textExtractor) showStringCMap(s string) {
 		if r == 0 {
 			r = '\uFFFD'
 		}
-		e.emitMapped(uint16(code), r)
+		e.emitCID(uint16(code), cid, r)
 		e.advanceGlyphCID(cid, n)
 		b = b[n:]
 	}
 }
 
+// emitCID records a composite font's glyph where it is drawn: a vertical one hangs
+// from the text position by its position vector.
+func (e *textExtractor) emitCID(code, cid uint16, r rune) {
+	if !e.font.vertical {
+		e.emitMapped(code, r)
+		return
+	}
+	saved := e.tm
+	e.tm = matMul(e.font.verticalDisplacement(cid, e.fontSize, e.horizScaling), saved)
+	e.emitMapped(code, r)
+	e.tm = saved
+}
+
 func (e *textExtractor) advanceGlyphCID(cid uint16, nbytes int) {
+	if e.font.vertical {
+		w1y, _, _ := e.font.verticalMetrics(cid)
+		ty := w1y/1000.0*e.fontSize + e.charSpace
+		if nbytes == 1 && cid == 32 {
+			ty += e.wordSpace
+		}
+		e.tm = matMul(translateMatrix(0, ty), e.tm)
+		e.lastX, e.lastY = e.currentPos()
+		return
+	}
 	w0 := e.font.defaultW
 	if cw, ok := e.font.cidWidths[cid]; ok {
 		w0 = cw
@@ -596,6 +619,10 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 				e.showStringSingleByte(v)
 			}
 		case int:
+			if e.font.vertical {
+				e.tm = matMul(translateMatrix(0, -float64(v)/1000.0*e.fontSize), e.tm)
+				continue
+			}
 			// ISO 32000-1 §9.4.4: every term of tx, including this
 			// numeric TJ adjustment, is scaled by horizScaling (Tz/100)
 			// — the same scaling advanceGlyph/advanceGlyphCID already
@@ -611,6 +638,10 @@ func (e *textExtractor) showTJ(operand pdfValue) {
 			displacement := -float64(v) / 1000.0 * e.fontSize * e.horizScaling
 			e.tm = matMul(translateMatrix(displacement, 0), e.tm)
 		case float64:
+			if e.font.vertical {
+				e.tm = matMul(translateMatrix(0, -v/1000.0*e.fontSize), e.tm)
+				continue
+			}
 			displacement := -v / 1000.0 * e.fontSize * e.horizScaling
 			e.tm = matMul(translateMatrix(displacement, 0), e.tm)
 		}

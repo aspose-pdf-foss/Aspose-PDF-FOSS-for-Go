@@ -315,7 +315,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			// doesn't track.
 			gStack = append(gStack, textGState{
 				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
-				charSpace: charSpace, wordSpace: wordSpace, horizScale: horizScale,
+				charSpace: charSpace, wordSpace: wordSpace, horizScale: filterHorizScale(font, horizScale),
 				leading: leading, rise: rise,
 			})
 			out = append(out, op)
@@ -420,7 +420,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
-					horizScale: horizScale,
+					horizScale: filterHorizScale(font, horizScale),
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
@@ -430,7 +430,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					return nil, err
 				}
 				// Advance the text matrix by total advance regardless of what survived.
-				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				tm = matMul(textAdvanceMatrix(font, totalAdvance), tm)
 				if dropped {
 					markDropped()
 				}
@@ -447,7 +447,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
-					horizScale: horizScale,
+					horizScale: filterHorizScale(font, horizScale),
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
@@ -456,7 +456,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				if err != nil {
 					return nil, err
 				}
-				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				tm = matMul(textAdvanceMatrix(font, totalAdvance), tm)
 				if dropped {
 					markDropped()
 				}
@@ -478,7 +478,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
-					horizScale: horizScale,
+					horizScale: filterHorizScale(font, horizScale),
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
@@ -487,7 +487,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				if err != nil {
 					return nil, err
 				}
-				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				tm = matMul(textAdvanceMatrix(font, totalAdvance), tm)
 				if dropped {
 					markDropped()
 				}
@@ -511,7 +511,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					fontSize:   fontSize,
 					charSpace:  charSpace,
 					wordSpace:  wordSpace,
-					horizScale: horizScale,
+					horizScale: filterHorizScale(font, horizScale),
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
@@ -520,7 +520,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				if err != nil {
 					return nil, err
 				}
-				tm = matMul(translateMatrix(totalAdvance, 0), tm)
+				tm = matMul(textAdvanceMatrix(font, totalAdvance), tm)
 				if dropped {
 					markDropped()
 				}
@@ -751,6 +751,14 @@ func glyphAdvance(fi *fontInfo, code byte, fontSize, charSpace, wordSpace, horiz
 // both closed by this same nbytes/cid-aware rewrite — see
 // filterTjStringType0's own doc comment).
 func glyphAdvanceCID(fi *fontInfo, cid uint16, nbytes int, fontSize, charSpace, wordSpace, horizScale float64) float64 {
+	if fi.vertical {
+		w1y, _, _ := fi.verticalMetrics(cid)
+		adv := w1y/1000.0*fontSize + charSpace // negative: down the page
+		if nbytes == 1 && cid == 32 {
+			adv += wordSpace
+		}
+		return adv
+	}
 	w := fi.defaultW
 	if cw, ok := fi.cidWidths[cid]; ok {
 		w = cw
@@ -766,6 +774,16 @@ func glyphAdvanceCID(fi *fontInfo, cid uint16, nbytes int, fontSize, charSpace, 
 		adv += wordSpace * horizScale
 	}
 	return adv
+}
+
+// filterHorizScale is the horizontal scaling that applies along the writing
+// direction: Tz stretches a line, so it has no say over vertical advances or the
+// TJ numbers written for them.
+func filterHorizScale(fi *fontInfo, horizScale float64) float64 {
+	if fi != nil && fi.vertical {
+		return 1
+	}
+	return horizScale
 }
 
 // matApplyPoint applies a PDF text/CTM matrix to a point (x, y) and returns user-space coords.
@@ -987,7 +1005,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 			_, cid, n := state.font.cidCMap.next(b)
 			adv := glyphAdvanceCID(state.font, cid, n, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 			cx := runningX + adv/2.0
-			ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
+			ux, uy := glyphCentre(state.font, matMul(localTM, state.ctm), cx, state.rise)
 			dropped := pointInAnyQuad(ux, uy, regions)
 			glyphs = append(glyphs, cidGlyph{raw: b[:n], advance: adv, dropped: dropped})
 			runningX += adv
@@ -1001,7 +1019,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 		cid := uint16(b[i])<<8 | uint16(b[i+1])
 		adv := glyphAdvanceCID(state.font, cid, 2, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 		cx := runningX + adv/2.0
-		ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
+		ux, uy := glyphCentre(state.font, matMul(localTM, state.ctm), cx, state.rise)
 		dropped := pointInAnyQuad(ux, uy, regions)
 		glyphs = append(glyphs, cidGlyph{raw: b[i : i+2], advance: adv, dropped: dropped})
 		runningX += adv
@@ -1124,7 +1142,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 		switch v := elem.(type) {
 		case string:
 			// Filter the string glyphs given the current running tm.
-			localTM := matMul(translateMatrix(runningAdvance, 0), state.tm)
+			localTM := matMul(textAdvanceMatrix(state.font, runningAdvance), state.tm)
 			localState := state
 			localState.tm = localTM
 

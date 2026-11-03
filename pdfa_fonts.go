@@ -249,6 +249,11 @@ func (d *Document) buildEmbeddedCompositeFont(type0 pdfDict, fi fontInfo, sys *t
 			continue
 		}
 		gid := sys.glyphID(r)
+		if vf := fi.vertForms[cid]; vf != 0 {
+			if g := sys.glyphID(vf); g != 0 {
+				gid = g
+			}
+		}
 		if gid == 0 {
 			continue
 		}

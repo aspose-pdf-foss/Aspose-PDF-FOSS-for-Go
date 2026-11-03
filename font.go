@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "strings"
+import (
+	"maps"
+	"strings"
+)
 
 // fontInfo holds the resolved encoding for a PDF font.
 type fontInfo struct {
@@ -15,6 +18,13 @@ type fontInfo struct {
 	// characters — a ligature glyph mapped to "fi" — with the full sequence.
 	toUnicodeSeq map[uint16][]rune
 	defaultW     float64         // /DW default width for CIDFont (1000 if absent)
+
+	// Vertical writing (ISO 32000-1 §9.7.4.3): a composite font whose CMap has
+	// WMode 1 advances down the page, each glyph hung from its position vector.
+	vertical  bool
+	dw2       [2]float64            // /DW2: the position vector's y and the advance
+	w2        map[uint16][3]float64 // /W2 per CID: advance, position vector x and y
+	vertForms map[uint16]rune       // vertical CID -> its presentation form, for drawing
 	isType0      bool            // true = two-byte character codes (composite font)
 	cidCMap      *cidCMap        // Type0 /Encoding CMap (predefined or embedded); nil = Identity
 	cidToUni     map[uint16]rune // CID → Unicode (Adobe ordering table); nil if unknown
@@ -187,6 +197,119 @@ func resolveType0Encoding(objects map[int]*pdfObject, type0Dict pdfDict, fi *fon
 	if (fi.cidCMap != nil || fi.cidToUni != nil) && fi.toUnicode == nil {
 		fi.known = true
 	}
+	resolveVertical(objects, type0Dict, encVal, fi)
+}
+
+// resolveVertical reads the vertical writing mode and metrics. A vertical CID
+// extracts as the character it stands for, so "（" finds it, while its presentation
+// form is kept for the glyph.
+func resolveVertical(objects map[int]*pdfObject, type0Dict pdfDict, enc pdfValue, fi *fontInfo) {
+	switch v := enc.(type) {
+	case pdfName:
+		fi.vertical = v == "/Identity-V"
+	case *pdfStream:
+		fi.vertical = dictGetInt(v.Dict, "/WMode") == 1
+	}
+	if fi.cidCMap != nil && fi.cidCMap.wmode == 1 {
+		fi.vertical = true
+	}
+	if !fi.vertical {
+		return
+	}
+	fi.dw2 = [2]float64{880, -1000}
+	if descs, ok := resolveRefToArray(objects, type0Dict["/DescendantFonts"]); ok && len(descs) > 0 {
+		if cidDict, ok := resolveRefToDict(objects, descs[0]); ok {
+			if a, ok := resolveRefToArray(objects, cidDict["/DW2"]); ok && len(a) >= 2 {
+				fi.dw2 = [2]float64{operandFloat(resolveRef(objects, a[0])), operandFloat(resolveRef(objects, a[1]))}
+			}
+			if a, ok := resolveRefToArray(objects, cidDict["/W2"]); ok {
+				fi.w2 = parseCIDVerticalArray(objects, a)
+			}
+		}
+	}
+	if fi.cidCMap == nil || fi.cidToUni == nil {
+		return
+	}
+	bases := fi.cidCMap.verticalBases()
+	if len(bases) == 0 {
+		return
+	}
+	uni := make(map[uint16]rune, len(fi.cidToUni)+len(bases))
+	maps.Copy(uni, fi.cidToUni)
+	fi.vertForms = map[uint16]rune{}
+	for cid, base := range bases {
+		if r := fi.cidToUni[cid]; r != 0 {
+			fi.vertForms[cid] = r
+		}
+		if r := fi.cidToUni[base]; r != 0 {
+			uni[cid] = r
+		}
+	}
+	fi.cidToUni = uni
+}
+
+// parseCIDVerticalArray parses a /W2 array: "c [w1y vx vy ...]" or
+// "cfirst clast w1y vx vy" (ISO 32000-1 §9.7.4.3).
+func parseCIDVerticalArray(objects map[int]*pdfObject, arr pdfArray) map[uint16][3]float64 {
+	out := map[uint16][3]float64{}
+	num := func(v pdfValue) float64 { return operandFloat(resolveRef(objects, v)) }
+	for i := 0; i+1 < len(arr); {
+		first := int(num(arr[i]))
+		if list, ok := resolveRef(objects, arr[i+1]).(pdfArray); ok {
+			for j := 0; j+2 < len(list); j += 3 {
+				out[uint16(first+j/3)] = [3]float64{num(list[j]), num(list[j+1]), num(list[j+2])}
+			}
+			i += 2
+			continue
+		}
+		if i+4 >= len(arr) {
+			break
+		}
+		last := int(num(arr[i+1]))
+		m := [3]float64{num(arr[i+2]), num(arr[i+3]), num(arr[i+4])}
+		for c := first; c <= last && c <= 0xFFFF; c++ {
+			out[uint16(c)] = m
+		}
+		i += 5
+	}
+	return out
+}
+
+// verticalMetrics returns a CID's advance and position vector, in 1/1000 em. The
+// default vector's x is half the glyph's width, centring it on the line.
+func (fi *fontInfo) verticalMetrics(cid uint16) (w1y, vx, vy float64) {
+	if m, ok := fi.w2[cid]; ok {
+		return m[0], m[1], m[2]
+	}
+	w0 := fi.defaultW
+	if w, ok := fi.cidWidths[cid]; ok {
+		w0 = w
+	}
+	return fi.dw2[1], w0 / 2, fi.dw2[0]
+}
+
+// verticalDisplacement is the move from a text position to the glyph's origin.
+func (fi *fontInfo) verticalDisplacement(cid uint16, fontSize, horizScale float64) [6]float64 {
+	_, vx, vy := fi.verticalMetrics(cid)
+	return translateMatrix(-vx/1000*fontSize*horizScale, -vy/1000*fontSize)
+}
+
+// textAdvanceMatrix moves a text matrix along the writing direction.
+func textAdvanceMatrix(fi *fontInfo, adv float64) [6]float64 {
+	if fi != nil && fi.vertical {
+		return translateMatrix(0, adv)
+	}
+	return translateMatrix(adv, 0)
+}
+
+// glyphCentre is the point of a glyph a distance along the writing direction from
+// the text position: horizontally the baseline; vertically the glyph hangs centred
+// on the line, as the default position vector places it.
+func glyphCentre(fi *fontInfo, m [6]float64, along, rise float64) (float64, float64) {
+	if fi != nil && fi.vertical {
+		return matApplyPoint(m, 0, along+rise)
+	}
+	return matApplyPoint(m, along, rise)
 }
 
 // cidSystemOrdering returns the descendant CIDFont's CIDSystemInfo /Ordering

@@ -136,6 +136,10 @@ func (rd *renderer) showTJ(v pdfValue) {
 			continue
 		}
 		adj := operandFloat(el)
+		if f := rd.ts.font; f != nil && f.fi.vertical {
+			rd.ts.tm = matMul(translateMatrix(0, -adj/1000*rd.ts.fontSize), rd.ts.tm)
+			continue
+		}
 		tx := -adj / 1000 * rd.ts.fontSize * rd.ts.hScale
 		rd.ts.tm = matMul(translateMatrix(tx, 0), rd.ts.tm)
 	}
@@ -349,8 +353,33 @@ func parseCIDToGIDMap(objects map[int]*pdfObject, v pdfValue) []uint16 {
 // showGlyph fills one glyph (if its font is renderable) and advances tm.
 func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 	f := rd.ts.font
+	if f != nil && f.fi.vertical {
+		saved := rd.ts.tm
+		rd.ts.tm = matMul(f.fi.verticalDisplacement(uint16(code), rd.ts.fontSize, rd.ts.hScale), saved)
+		rd.paintShownGlyph(code)
+		w1y, _, _ := f.fi.verticalMetrics(uint16(code))
+		ty := w1y/1000*rd.ts.fontSize + rd.ts.charSpace
+		if isSpace {
+			ty += rd.ts.wordSpace
+		}
+		rd.ts.tm = matMul(translateMatrix(0, ty), saved)
+		return
+	}
 	w0 := rd.glyphWidth(code) // 1/1000 em
+	rd.paintShownGlyph(code)
 
+	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
+	tx := (w0/1000*rd.ts.fontSize + rd.ts.charSpace)
+	if isSpace {
+		tx += rd.ts.wordSpace
+	}
+	tx *= rd.ts.hScale
+	rd.ts.tm = matMul(translateMatrix(tx, 0), rd.ts.tm)
+}
+
+// paintShownGlyph draws the glyph for a code at the current text matrix.
+func (rd *renderer) paintShownGlyph(code uint32) {
+	f := rd.ts.font
 	// Clip modes (4-7) paint no fill/stroke for mode 7 but still contribute the
 	// glyph outline to the text clip accumulated for ET, so process them too.
 	if f != nil && (textHasPaint(rd.ts.renderMode) || rd.ts.renderMode >= 4) {
@@ -371,14 +400,6 @@ func (rd *renderer) showGlyph(code uint32, isSpace bool) {
 			}
 		}
 	}
-
-	// Advance: tx = (w0/1000 * fontSize + Tc + (Tw if space)) * Th.
-	tx := (w0/1000*rd.ts.fontSize + rd.ts.charSpace)
-	if isSpace {
-		tx += rd.ts.wordSpace
-	}
-	tx *= rd.ts.hScale
-	rd.ts.tm = matMul(translateMatrix(tx, 0), rd.ts.tm)
 }
 
 func (rd *renderer) glyphWidth(code uint32) float64 {
@@ -594,6 +615,11 @@ func (f *renderFont) gid(code uint32) uint16 {
 	if f.isType0 {
 		cid := uint16(code)  // showText passes the resolved CID as the code
 		if f.cjkUni != nil { // non-embedded CJK: CID → Unicode → GID via cmap
+			if vf := f.fi.vertForms[cid]; vf != 0 && f.prog != nil {
+				if g := f.prog.glyphID(vf); g != 0 {
+					return g
+				}
+			}
 			r := f.cjkUni[cid]
 			if r == 0 {
 				r = f.cjkASCII[cid] // Latin codes the CMap leaves Unicode-less

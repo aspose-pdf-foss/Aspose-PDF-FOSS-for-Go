@@ -98,7 +98,7 @@ func atWalk(data []byte, objects map[int]*pdfObject, resources pdfDict) ([]atIte
 		it := atItem{kind: atText, textOp: op.Operator, ops: []contentOp{op}}
 		trm := matMul(tm, ctm)
 		it.kernUnit = gs.fontSize * gs.horizScale * math.Hypot(trm[0], trm[1]) / 1000
-		it.horizontal = math.Abs(trm[1]) < 1e-9 && trm[0] > 0
+		it.horizontal = math.Abs(trm[1]) < 1e-9 && trm[0] > 0 && !gs.font.vertical
 		place := func(s string) {
 			it.toks = append(it.toks, atTextGlyphs(s, &gs, &tm)...)
 		}
@@ -329,7 +329,7 @@ func atTextGlyphs(s string, gs *textGState, tm *[6]float64) []atTok {
 	var toks []atTok
 	run := 0.0
 	emit := func(raw string, adv float64) {
-		x, y := trm(run + adv/2)
+		x, y := glyphCentre(gs.font, matMul(*tm, gs.ctm), run+adv/2, gs.rise)
 		toks = append(toks, atTok{glyph: true, raw: raw, x: x, y: y})
 		run += adv
 	}
@@ -355,7 +355,7 @@ func atTextGlyphs(s string, gs *textGState, tm *[6]float64) []atTok {
 			emit(s[i:i+1], glyphAdvance(gs.font, s[i], gs.fontSize, gs.charSpace, gs.wordSpace, gs.horizScale))
 		}
 	}
-	*tm = matMul(translateMatrix(run, 0), *tm)
+	*tm = matMul(textAdvanceMatrix(gs.font, run), *tm)
 	return toks
 }
 

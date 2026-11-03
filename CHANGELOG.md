@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Vertical writing is read, drawn and redacted.** Every CMap ISO 32000-1 predefines is now bundled, the `-V` ones and `H`/`V` among them, and text through a vertical font (`-V`, `Identity-V`, or `/WMode 1` on an embedded CMap) advances down the page, with its glyphs hung from their position vectors (`/DW2`, `/W2`) and drawn in their vertical forms. It extracts as the characters it stands for, so a search for "（" finds its vertical form. `ApplyRedactions` and `AutoTag` place such glyphs correctly as well. Writing vertical text is not supported.
+
+### Fixed
+
+- **A CMap built on another could give the parent's CID for a code it redefines**, because the two were merged into one sorted list. `UniJIS-UCS2-HW-H` and `ETenms-B5-H`, for example, could lose their half-width forms.
+
 ### Changed
 
 - **`FlattenTransparency` keeps a rasterized page's text**, and so does `ConvertToPDFA` for PDF/A-1, as an invisible layer over the image: it can still be searched, selected and copied, from the same fonts and positions, and a tagged page keeps its structure. On 338 corpus documents, PDF/A-1 conversion no longer loses any text. `FlattenTransparencyOptions.NoTextLayer` leaves only the image. Limits: text in a Type3 font is not kept, because its glyphs would paint over the image, and thin lines on such a page are only as fine as the raster's resolution. `Sanitize` with `ConvertPagesToImages` still removes the text.

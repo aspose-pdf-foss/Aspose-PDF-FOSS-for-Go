@@ -23,6 +23,7 @@ type cidCMap struct {
 	codespace          []cmapCodespace
 	singles            map[uint32]uint16 // cidchar: code → CID
 	ranges             []cmapCIDRange    // cidrange: sorted by lo for binary search
+	parent             *cidCMap          // usecmap: consulted for what this CMap does not define
 }
 
 type cmapCodespace struct {
@@ -48,7 +49,34 @@ func (c *cidCMap) cidForCode(code uint32) uint16 {
 		r := c.ranges[i]
 		return r.cid + uint16(code-r.lo)
 	}
+	if c.parent != nil {
+		return c.parent.cidForCode(code)
+	}
 	return 0
+}
+
+// verticalBases returns, for a CMap built on another with usecmap, the CIDs it
+// defines itself mapped to the CID its parent gives the same code. In a -V CMap
+// those are the vertical glyph forms and the characters they stand for.
+func (c *cidCMap) verticalBases() map[uint16]uint16 {
+	if c.parent == nil {
+		return nil
+	}
+	out := map[uint16]uint16{}
+	add := func(code uint32, cid uint16) {
+		if base := c.parent.cidForCode(code); base != 0 {
+			out[cid] = base
+		}
+	}
+	for code, cid := range c.singles {
+		add(code, cid)
+	}
+	for _, r := range c.ranges {
+		for code := r.lo; code <= r.hi; code++ {
+			add(code, r.cid+uint16(code-r.lo))
+		}
+	}
+	return out
 }
 
 // next consumes one character code from s, returning the code value, the CID,
@@ -200,12 +228,9 @@ func (c *cidCMap) inheritFrom(parent *cidCMap) {
 	if len(c.codespace) == 0 {
 		c.codespace = append(c.codespace, parent.codespace...)
 	}
-	for k, v := range parent.singles {
-		if _, ok := c.singles[k]; !ok {
-			c.singles[k] = v
-		}
-	}
-	c.ranges = append(c.ranges, parent.ranges...)
+	// Looked up after this CMap's own entries, which override it: merged into one
+	// sorted list, a search could land on the parent's range instead.
+	c.parent = parent
 	if c.wmode == 0 {
 		c.wmode = parent.wmode
 	}
