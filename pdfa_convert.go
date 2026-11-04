@@ -84,6 +84,9 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.fixPDFAAnnotations()
 	d.generatePDFAAppearances()
+	if format.part() > 1 {
+		d.generateIconAppearances()
+	}
 	d.normalizePDFAAppearances()
 	d.clearNeedAppearances()
 	d.clearImageInterpolation()

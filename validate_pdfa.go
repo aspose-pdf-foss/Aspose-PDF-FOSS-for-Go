@@ -101,7 +101,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckActions(r)
 	d.pdfaCheckColor(r)
 	d.pdfaCheckTransparency(format, r)
-	d.pdfaCheckAnnotations(r)
+	d.pdfaCheckAnnotations(format, r)
 	d.pdfaCheckMetadata(r)
 	d.pdfaCheckFilters(format, r)
 	d.pdfaCheckEmbeddedFiles(format, r)
@@ -511,7 +511,7 @@ func pdfaBlendNonNormal(v pdfValue) bool {
 	return false
 }
 
-func (d *Document) pdfaCheckAnnotations(r *PDFAValidationReport) {
+func (d *Document) pdfaCheckAnnotations(format PDFAFormat, r *PDFAValidationReport) {
 	const (
 		flagHidden = 1 << 1 // bit 2
 		flagPrint  = 1 << 2 // bit 3
@@ -545,7 +545,14 @@ func (d *Document) pdfaCheckAnnotations(r *PDFAValidationReport) {
 				r.add("ANNOTATION_FLAGS", fmt.Sprintf("page %d has a Hidden or NoView annotation; PDF/A prohibits them", i+1))
 				reported["hidden"] = true
 			}
-			if sub != "/Link" {
+			// PDF/A-1 asks an appearance of a form field only; later parts of every
+			// annotation but a link and one with no area (ISO 19005-2 §6.3.3).
+			needAP := sub == "/Widget"
+			if format.part() > 1 && sub != "/Link" {
+				rect, ok := pdfaAnnotRect(d.objects, ad)
+				needAP = !ok || rect.URX > rect.LLX || rect.URY > rect.LLY
+			}
+			if needAP {
 				if _, ok := resolveRefToDict(d.objects, ad["/AP"]); !ok {
 					if !reported["ap"] {
 						r.add("ANNOTATION_NO_AP", fmt.Sprintf("page %d has a %s annotation without a normal appearance (/AP/N); PDF/A requires one", i+1, strings.TrimPrefix(sub, "/")))
@@ -576,7 +583,8 @@ func (d *Document) pdfaCheckFilters(format PDFAFormat, r *PDFAValidationReport) 
 		if !ok {
 			continue
 		}
-		if pdfaFilterHas(s.Dict["/Filter"], "/LZWDecode") {
+		// A decoded stream is written with Flate whatever it came with.
+		if !s.Decoded && pdfaFilterHas(s.Dict["/Filter"], "/LZWDecode") {
 			r.add("LZW_FILTER", "document uses LZWDecode; PDF/A-1 prohibits the LZW filter")
 			return
 		}

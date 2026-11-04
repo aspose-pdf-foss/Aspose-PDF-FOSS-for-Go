@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text strings in PDFDocEncoding are decoded.** A string with no byte-order mark and bytes above ASCII came back raw from `Info()`, field values and `/ActualText`, and reached the XMP as replacement characters, so PDF/A-1 validators saw `/Info` and XMP disagree. Valid UTF-8 stays as it is, as earlier versions of this library wrote it into `/Info`.
+- **`ConvertToPDFA` to PDF/A-2 or later draws an appearance for sticky notes and file attachments**, which those parts require of every visible annotation; a viewer's own icon stays in PDF/A-1, and in documents not converted.
+- **`ValidatePDFA` no longer over-reports two rules.** `ANNOTATION_NO_AP` applies to form fields only in PDF/A-1, and never to an annotation with no area; `LZW_FILTER` no longer counts a decoded stream, which is written with Flate.
 - **A reference to a missing object could point at an unrelated one after saving.** Objects are numbered afresh on save, and such a reference kept its old number, which by then belonged to something else: in one corpus file an attachment's missing data became the source file's old cross-reference stream. It is now written as `null`, which is what it means (ISO 32000-1 §7.3.10).
 - **The source file's cross-reference and object streams no longer stay in a saved file** as ordinary objects, stale offsets included. 63 of 170 sampled conversions carried them.
 - **`ConvertToPDFA` to PDF/A-1 repairs TrueType encodings.** PDF/A-1 lets a nonsymbolic TrueType font have only a bare `MacRomanEncoding` or `WinAnsiEncoding`, and a symbolic one a single cmap. A font that needs more becomes symbolic, with one `(3,0)` cmap taking each code to the glyph it draws and `/ToUnicode` keeping what it means. It looks and extracts as before.

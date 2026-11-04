@@ -963,7 +963,7 @@ func (e *textExtractor) resolveActualText(operand pdfValue, resources pdfDict) *
 
 // decodeTextString converts a PDF text string to Go string.
 // If it starts with UTF-16BE BOM (0xFE 0xFF), it is decoded as UTF-16BE;
-// otherwise it is returned as-is (PDFDocEncoding ≈ Latin-1).
+// otherwise it is decoded as PDFDocEncoding (pdfDocToString).
 func decodeTextString(s string) string {
 	if len(s) >= 2 && s[0] == 0xFE && s[1] == 0xFF {
 		runes := make([]rune, 0, (len(s)-2)/2)
@@ -973,7 +973,7 @@ func decodeTextString(s string) string {
 		}
 		return string(runes)
 	}
-	return s
+	return pdfDocToString(s)
 }
 
 // operandName extracts a PDF name string from an operand.
