@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A reference to a missing object could point at an unrelated one after saving.** Objects are numbered afresh on save, and such a reference kept its old number, which by then belonged to something else: in one corpus file an attachment's missing data became the source file's old cross-reference stream. It is now written as `null`, which is what it means (ISO 32000-1 §7.3.10).
+- **The source file's cross-reference and object streams no longer stay in a saved file** as ordinary objects, stale offsets included. 63 of 170 sampled conversions carried them.
+- **`ConvertToPDFA` to PDF/A-1 repairs TrueType encodings.** PDF/A-1 lets a nonsymbolic TrueType font have only a bare `MacRomanEncoding` or `WinAnsiEncoding`, and a symbolic one a single cmap. A font that needs more becomes symbolic, with one `(3,0)` cmap taking each code to the glyph it draws and `/ToUnicode` keeping what it means. It looks and extracts as before.
 - **`AutoTag` wrote tables PDF/UA rejects.** A grid row in which no cell starts, or one holding only empty cells, was left out while the spans crossing it still counted it, so the rows did not add up. The spans now count the rows that exist, and a row of empty cells stays.
 - **`AutoTag` left empty show operators untagged.** A `() Tj` paints nothing, but PDF/UA still counts it as text content; it now travels in the open section, or in an artifact's when none is open.
 - **A CMap built on another could give the parent's CID for a code it redefines**, because the two were merged into one sorted list. `UniJIS-UCS2-HW-H` and `ETenms-B5-H`, for example, could lose their half-width forms.

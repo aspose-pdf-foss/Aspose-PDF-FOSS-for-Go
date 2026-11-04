@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf16"
 )
 
 // Font work for PDF/A conversion: finding out which fonts a document actually
@@ -435,14 +436,85 @@ func setAdvances(data []byte, current []uint16, unitsPerEm uint16, advances map[
 	return assembleSFNT(tbls), nil
 }
 
-// simpleToUnicode builds a /ToUnicode CMap from a simple font's encoding; nil when
-// the encoding says nothing.
+// fixTrueTypeEncodings makes the TrueType fonts in use meet PDF/A-1, which lets a
+// nonsymbolic one have only a bare MacRomanEncoding or WinAnsiEncoding, and a symbolic
+// one only a single cmap and no /Encoding (ISO 19005-1 §6.3.7). A font that cannot say
+// what it draws that way becomes symbolic: one (3,0) cmap takes each code to the glyph
+// it draws now, and /ToUnicode keeps what it means, since the encoding no longer does.
+func (d *Document) fixTrueTypeEncodings() {
+	var replaced []int
+	for _, gf := range d.glyphFontsInUse() {
+		if gf.rf == nil || gf.rf.prog == nil || dictGetName(gf.dict, "/Subtype") != "/TrueType" {
+			continue
+		}
+		descriptor, ok := resolveRefToDict(d.objects, gf.dict["/FontDescriptor"])
+		if !ok {
+			continue
+		}
+		program, ok := resolveRef(d.objects, descriptor["/FontFile2"]).(*pdfStream)
+		if !ok {
+			continue
+		}
+		data := decodedStreamData(program)
+		if dictGetInt(descriptor, "/Flags")&4 != 0 {
+			if ttfCmapCount(data) <= 1 {
+				continue
+			}
+		} else if d.plainTrueTypeEncoding(gf.dict) {
+			continue
+		}
+		glyphs := make(map[rune]uint16)
+		for c := range uint32(256) {
+			if g := gf.rf.gid(c); g != 0 {
+				glyphs[rune(0xF000|c)] = g
+			}
+		}
+		dir := tableDir(data)
+		if len(glyphs) == 0 || len(dir) == 0 {
+			continue
+		}
+		tbls := make(map[string][]byte, len(dir))
+		for tag := range dir {
+			tbls[tag] = tableSlice(data, dir, tag)
+		}
+		tbls["cmap"] = buildCmapFormat4(glyphs)
+		binary.BigEndian.PutUint16(tbls["cmap"][6:], 0) // encoding: symbol
+		if st := simpleToUnicode(gf.fi); st != nil {
+			gf.dict["/ToUnicode"] = pdfRef{Num: d.addObject(st)}
+		}
+		delete(gf.dict, "/Encoding")
+		// The descriptor and the program may be another font's as well.
+		own := maps.Clone(descriptor)
+		own["/Flags"] = dictGetInt(descriptor, "/Flags")&^32 | 4
+		own["/FontFile2"] = pdfRef{Num: d.addObject(buildFontFile2StreamBytes(assembleSFNT(tbls)))}
+		gf.dict["/FontDescriptor"] = pdfRef{Num: d.addObject(own)}
+		if ref, ok := descriptor["/FontFile2"].(pdfRef); ok {
+			replaced = append(replaced, ref.Num)
+		}
+	}
+	d.dropUnreachable(replaced)
+}
+
+// simpleToUnicode builds a /ToUnicode CMap from what a simple font's codes mean, its
+// own /ToUnicode first and then its encoding; nil when neither says anything.
 func simpleToUnicode(fi fontInfo) *pdfStream {
 	var lines []string
 	for c, r := range fi.encoding {
-		if r != 0 && r != 0xFFFD {
-			lines = append(lines, fmt.Sprintf("<%02X> <%04X>", c, r))
+		text := fi.toUnicodeSeq[uint16(c)]
+		if text == nil {
+			if u := fi.toUnicode[uint16(c)]; u != 0 {
+				r = u
+			}
+			if r == 0 || r == 0xFFFD {
+				continue
+			}
+			text = []rune{r}
 		}
+		var hex strings.Builder
+		for _, u := range utf16.Encode(text) {
+			fmt.Fprintf(&hex, "%04X", u)
+		}
+		lines = append(lines, fmt.Sprintf("<%02X> <%s>", c, hex.String()))
 	}
 	if len(lines) == 0 {
 		return nil
@@ -455,7 +527,8 @@ func simpleToUnicode(fi fontInfo) *pdfStream {
 		lines = lines[n:]
 	}
 	b.WriteString("endcmap\nend\nend\n")
-	return buildFlateStream([]byte(b.String()))
+	// Decoded, as the font is read again before the document is saved.
+	return &pdfStream{Dict: pdfDict{}, Data: []byte(b.String()), Decoded: true}
 }
 
 // embedPredefinedCMaps writes the CMaps of the used composite fonts into the file,

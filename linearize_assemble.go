@@ -22,13 +22,13 @@ type assembled struct {
 	header       string
 }
 
-// remapFn returns a reference-remapping function over the assembled id map.
+// remapFn returns a reference-remapping function over the assembled id map. A
+// number with no output object gives 0, which writeValue writes as null: PDF defines
+// a reference to a missing object as null (ISO 32000-1 §7.3.10), and keeping the
+// number would point it at whatever object has that number in the output.
 func (a *assembled) remapFn() func(int) int {
 	return func(n int) int {
-		if out, ok := a.remap[n]; ok {
-			return out
-		}
-		return n
+		return a.remap[n]
 	}
 }
 
@@ -95,6 +95,16 @@ func (d *Document) assemble() (*assembled, error) {
 	}
 	for _, obj := range ndObjs {
 		d.objects[obj.Num] = obj
+	}
+
+	// The source file's own structure says nothing about this one: its cross-reference
+	// streams hold stale offsets, and its object streams' members are objects already.
+	for id, obj := range d.objects {
+		if st, ok := obj.Value.(*pdfStream); ok {
+			if t := dictGetName(st.Dict, "/Type"); t == "/XRef" || t == "/ObjStm" {
+				delete(d.objects, id)
+			}
+		}
 	}
 
 	contentIDs := sortedObjectIDs(d.objects)

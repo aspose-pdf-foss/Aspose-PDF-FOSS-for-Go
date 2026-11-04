@@ -383,7 +383,12 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 			writeHexBytes(buf, []byte(val))
 		}
 	case pdfRef:
-		buf.WriteString(strconv.Itoa(remapFn(val.Num)))
+		out := remapFn(val.Num)
+		if out == 0 {
+			buf.WriteString("null")
+			return nil
+		}
+		buf.WriteString(strconv.Itoa(out))
 		buf.WriteByte(' ')
 		buf.WriteString(strconv.Itoa(val.Gen))
 		buf.WriteString(" R")

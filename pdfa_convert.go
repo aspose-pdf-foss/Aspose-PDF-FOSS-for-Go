@@ -96,6 +96,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.embedCompositeFonts()
 	if format.part() == 1 {
 		d.embedPredefinedCMaps()
+		d.fixTrueTypeEncodings()
 	}
 	d.fixCIDSets(format.part())
 	d.addSRGBOutputIntent()
