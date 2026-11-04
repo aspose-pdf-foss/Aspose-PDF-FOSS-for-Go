@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	asposepdf "github.com/aspose-pdf-foss/aspose-pdf-foss-for-go"
 )
@@ -39,6 +40,11 @@ func pdfa(src, name string, f asposepdf.PDFAFormat, label string, tag bool) {
 	if err != nil {
 		log.Printf("%s: %v", src, err)
 		return
+	}
+	if strings.HasSuffix(name, "_rgb") {
+		if err := d.ConvertDeviceCMYKToRGB(); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if tag {
 		if _, err := d.AutoTag(asposepdf.DefaultAutoTaggingSettings()); err != nil {
@@ -131,5 +137,8 @@ func main() {
 		pdfa(src, n, asposepdf.PDFA1B, "1b", false)
 		pdfa(src, n, asposepdf.PDFA2A, "2a", true)
 	}
+	// alfa paints in DeviceCMYK, a known limit; recoloured, it conforms.
+	pdfa(filepath.Join("testdata", "alfa.pdf"), "alfa_rgb", asposepdf.PDFA2B, "2b", false)
+	pdfa(filepath.Join("testdata", "alfa.pdf"), "alfa_rgb", asposepdf.PDFA1B, "1b", false)
 	annotatedSamples()
 }

@@ -797,41 +797,254 @@ func cidSetsEqual(a, b []byte) bool {
 // pdfaCheckDeviceColorMatch reports device colours the output intent does not
 // cover: DeviceCMYK under an RGB intent, DeviceRGB under a CMYK one (ISO 19005-1
 // §6.2.3.3, ISO 19005-2 §6.2.4.3). ConvertToPDFA adds an sRGB intent and has no
-// CMYK profile to offer, so a CMYK document stays a reported violation.
+// CMYK profile to offer, so a CMYK document stays a reported violation until
+// ConvertDeviceCMYKToRGB recolours it. Only what the pages paint with counts, as
+// for veraPDF: a colour space or an image nothing uses is no violation.
 func (d *Document) pdfaCheckDeviceColorMatch(r *PDFAValidationReport) {
 	n := d.outputIntentComponents()
 	if n != 3 && n != 4 {
 		return
 	}
-	space, ops := "DeviceCMYK", []string{"k", "K"}
+	s := &deviceColorScan{d: d, space: "/DeviceCMYK", abbrev: "/CMYK", remap: "/DefaultCMYK", fill: "k", stroke: "K", seen: map[*pdfStream]bool{}}
 	if n == 4 {
-		space, ops = "DeviceRGB", []string{"rg", "RG"}
+		s.space, s.abbrev, s.remap, s.fill, s.stroke = "/DeviceRGB", "/RGB", "/DefaultRGB", "rg", "RG"
 	}
-	for i, page := range d.pages {
-		dict, ok := page.Value.(pdfDict)
-		if !ok {
+	for i := range d.pages {
+		page, err := d.Page(i + 1)
+		if err != nil {
 			continue
 		}
-		for _, data := range d.pageContentStreams(dict) {
-			parsed, err := parseContentStream(data)
-			if err != nil {
-				continue
-			}
-			for _, op := range parsed {
-				if slices.Contains(ops, op.Operator) {
-					r.add("COLOR_INTENT_MISMATCH", fmt.Sprintf("page %d uses %s (operator %q), which the output intent's %d-component profile does not cover", i+1, space, op.Operator, n))
-					return
-				}
-			}
-		}
-	}
-	for _, id := range slices.Sorted(maps.Keys(d.objects)) {
-		s, ok := d.objects[id].Value.(*pdfStream)
-		if ok && dictGetName(s.Dict, "/Subtype") == "/Image" && dictGetName(s.Dict, "/ColorSpace") == "/"+space {
-			r.add("COLOR_INTENT_MISMATCH", fmt.Sprintf("image object %d is %s, which the output intent's %d-component profile does not cover", id, space, n))
+		if use := s.page(page); use != "" {
+			r.add("COLOR_INTENT_MISMATCH", fmt.Sprintf("page %d uses %s (%s), which the output intent's %d-component profile does not cover", i+1, s.space[1:], use, n))
 			return
 		}
 	}
+}
+
+// deviceColorScan looks for the first use of one device colour space in what a
+// page paints: its content, the forms, patterns, shadings, images, soft masks and
+// Type3 glyphs that content reaches, and its annotations' normal appearances.
+type deviceColorScan struct {
+	d                    *Document
+	space, abbrev, remap string // the space, its inline abbreviation, its Default* key
+	fill, stroke         string // the operators setting it directly
+	seen                 map[*pdfStream]bool
+}
+
+func (s *deviceColorScan) page(p *Page) string {
+	objects := s.d.objects
+	dict, res := p.pageDict(), p.pageResources()
+	if dict == nil {
+		return ""
+	}
+	if use := s.group(dict, res); use != "" {
+		return use
+	}
+	for _, data := range s.d.pageContentStreams(dict) {
+		if use := s.content(data, res); use != "" {
+			return use
+		}
+	}
+	annots, _ := resolveRefToArray(objects, dict["/Annots"])
+	for _, v := range annots {
+		ad, ok := resolveRefToDict(objects, v)
+		if !ok {
+			continue
+		}
+		ap, ok := resolveRefToDict(objects, ad["/AP"])
+		if !ok {
+			continue
+		}
+		if use := s.appearance(ap["/N"], 0); use != "" {
+			return use
+		}
+	}
+	return ""
+}
+
+// appearance follows a normal appearance, a stream or a state dictionary of them.
+func (s *deviceColorScan) appearance(v pdfValue, depth int) string {
+	switch t := resolveRef(s.d.objects, v).(type) {
+	case *pdfStream:
+		return s.xobject(t, nil)
+	case pdfDict:
+		if depth > 0 {
+			return ""
+		}
+		for _, key := range slices.Sorted(maps.Keys(t)) {
+			if use := s.appearance(t[key], depth+1); use != "" {
+				return use
+			}
+		}
+	}
+	return ""
+}
+
+func (s *deviceColorScan) group(dict, res pdfDict) string {
+	g, ok := resolveRefToDict(s.d.objects, dict["/Group"])
+	if ok && s.colorSpace(g["/CS"], res, 0) {
+		return "transparency group"
+	}
+	return ""
+}
+
+// remapped reports a Default* colour space in res, which makes the device space
+// device-independent there (ISO 32000-1 §8.6.5.6).
+func (s *deviceColorScan) remapped(res pdfDict) bool {
+	csd, ok := resolveRefToDict(s.d.objects, res["/ColorSpace"])
+	return ok && csd[s.remap] != nil
+}
+
+// colorSpace reports whether a colour-space value is the device space or rests on
+// it. A name not naming a device space is looked up in res.
+func (s *deviceColorScan) colorSpace(v pdfValue, res pdfDict, depth int) bool {
+	if depth > maxColorSpaceDepth {
+		return false
+	}
+	objects := s.d.objects
+	switch t := resolveRef(objects, v).(type) {
+	case pdfName:
+		if string(t) == s.space || string(t) == s.abbrev {
+			return !s.remapped(res)
+		}
+		if csd, ok := resolveRefToDict(objects, res["/ColorSpace"]); ok && csd[string(t)] != nil {
+			return s.colorSpace(csd[string(t)], res, depth+1)
+		}
+	case pdfArray:
+		if len(t) < 2 {
+			return false
+		}
+		switch operandName(t[0]) {
+		case "/Indexed", "/I":
+			return s.colorSpace(t[1], res, depth+1)
+		case "/Separation", "/DeviceN":
+			return len(t) >= 3 && s.colorSpace(t[2], res, depth+1)
+		}
+	}
+	return false
+}
+
+func (s *deviceColorScan) content(data []byte, res pdfDict) string {
+	ops, err := parseContentStream(data)
+	if err != nil {
+		return ""
+	}
+	objects := s.d.objects
+	sub := func(key string, name pdfValue) pdfValue {
+		n, ok := name.(pdfName)
+		if !ok {
+			return nil
+		}
+		dict, _ := resolveRefToDict(objects, res[key])
+		return dict[string(n)]
+	}
+	for _, op := range ops {
+		use := ""
+		switch op.Operator {
+		case s.fill, s.stroke:
+			if !s.remapped(res) {
+				use = fmt.Sprintf("operator %q", op.Operator)
+			}
+		case "cs", "CS":
+			if s.colorSpace(at(op, 0), res, 0) {
+				use = fmt.Sprintf("operator %q", op.Operator)
+			}
+		case "sh":
+			use = s.shading(sub("/Shading", at(op, 0)), res)
+		case "scn", "SCN":
+			if n := len(op.Operands); n > 0 {
+				use = s.pattern(sub("/Pattern", op.Operands[n-1]), res)
+			}
+		case "Do":
+			stream, _ := resolveRef(objects, sub("/XObject", at(op, 0))).(*pdfStream)
+			use = s.xobject(stream, res)
+		case "BI":
+			if dict, ok := at(op, 0).(pdfDict); ok && s.colorSpace(dict["/ColorSpace"], res, 0) {
+				use = "inline image"
+			}
+		case "gs":
+			gs, _ := resolveRefToDict(objects, sub("/ExtGState", at(op, 0)))
+			if sm, ok := resolveRefToDict(objects, gs["/SMask"]); ok {
+				form, _ := resolveRef(objects, sm["/G"]).(*pdfStream)
+				use = s.xobject(form, res)
+			}
+		case "Tf":
+			use = s.type3(sub("/Font", at(op, 0)), res)
+		}
+		if use != "" {
+			return use
+		}
+	}
+	return ""
+}
+
+func (s *deviceColorScan) type3(v pdfValue, res pdfDict) string {
+	objects := s.d.objects
+	font, _ := resolveRefToDict(objects, v)
+	if dictGetName(font, "/Subtype") != "/Type3" {
+		return ""
+	}
+	if own, ok := resolveRefToDict(objects, font["/Resources"]); ok {
+		res = own
+	}
+	procs, _ := resolveRefToDict(objects, font["/CharProcs"])
+	for _, key := range slices.Sorted(maps.Keys(procs)) {
+		proc, _ := resolveRef(objects, procs[key]).(*pdfStream)
+		if proc == nil || s.seen[proc] {
+			continue
+		}
+		s.seen[proc] = true
+		if use := s.content(decodedStreamData(proc), res); use != "" {
+			return use
+		}
+	}
+	return ""
+}
+
+// xobject scans an image or a form. A form with no /Resources uses its caller's.
+func (s *deviceColorScan) xobject(stream *pdfStream, res pdfDict) string {
+	if stream == nil || s.seen[stream] {
+		return ""
+	}
+	s.seen[stream] = true
+	if dictGetName(stream.Dict, "/Subtype") == "/Image" {
+		if s.colorSpace(stream.Dict["/ColorSpace"], res, 0) {
+			return "image"
+		}
+		return ""
+	}
+	if own, ok := resolveRefToDict(s.d.objects, stream.Dict["/Resources"]); ok {
+		res = own
+	}
+	if use := s.group(stream.Dict, res); use != "" {
+		return use
+	}
+	return s.content(decodedStreamData(stream), res)
+}
+
+func (s *deviceColorScan) pattern(v pdfValue, res pdfDict) string {
+	switch t := resolveRef(s.d.objects, v).(type) {
+	case *pdfStream: // tiling
+		if s.seen[t] {
+			return ""
+		}
+		s.seen[t] = true
+		if own, ok := resolveRefToDict(s.d.objects, t.Dict["/Resources"]); ok {
+			res = own
+		}
+		return s.content(decodedStreamData(t), res)
+	case pdfDict:
+		return s.shading(t["/Shading"], res)
+	}
+	return ""
+}
+
+func (s *deviceColorScan) shading(v pdfValue, res pdfDict) string {
+	dict, _ := asDictStream(resolveRef(s.d.objects, v))
+	if dict != nil && s.colorSpace(dict["/ColorSpace"], res, 0) {
+		return "shading"
+	}
+	return ""
 }
 
 // pdfaCheckICCComponents reports an ICC profile whose stream declares a component

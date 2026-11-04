@@ -637,3 +637,17 @@ func ExampleDocument_ResizeContents() {
 	fmt.Printf("%.0fx%.0f pt\n", size.Width, size.Height)
 	// Output: 612x792 pt
 }
+
+// Recolour DeviceCMYK before converting, for a document that must conform under the
+// sRGB output intent ConvertToPDFA adds. The CMYK values are gone afterwards.
+func ExampleDocument_ConvertDeviceCMYKToRGB() {
+	doc := asposepdf.NewDocumentFromFormat(asposepdf.PageFormatA4)
+	if err := doc.ConvertDeviceCMYKToRGB(); err != nil {
+		panic(err)
+	}
+	if _, err := doc.ConvertToPDFA(asposepdf.PDFA2B); err != nil {
+		panic(err)
+	}
+	fmt.Println(doc.PageCount())
+	// Output: 1
+}

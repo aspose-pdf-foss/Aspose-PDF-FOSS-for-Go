@@ -77,31 +77,58 @@ func (f *fnStitching) eval(in []float64) []float64 {
 	return f.funcs[k].eval([]float64{tt})
 }
 
+// maxSampledInputs bounds a sampled function's inputs: eval visits 2^m corners.
+const maxSampledInputs = 12
+
 type fnSampled struct {
 	dom, encode, decode []float64
-	size, bps, nout     int
+	size                []int // samples along each input, the first varying fastest
+	bps, nout           int
 	samples             []byte
 }
 
+// eval interpolates multilinearly between the surrounding samples (ISO 32000-1
+// §7.10.2).
 func (f *fnSampled) eval(in []float64) []float64 {
-	t := fnIn0(in)
-	e0, e1 := 0.0, float64(f.size-1)
-	if len(f.encode) >= 2 {
-		e0, e1 = f.encode[0], f.encode[1]
-	}
-	e := clampf(interp(t, f.dom[0], f.dom[1], e0, e1), 0, float64(f.size-1))
-	i0 := int(math.Floor(e))
-	frac := e - float64(i0)
-	i1 := i0 + 1
-	if i1 > f.size-1 {
-		i1 = f.size - 1
+	m := len(f.size)
+	base := make([]int, m)
+	frac := make([]float64, m)
+	for i, size := range f.size {
+		t := 0.0
+		if i < len(in) {
+			t = in[i]
+		}
+		e0, e1 := 0.0, float64(size-1)
+		if len(f.encode) >= 2*i+2 {
+			e0, e1 = f.encode[2*i], f.encode[2*i+1]
+		}
+		e := clampf(interp(t, f.dom[2*i], f.dom[2*i+1], e0, e1), 0, float64(size-1))
+		base[i] = int(math.Floor(e))
+		frac[i] = e - float64(base[i])
 	}
 	maxv := float64(uint64(1)<<uint(f.bps) - 1)
 	out := make([]float64, f.nout)
-	for j := 0; j < f.nout; j++ {
-		s0 := float64(f.sample(i0, j)) / maxv
-		s1 := float64(f.sample(i1, j)) / maxv
-		v := s0 + frac*(s1-s0)
+	for corner := 0; corner < 1<<m; corner++ {
+		weight, index, stride := 1.0, 0, 1
+		for i, size := range f.size {
+			pos := base[i]
+			if corner>>i&1 == 1 {
+				weight *= frac[i]
+				pos = min(pos+1, size-1)
+			} else {
+				weight *= 1 - frac[i]
+			}
+			index += pos * stride
+			stride *= size
+		}
+		if weight == 0 {
+			continue
+		}
+		for j := range out {
+			out[j] += weight * float64(f.sample(index, j)) / maxv
+		}
+	}
+	for j, v := range out {
 		d0, d1 := 0.0, 1.0
 		if 2*j+1 < len(f.decode) {
 			d0, d1 = f.decode[2*j], f.decode[2*j+1]
@@ -209,11 +236,23 @@ func parseFunction(objects map[int]*pdfObject, v pdfValue) pdfFunc {
 		if len(decode) == 0 {
 			decode = rng
 		}
+		if len(size) > maxSampledInputs {
+			return &fnConst{c: []float64{0.5}}
+		}
+		sizes := make([]int, len(size))
+		for i, n := range size {
+			if sizes[i] = int(n); sizes[i] < 1 {
+				return &fnConst{c: []float64{0.5}}
+			}
+		}
+		for len(dom) < 2*len(sizes) {
+			dom = append(dom, 0, 1)
+		}
 		return &fnSampled{
-			dom:     []float64{dom[0], dom[1]},
+			dom:     dom,
 			encode:  shFloats(objects, d["/Encode"]),
 			decode:  decode,
-			size:    int(size[0]),
+			size:    sizes,
 			bps:     int(operandFloat(resolveRef(objects, d["/BitsPerSample"]))),
 			nout:    len(rng) / 2,
 			samples: decodedStreamData(stream),

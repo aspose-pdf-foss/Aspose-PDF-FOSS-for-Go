@@ -164,7 +164,8 @@ flowchart TD
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet). For
   PDF/A-1, pages that really paint with transparency become images with their text kept as an invisible,
-  searchable layer; the report's `RasterizedPages` names them.
+  searchable layer; the report's `RasterizedPages` names them. `ConvertDeviceCMYKToRGB` recolours
+  DeviceCMYK first for documents that must conform under that sRGB intent.
 - **E-invoices (ZUGFeRD / Factur-X)** — `Document.AttachInvoice(xml)` turns a document into a hybrid
   e-invoice: the CII XML is embedded as `factur-x.xml` with the associated-file relationship its
   profile calls for, the Factur-X metadata and extension schema are written, and the document is
@@ -878,7 +879,9 @@ stays free of network code.
   metric-compatible clones, composite (CJK) fonts as a subset of the matching installed face, and
   Symbol or ZapfDingbats from a face registered through `AddFontFile`/`AddFontFolder` — adds a
   pure-Go sRGB ICC OutputIntent, and writes a `pdfaid` XMP packet that agrees with `/Info`, then
-  returns a report of whatever still fails. DeviceCMYK content is not converted and is reported.
+  returns a report of whatever still fails. DeviceCMYK content is not converted and is reported;
+  `ConvertDeviceCMYKToRGB`, called first, recolours it the way the renderer shows it, at the cost of
+  the CMYK values, and leaves ICCBased CMYK alone.
   The report covers the rules this library knows about, not every rule of the standard: on a
   sample of 85 real-world documents, 73 pass veraPDF as PDF/A-2b and 69 as PDF/A-1b, and a few
   that the report accepts do not (mostly defects in the source's own fonts, such as widths that
@@ -1001,10 +1004,11 @@ stays free of network code.
   Indic, Khmer, Myanmar, and Hangul reordering shapers and vertical text are not implemented.
 - `ConvertToPDFA` embeds a font only when a face is available to it: Symbol and ZapfDingbats need
   one registered through `AddFontFile`/`AddFontFolder` (no metric-compatible clone is bundled),
-  and a composite font needs the matching face installed. It does not flatten transparency itself
-  (call `Document.FlattenTransparency()` before converting to PDF/A-1) or draw appearances for
-  icon annotations (sticky notes, file attachments), and a font whose licensing bits forbid
+  and a composite font needs the matching face installed. A font whose licensing bits forbid
   embedding is left alone. Confirm full conformance with a dedicated validator such as veraPDF.
+- `ConvertDeviceCMYKToRGB` leaves what it cannot convert in place, and `ValidatePDFA` keeps reporting
+  it: mesh shadings holding colours in their data, DeviceN spaces of more than 8 colorants, JPEG
+  images with a colour-key mask, and images or functions that cannot be decoded.
 - `FlattenTransparency` only looks at a page's content stream and `/Resources` graph; an
   annotation's own opacity or the transparency inside its `/AP` appearance stream is untouched —
   flatten annotations into page content first (`Annotation.Flatten()`/`Form.Flatten()`) if that

@@ -615,9 +615,12 @@ func TestPDFAReportedViolations(t *testing.T) {
 	if !hasPDFARule(convertA(t, d, PDFA2B), "COLOR_INTENT_MISMATCH") {
 		t.Errorf("conversion should still report DeviceCMYK")
 	}
-	d, _ = conformDoc(t)
+	d, p = conformDoc(t)
 	withIntent(d, 3, "RGB ")
-	d.addObject(&pdfStream{Dict: pdfDict{"/Subtype": pdfName("/Image"), "/ColorSpace": pdfName("/DeviceCMYK")}, Data: []byte{0}, Decoded: true})
+	p.pageResources()["/XObject"] = pdfDict{"/I": pdfRef{Num: d.addObject(&pdfStream{Dict: pdfDict{"/Subtype": pdfName("/Image"), "/ColorSpace": pdfName("/DeviceCMYK")}, Data: []byte{0}, Decoded: true})}}
+	if err := p.appendToContentStream([]byte("/I Do\n")); err != nil {
+		t.Fatal(err)
+	}
 	if !hasPDFARule(d.ValidatePDFA(PDFA2B), "COLOR_INTENT_MISMATCH") {
 		t.Errorf("CMYK image under an RGB intent not reported")
 	}

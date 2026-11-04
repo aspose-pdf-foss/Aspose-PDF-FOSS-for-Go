@@ -40,8 +40,9 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 // Symbol and ZapfDingbats have no Latin substitute and remain a reported
 // violation; composite (Type0/CJK) and Type3 fonts are not auto-fixed. DeviceCMYK
 // content is not converted and is reported (COLOR_INTENT_MISMATCH), since the
-// only profile available is sRGB. The
-// returned report lists any remaining issues; when
+// only profile available is sRGB and recolouring loses the CMYK values; call
+// ConvertDeviceCMYKToRGB first to accept that. The returned report lists any
+// remaining issues; when
 // Conformant is true the document satisfies the checks in ValidatePDFA. Mirrors
 // the intent of Aspose.PDF for .NET's Document.Convert(PdfFormat).
 //

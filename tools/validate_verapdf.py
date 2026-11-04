@@ -26,7 +26,7 @@ GROUPS = {"ua_": ["ua1"], "a2a_": ["2a", "ua1"], "a2b_": ["2b"], "a1b_": ["1b"]}
 KNOWN = {
     ("ua_Binder1", "ua1"): {"7.3-1"},  # figures need alternate text; FillAltTexts writes it
     ("a2a_Binder1", "ua1"): {"7.3-1"},
-    ("a2b_alfa", "2b"): {"6.2.4.3-3"},  # DeviceCMYK under sRGB: no CMYK profile to offer
+    ("a2b_alfa", "2b"): {"6.2.4.3-3"},  # DeviceCMYK under sRGB, until ConvertDeviceCMYKToRGB (a2b_alfa_rgb)
     ("a1b_alfa", "1b"): {"6.2.3.3-2"},
     ("a2b_PdfWithAcroForm", "2b"): {"6.2.11.4.1-1"},  # ZapfDingbats: no face to embed
     ("a1b_PdfWithAcroForm", "1b"): {"6.3.4-1", "6.2.3.2-2", "6.3.7-1"},  # same; the source's ICC /N is wrong; PDF/A-1 allows no /Differences
