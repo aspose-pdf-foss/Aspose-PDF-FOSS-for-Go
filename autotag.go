@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -409,25 +410,39 @@ func atListItem(seg docSeg) *atElem {
 }
 
 // atTableElem builds Table > TR > TH/TD from a detected table; the first
-// row is the header row when there is more than one.
+// row is the header row when there is more than one. A grid row in which no
+// cell starts is only a ruling seen in another table part: it gets no TR, and
+// the spans crossing it do not count it, or the rows would not add up.
 func atTableElem(t *AbsorbedTable) *atElem {
 	tbl := &atElem{typ: StructTable, top: t.Rect.URY}
 	rows := t.RowList()
-	for ri, row := range rows {
+	// before[r] counts the rows above grid row r in which a cell starts.
+	before := make([]int, len(rows)+1)
+	for r, row := range rows {
+		before[r+1] = before[r]
+		if slices.ContainsFunc(row.CellList(), func(c *AbsorbedCell) bool { return !c.Covered }) {
+			before[r+1]++
+		}
+	}
+	for r, row := range rows {
+		if before[r+1] == before[r] {
+			continue
+		}
 		tr := &atElem{typ: StructTR}
 		for _, cell := range row.CellList() {
 			if cell.Covered {
 				continue
 			}
 			typ := StructTD
-			if ri == 0 && len(rows) > 1 {
+			if before[r] == 0 && before[len(rows)] > 1 {
 				typ = StructTH
 			}
 			c := &atElem{typ: typ, leaf: true, keep: true, regions: []Rectangle{cell.Rect}}
-			if cell.RowSpan > 1 || cell.ColSpan > 1 || typ == StructTH {
+			rowSpan := before[min(r+cell.RowSpan, len(rows))] - before[r]
+			if rowSpan > 1 || cell.ColSpan > 1 || typ == StructTH {
 				a := pdfDict{"/O": pdfName("/Table")}
-				if cell.RowSpan > 1 {
-					a["/RowSpan"] = cell.RowSpan
+				if rowSpan > 1 {
+					a["/RowSpan"] = rowSpan
 				}
 				if cell.ColSpan > 1 {
 					a["/ColSpan"] = cell.ColSpan
@@ -605,10 +620,10 @@ func atHasContent(e *atElem) bool {
 
 // atWriteElem writes e under parent: leaves with their MCIDs on page
 // pageNum, groups as plain grouping elements. Elements that ended up with
-// no content are skipped, except table cells inside a table that has some.
+// no content are skipped, except the rows and cells of a table that has some.
 func atWriteElem(tc *TaggedContent, parent *StructElement, e *atElem, pageNum int, res *AutoTagResult) {
 	if !e.leaf {
-		if !atHasContent(e) {
+		if !atHasContent(e) && e.typ != StructTR {
 			return
 		}
 		g := parent.AddChild(e.typ)

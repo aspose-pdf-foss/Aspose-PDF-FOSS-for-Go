@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AutoTag` wrote tables PDF/UA rejects.** A grid row in which no cell starts, or one holding only empty cells, was left out while the spans crossing it still counted it, so the rows did not add up. The spans now count the rows that exist, and a row of empty cells stays.
+- **`AutoTag` left empty show operators untagged.** A `() Tj` paints nothing, but PDF/UA still counts it as text content; it now travels in the open section, or in an artifact's when none is open.
 - **A CMap built on another could give the parent's CID for a code it redefines**, because the two were merged into one sorted list. `UniJIS-UCS2-HW-H` and `ETenms-B5-H`, for example, could lose their half-width forms.
 
 ### Changed

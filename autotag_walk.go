@@ -15,6 +15,7 @@ import "math"
 const (
 	atOwnerNone     = -2 // paints nothing, or lies inside an existing /Artifact
 	atOwnerArtifact = -1
+	atOwnerBlank    = -3 // a show operator with nothing to show: see atEmit
 )
 
 type atKind int
@@ -490,7 +491,7 @@ func atPieces(it atItem) []atPiece {
 	}
 	switch len(runs) {
 	case 0:
-		return single(atOwnerNone) // shows nothing (empty string, numbers only)
+		return single(atOwnerBlank) // shows nothing (empty string, numbers only)
 	case 1:
 		return single(runs[0].owner)
 	}
@@ -532,7 +533,9 @@ func atPieces(it atItem) []atPiece {
 // before any barrier operator (BT ET q Q BDC BMC EMC), so the new sections
 // always nest correctly with text objects, saved graphics states and the
 // stream's existing marked content. Operators that paint nothing travel
-// inside whatever section is open. mcid is called once per new element
+// inside whatever section is open; so does a show operator with nothing to
+// show, but that one is still text content to PDF/UA, so with no section open
+// it gets an artifact's. mcid is called once per new element
 // section and returns that section's MCID and structure type.
 func atEmit(items []atItem, mcid func(owner int) (int, StructType)) []contentOp {
 	var out []contentOp
@@ -551,6 +554,14 @@ func atEmit(items []atItem, mcid func(owner int) (int, StructType)) []contentOp 
 		}
 		for _, p := range atPieces(it) {
 			if p.owner == atOwnerNone {
+				out = append(out, p.op)
+				continue
+			}
+			if p.owner == atOwnerBlank {
+				if open == atOwnerNone {
+					out = append(out, contentOp{Operator: "BMC", Operands: []pdfValue{pdfName("/Artifact")}})
+					open = atOwnerArtifact
+				}
 				out = append(out, p.op)
 				continue
 			}

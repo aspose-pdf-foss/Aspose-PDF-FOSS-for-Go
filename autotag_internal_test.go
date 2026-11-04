@@ -631,3 +631,147 @@ func TestAutoTagTitleFallback(t *testing.T) {
 		t.Errorf("PDF/UA issue: %s", is.Rule)
 	}
 }
+
+// A grid row in which no cell starts exists only because another part of the table
+// ruled a line there, and PDF/UA adds up each row's spans, so it takes no TR and does
+// not count toward a span crossing it.
+func TestAutoTagTableCollapsesCoveredRows(t *testing.T) {
+	anchor := func(rows, cols int) *AbsorbedCell { return &AbsorbedCell{RowSpan: rows, ColSpan: cols} }
+	covered := &AbsorbedCell{Covered: true}
+	table := &AbsorbedTable{rows: []*AbsorbedRow{
+		{cells: []*AbsorbedCell{anchor(1, 1), anchor(1, 1)}},
+		{cells: []*AbsorbedCell{anchor(3, 1), anchor(4, 1)}},
+		{cells: []*AbsorbedCell{covered, covered}},
+		{cells: []*AbsorbedCell{covered, covered}},
+		{cells: []*AbsorbedCell{anchor(1, 1), covered}},
+	}}
+	got := atTableElem(table)
+	if len(got.children) != 3 {
+		t.Fatalf("%d rows, want 3", len(got.children))
+	}
+	if c := got.children[0].children[0]; c.typ != StructTH {
+		t.Errorf("first row is %s", c.typ)
+	}
+	if c := got.children[1].children[0]; c.typ != StructTD || c.attrs != nil {
+		t.Errorf("a span crossing only collapsed rows should be gone: %s %v", c.typ, c.attrs)
+	}
+	if c := got.children[1].children[1]; c.attrs["/RowSpan"] != 2 {
+		t.Errorf("a span reaching the last row counts it: %v", c.attrs)
+	}
+	if len(got.children[2].children) != 1 {
+		t.Errorf("last row %v", got.children[2].children)
+	}
+}
+
+// Everything collapsing into one row leaves no header row, and a span running past
+// the grid's end is cut there.
+func TestAutoTagTableSingleLogicalRow(t *testing.T) {
+	table := &AbsorbedTable{rows: []*AbsorbedRow{
+		{cells: []*AbsorbedCell{{RowSpan: 5, ColSpan: 1}}},
+		{cells: []*AbsorbedCell{{Covered: true}}},
+	}}
+	got := atTableElem(table)
+	c := got.children[0].children[0]
+	if len(got.children) != 1 || c.typ != StructTD || c.attrs != nil {
+		t.Errorf("%d rows, cell %s %v", len(got.children), c.typ, c.attrs)
+	}
+}
+
+// A row of empty cells in a table with text elsewhere stays, as the cells' own
+// positions in the grid depend on it.
+func TestAutoTagKeepsRowOfEmptyCells(t *testing.T) {
+	d := NewDocument(400, 400)
+	tb := NewTable().SetColumnWidths([]float64{100, 100})
+	tb.SetDefaultCellBorder(BorderInfo{Sides: BorderSideAll, Width: 1})
+	for _, r := range tb.AddRows([][]string{{"Name", "Value"}, {"", ""}, {"Alpha", "Beta"}}) {
+		r.SetHeight(30)
+	}
+	p, _ := d.Page(1)
+	if _, err := p.AddTable(tb, Rectangle{LLX: 50, LLY: 100, URX: 250, URY: 350}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.AutoTag(AutoTaggingSettings{}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	var walk func(e pdfDict)
+	walk = func(e pdfDict) {
+		for _, k := range d.structElemKids(e) {
+			if s, _ := k["/S"].(pdfName); s == pdfName(StructTable) {
+				found = true
+				if rows := d.structElemKids(k); len(rows) != 3 {
+					t.Errorf("%d rows, want 3", len(rows))
+				}
+			}
+			walk(k)
+		}
+	}
+	walk(d.tagged.root.dict)
+	if !found {
+		t.Fatal("no table in the tree")
+	}
+}
+
+// An empty show operator paints nothing, but PDF/UA still counts it as text content
+// that has to be tagged or an artifact. Inside an open section it stays there, so it
+// does not break the section in two.
+func TestAutoTagEmptyShowOperator(t *testing.T) {
+	show := func(owner int, s string) atItem {
+		it := atItem{kind: atText, textOp: "Tj", ops: []contentOp{{Operator: "Tj", Operands: []pdfValue{s}}}, owner: owner}
+		if s != "" {
+			it.toks = []atTok{{glyph: true, raw: s}}
+			it.owners = []int{owner}
+		}
+		return it
+	}
+	mcids := 0
+	mcid := func(int) (int, StructType) { mcids++; return mcids, StructP }
+	opsOf := func(out []contentOp) string {
+		var names []string
+		for _, op := range out {
+			names = append(names, op.Operator)
+		}
+		return strings.Join(names, " ")
+	}
+	if got := opsOf(atEmit([]atItem{show(0, "")}, mcid)); got != "BMC Tj EMC" {
+		t.Errorf("alone: %s", got)
+	}
+	mcids = 0
+	if got := opsOf(atEmit([]atItem{show(0, "A"), show(0, ""), show(0, "B")}, mcid)); got != "BDC Tj Tj Tj EMC" || mcids != 1 {
+		t.Errorf("inside a section: %s, %d sections", got, mcids)
+	}
+
+	// Through the whole pass, on a stream drawing nothing else there.
+	d := NewDocument(300, 300)
+	p, _ := d.Page(1)
+	if err := p.AddText("Body text", TextStyle{Font: FontHelvetica, Size: 12}, Rectangle{LLX: 20, LLY: 200, URX: 280, URY: 260}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.appendToContentStream([]byte("BT /NoSuch 12 Tf 20 20 Td () Tj ET\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.AutoTag(AutoTaggingSettings{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := p.contentStreams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops, err := parseContentStream(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	depth := 0
+	for _, op := range ops {
+		switch op.Operator {
+		case "BDC", "BMC":
+			depth++
+		case "EMC":
+			depth--
+		case "Tj", "TJ":
+			if depth == 0 {
+				t.Errorf("a show operator outside any section: %v", op.Operands)
+			}
+		}
+	}
+}
