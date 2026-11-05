@@ -22,6 +22,8 @@ const (
 	PDFA1A                   // PDF/A-1a (ISO 19005-1, accessible/tagged)
 	PDFA2A                   // PDF/A-2a (ISO 19005-2, accessible/tagged)
 	PDFA3A                   // PDF/A-3a (ISO 19005-3, accessible/tagged)
+	PDFA2U                   // PDF/A-2u (ISO 19005-2; 2b, and all text maps to Unicode)
+	PDFA3U                   // PDF/A-3u (ISO 19005-3; 3b, and all text maps to Unicode)
 )
 
 // String returns the human-readable conformance name, e.g. "PDF/A-1B".
@@ -34,20 +36,22 @@ func (f PDFAFormat) part() int {
 	switch f {
 	case PDFA1B, PDFA1A:
 		return 1
-	case PDFA2B, PDFA2A:
+	case PDFA2B, PDFA2A, PDFA2U:
 		return 2
-	case PDFA3B, PDFA3A:
+	case PDFA3B, PDFA3A, PDFA3U:
 		return 3
 	default:
 		return 0
 	}
 }
 
-// conformance returns the conformance-level letter ("A" or "B").
+// conformance returns the conformance-level letter ("A", "U" or "B").
 func (f PDFAFormat) conformance() string {
 	switch f {
 	case PDFA1A, PDFA2A, PDFA3A:
 		return "A"
+	case PDFA2U, PDFA3U:
+		return "U"
 	default:
 		return "B"
 	}
@@ -648,6 +652,19 @@ func (d *Document) pdfaCheckAssociatedFiles(format PDFAFormat, r *PDFAValidation
 		if _, hasRel := fs["/AFRelationship"].(pdfName); !hasRel || !d.isAssociatedFile(ref) {
 			r.add("EMBEDDED_FILE_NOT_ASSOCIATED", fmt.Sprintf(
 				"file-attachment annotation %q has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", fa.FileName()))
+		}
+	}
+	// A file specification neither of those reaches counts all the same.
+	for _, id := range d.filespecObjects() {
+		fs := d.objects[id].Value.(pdfDict)
+		if _, hasRel := fs["/AFRelationship"].(pdfName); !hasRel || !d.isAssociatedFile(pdfRef{Num: id}) {
+			r.add("EMBEDDED_FILE_NOT_ASSOCIATED", fmt.Sprintf(
+				"file specification object %d has no /AFRelationship or is not listed in the catalog /AF; PDF/A-3 requires both", id))
+		}
+	}
+	for _, s := range d.embeddedFileStreams() {
+		if !validEmbeddedFileMIME(s) {
+			r.add("EMBEDDED_FILE_NO_MIME", fmt.Sprintf("an embedded file's /Subtype is %q, not a MIME type; PDF/A-3 requires one, application/octet-stream if not known", dictGetName(s.Dict, "/Subtype")))
 		}
 	}
 }

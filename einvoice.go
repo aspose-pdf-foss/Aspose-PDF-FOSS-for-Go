@@ -160,7 +160,7 @@ func invoiceGuideline(data []byte) (root xml.Name, guidelineID string, err error
 type InvoiceOptions struct {
 	FileName string         // default: "factur-x.xml", or "xrechnung.xml" for XRechnung
 	Profile  InvoiceProfile // default: read from the XML's guideline ID
-	Format   PDFAFormat     // PDFA3B or PDFA3A; the zero value (PDFA1B, never valid here) means PDFA3B
+	Format   PDFAFormat     // PDFA3B, PDFA3U or PDFA3A; the zero value (PDFA1B, never valid here) means PDFA3B
 }
 
 // Invoice is an e-invoice found in a document.

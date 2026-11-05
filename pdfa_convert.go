@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"fmt"
 	"maps"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -27,6 +29,8 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 //   - rasterizes any page painting transparently for PDF/A-1 (FlattenTransparency;
 //     PDF/A-1 forbids it outright, PDF/A-2 and -3 permit it and are left alone).
 //     Their text stays as an invisible layer; the report's RasterizedPages names them;
+//   - removes the actions of form-field widgets, which PDF/A forbids, so a submit
+//     button stops working;
 //   - sets annotation flags (Print on, Hidden/NoView off) and leaves each
 //     appearance dictionary with only its normal appearance;
 //   - turns off image interpolation;
@@ -85,6 +89,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.fixPDFAAnnotations()
 	d.generatePDFAAppearances()
+	d.removeWidgetActions()
 	if format.part() > 1 {
 		d.generateIconAppearances()
 	}
@@ -390,6 +395,65 @@ func (d *Document) associatePDFAEmbeddedFiles() {
 			}
 		}
 	}
+	// A file specification neither of those reaches counts all the same. One nothing
+	// refers to, such as what a removed Launch action leaves, is simply gone.
+	d.dropUnreachable(d.filespecObjects())
+	for _, id := range d.filespecObjects() {
+		fs := d.objects[id].Value.(pdfDict)
+		if _, has := fs["/AFRelationship"]; !has {
+			fs["/AFRelationship"] = AFUnspecified.pdfName()
+		}
+		d.addAssociatedFile(pdfRef{Num: id})
+	}
+	for _, s := range d.embeddedFileStreams() {
+		if validEmbeddedFileMIME(s) {
+			continue
+		}
+		// Versions of this library wrote the type escaped twice; read as it was meant.
+		s.Dict["/Subtype"] = pdfName("/" + unescapePDFName(strings.TrimPrefix(dictGetName(s.Dict, "/Subtype"), "/")))
+		if !validEmbeddedFileMIME(s) {
+			// What ISO 19005-3 §6.8 says to use when the type is not known.
+			s.Dict["/Subtype"] = pdfName("/application/octet-stream")
+		}
+	}
+}
+
+// filespecObjects returns the objects that are file specifications, in order. veraPDF
+// holds each to the PDF/A-3 rules, embedding a file or not.
+func (d *Document) filespecObjects() []int {
+	var out []int
+	for _, id := range slices.Sorted(maps.Keys(d.objects)) {
+		if fs, ok := d.objects[id].Value.(pdfDict); ok && (fs["/EF"] != nil || dictGetName(fs, "/Type") == "/Filespec") {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// embeddedFileStreams returns the streams of every file specification, in order.
+func (d *Document) embeddedFileStreams() []*pdfStream {
+	var out []*pdfStream
+	seen := map[*pdfStream]bool{}
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		ef, ok := resolveRefToDict(d.objects, dict["/EF"])
+		if !ok {
+			return
+		}
+		for _, key := range slices.Sorted(maps.Keys(ef)) {
+			if s, ok := resolveRef(d.objects, ef[key]).(*pdfStream); ok && !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+	})
+	return out
+}
+
+var reMIMEType = regexp.MustCompile(`^/[-\w+.]+/[-\w+.]+$`)
+
+// validEmbeddedFileMIME reports an embedded file stream naming its MIME type.
+func validEmbeddedFileMIME(s *pdfStream) bool {
+	return reMIMEType.MatchString(dictGetName(s.Dict, "/Subtype"))
 }
 
 // fixPDFAAnnotations sets the Print flag and clears Hidden/NoView on every

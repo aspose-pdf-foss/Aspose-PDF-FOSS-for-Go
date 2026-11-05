@@ -90,6 +90,28 @@ func (d *Document) removeForbiddenActions() {
 	})
 }
 
+// removeWidgetActions deletes the /A of every form field's widget, which every part
+// forbids whatever the action (ISO 19005-1 §6.6.1, ISO 19005-2 §6.4.1). A button
+// stops doing anything.
+func (d *Document) removeWidgetActions() {
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		if dictGetName(dict, "/Subtype") == "/Widget" {
+			delete(dict, "/A")
+		}
+	})
+}
+
+// widgetWithAction reports a form field's widget carrying an action.
+func (d *Document) widgetWithAction() bool {
+	found := false
+	d.pdfaWalkDicts(func(dict pdfDict) {
+		if _, has := dict["/A"]; has && dictGetName(dict, "/Subtype") == "/Widget" {
+			found = true
+		}
+	})
+	return found
+}
+
 // firstForbiddenAction returns the type of the first action PDF/A does not
 // allow, attached anywhere, or "".
 func (d *Document) firstForbiddenAction() string {
@@ -715,6 +737,9 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 		r.add("SIGNATURE_STALE", "a signature's /ByteRange does not span the file; a conversion rewrites the file, so this signature no longer verifies")
 	}
 	d.pdfaCheckDeviceColorMatch(r)
+	if d.widgetWithAction() {
+		r.add("WIDGET_ACTION", "a form field's widget has an /A action, which PDF/A forbids whatever the action (ISO 19005-2 §6.4.1)")
+	}
 	if format.part() == 1 {
 		d.pdfaCheckICCComponents(r)
 	}

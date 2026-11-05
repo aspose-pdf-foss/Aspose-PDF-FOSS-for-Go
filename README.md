@@ -160,7 +160,7 @@ flowchart TD
   as artifacts) without changing how it looks, `Document.ConvertToPDFUA()` embeds the fonts and
   writes the PDF/UA identifier, and `Document.ValidatePDFUA()` reports what is still missing.
 - **PDF/A and structural validation** — `Validate` checks structural integrity;
-  `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` reports archival-conformance violations; `ConvertToPDFA`
+  `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet). For
   PDF/A-1, pages that really paint with transparency become images with their text kept as an invisible,
@@ -866,7 +866,7 @@ stays free of network code.
 - `Validate` is a structural-integrity check only (`INVALID_HEADER`/`XREF_ERROR`/`OBJECT_ERROR`/
   `PAGE_TREE_ERROR`/`STREAM_ERROR`/`ENCRYPTED` issue codes) — not a PDF/A or PDF/UA conformance
   check.
-- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A)` inspects the XMP `pdfaid` identifier and undeclared XMP
+- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U)` inspects the XMP `pdfaid` identifier and undeclared XMP
   properties, font embedding and `/CIDSet`, encryption, forbidden actions, the ICC OutputIntent
   against device colour, transparency and layers (PDF/A-1), image interpolation, XFA, annotation
   flags and appearances, and metadata compression, and reads the embedded font programs for widths

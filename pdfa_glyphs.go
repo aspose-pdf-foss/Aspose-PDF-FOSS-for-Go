@@ -42,6 +42,11 @@ type glyphFont struct {
 	notdef   []uint32
 	missing  []uint32
 	unmapped []uint32
+	invalid  []uint32        // codes /ToUnicode maps to 0, U+FEFF or U+FFFE
+	nulls    map[uint16]bool // codes /ToUnicode maps to 0, which fontInfo does not keep
+	latin    map[uint16]rune // Latin CIDs a CJK ordering table leaves without Unicode
+	winAnsi  bool            // /Encoding is, or is based on, WinAnsiEncoding
+	private  map[uint32]bool // codes in the Private Use Area, drawn with no /ActualText
 	widths   []glyphWidthMismatch
 }
 
@@ -116,6 +121,16 @@ func newGlyphFont(objects map[int]*pdfObject, num int, dict pdfDict) *glyphFont 
 	gf.name = dictGetName(dict, "/BaseFont")
 	if gf.name == "" {
 		gf.name = fmt.Sprintf("object %d", num)
+	}
+	if s, ok := resolveRef(objects, dict["/ToUnicode"]).(*pdfStream); ok {
+		gf.nulls = parseUnicodeMap(decodedStreamData(s)).nulls
+	}
+	gf.latin = cjkASCIIFallback(gf.fi.cidCMap, gf.fi.cidToUni)
+	switch e := resolveRef(objects, dict["/Encoding"]).(type) {
+	case pdfName:
+		gf.winAnsi = e == "/WinAnsiEncoding"
+	case pdfDict:
+		gf.winAnsi = dictGetName(e, "/BaseEncoding") == "/WinAnsiEncoding"
 	}
 	if dictGetName(dict, "/Subtype") == "/Type3" {
 		return gf
@@ -219,7 +234,7 @@ func (gf *glyphFont) hasUnicode(raw, cid uint32) bool {
 		return true
 	}
 	if gf.fi.isType0 {
-		return gf.fi.cidToUni[uint16(cid)] != 0
+		return gf.fi.cidToUni[uint16(cid)] != 0 || gf.latin[uint16(cid)] != 0
 	}
 	if raw > 255 {
 		return false
@@ -228,6 +243,10 @@ func (gf *glyphFont) hasUnicode(raw, cid uint32) bool {
 		return true
 	}
 	if r := gf.fi.encoding[raw]; r != 0 && r != 0xFFFD {
+		return true
+	}
+	// In WinAnsiEncoding every unused code above 040 is a bullet (ISO 32000-1 Annex D).
+	if raw > 0o40 && gf.winAnsi {
 		return true
 	}
 	// Nothing in the dictionary: the program's own name for the glyph may do.
@@ -245,9 +264,36 @@ func (gf *glyphFont) hasUnicode(raw, cid uint32) bool {
 	return false
 }
 
-// show records every code of a shown string.
-func (gf *glyphFont) show(objects map[int]*pdfObject, s string, tr int) {
+// toUnicodeOf returns what /ToUnicode says of a code.
+func (gf *glyphFont) toUnicodeOf(raw uint32) []rune {
+	if gf.nulls[uint16(raw)] {
+		return []rune{0}
+	}
+	if seq := gf.fi.toUnicodeSeq[uint16(raw)]; seq != nil {
+		return seq
+	}
+	if r, ok := gf.fi.toUnicode[uint16(raw)]; ok {
+		return []rune{r}
+	}
+	return nil
+}
+
+func isPrivateUse(r rune) bool {
+	return r >= 0xE000 && r <= 0xF8FF || r >= 0xF0000 && r <= 0xFFFFD || r >= 0x100000 && r <= 0x10FFFD
+}
+
+// show records every code of a shown string. hasActualText says the string lies
+// within a marked-content sequence with /ActualText.
+func (gf *glyphFont) show(objects map[int]*pdfObject, s string, tr int, hasActualText bool) {
 	visit := func(raw, cid uint32) {
+		// Before the check for a code already seen: one occurrence may have
+		// /ActualText and another not.
+		if !hasActualText && !gf.private[raw] && slices.ContainsFunc(gf.toUnicodeOf(raw), isPrivateUse) {
+			if gf.private == nil {
+				gf.private = map[uint32]bool{}
+			}
+			gf.private[raw] = true
+		}
 		seen := gf.seen
 		if tr == 3 {
 			seen = gf.seenTr3
@@ -258,6 +304,9 @@ func (gf *glyphFont) show(objects map[int]*pdfObject, s string, tr int) {
 		seen[cid] = true
 		if !gf.hasUnicode(raw, cid) {
 			gf.unmapped = append(gf.unmapped, raw)
+		}
+		if slices.ContainsFunc(gf.toUnicodeOf(raw), func(r rune) bool { return r == 0 || r == 0xFEFF || r == 0xFFFE }) {
+			gf.invalid = append(gf.invalid, raw)
 		}
 		if gf.rf == nil {
 			return
@@ -328,9 +377,12 @@ func (d *Document) glyphFontsInUse() []*glyphFont {
 		}
 		var cur state
 		var stack []state
+		// Marked content nests apart from q/Q; each entry says whether that
+		// sequence has /ActualText.
+		var marked []bool
 		show := func(v pdfValue) {
 			if s, ok := v.(string); ok && cur.font != nil {
-				cur.font.show(d.objects, s, cur.tr)
+				cur.font.show(d.objects, s, cur.tr, slices.Contains(marked, true))
 			}
 		}
 		for _, op := range ops {
@@ -340,6 +392,16 @@ func (d *Document) glyphFontsInUse() []*glyphFont {
 			case "Q":
 				if n := len(stack); n > 0 {
 					cur, stack = stack[n-1], stack[:n-1]
+				}
+			case "BMC":
+				marked = append(marked, false)
+			case "BDC":
+				props, _ := resolveBDCProperties(d.objects, res, at(op, 1))
+				_, has := props["/ActualText"]
+				marked = append(marked, has)
+			case "EMC":
+				if n := len(marked); n > 0 {
+					marked = marked[:n-1]
 				}
 			case "Tr":
 				if len(op.Operands) > 0 {
@@ -418,6 +480,10 @@ func (d *Document) fontGlyphIssues(wantUnicode bool) []fontIssue {
 		if wantUnicode && len(gf.unmapped) > 0 {
 			slices.Sort(gf.unmapped)
 			out = append(out, fontIssue{"NO_UNICODE_MAPPING", fmt.Sprintf("font %s: code %d has no Unicode mapping, %d distinct codes in all", gf.name, gf.unmapped[0], len(gf.unmapped))})
+		}
+		if wantUnicode && len(gf.invalid) > 0 {
+			slices.Sort(gf.invalid)
+			out = append(out, fontIssue{"INVALID_UNICODE_VALUE", fmt.Sprintf("font %s: /ToUnicode maps code %d to 0, U+FEFF or U+FFFE, %d distinct codes in all", gf.name, gf.invalid[0], len(gf.invalid))})
 		}
 	}
 	return out
@@ -666,11 +732,21 @@ func (d *Document) pdfaCheckFontConformance(format PDFAFormat, r *PDFAValidation
 	for _, is := range d.fontDictIssues(format.part()) {
 		r.add(is.rule, is.msg)
 	}
-	for _, is := range d.fontGlyphIssues(false) {
-		if is.rule == "NOTDEF_GLYPH_USED" && format.part() == 1 {
-			continue // PDF/A-1 has no rule against .notdef itself
+	// Every level but b asks that text maps to Unicode: ISO 19005-2 §6.2.11.7.2 for
+	// a and u, ISO 19005-1 §6.3.8 for 1a.
+	for _, is := range d.fontGlyphIssues(format.conformance() != "B") {
+		if format.part() == 1 && (is.rule == "NOTDEF_GLYPH_USED" || is.rule == "INVALID_UNICODE_VALUE") {
+			continue // PDF/A-1 has neither rule
 		}
 		r.add(is.rule, is.msg)
+	}
+	if format.part() > 1 && format.conformance() == "A" {
+		for _, gf := range d.glyphFontsInUse() {
+			if len(gf.private) > 0 {
+				codes := slices.Sorted(maps.Keys(gf.private))
+				r.add("PRIVATE_USE_NO_ACTUALTEXT", fmt.Sprintf("font %s: code %d maps to the Private Use Area with no /ActualText, %d distinct codes in all (ISO 19005-2 §6.2.11.7.3)", gf.name, codes[0], len(codes)))
+			}
+		}
 	}
 }
 

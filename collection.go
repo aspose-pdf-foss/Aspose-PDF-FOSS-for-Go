@@ -271,7 +271,7 @@ func (c *Collection) Remove() {
 // collectionFieldKey turns a user-facing field key into a PDF name (with the
 // leading slash), accepting either form.
 func collectionFieldKey(key string) string {
-	return "/" + escapePDFName(strings.TrimPrefix(key, "/"))
+	return "/" + strings.TrimPrefix(key, "/") // the writer escapes what a name needs
 }
 
 // collectionKeyFromName is the inverse: a PDF name to the user-facing key.

@@ -330,23 +330,8 @@ func detectMIMEType(name string) string {
 	return "application/octet-stream"
 }
 
-// escapePDFName escapes characters not allowed in a PDF name. The "/"
-// in MIME types is the most common case (e.g. "application/pdf" →
-// "application#2Fpdf").
-func escapePDFName(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '/' || c == '#' || c < 0x21 || c > 0x7E {
-			b.WriteString(fmt.Sprintf("#%02X", c))
-		} else {
-			b.WriteByte(c)
-		}
-	}
-	return b.String()
-}
-
-// unescapePDFName reverses escapePDFName.
+// unescapePDFName decodes #XX escapes left in a name: the reader has decoded one
+// level already, so this undoes the second that earlier versions wrote.
 func unescapePDFName(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

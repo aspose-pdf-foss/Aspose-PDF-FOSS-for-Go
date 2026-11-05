@@ -301,7 +301,7 @@ func (d *Document) buildEmbeddedFilespec(data []byte, name, mimeType, descriptio
 	embedded := &pdfStream{
 		Dict: pdfDict{
 			"/Type":    pdfName("/EmbeddedFile"),
-			"/Subtype": pdfName("/" + escapePDFName(mimeType)),
+			"/Subtype": pdfName("/" + mimeType), // the writer escapes the slash
 			"/Params":  pdfDict{"/Size": len(data), "/ModDate": pdfDateString(time.Now())},
 			"/Length":  len(data),
 		},

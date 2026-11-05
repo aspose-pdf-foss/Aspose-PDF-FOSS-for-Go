@@ -23,10 +23,18 @@ func parseCMap(data []byte) map[uint16]rune {
 type unicodeMap struct {
 	runes map[uint16]rune
 	seqs  map[uint16][]rune
+	nulls map[uint16]bool // codes mapped to U+0000, which say nothing of the text
 }
 
 func (u *unicodeMap) set(code uint16, dst []rune) {
-	if len(dst) == 0 || dst[0] == 0 {
+	if len(dst) == 0 {
+		return
+	}
+	if dst[0] == 0 {
+		if u.nulls == nil {
+			u.nulls = map[uint16]bool{}
+		}
+		u.nulls[code] = true
 		return
 	}
 	u.runes[code] = dst[0]
@@ -41,6 +49,11 @@ func (u *unicodeMap) set(code uint16, dst []rune) {
 // parseCMapFull is parseCMap plus the multi-character destinations, keyed
 // to their full sequence (their first character is in the rune map too).
 func parseCMapFull(data []byte) (map[uint16]rune, map[uint16][]rune) {
+	u := parseUnicodeMap(data)
+	return u.runes, u.seqs
+}
+
+func parseUnicodeMap(data []byte) *unicodeMap {
 	u := &unicodeMap{runes: make(map[uint16]rune)}
 	// Normalize CR/CRLF line endings: classic-Mac producers emit CR-only
 	// CMaps, which would otherwise arrive as one unsplittable line.
@@ -81,7 +94,7 @@ func parseCMapFull(data []byte) (map[uint16]rune, map[uint16][]rune) {
 			parseBfrangeLine(s, u)
 		}
 	}
-	return u.runes, u.seqs
+	return u
 }
 
 // parseBfcharLine parses a line like "<0003> <0020>".

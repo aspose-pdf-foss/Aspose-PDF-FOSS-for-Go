@@ -20,7 +20,7 @@ out = root / "result_files" / "verapdf"
 verapdf = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("VERAPDF", "verapdf")
 
 # sample prefix -> veraPDF flavours to check it against
-GROUPS = {"ua_": ["ua1"], "a2a_": ["2a", "ua1"], "a2b_": ["2b"], "a1b_": ["1b"]}
+GROUPS = {"ua_": ["ua1"], "a2a_": ["2a", "ua1"], "a2b_": ["2b"], "a1b_": ["1b"], "a2u_": ["2u"], "a3u_": ["3u"]}
 
 # (sample, flavour) -> rules allowed to fail, and why
 KNOWN = {
@@ -28,7 +28,11 @@ KNOWN = {
     ("a2a_Binder1", "ua1"): {"7.3-1"},
     ("a2b_alfa", "2b"): {"6.2.4.3-3"},  # DeviceCMYK under sRGB, until ConvertDeviceCMYKToRGB (a2b_alfa_rgb)
     ("a1b_alfa", "1b"): {"6.2.3.3-2"},
+    ("a2u_alfa", "2u"): {"6.2.4.3-3"},
+    ("a3u_alfa", "3u"): {"6.2.4.3-3"},
     ("a2b_PdfWithAcroForm", "2b"): {"6.2.11.4.1-1"},  # ZapfDingbats: no face to embed
+    ("a2u_PdfWithAcroForm", "2u"): {"6.2.11.4.1-1", "6.2.11.7.2-1"},
+    ("a3u_PdfWithAcroForm", "3u"): {"6.2.11.4.1-1", "6.2.11.7.2-1"},
     ("a1b_PdfWithAcroForm", "1b"): {"6.3.4-1", "6.2.3.2-2", "6.3.7-1"},  # same; the source's ICC /N is wrong; PDF/A-1 allows no /Differences
 }
 

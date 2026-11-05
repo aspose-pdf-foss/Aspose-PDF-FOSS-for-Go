@@ -136,6 +136,8 @@ func main() {
 		pdfa(src, n, asposepdf.PDFA2B, "2b", false)
 		pdfa(src, n, asposepdf.PDFA1B, "1b", false)
 		pdfa(src, n, asposepdf.PDFA2A, "2a", true)
+		pdfa(src, n, asposepdf.PDFA2U, "2u", false)
+		pdfa(src, n, asposepdf.PDFA3U, "3u", false)
 	}
 	// alfa paints in DeviceCMYK, a known limit; recoloured, it conforms.
 	pdfa(filepath.Join("testdata", "alfa.pdf"), "alfa_rgb", asposepdf.PDFA2B, "2b", false)
