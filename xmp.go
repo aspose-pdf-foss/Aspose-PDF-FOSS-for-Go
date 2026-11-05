@@ -537,9 +537,9 @@ func readPropValue(dec *xml.Decoder, start xml.StartElement) (string, []string) 
 				s, _ := readPropValue(dec, t)
 				list = append(list, strings.TrimSpace(s))
 			default:
-				s, sub := readPropValue(dec, t)
-				text.WriteString(s)
-				list = append(list, sub...)
+				// Fields of a structure (xmpMM:DerivedFrom, xmpTPg:MaxPageSize) have no
+				// form as one text value: written back as one, it is of the wrong type.
+				readPropValue(dec, t)
 			}
 		case xml.CharData:
 			text.Write([]byte(t))

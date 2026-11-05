@@ -919,15 +919,22 @@ func (d *Document) pdfaCheckAttachedPDFA(r *PDFAValidationReport) {
 	})
 }
 
-// pdfaAnnotSubtypesPart1 are the annotation types PDF/A-1 allows (ISO 19005-1
-// §6.5.2); later parts forbid only pdfaAnnotSubtypesForbidden, and unknown types.
+// pdfaAnnotSubtypesPart1 and pdfaAnnotSubtypesLater are the annotation types the parts
+// allow (ISO 19005-1 §6.5.2, ISO 19005-2 §6.3.1); anything else, a producer's private
+// type included, is forbidden.
 var (
 	pdfaAnnotSubtypesPart1 = map[string]bool{
 		"/Text": true, "/Link": true, "/FreeText": true, "/Line": true, "/Square": true, "/Circle": true,
 		"/Highlight": true, "/Underline": true, "/Squiggly": true, "/StrikeOut": true, "/Stamp": true,
 		"/Ink": true, "/Popup": true, "/Widget": true, "/PrinterMark": true, "/TrapNet": true,
 	}
-	pdfaAnnotSubtypesForbidden = map[string]bool{"/3D": true, "/Sound": true, "/Screen": true, "/Movie": true}
+	pdfaAnnotSubtypesLater = map[string]bool{
+		"/Text": true, "/Link": true, "/FreeText": true, "/Line": true, "/Square": true, "/Circle": true,
+		"/Polygon": true, "/PolyLine": true, "/Highlight": true, "/Underline": true, "/Squiggly": true,
+		"/StrikeOut": true, "/Stamp": true, "/Caret": true, "/Ink": true, "/Popup": true,
+		"/FileAttachment": true, "/Widget": true, "/PrinterMark": true, "/TrapNet": true,
+		"/Watermark": true, "/Redact": true,
+	}
 )
 
 // pdfaCheckAnnotationTypes reports annotation types the part does not allow. A
@@ -936,7 +943,7 @@ func (d *Document) pdfaCheckAnnotationTypes(format PDFAFormat, r *PDFAValidation
 	reported := map[string]bool{}
 	d.pdfaEachAnnotation(func(ad pdfDict) {
 		sub := dictGetName(ad, "/Subtype")
-		bad := pdfaAnnotSubtypesForbidden[sub]
+		bad := !pdfaAnnotSubtypesLater[sub]
 		if format.part() == 1 {
 			bad = !pdfaAnnotSubtypesPart1[sub]
 		}

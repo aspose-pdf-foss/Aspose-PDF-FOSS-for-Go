@@ -75,6 +75,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	var rasterized []int
 	d.RemoveEncryption()
 	d.stripPDFAActions()
+	d.fixInheritedResources() // before anything reads a form with its own resources
 	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
 		// PDF/A-1 forbids transparency outright (ISO 19005-1); flatten it away
@@ -88,6 +89,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 		d.associatePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
+	d.dropAppearancesWithoutN()
 	d.generatePDFAAppearances()
 	d.removeWidgetActions()
 	if format.part() > 1 {

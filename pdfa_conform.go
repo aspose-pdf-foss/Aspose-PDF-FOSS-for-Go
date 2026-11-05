@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -162,6 +163,27 @@ func (d *Document) clearImageInterpolation() {
 // the page look different under the pointer), a state dictionary for a button
 // field, a single stream for anything else. The dictionary is replaced, not
 // edited, since another annotation may share it.
+// hasNormalAppearance reports an appearance dictionary whose /N leads to something.
+// A reference to no object is written as null, which leaves an empty dictionary.
+func (d *Document) hasNormalAppearance(ap pdfDict) bool {
+	switch resolveRef(d.objects, ap["/N"]).(type) {
+	case *pdfStream, pdfDict:
+		return true
+	}
+	return false
+}
+
+// dropAppearancesWithoutN removes an appearance dictionary with no normal appearance,
+// an empty one included, so that one can be drawn: it counts as having one otherwise,
+// and PDF/A allows only /N in it.
+func (d *Document) dropAppearancesWithoutN() {
+	d.pdfaEachAnnotation(func(ad pdfDict) {
+		if ap, ok := resolveRefToDict(d.objects, ad["/AP"]); ok && !d.hasNormalAppearance(ap) {
+			delete(ad, "/AP")
+		}
+	})
+}
+
 func (d *Document) normalizePDFAAppearances() {
 	d.pdfaEachAnnotation(func(ad pdfDict) {
 		ap, ok := resolveRefToDict(d.objects, ad["/AP"])
@@ -254,13 +276,25 @@ func (d *Document) reconcileInfoAndXMP(meta *XMPMetadata) {
 		info.Author = strings.Join(meta.Authors, ", ")
 		meta.Authors = []string{info.Author}
 	}
-	if info.CreationDate != "" {
-		info.CreationDate = pdfDateWithZone(info.CreationDate)
-		meta.CreateDate = pdfDateToISO8601(info.CreationDate)
+	// A date that is no date, like "5/10/2013 13:31:00", could be either of two; it
+	// goes rather than being guessed at.
+	date := func(xmp, inf *string) {
+		if *inf != "" {
+			*inf = pdfDateWithZone(*inf)
+			if iso := pdfDateToISO8601(*inf); reXMPDate.MatchString(iso) {
+				*xmp = iso
+			} else {
+				*inf = ""
+			}
+		}
+		if !reXMPDate.MatchString(*xmp) {
+			*xmp, *inf = "", ""
+		}
 	}
-	if info.ModDate != "" {
-		info.ModDate = pdfDateWithZone(info.ModDate)
-		meta.ModifyDate = pdfDateToISO8601(info.ModDate)
+	date(&meta.CreateDate, &info.CreationDate)
+	date(&meta.ModifyDate, &info.ModDate)
+	if !reXMPDate.MatchString(meta.MetadataDate) {
+		meta.MetadataDate = ""
 	}
 	if len(meta.Keywords) == 0 {
 		meta.Keywords = splitKeywords(info.Keywords)
@@ -283,6 +317,9 @@ func (d *Document) reconcileInfoAndXMP(meta *XMPMetadata) {
 	meta.Custom = custom
 	d.SetInfo(info)
 }
+
+// reXMPDate is the XMP Date type (ISO 8601, with the time optional); empty passes.
+var reXMPDate = regexp.MustCompile(`^$|^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?)?)?$`)
 
 // pdfDateWithZone completes a PDF date that names no time zone as UTC. A reader
 // has to assume something for such a date, and a validator comparing it with its
@@ -689,6 +726,11 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 		if !ok || apFound {
 			return
 		}
+		if !d.hasNormalAppearance(ap) {
+			apFound = true
+			r.add("ANNOTATION_AP_ENTRIES", "an annotation's appearance dictionary has no /N; PDF/A allows only /N")
+			return
+		}
 		for _, k := range slices.Sorted(maps.Keys(ap)) {
 			if k != "/N" {
 				apFound = true
@@ -707,6 +749,7 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 			if _, undeclared := splitDeclaredXMP(meta.Custom, blocks); len(undeclared) > 0 {
 				r.add("XMP_UNDECLARED_PROPERTY", fmt.Sprintf("XMP property %s (%s) is neither predefined nor declared by an extension schema", undeclared[0].Name, undeclared[0].Namespace))
 			}
+			pdfaCheckXMPDates(meta, r)
 			if format.part() == 1 {
 				d.pdfaCheckInfoAgreement(meta, r)
 			}
@@ -737,11 +780,23 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 		r.add("SIGNATURE_STALE", "a signature's /ByteRange does not span the file; a conversion rewrites the file, so this signature no longer verifies")
 	}
 	d.pdfaCheckDeviceColorMatch(r)
+	d.pdfaCheckInheritedResources(format, r)
 	if d.widgetWithAction() {
 		r.add("WIDGET_ACTION", "a form field's widget has an /A action, which PDF/A forbids whatever the action (ISO 19005-2 §6.4.1)")
 	}
 	if format.part() == 1 {
 		d.pdfaCheckICCComponents(r)
+	}
+}
+
+// pdfaCheckXMPDates reports a date the XMP Date type does not allow.
+func pdfaCheckXMPDates(meta XMPMetadata, r *PDFAValidationReport) {
+	for _, c := range []struct{ name, value string }{
+		{"xmp:CreateDate", meta.CreateDate}, {"xmp:ModifyDate", meta.ModifyDate}, {"xmp:MetadataDate", meta.MetadataDate},
+	} {
+		if !reXMPDate.MatchString(c.value) {
+			r.add("XMP_DATE_INVALID", fmt.Sprintf("%s is %q, not a date in the form XMP requires", c.name, c.value))
+		}
 	}
 }
 

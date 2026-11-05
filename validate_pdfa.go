@@ -557,7 +557,7 @@ func (d *Document) pdfaCheckAnnotations(format PDFAFormat, r *PDFAValidationRepo
 				needAP = !ok || rect.URX > rect.LLX || rect.URY > rect.LLY
 			}
 			if needAP {
-				if _, ok := resolveRefToDict(d.objects, ad["/AP"]); !ok {
+				if ap, ok := resolveRefToDict(d.objects, ad["/AP"]); !ok || !d.hasNormalAppearance(ap) {
 					if !reported["ap"] {
 						r.add("ANNOTATION_NO_AP", fmt.Sprintf("page %d has a %s annotation without a normal appearance (/AP/N); PDF/A requires one", i+1, strings.TrimPrefix(sub, "/")))
 						reported["ap"] = true

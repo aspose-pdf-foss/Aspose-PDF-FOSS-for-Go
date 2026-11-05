@@ -53,6 +53,7 @@ func (d *Document) ConvertToPDFUA() (*PDFUAValidationReport, error) {
 		return nil, fmt.Errorf("ConvertToPDFUA: document has no pages")
 	}
 	d.signaturesRewritten = d.hasSignature()
+	d.fixInheritedResources() // before anything reads a form with its own resources
 	d.fixFontDicts(2)
 	d.embedStandardFonts()
 	d.embedCompositeFonts()
