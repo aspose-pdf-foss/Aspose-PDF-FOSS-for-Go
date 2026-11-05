@@ -60,7 +60,10 @@ func TestConversionsRepairFilespecsAndNumbers(t *testing.T) {
 		d := NewDocument(300, 200)
 		st := d.addObject(buildFlateStream([]byte("x")))
 		fs := pdfDict{"/F": "a.txt", "/EF": pdfDict{"/F": pdfRef{Num: st}}}
-		d.addObject(fs)
+		if d.catalog == nil {
+			d.catalog = pdfDict{}
+		}
+		d.catalog["/Holder"] = pdfRef{Num: d.addObject(fs)} // one nothing refers to is deleted
 		num := pdfDict{"/Descent": 4294967076}
 		d.addObject(num)
 		if err := convert(d); err != nil {
