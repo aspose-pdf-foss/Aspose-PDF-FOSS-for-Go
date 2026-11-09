@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // Document is a PDF document. Operations directly mutate the receiver.
@@ -51,6 +52,7 @@ type Document struct {
 	pageCache    []*Page                // cached live views by index, lazy-allocated
 	catalog      pdfDict                // /Catalog dict
 	info         pdfDict                // /Info dict; nil = no metadata
+	sourceName   string                 // base name of the file opened from; "" otherwise
 	encrypt      *encryptConfig         // nil = no encryption
 	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
 	nextID       int                    // next available object ID
@@ -110,7 +112,17 @@ func Open(path string) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open PDF: %w", err)
 	}
-	return OpenStream(bytes.NewReader(data))
+	return withSourceName(path)(OpenStream(bytes.NewReader(data)))
+}
+
+// withSourceName records the file a document was opened from.
+func withSourceName(path string) func(*Document, error) (*Document, error) {
+	return func(d *Document, err error) (*Document, error) {
+		if err == nil {
+			d.sourceName = filepath.Base(path)
+		}
+		return d, err
+	}
 }
 
 // OpenStream reads a PDF from r and returns a Document. Returns
@@ -145,7 +157,7 @@ func OpenWithPassword(path, password string) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open PDF: %w", err)
 	}
-	return OpenStreamWithPassword(bytes.NewReader(data), password)
+	return withSourceName(path)(OpenStreamWithPassword(bytes.NewReader(data), password))
 }
 
 // OpenStreamWithPassword reads a password-protected PDF from r. Plain
@@ -173,7 +185,7 @@ func OpenWithCertificate(path string, cert *x509.Certificate, key crypto.Decrypt
 	if err != nil {
 		return nil, fmt.Errorf("open PDF: %w", err)
 	}
-	return OpenStreamWithCertificate(bytes.NewReader(data), cert, key)
+	return withSourceName(path)(OpenStreamWithCertificate(bytes.NewReader(data), cert, key))
 }
 
 // OpenStreamWithCertificate reads a certificate-encrypted PDF from r.

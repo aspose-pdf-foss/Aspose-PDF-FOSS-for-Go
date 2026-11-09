@@ -29,6 +29,11 @@ const (
 	AnnotationTypePolygon
 	AnnotationTypePolyLine
 	AnnotationTypeCaret
+	AnnotationTypeTrimMark
+	AnnotationTypeBleedMark
+	AnnotationTypeRegistrationMark
+	AnnotationTypeColorBar
+	AnnotationTypePageInformation
 )
 
 // Annotation is the common interface implemented by every concrete
@@ -429,6 +434,9 @@ func parseAnnotation(base annotationBase) Annotation {
 		c := &CaretAnnotation{drawingAnnotationBase: drawingAnnotationBase{annotationBase: base}}
 		c.regenerate = c.regenerateAP
 		return c
+	}
+	if subtype == "/PrinterMark" {
+		return parsePrinterMark(base)
 	}
 	return &GenericAnnotation{annotationBase: base}
 }

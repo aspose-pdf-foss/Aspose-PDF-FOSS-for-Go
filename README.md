@@ -145,6 +145,8 @@ flowchart TD
   irreversibly removes text, images, and paths from the marked regions. `Document.Flatten()`/
   `Form.Flatten()` bake interactive fields and annotations into static page content so the
   result renders identically but is no longer editable.
+  Printer's marks (trim, bleed, registration, colour bars, page information) go in the margin
+  outside the TrimBox, one by one or with `AddPrinterMarks`.
 - **Attachments and portfolios** — `Document.EmbeddedFiles()` attaches, reads back, and removes
   document-level files through the `/Catalog/Names/EmbeddedFiles` name tree, while
   `Document.Collection()` turns those attachments into a **PDF portfolio**: a schema of custom
@@ -476,6 +478,7 @@ stays free of network code.
 | `AnnotationType` | AnnotationType identifies the kind of annotation. |
 | `AutoTagResult` | AutoTagResult counts the structure elements AutoTag created. |
 | `AutoTaggingSettings` | AutoTaggingSettings configures AutoTag. |
+| `BleedMarkAnnotation` | BleedMarkAnnotation shows the corner of the BleedBox, how far artwork runs past the cut. |
 | `BmpDevice` | BmpDevice renders a page to BMP. |
 | `BookletBinding` | BookletBinding selects the binding edge of a booklet. |
 | `BookletOptions` | BookletOptions configures Booklet imposition. |
@@ -502,6 +505,8 @@ stays free of network code.
 | `CollectionSchema` | CollectionSchema is the portfolio's set of columns. |
 | `CollectionView` | CollectionView selects how a viewer presents the portfolio's files. |
 | `Color` | Color represents an RGBA color with values in [0, 1]. |
+| `ColorBarAnnotation` | ColorBarAnnotation is a strip of tints of one process colour, for checking ink density. |
+| `ColorsOfCMYK` | ColorsOfCMYK names the process colour a ColorBarAnnotation shows. |
 | `ComboBoxField` | ComboBoxField is a single-select dropdown choice field. |
 | `CompletionRequest` | CompletionRequest describes one chat-completion call. |
 | `CompletionResponse` | CompletionResponse is the model's reply. |
@@ -613,6 +618,7 @@ stays free of network code.
 | `PDFUAValidationReport` | PDFUAValidationReport is returned by (*Document).ValidatePDFUA. |
 | `Page` | Page is a live view of a single page within a Document. |
 | `PageFormat` | PageFormat describes a page size in points (1/72 inch). |
+| `PageInformationAnnotation` | PageInformationAnnotation states the file name, page number, date and time. |
 | `PageLabelRange` | PageLabelRange describes a contiguous run of pages that share a numbering style. |
 | `PageLabelStyle` | PageLabelStyle is the numbering style applied within a PageLabelRange. |
 | `PageMarkup` | PageMarkup is the structured text of one page. |
@@ -627,6 +633,9 @@ stays free of network code.
 | `Point` | Point is a single point in PDF user-space coordinates. |
 | `PolygonAnnotation` | PolygonAnnotation draws a closed polygon through a `[]pdf.Point` list of vertices, with a stroked border and optional interior fill. |
 | `PolylineAnnotation` | PolylineAnnotation draws an open polyline through a `[]pdf.Point` list of vertices, with a stroked border, optional line endings at the first and last vertex, and optional interior fill for closed endings. |
+| `PrinterMarkCornerPosition` | PrinterMarkCornerPosition is the page corner a trim or bleed mark belongs to. |
+| `PrinterMarkSidePosition` | PrinterMarkSidePosition is the page margin a registration mark is centred in. |
+| `PrinterMarksKind` | PrinterMarksKind selects the marks AddPrinterMarks adds; values combine with |. |
 | `QuadPoint` | QuadPoint is one quadrilateral within a markup annotation's /QuadPoints array. |
 | `RadialGradient` | RadialGradient interpolates colour from the focal point (FX, FY) out to the circle centred at (CX, CY) with radius R. |
 | `RadioButtonField` | RadioButtonField is a group of mutually exclusive options. |
@@ -635,6 +644,7 @@ stays free of network code.
 | `Recipient` | Recipient is one certificate that may open a public-key-encrypted document, optionally with its own permission set. |
 | `Rectangle` | Rectangle represents a PDF rectangle [llx, lly, urx, ury] in points (1/72 inch). |
 | `RedactAnnotation` | RedactAnnotation marks regions for redaction. |
+| `RegistrationMarkAnnotation` | RegistrationMarkAnnotation is the target used to line up the printing plates. |
 | `RenderOptions` | RenderOptions controls page rasterization. |
 | `ReplaceAdjustment` | ReplaceAdjustment selects how ReplaceText makes room for (or closes the gap after) a replacement whose width differs from the text it replaces. |
 | `ReplaceOptions` | ReplaceOptions tunes how ReplaceText matches the search text and lays out the replacement. |
@@ -685,6 +695,7 @@ stays free of network code.
 | `TextStyle` | TextStyle defines reusable text formatting properties. |
 | `TiffDevice` | TiffDevice renders pages to TIFF. |
 | `TilingPattern` | TilingPattern is a repeating fill (PatternType 1, ISO 32000-1 §8.7.3.1): a small cell of content tiled across whatever shape it fills. |
+| `TrimMarkAnnotation` | TrimMarkAnnotation shows where a page is cut. |
 | `Type3Font` | Type3Font is a user-defined glyph-stream font. |
 | `UnderlineAnnotation` | UnderlineAnnotation draws a horizontal line under text. |
 | `Usage` | Usage reports token counts when the provider returns them. |
