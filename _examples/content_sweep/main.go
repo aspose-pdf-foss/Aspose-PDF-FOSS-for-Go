@@ -185,7 +185,8 @@ func compareOne(path string, op operation) (res *result) {
 
 func countLost(r *result, before, after string) {
 	squeeze := func(s string) string { return strings.Join(strings.Fields(s), "") }
-	if squeeze(before) == squeeze(after) {
+	squeezedBefore, squeezedAfter := squeeze(before), squeeze(after)
+	if squeezedBefore == squeezedAfter {
 		return // only the spacing moved
 	}
 	have := map[string]int{}
@@ -195,6 +196,12 @@ func countLost(r *result, before, after string) {
 	for _, w := range strings.Fields(before) {
 		if have[w] > 0 {
 			have[w]--
+			continue
+		}
+		// Text that now overlaps it can join a word to its neighbour on extraction
+		// ("CN=SafeScryptAdobe®"), as when Flatten bakes a signature drawn over a
+		// paragraph. Every occurrence still being there is not a loss.
+		if strings.Count(squeezedAfter, w) >= strings.Count(squeezedBefore, w) {
 			continue
 		}
 		r.lost++
