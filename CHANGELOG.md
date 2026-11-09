@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-11-09
+
+PDF/A-2U and 3U, vertical writing and an optional recolouring of DeviceCMYK to RGB. `ValidatePDFA` catches more of what veraPDF rejects, so a document it accepted may now fail: on 337 corpus documents converted to PDF/A-3U, 2B and 1B, it accepts none that veraPDF rejects. Attachments saved by v0.12.0 to v0.15.1 carry a wrong MIME type, Factur-X invoices included; see Fixed.
+
 ### Added
 
 - **Vertical writing is read, drawn and redacted.** Every CMap ISO 32000-1 predefines is now bundled, the `-V` ones and `H`/`V` among them, and text through a vertical font (`-V`, `Identity-V`, or `/WMode 1` on an embedded CMap) advances down the page, with its glyphs hung from their position vectors (`/DW2`, `/W2`) and drawn in their vertical forms. It extracts as the characters it stands for, so a search for "（" finds its vertical form. `ApplyRedactions` and `AutoTag` place such glyphs correctly as well. Writing vertical text is not supported.
@@ -645,7 +649,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.13.0...v0.14.0

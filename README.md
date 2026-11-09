@@ -883,9 +883,9 @@ stays free of network code.
   `ConvertDeviceCMYKToRGB`, called first, recolours it the way the renderer shows it, at the cost of
   the CMYK values, and leaves ICCBased CMYK alone.
   The report covers the rules this library knows about, not every rule of the standard: on a
-  sample of 85 real-world documents, 73 pass veraPDF as PDF/A-2b and 69 as PDF/A-1b, and a few
-  that the report accepts do not (mostly defects in the source's own fonts, such as widths that
-  disagree with the font program). Confirm conformance with veraPDF when it matters.
+  sample of 337 real-world documents, 291 pass veraPDF as PDF/A-2b and 287 as PDF/A-1b, and the
+  report accepts none that veraPDF rejects. Another document can still differ, so confirm
+  conformance with veraPDF when it matters.
 - `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) requirements a program can decide: a Tagged PDF
   with `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, the `pdfuaid` identifier, a displayed
   XMP title, embedded fonts, alternate text on every figure/formula, `/Scope` on every `/TH`,
