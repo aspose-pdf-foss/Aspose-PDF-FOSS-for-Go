@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PDF/A-4, 4E and 4F** (`PDFA4`, `PDFA4E`, `PDFA4F`) in `ValidatePDFA` and `ConvertToPDFA`, mirroring Aspose.PDF for .NET's `PdfFormat.PDF_A_4`, `PDF_A_4E` and `PDF_A_4F`. The output is a PDF 2.0 file. `/Info` is forbidden in this part, so its contents move to XMP and `Info()` comes back empty. JavaScript and form-field actions are kept, as PDF/A-4 allows them. Plain PDF/A-4 requires attachments to be PDF/A-1, 2 or 4 and forbids file-attachment annotations; 4F takes any file and requires at least one; 4E allows 3D and RichMedia annotations. There is no Unicode-mapping requirement at this part. Converted from 338 real-world documents, 296 pass veraPDF as PDF/A-4, 302 as 4E and 304 as 4F; the only document our report accepts and veraPDF rejects is one where veraPDF misreads the ordering of the predefined CMap `UniKS-UTF16-H`.
+
+### Fixed
+
+- **`ValidatePDFA` panicked** on a content stream selecting a font whose resource entry refers to no object.
+
 ## [0.16.0] — 2026-11-09
 
 PDF/A-2U and 3U, vertical writing and an optional recolouring of DeviceCMYK to RGB. `ValidatePDFA` catches more of what veraPDF rejects, so a document it accepted may now fail: on 337 corpus documents converted to PDF/A-3U, 2B and 1B, it accepts none that veraPDF rejects. Attachments saved by v0.12.0 to v0.15.1 carry a wrong MIME type, Factur-X invoices included; see Fixed.

@@ -62,7 +62,7 @@ func (d *Document) ConvertToPDFUA() (*PDFUAValidationReport, error) {
 		part = 1
 	}
 	d.fixCIDSets(part)
-	d.fixSharedConformance()
+	d.fixSharedConformance(false)
 	if err := d.setPDFUAMetadata(); err != nil {
 		return nil, err
 	}

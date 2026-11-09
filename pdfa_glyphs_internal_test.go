@@ -583,14 +583,14 @@ func TestFilespecNames(t *testing.T) {
 	st := d.addObject(buildFlateStream([]byte("x")))
 	fs := pdfDict{"/Type": pdfName("/Filespec"), "/F": "a.txt", "/EF": pdfDict{"/F": pdfRef{Num: st}}}
 	d.addObject(fs)
-	if rule, _ := d.sharedConformanceIssues(); rule != "FILESPEC_NO_UF" {
+	if rule, _ := d.sharedConformanceIssues(false); rule != "FILESPEC_NO_UF" {
 		t.Fatalf("rule = %q", rule)
 	}
 	d.fixFilespecNames()
 	if fs["/UF"] != "a.txt" {
 		t.Errorf("/UF = %v", fs["/UF"])
 	}
-	if rule, _ := d.sharedConformanceIssues(); rule == "FILESPEC_NO_UF" {
+	if rule, _ := d.sharedConformanceIssues(false); rule == "FILESPEC_NO_UF" {
 		t.Error("still reported")
 	}
 	other := pdfDict{"/UF": "b.txt", "/EF": pdfDict{"/F": pdfRef{Num: st}}}
@@ -602,7 +602,7 @@ func TestFilespecNames(t *testing.T) {
 	// A specification embedding nothing is not asked.
 	d = NewDocument(300, 200)
 	d.addObject(pdfDict{"/Type": pdfName("/Filespec"), "/F": "a.txt"})
-	if rule, _ := d.sharedConformanceIssues(); rule == "FILESPEC_NO_UF" {
+	if rule, _ := d.sharedConformanceIssues(false); rule == "FILESPEC_NO_UF" {
 		t.Error("a specification with no /EF reported")
 	}
 }
@@ -633,7 +633,7 @@ func TestAttachedFileMustBePDFAInPart2(t *testing.T) {
 	if pdfaHasRule(d.ValidatePDFA(PDFA2B), "EMBEDDED_FILE_NOT_PDFA") {
 		t.Error("an attached PDF/A-2 reported")
 	}
-	if attachmentClaimsPDFA12(mustBytes(t, NewDocument(300, 200))) {
+	if attachmentClaimsPDFA(mustBytes(t, NewDocument(300, 200)), []string{"1", "2"}) {
 		t.Error("a plain PDF taken for PDF/A")
 	}
 }

@@ -160,7 +160,7 @@ flowchart TD
   as artifacts) without changing how it looks, `Document.ConvertToPDFUA()` embeds the fonts and
   writes the PDF/UA identifier, and `Document.ValidatePDFUA()` reports what is still missing.
 - **PDF/A and structural validation** — `Validate` checks structural integrity;
-  `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U)` reports archival-conformance violations; `ConvertToPDFA`
+  `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U/4/4E/4F)` reports archival-conformance violations; `ConvertToPDFA`
   moves a document toward conformance in one call (strips encryption/JavaScript, embeds
   non-embedded Standard-14 fonts, adds an sRGB ICC OutputIntent, writes the `pdfaid` XMP packet). For
   PDF/A-1, pages that really paint with transparency become images with their text kept as an invisible,
@@ -866,7 +866,7 @@ stays free of network code.
 - `Validate` is a structural-integrity check only (`INVALID_HEADER`/`XREF_ERROR`/`OBJECT_ERROR`/
   `PAGE_TREE_ERROR`/`STREAM_ERROR`/`ENCRYPTED` issue codes) — not a PDF/A or PDF/UA conformance
   check.
-- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U)` inspects the XMP `pdfaid` identifier and undeclared XMP
+- `ValidatePDFA(PDFA1B/2B/3B/1A/2A/3A/2U/3U/4/4E/4F)` inspects the XMP `pdfaid` identifier and undeclared XMP
   properties, font embedding and `/CIDSet`, encryption, forbidden actions, the ICC OutputIntent
   against device colour, transparency and layers (PDF/A-1), image interpolation, XFA, annotation
   flags and appearances, and metadata compression, and reads the embedded font programs for widths
@@ -886,6 +886,10 @@ stays free of network code.
   sample of 337 real-world documents, 291 pass veraPDF as PDF/A-2b and 287 as PDF/A-1b, and the
   report accepts none that veraPDF rejects. Another document can still differ, so confirm
   conformance with veraPDF when it matters.
+- PDF/A-4 (`PDFA4`, `PDFA4E`, `PDFA4F`) is written as a PDF 2.0 file. `/Info` is forbidden there, so
+  `ConvertToPDFA` moves its contents to XMP and `Info()` comes back empty. JavaScript and field
+  actions stay, as this part allows them. `PDFA4` requires any attachment to be PDF/A-1, 2 or 4 itself;
+  `PDFA4F` takes any file and requires at least one; only `PDFA4F` allows file-attachment annotations.
 - `ValidatePDFUA` checks the PDF/UA-1 (ISO 14289-1) requirements a program can decide: a Tagged PDF
   with `/StructTreeRoot` + `/ParentTree`, a declared `/Lang`, the `pdfuaid` identifier, a displayed
   XMP title, embedded fonts, alternate text on every figure/formula, `/Scope` on every `/TH`,

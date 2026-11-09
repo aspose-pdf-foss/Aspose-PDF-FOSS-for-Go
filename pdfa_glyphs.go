@@ -592,8 +592,8 @@ func (d *Document) simpleFontIssues(font pdfDict, part int) []fontIssue {
 	name := dictGetName(font, "/BaseFont")
 	switch dictGetName(font, "/Subtype") {
 	case "/Type1", "/MMType1":
-		if !reSubsetName.MatchString(strings.TrimPrefix(name, "/")) {
-			return nil
+		if part == 4 || !reSubsetName.MatchString(strings.TrimPrefix(name, "/")) {
+			return nil // PDF/A-4 has no rule on /CharSet
 		}
 		want := d.programGlyphNames(descriptor)
 		if want == nil {
@@ -611,6 +611,14 @@ func (d *Document) simpleFontIssues(font pdfDict, part int) []fontIssue {
 		_, hasEnc := font["/Encoding"]
 		if symbolic && hasEnc {
 			out = append(out, fontIssue{"TRUETYPE_ENCODING", fmt.Sprintf("symbolic TrueType font %s has an /Encoding; it must have none", name)})
+		}
+		if part == 4 {
+			if st, ok := resolveRef(d.objects, descriptor["/FontFile2"]).(*pdfStream); ok {
+				data := decodedStreamData(st)
+				if !ttfHasCmap(data, 1, 0) && ((symbolic && !ttfHasCmap(data, 3, 0)) || (!symbolic && !ttfHasCmap(data, 3, 1))) {
+					out = append(out, fontIssue{"TRUETYPE_CMAPS", fmt.Sprintf("TrueType font %s lacks the cmap subtable PDF/A-4 requires: (1,0), or (3,0) if symbolic, (3,1) if not", name)})
+				}
+			}
 		}
 		if part != 1 {
 			return out
@@ -734,7 +742,7 @@ func (d *Document) pdfaCheckFontConformance(format PDFAFormat, r *PDFAValidation
 	}
 	// Every level but b asks that text maps to Unicode: ISO 19005-2 §6.2.11.7.2 for
 	// a and u, ISO 19005-1 §6.3.8 for 1a.
-	for _, is := range d.fontGlyphIssues(format.conformance() != "B") {
+	for _, is := range d.fontGlyphIssues(format.conformance() == "A" || format.conformance() == "U") {
 		if format.part() == 1 && (is.rule == "NOTDEF_GLYPH_USED" || is.rule == "INVALID_UNICODE_VALUE") {
 			continue // PDF/A-1 has neither rule
 		}
@@ -826,6 +834,9 @@ func pdfIntValue(v pdfValue) (int64, bool) {
 func (d *Document) pdfaCheckLimits(format PDFAFormat, r *PDFAValidationReport) {
 	badInt, badReal, badName := false, false, ""
 	number := func(v pdfValue) {
+		if format.part() == 4 {
+			return // PDF/A-4 leaves the limits to PDF 2.0, which has none
+		}
 		if n, ok := pdfIntValue(v); ok && (n > math.MaxInt32 || n < math.MinInt32) {
 			badInt = true
 		}
@@ -902,7 +913,11 @@ func (d *Document) pdfaCheckLimits(format PDFAFormat, r *PDFAValidationReport) {
 // pdfaCheckAttachedPDFA reports what PDF/A-2 forbids of attachments: a file that is
 // not itself PDF/A-1 or PDF/A-2 (ISO 19005-2 §6.8). This reads the attachment's own
 // claim; it does not validate it. PDF/A-3 is the part that allows any file.
-func (d *Document) pdfaCheckAttachedPDFA(r *PDFAValidationReport) {
+func (d *Document) pdfaCheckAttachedPDFA(format PDFAFormat, r *PDFAValidationReport) {
+	allowed := []string{"1", "2"}
+	if format.part() == 4 {
+		allowed = append(allowed, "4")
+	}
 	reported := map[*pdfStream]bool{}
 	d.pdfaWalkDicts(func(dict pdfDict) {
 		ef, ok := resolveRefToDict(d.objects, dict["/EF"])
@@ -910,12 +925,12 @@ func (d *Document) pdfaCheckAttachedPDFA(r *PDFAValidationReport) {
 			return
 		}
 		st, ok := resolveRef(d.objects, ef["/F"]).(*pdfStream)
-		if !ok || reported[st] || attachmentClaimsPDFA12(decodedStreamData(st)) {
+		if !ok || reported[st] || attachmentClaimsPDFA(decodedStreamData(st), allowed) {
 			return
 		}
 		reported[st] = true
 		name, _ := resolveRef(d.objects, dict["/F"]).(string)
-		r.add("EMBEDDED_FILE_NOT_PDFA", fmt.Sprintf("embedded file %q is not PDF/A-1 or PDF/A-2, as PDF/A-2 requires; PDF/A-3 allows any file", name))
+		r.add("EMBEDDED_FILE_NOT_PDFA", fmt.Sprintf("embedded file %q is not PDF/A-%s, as %s requires; PDF/A-3 and PDF/A-4f allow any file", name, strings.Join(allowed, ", "), format))
 	})
 }
 
@@ -937,16 +952,32 @@ var (
 	}
 )
 
+// pdfaAnnotAllowed reports whether format allows an annotation type. Part 4 adds
+// Projection to the later parts' list and keeps FileAttachment for 4f; 4e has 3D and
+// RichMedia.
+func pdfaAnnotAllowed(format PDFAFormat, sub string) bool {
+	switch {
+	case format.part() == 1:
+		return pdfaAnnotSubtypesPart1[sub]
+	case format.part() != 4:
+		return pdfaAnnotSubtypesLater[sub]
+	case sub == "/Projection":
+		return true
+	case sub == "/FileAttachment":
+		return format == PDFA4F
+	case sub == "/3D", sub == "/RichMedia":
+		return format == PDFA4E
+	}
+	return pdfaAnnotSubtypesLater[sub]
+}
+
 // pdfaCheckAnnotationTypes reports annotation types the part does not allow. A
 // conversion cannot repair this without removing what the annotation carries.
 func (d *Document) pdfaCheckAnnotationTypes(format PDFAFormat, r *PDFAValidationReport) {
 	reported := map[string]bool{}
 	d.pdfaEachAnnotation(func(ad pdfDict) {
 		sub := dictGetName(ad, "/Subtype")
-		bad := !pdfaAnnotSubtypesLater[sub]
-		if format.part() == 1 {
-			bad = !pdfaAnnotSubtypesPart1[sub]
-		}
+		bad := !pdfaAnnotAllowed(format, sub)
 		if bad && !reported[sub] {
 			reported[sub] = true
 			r.add("ANNOTATION_TYPE_FORBIDDEN", fmt.Sprintf("the document has a %s annotation, which PDF/A-%d does not allow", sub, format.part()))
@@ -954,7 +985,7 @@ func (d *Document) pdfaCheckAnnotationTypes(format PDFAFormat, r *PDFAValidation
 	})
 }
 
-func attachmentClaimsPDFA12(data []byte) bool {
+func attachmentClaimsPDFA(data []byte, allowed []string) bool {
 	doc, err := OpenStream(bytes.NewReader(data))
 	if err != nil {
 		return false
@@ -963,6 +994,5 @@ func attachmentClaimsPDFA12(data []byte) bool {
 	if err != nil {
 		return false
 	}
-	part := xmpPDFAPart(string(raw))
-	return part == "1" || part == "2"
+	return slices.Contains(allowed, xmpPDFAPart(string(raw)))
 }

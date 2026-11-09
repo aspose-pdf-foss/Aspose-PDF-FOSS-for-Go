@@ -74,7 +74,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	var rasterized []int
 	d.RemoveEncryption()
-	d.stripPDFAActions()
+	d.stripPDFAActions(format)
 	d.fixInheritedResources() // before anything reads a form with its own resources
 	if format.part() == 1 {
 		d.removePDFAEmbeddedFiles()
@@ -85,7 +85,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 			return nil, fmt.Errorf("ConvertToPDFA: flatten transparency: %w", err)
 		}
 	}
-	if format.part() == 3 {
+	if format.part() == 3 || format.part() == 4 {
 		d.associatePDFAEmbeddedFiles()
 	}
 	d.fixPDFAAnnotations()
@@ -100,7 +100,7 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.clearImageInterpolation()
 	d.removeObjectMetadata()
 	d.removeTransferFunctions()
-	d.fixSharedConformance()
+	d.fixSharedConformance(format.part() == 4)
 	d.signaturesRewritten = d.hasSignature()
 	d.fixFontDicts(format.part())
 	d.embedStandardFonts()
@@ -111,6 +111,9 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	}
 	d.fixCIDSets(format.part())
 	d.addSRGBOutputIntent()
+	if format.part() == 4 {
+		d.fixPDFA4()
+	}
 	if err := d.setPDFAMetadata(format); err != nil {
 		return nil, err
 	}
@@ -297,15 +300,15 @@ func substituteGlyphFor(f *ttfFont, fi fontInfo, code int) uint16 {
 }
 
 // stripPDFAActions removes every action PDF/A forbids, wherever it is attached.
-func (d *Document) stripPDFAActions() {
-	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok {
+func (d *Document) stripPDFAActions(format PDFAFormat) {
+	if names, ok := resolveRefToDict(d.objects, d.catalog["/Names"]); ok && format.part() != 4 {
 		delete(names, "/JavaScript")
 	}
-	d.removeForbiddenActions()
+	d.removeForbiddenActions(format)
 	// Drop now-orphaned action objects so a re-scan sees no forbidden actions.
 	for num, obj := range d.objects {
 		dict, ok := obj.Value.(pdfDict)
-		if !ok || !isPDFAForbiddenAction(dict) {
+		if !ok || !isPDFAForbiddenAction(dict, format) {
 			continue
 		}
 		if dictGetName(dict, "/Type") == "/Page" {
@@ -575,6 +578,9 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 	}
 	meta, _ := d.XMP()
 	d.reconcileInfoAndXMP(&meta)
+	if format.part() == 4 {
+		d.moveInfoToXMP(&meta)
+	}
 	// Replace the pdfaid properties, and drop anything else in the PDF/A
 	// namespaces: extension schemas travel as whole blocks (below), never as
 	// loose properties.
@@ -584,11 +590,16 @@ func (d *Document) setPDFAMetadata(format PDFAFormat) error {
 			custom = append(custom, p)
 		}
 	}
-	custom = append(custom,
-		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())},
-		XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: format.conformance()},
-	)
-	custom, _ = splitDeclaredXMP(custom, extensions)
+	custom = append(custom, XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "part", Value: fmt.Sprintf("%d", format.part())})
+	if c := format.conformance(); c != "" {
+		custom = append(custom, XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "conformance", Value: c})
+	}
+	if format.part() == 4 {
+		// PDF/A-4 no longer asks that a schema declare every property, so nothing goes.
+		custom = append(custom, XMPProperty{Namespace: nsPDFAID, Prefix: "pdfaid", Name: "rev", Value: "2020"})
+	} else {
+		custom, _ = splitDeclaredXMP(custom, extensions)
+	}
 	meta.Custom = preferExtensionSchemaPrefixes(custom, extensions)
 	if err := d.SetXMP(meta); err != nil {
 		return err

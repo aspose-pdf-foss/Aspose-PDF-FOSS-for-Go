@@ -186,7 +186,7 @@ func TestConvertToPDFAKeepsPageWithActionKeys(t *testing.T) {
 func TestStripPDFAActionsRemovesOrphans(t *testing.T) {
 	d := NewDocument(300, 200)
 	id := d.addObject(pdfDict{"/S": pdfName("/JavaScript"), "/JS": "x"})
-	d.stripPDFAActions()
+	d.stripPDFAActions(PDFA2B)
 	if d.objects[id] != nil {
 		t.Error("orphan action kept")
 	}

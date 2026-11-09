@@ -49,6 +49,10 @@ var operations = map[string]operation{
 		_, err := d.ConvertToPDFA(asposepdf.PDFA1B)
 		return err
 	},
+	"pdfa4": func(d *asposepdf.Document) error {
+		_, err := d.ConvertToPDFA(asposepdf.PDFA4)
+		return err
+	},
 	"pdfa2b": func(d *asposepdf.Document) error {
 		_, err := d.ConvertToPDFA(asposepdf.PDFA2B)
 		return err
@@ -74,7 +78,7 @@ type result struct {
 
 func main() {
 	corpus := flag.String("corpus", "", "folder of PDFs, walked recursively (required)")
-	ops := flag.String("ops", "resave,optimize,pdfa1b,pdfa2b,pdfua,autotag,flatten", "operations to compare")
+	ops := flag.String("ops", "resave,optimize,pdfa1b,pdfa2b,pdfa4,pdfua,autotag,flatten", "operations to compare")
 	every := flag.Int("every", 1, "take every Nth file")
 	maxSize := flag.Int64("maxsize", 8<<20, "skip larger files, in bytes")
 	timeout := flag.Duration("timeout", 45*time.Second, "give up on a document after this long")

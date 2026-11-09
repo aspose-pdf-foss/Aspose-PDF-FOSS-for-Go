@@ -24,14 +24,17 @@ const (
 	PDFA3A                   // PDF/A-3a (ISO 19005-3, accessible/tagged)
 	PDFA2U                   // PDF/A-2u (ISO 19005-2; 2b, and all text maps to Unicode)
 	PDFA3U                   // PDF/A-3u (ISO 19005-3; 3b, and all text maps to Unicode)
+	PDFA4                    // PDF/A-4 (ISO 19005-4, PDF 2.0)
+	PDFA4E                   // PDF/A-4e (ISO 19005-4; allows 3D and RichMedia annotations)
+	PDFA4F                   // PDF/A-4f (ISO 19005-4; embeds at least one file, of any kind)
 )
 
-// String returns the human-readable conformance name, e.g. "PDF/A-1B".
+// String returns the human-readable conformance name, e.g. "PDF/A-1B" or "PDF/A-4".
 func (f PDFAFormat) String() string {
 	return fmt.Sprintf("PDF/A-%d%s", f.part(), f.conformance())
 }
 
-// part returns the PDF/A part number (1, 2 or 3) the format belongs to.
+// part returns the PDF/A part number (1 to 4) the format belongs to.
 func (f PDFAFormat) part() int {
 	switch f {
 	case PDFA1B, PDFA1A:
@@ -40,18 +43,27 @@ func (f PDFAFormat) part() int {
 		return 2
 	case PDFA3B, PDFA3A, PDFA3U:
 		return 3
+	case PDFA4, PDFA4E, PDFA4F:
+		return 4
 	default:
 		return 0
 	}
 }
 
-// conformance returns the conformance-level letter ("A", "U" or "B").
+// conformance returns the conformance-level letter ("A", "U" or "B"; "E", "F" or
+// nothing for part 4, where plain PDF/A-4 has no level).
 func (f PDFAFormat) conformance() string {
 	switch f {
 	case PDFA1A, PDFA2A, PDFA3A:
 		return "A"
 	case PDFA2U, PDFA3U:
 		return "U"
+	case PDFA4:
+		return ""
+	case PDFA4E:
+		return "E"
+	case PDFA4F:
+		return "F"
 	default:
 		return "B"
 	}
@@ -91,8 +103,9 @@ func (r *PDFAValidationReport) add(rule, msg string) {
 // when device colours are used; no transparency for PDF/A-1; annotation flags
 // (Print set, Hidden/NoView clear) and appearance streams; an uncompressed
 // /Metadata stream; no LZWDecode (PDF/A-1); no embedded files for PDF/A-1; and what
-// the embedded font programs say about the glyphs drawn (pdfa_glyphs.go). These do
-// not cover every rule of the standards: veraPDF has the last word.
+// the embedded font programs say about the glyphs drawn (pdfa_glyphs.go); and for
+// PDF/A-4 what ISO 19005-4 asks of /Info, actions and attachments (pdfa4.go). These
+// do not cover every rule of the standards: veraPDF has the last word.
 //
 // Scope: the "a" (tagged/accessible) levels are not validated. This mirrors the
 // intent of Aspose.PDF for .NET's Document.Validate(PdfFormat) but returns a
@@ -102,7 +115,7 @@ func (d *Document) ValidatePDFA(format PDFAFormat) *PDFAValidationReport {
 	d.pdfaCheckXMP(format, r)
 	d.pdfaCheckEncryption(r)
 	d.pdfaCheckFonts(r)
-	d.pdfaCheckActions(r)
+	d.pdfaCheckActions(format, r)
 	d.pdfaCheckColor(r)
 	d.pdfaCheckTransparency(format, r)
 	d.pdfaCheckAnnotations(format, r)
@@ -120,6 +133,8 @@ var (
 	rePDFAPartElem = regexp.MustCompile(`<pdfaid:part\s*>\s*(\d+)`)
 	rePDFAConfAttr = regexp.MustCompile(`pdfaid:conformance\s*=\s*["']([A-Za-z])["']`)
 	rePDFAConfElem = regexp.MustCompile(`<pdfaid:conformance\s*>\s*([A-Za-z])`)
+	rePDFARevAttr  = regexp.MustCompile(`pdfaid:rev\s*=\s*["'](\d+)["']`)
+	rePDFARevElem  = regexp.MustCompile(`<pdfaid:rev\s*>\s*(\d+)`)
 )
 
 // xmpPDFAPart returns the pdfaid:part value found in an XMP packet (as
@@ -138,11 +153,16 @@ func xmpPDFAPart(s string) string {
 // document opened from an existing PDF/A-1 file (whose XMP already carries
 // the identifier without any ConvertToPDFA call at all).
 func (d *Document) isPDFA1() bool {
+	return d.claimedPDFAPart() == "1"
+}
+
+// claimedPDFAPart returns the pdfaid:part the document's XMP states, or "".
+func (d *Document) claimedPDFAPart() string {
 	raw, err := d.XMPRaw()
 	if err != nil || len(raw) == 0 {
-		return false
+		return ""
 	}
-	return xmpPDFAPart(string(raw)) == "1"
+	return xmpPDFAPart(string(raw))
 }
 
 func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
@@ -157,7 +177,7 @@ func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 	s := string(raw)
 	part := xmpPDFAPart(s)
 	conf := firstSubmatch(s, rePDFAConfAttr, rePDFAConfElem)
-	if part == "" || conf == "" {
+	if part == "" || (conf == "" && format.conformance() != "") {
 		r.add("XMP_PDFAID_MISSING", "XMP packet lacks the pdfaid:part/pdfaid:conformance identifier required by PDF/A")
 		return
 	}
@@ -166,6 +186,9 @@ func (d *Document) pdfaCheckXMP(format PDFAFormat, r *PDFAValidationReport) {
 	}
 	if want := format.conformance(); !strings.EqualFold(conf, want) {
 		r.add("XMP_CONFORMANCE_MISMATCH", fmt.Sprintf("XMP pdfaid:conformance is %q but %s requires %q", conf, format, want))
+	}
+	if rev := firstSubmatch(s, rePDFARevAttr, rePDFARevElem); format.part() == 4 && rev != "2020" {
+		r.add("XMP_REV_MISMATCH", fmt.Sprintf("XMP pdfaid:rev is %q but PDF/A-4 requires \"2020\"", rev))
 	}
 }
 
@@ -256,7 +279,7 @@ func (d *Document) pdfaUsedFonts() map[int]bool {
 			if !ok {
 				continue
 			}
-			if ref, ok := fonts[string(name)].(pdfRef); ok {
+			if ref, ok := fonts[string(name)].(pdfRef); ok && d.objects[ref.Num] != nil {
 				used[ref.Num] = true
 			}
 		}
@@ -298,7 +321,7 @@ func fontDescriptorHasFile(objects map[int]*pdfObject, fontDict pdfDict) bool {
 	return false
 }
 
-func (d *Document) pdfaCheckActions(r *PDFAValidationReport) {
+func (d *Document) pdfaCheckActions(format PDFAFormat, r *PDFAValidationReport) {
 	hasJS, hasLaunch := false, false
 	flag := func(s string) {
 		switch s {
@@ -321,7 +344,7 @@ func (d *Document) pdfaCheckActions(r *PDFAValidationReport) {
 			flag(dictGetName(dict, "/S"))
 		}
 	}
-	if hasJS {
+	if hasJS && format.part() != 4 { // PDF/A-4 allows it
 		r.add("JAVASCRIPT", "document contains JavaScript; PDF/A prohibits JavaScript actions")
 	}
 	if hasLaunch {
@@ -552,7 +575,7 @@ func (d *Document) pdfaCheckAnnotations(format PDFAFormat, r *PDFAValidationRepo
 			// PDF/A-1 asks an appearance of a form field only; later parts of every
 			// annotation but a link and one with no area (ISO 19005-2 §6.3.3).
 			needAP := sub == "/Widget"
-			if format.part() > 1 && sub != "/Link" {
+			if format.part() > 1 && sub != "/Link" && sub != "/Projection" {
 				rect, ok := pdfaAnnotRect(d.objects, ad)
 				needAP = !ok || rect.URX > rect.LLX || rect.URY > rect.LLY
 			}
@@ -579,7 +602,7 @@ func (d *Document) pdfaCheckMetadata(r *PDFAValidationReport) {
 }
 
 func (d *Document) pdfaCheckFilters(format PDFAFormat, r *PDFAValidationReport) {
-	if format.part() != 1 {
+	if format.part() == 2 || format.part() == 3 {
 		return // LZWDecode is permitted in PDF/A-2 and -3
 	}
 	for _, obj := range d.objects {
@@ -589,7 +612,7 @@ func (d *Document) pdfaCheckFilters(format PDFAFormat, r *PDFAValidationReport) 
 		}
 		// A decoded stream is written with Flate whatever it came with.
 		if !s.Decoded && pdfaFilterHas(s.Dict["/Filter"], "/LZWDecode") {
-			r.add("LZW_FILTER", "document uses LZWDecode; PDF/A-1 prohibits the LZW filter")
+			r.add("LZW_FILTER", fmt.Sprintf("document uses LZWDecode; PDF/A-%d prohibits the LZW filter", format.part()))
 			return
 		}
 	}

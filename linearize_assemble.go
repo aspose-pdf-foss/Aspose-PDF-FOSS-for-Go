@@ -143,6 +143,11 @@ func (d *Document) assemble() (*assembled, error) {
 	if encState != nil && encState.algorithm == EncryptionAlgAES256 {
 		header = "%PDF-2.0\n"
 	}
+	// PDF/A-4 is defined on PDF 2.0. Read from the XMP, like the PDF/A-1 guard on
+	// object streams, so a document opened as PDF/A-4 stays so when saved again.
+	if d.claimedPDFAPart() == "4" {
+		header = "%PDF-2.0\n"
+	}
 
 	catOut := make(pdfDict, len(d.catalog)+2)
 	for k, v := range d.catalog {

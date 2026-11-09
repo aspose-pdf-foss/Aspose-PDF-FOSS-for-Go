@@ -23,10 +23,16 @@ var pdfaAllowedNamedActions = map[string]bool{
 	"/NextPage": true, "/PrevPage": true, "/FirstPage": true, "/LastPage": true,
 }
 
-func isPDFAForbiddenAction(dict pdfDict) bool {
+func isPDFAForbiddenAction(dict pdfDict, format PDFAFormat) bool {
 	s := dictGetName(dict, "/S")
 	if s == "/Named" {
 		return !pdfaAllowedNamedActions[dictGetName(dict, "/N")]
+	}
+	switch {
+	case format.part() == 4 && s == "/JavaScript":
+		return false
+	case format == PDFA4E && (s == "/SetOCGState" || s == "/GoTo3DView"):
+		return false
 	}
 	return pdfaForbiddenActions[s]
 }
@@ -65,21 +71,25 @@ func (d *Document) pdfaWalkDicts(fn func(pdfDict)) {
 var pdfaActionKeys = []string{"/A", "/OpenAction", "/Next"}
 
 // removeForbiddenActions drops every action PDF/A does not allow wherever it is
-// attached, and every additional-actions dictionary (/AA is forbidden on
-// annotations, form fields, pages and the catalog alike).
-func (d *Document) removeForbiddenActions() {
+// attached, and the additional-actions dictionaries, which parts 1-3 forbid on
+// annotations, form fields, pages and the catalog alike and part 4 only restricts.
+func (d *Document) removeForbiddenActions(format PDFAFormat) {
 	d.pdfaWalkDicts(func(dict pdfDict) {
-		delete(dict, "/AA")
+		if format.part() == 4 {
+			d.filterAdditionalActions(dict, format)
+		} else {
+			delete(dict, "/AA")
+		}
 		for _, key := range pdfaActionKeys {
 			switch v := resolveRef(d.objects, dict[key]).(type) {
 			case pdfDict:
-				if isPDFAForbiddenAction(v) {
+				if isPDFAForbiddenAction(v, format) {
 					delete(dict, key)
 				}
 			case pdfArray: // a chain may be an array of actions
 				var kept pdfArray
 				for _, e := range v {
-					if a, ok := resolveRefToDict(d.objects, e); !ok || !isPDFAForbiddenAction(a) {
+					if a, ok := resolveRefToDict(d.objects, e); !ok || !isPDFAForbiddenAction(a, format) {
 						kept = append(kept, e)
 					}
 				}
@@ -115,10 +125,10 @@ func (d *Document) widgetWithAction() bool {
 
 // firstForbiddenAction returns the type of the first action PDF/A does not
 // allow, attached anywhere, or "".
-func (d *Document) firstForbiddenAction() string {
+func (d *Document) firstForbiddenAction(format PDFAFormat) string {
 	found := ""
 	note := func(a pdfDict) {
-		if found == "" && isPDFAForbiddenAction(a) {
+		if found == "" && isPDFAForbiddenAction(a, format) {
 			found = dictGetName(a, "/S")
 			if found == "/Named" {
 				found = dictGetName(a, "/N")
@@ -342,9 +352,10 @@ func pdfDateWithZone(s string) string {
 }
 
 // fixSharedConformance repairs what PDF/A and PDF/UA ask alike: a form may not be
-// XFA, a layer configuration needs a name, no /AS and an /Order naming every
-// layer, and an embedded Type 2 CIDFont must state its /CIDToGIDMap.
-func (d *Document) fixSharedConformance() {
+// XFA, a layer configuration needs a name, no /AS (PDF/A-4 allows it, so keepAS) and
+// an /Order naming every layer, and an embedded Type 2 CIDFont must state its
+// /CIDToGIDMap.
+func (d *Document) fixSharedConformance(keepAS bool) {
 	d.fixFilespecNames()
 	d.fixOutOfRangeIntegers()
 	if d.catalog != nil {
@@ -354,7 +365,9 @@ func (d *Document) fixSharedConformance() {
 		}
 	}
 	for i, cfg := range d.ocConfigs() {
-		delete(cfg, "/AS")
+		if !keepAS {
+			delete(cfg, "/AS")
+		}
 		if name, _ := cfg["/Name"].(string); name == "" {
 			cfg["/Name"] = encodeFormString(fmt.Sprintf("Layers %d", i+1))
 		}
@@ -459,7 +472,7 @@ func (d *Document) cidType2Missing() []int {
 }
 
 // sharedConformanceIssues lists what fixSharedConformance would repair.
-func (d *Document) sharedConformanceIssues() (rule, msg string) {
+func (d *Document) sharedConformanceIssues(keepAS bool) (rule, msg string) {
 	if form, ok := resolveRefToDict(d.objects, d.catalog["/AcroForm"]); ok {
 		if _, has := form["/XFA"]; has {
 			return "XFA_FORM", "the form carries XFA; PDF/A and PDF/UA do not allow it"
@@ -471,7 +484,7 @@ func (d *Document) sharedConformanceIssues() (rule, msg string) {
 	for _, cfg := range d.ocConfigs() {
 		name, _ := cfg["/Name"].(string)
 		_, hasAS := cfg["/AS"]
-		if name == "" || hasAS || len(d.ocMissingFromOrder(cfg)) > 0 {
+		if name == "" || (hasAS && !keepAS) || len(d.ocMissingFromOrder(cfg)) > 0 {
 			return "LAYER_CONFIG", "a layer configuration lacks /Name, has /AS, or its /Order omits a layer"
 		}
 	}
@@ -711,7 +724,7 @@ func fullDifferencesEncoding(orig pdfDict, fi fontInfo) pdfDict {
 // pdfaCheckConformity holds the rules found by comparing this validator with
 // veraPDF: what ConvertToPDFA repairs, or cannot, but a document may still carry.
 func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationReport) {
-	if s := d.firstForbiddenAction(); s != "" && s != "/JavaScript" && s != "/Launch" {
+	if s := d.firstForbiddenAction(format); s != "" && s != "/JavaScript" && s != "/Launch" {
 		r.add("FORBIDDEN_ACTION", fmt.Sprintf("document contains a %s action, which PDF/A does not allow", s))
 	}
 	for _, id := range slices.Sorted(maps.Keys(d.objects)) {
@@ -746,16 +759,18 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 	if raw, err := d.XMPRaw(); err == nil && len(raw) > 0 {
 		blocks, _ := xmpExtensionBlocks(string(raw))
 		if meta, err := d.XMP(); err == nil {
-			if _, undeclared := splitDeclaredXMP(meta.Custom, blocks); len(undeclared) > 0 {
+			if _, undeclared := splitDeclaredXMP(meta.Custom, blocks); len(undeclared) > 0 && format.part() != 4 {
 				r.add("XMP_UNDECLARED_PROPERTY", fmt.Sprintf("XMP property %s (%s) is neither predefined nor declared by an extension schema", undeclared[0].Name, undeclared[0].Namespace))
 			}
-			pdfaCheckXMPDates(meta, r)
+			if format.part() != 4 { // PDF/A-4 has no rule on XMP value types
+				pdfaCheckXMPDates(meta, r)
+			}
 			if format.part() == 1 {
 				d.pdfaCheckInfoAgreement(meta, r)
 			}
 		}
 	}
-	if rule, msg := d.sharedConformanceIssues(); rule != "" {
+	if rule, msg := d.sharedConformanceIssues(format.part() == 4); rule != "" {
 		r.add(rule, msg)
 	}
 	found := false
@@ -774,9 +789,12 @@ func (d *Document) pdfaCheckConformity(format PDFAFormat, r *PDFAValidationRepor
 	d.pdfaCheckLimits(format, r)
 	d.pdfaCheckAnnotationTypes(format, r)
 	if format.part() == 2 {
-		d.pdfaCheckAttachedPDFA(r)
+		d.pdfaCheckAttachedPDFA(format, r)
 	}
-	if format.part() > 1 && d.signatureStale() {
+	if format.part() == 4 {
+		d.pdfaCheck4(format, r)
+	}
+	if (format.part() == 2 || format.part() == 3) && d.signatureStale() {
 		r.add("SIGNATURE_STALE", "a signature's /ByteRange does not span the file; a conversion rewrites the file, so this signature no longer verifies")
 	}
 	d.pdfaCheckDeviceColorMatch(r)
@@ -833,6 +851,9 @@ func (d *Document) pdfaCheckInfoAgreement(meta XMPMetadata, r *PDFAValidationRep
 // pdfaCheckCIDSets reports a subset CID font with no /CIDSet (PDF/A-1) and a
 // /CIDSet that does not match the embedded program (every part).
 func (d *Document) pdfaCheckCIDSets(format PDFAFormat, r *PDFAValidationReport) {
+	if format.part() == 4 {
+		return // PDF/A-4 has no rule on /CIDSet
+	}
 	used := d.cidFontUsage()
 	for _, id := range slices.Sorted(maps.Keys(d.objects)) {
 		font, ok := d.objects[id].Value.(pdfDict)

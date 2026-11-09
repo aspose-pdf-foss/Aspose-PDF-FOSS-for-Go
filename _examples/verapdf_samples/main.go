@@ -52,6 +52,11 @@ func pdfa(src, name string, f asposepdf.PDFAFormat, label string, tag bool) {
 			return
 		}
 	}
+	if f == asposepdf.PDFA4F { // PDF/A-4f requires an attachment
+		if _, err := d.EmbeddedFiles().AddFromStream("note.txt", strings.NewReader("attached")); err != nil {
+			log.Fatal(err)
+		}
+	}
 	rep, err := d.ConvertToPDFA(f)
 	if err != nil {
 		log.Printf("%s: %v", src, err)
@@ -138,6 +143,9 @@ func main() {
 		pdfa(src, n, asposepdf.PDFA2A, "2a", true)
 		pdfa(src, n, asposepdf.PDFA2U, "2u", false)
 		pdfa(src, n, asposepdf.PDFA3U, "3u", false)
+		pdfa(src, n, asposepdf.PDFA4, "4", false)
+		pdfa(src, n, asposepdf.PDFA4E, "4e", false)
+		pdfa(src, n, asposepdf.PDFA4F, "4f", false)
 	}
 	// alfa paints in DeviceCMYK, a known limit; recoloured, it conforms.
 	pdfa(filepath.Join("testdata", "alfa.pdf"), "alfa_rgb", asposepdf.PDFA2B, "2b", false)

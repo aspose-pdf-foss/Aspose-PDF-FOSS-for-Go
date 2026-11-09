@@ -54,7 +54,7 @@ func (d *Document) ValidatePDFUA() *PDFUAValidationReport {
 	d.uaCheckIdentification(r)
 	d.uaCheckFonts(r)
 	d.uaCheckStructure(r)
-	if rule, msg := d.sharedConformanceIssues(); rule != "" {
+	if rule, msg := d.sharedConformanceIssues(false); rule != "" {
 		r.add("UA_"+rule, msg)
 	}
 	return r

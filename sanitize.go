@@ -165,7 +165,7 @@ func (d *Document) Sanitize(opts HiddenDataSanitizationOptions) (HiddenDataSanit
 	}
 
 	if opts.RemoveJavaScriptsAndActions {
-		d.stripPDFAActions()
+		d.stripPDFAActions(PDFA2B)
 		res.ActionsRemoved = true
 		didWork = true
 	}
