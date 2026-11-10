@@ -178,7 +178,10 @@ func TestCompressObjectsEncrypted(t *testing.T) {
 				t.Error("no object stream in the encrypted output")
 			}
 			wantHeader := "%PDF-1.5"
-			if alg == EncryptionAlgAES256 {
+			switch alg {
+			case EncryptionAlgAES128:
+				wantHeader = "%PDF-1.6" // AESV2 is a PDF 1.6 feature
+			case EncryptionAlgAES256:
 				wantHeader = "%PDF-2.0"
 			}
 			if !bytes.HasPrefix(out, []byte(wantHeader)) {

@@ -46,7 +46,7 @@ func TestEncryptedResaveKeepsHandler(t *testing.T) {
 	}{
 		{pdf.EncryptionAlgRC4_40, "%PDF-1.4"},
 		{pdf.EncryptionAlgRC4_128, "%PDF-1.4"},
-		{pdf.EncryptionAlgAES128, "%PDF-1.4"},
+		{pdf.EncryptionAlgAES128, "%PDF-1.6"},
 		{pdf.EncryptionAlgAES256, "%PDF-2.0"},
 	} {
 		t.Run(fmt.Sprint(tc.alg), func(t *testing.T) {

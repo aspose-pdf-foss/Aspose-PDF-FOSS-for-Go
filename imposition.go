@@ -254,6 +254,7 @@ func (result *Document) importPageAsXObject(src *Document, srcPage *Page, idMap 
 		}
 	}
 	remappedRes := result.importGraph(src.objects, resVal, idMap)
+	result.version = max(result.version, src.version)
 
 	xobjID := result.nextID
 	result.nextID++

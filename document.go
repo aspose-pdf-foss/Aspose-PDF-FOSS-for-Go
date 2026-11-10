@@ -53,6 +53,7 @@ type Document struct {
 	catalog      pdfDict                // /Catalog dict
 	info         pdfDict                // /Info dict; nil = no metadata
 	sourceName   string                 // base name of the file opened from; "" otherwise
+	version      pdfVersion             // header version of the file opened from (or the highest appended); 0 = none
 	encrypt      *encryptConfig         // nil = no encryption
 	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
 	nextID       int                    // next available object ID
@@ -230,6 +231,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 			doc, derr := buildFromXRef(data, xref, trailer, cred)
 			if derr == nil {
 				doc.source = data
+				doc.version = headerVersion(data)
 				return doc, nil
 			}
 			if errors.Is(derr, ErrEncrypted) {
@@ -274,6 +276,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 		return nil, fmt.Errorf("parse PDF: %w", coalesceErr(firstErr, derr))
 	}
 	doc.source = data
+	doc.version = headerVersion(data)
 	// The file did not parse as written; record what it took to open it so
 	// the caller can report the damage (see repair.go).
 	doc.repair = RepairReport{
@@ -460,6 +463,8 @@ func (d *Document) Append(others ...*Document) {
 		if other == nil {
 			continue
 		}
+		// The appended pages may use features of their own file's version.
+		d.version = max(d.version, other.version)
 		// Build ID mapping: other's object IDs → new IDs in d.
 		idMap := make(map[int]int, len(other.objects))
 		for oldID := range other.objects {

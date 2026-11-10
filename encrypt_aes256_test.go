@@ -73,8 +73,8 @@ func TestSetEncryptionAES256_DefaultIsStillAES128(t *testing.T) {
 	if strings.Contains(s, "/V 5") {
 		t.Error("default should NOT produce V=5 output")
 	}
-	if !bytes.HasPrefix(buf.Bytes(), []byte("%PDF-1.4")) {
-		t.Errorf("AES-128 header should start with %%PDF-1.4, got: %q", buf.Bytes()[:16])
+	if !bytes.HasPrefix(buf.Bytes(), []byte("%PDF-1.6")) {
+		t.Errorf("AES-128 (AESV2, a PDF 1.6 feature) header should start with %%PDF-1.6, got: %q", buf.Bytes()[:16])
 	}
 }
 

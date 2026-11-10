@@ -136,18 +136,10 @@ func (d *Document) assemble() (*assembled, error) {
 		}
 	}
 
-	header := "%PDF-1.4\n"
-	// AES-256 (revision 6) is defined by ISO 32000-2. Decide from the state
-	// actually used, so a document opened from an AES-256 file and saved
-	// again keeps its PDF 2.0 header too.
-	if encState != nil && encState.algorithm == EncryptionAlgAES256 {
-		header = "%PDF-2.0\n"
-	}
-	// PDF/A-4 is defined on PDF 2.0. Read from the XMP, like the PDF/A-1 guard on
-	// object streams, so a document opened as PDF/A-4 stays so when saved again.
-	if d.claimedPDFAPart() == "4" {
-		header = "%PDF-2.0\n"
-	}
+	// Decided from the encryption state actually used, so a document opened
+	// from an AES-256 file keeps its PDF 2.0 header, and from the XMP, like the
+	// PDF/A-1 guard on object streams, so a PDF/A-4 document stays PDF 2.0.
+	header := d.outputVersion(encState).header()
 
 	catOut := make(pdfDict, len(d.catalog)+2)
 	for k, v := range d.catalog {

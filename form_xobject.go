@@ -119,6 +119,7 @@ func (d *Document) ImportForm(form *XForm) (*XForm, error) {
 	}
 	idMap := map[int]int{}
 	remapped := d.importGraph(form.doc.objects, pdfRef{Num: srcID}, idMap)
+	d.version = max(d.version, form.doc.version)
 	ref, ok := remapped.(pdfRef)
 	if !ok {
 		return nil, fmt.Errorf("ImportForm: failed to import the form object")

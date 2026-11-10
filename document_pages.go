@@ -152,6 +152,7 @@ func (d *Document) Split() ([]*Document, error) {
 			objects: deps,
 			pages:   []*pdfObject{deps[page.Num]},
 			nextID:  maxObjectID(deps) + 1,
+			version: d.version,
 		}
 	}
 	return result, nil
@@ -193,5 +194,6 @@ func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 		objects: merged,
 		pages:   clonedPages,
 		nextID:  maxObjectID(merged) + 1,
+		version: d.version,
 	}, nil
 }
