@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Open actions and links can go to any kind of destination.** `NewGoToDestinationAction` takes an explicit destination (XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV) or a `NamedDestination`, mirroring Aspose.PDF for .NET's `new GoToAction(destination)`, and `GoToAction.Destination()` reads it back. `OpenAction` returns a bare destination array as a GoTo action rather than nil.
+- **Page transitions**: `Page.SetTransition` with a `PageTransition` (Split, Blinds, Box, Wipe, Dissolve, Glitter, Fly, Push, Cover, Uncover, Fade, with duration, direction and the other parameters), and `Page.SetDisplayDuration` for auto-advance, mirroring the transition settings of Aspose.PDF for .NET's `PdfPageEditor`.
 - **`Document.PageMode`/`SetPageMode`** choose the panel a viewer opens with (bookmarks, thumbnails, layers, attachments, or full screen), mirroring Aspose.PDF for .NET's `Document.PageMode`.
 - **`Document.IsLinearized`** tells whether the file a document was opened from is linearized. A file appended to since no longer counts, as ISO 32000-1 Annex F says.
 - **`Document.Version`, `SetVersion` and `ID`**, mirroring Aspose.PDF for .NET's `Document.Version` and `Document.Id`. `Version` reports the version of the file the document was opened from, or a higher one from the catalog `/Version`; `SetVersion` chooses the version a document is saved as; `ID` returns the file identifier as upper-case hex.
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`ValidatePDFA` panicked** on a content stream selecting a font whose resource entry refers to no object.
+- **A GoTo action read from a file keeps its destination kind when set again.** One with a `/Fit`, `/FitH` or other non-XYZ destination, or a named one, passed back to `SetOpenAction` or a link's `SetAction` was written as `/XYZ` with only a top coordinate.
 - **Saving no longer lowers the PDF version.** A document opened from a PDF 1.5 to 2.0 file was written with a `%PDF-1.4` header. The header now keeps the source's version, the highest one when documents are combined (`Append`, `Split`, `Extract`, `NUp`, `Booklet`, `ImportForm`), and is at least what the output itself needs: AES-128 encryption now writes `%PDF-1.6`, as its crypt filter is a PDF 1.6 feature. PDF/A-1, 2 and 3 keep a `%PDF-1.n` header, as those parts require, and PDF/A-4 and AES-256 still write `%PDF-2.0`.
 
 ## [0.16.0] — 2026-11-09

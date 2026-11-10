@@ -105,7 +105,8 @@ flowchart TD
   `Document.Version()`/`SetVersion()` read and choose the PDF version (saving never lowers it), and
   `Document.ID()` returns the file identifier as a `DocumentID{Original, Modified}`;
   `Document.PageMode()`/`SetPageMode()` choose the panel a viewer opens with (bookmarks,
-  thumbnails, layers, attachments, or full screen).
+  thumbnails, layers, attachments, or full screen), and `Page.SetTransition`/`SetDisplayDuration`
+  give a page its presentation-mode transition (`PageTransition`) and auto-advance time.
 - **Encryption and digital signatures** — `Document.SetPassword(userPassword, ownerPassword)`
   password-protects the document on save with AES-128 (`/CFM /AESV2`), AES-256 (`/CFM /AESV3`,
   bumps the file to PDF 2.0), or RC4-128 and granular viewer permissions (print, copy, modify,
@@ -552,7 +553,7 @@ stays free of network code.
 | `FreeTextIntent` | FreeTextIntent per ISO 32000-1 §12.5.6.6 /IT entry. |
 | `GenericAnnotation` | GenericAnnotation is the catch-all surface for /Subtype values this release does not yet model (Stamp, FreeText, Ink, etc.). |
 | `GifDevice` | GifDevice renders a page to GIF. |
-| `GoToAction` | GoToAction navigates to a page within the same document. |
+| `GoToAction` | GoToAction navigates to a destination within the same document: a page and top, or any Destination. |
 | `GoToURIAction` | GoToURIAction opens a URI in the user's default handler (typically a web browser). |
 | `Gradient` | Gradient is a fill that varies colour across a shape: either a LinearGradient or a RadialGradient. |
 | `GradientStop` | GradientStop is one colour stop in a gradient, positioned at Offset (0 at the gradient's start, 1 at its end). |
@@ -632,6 +633,7 @@ stays free of network code.
 | `PageNumberStamp` | PageNumberStamp stamps the page number (and optionally the total), formatted by Format. |
 | `PageRange` | PageRange specifies an inclusive range of pages (1-based). |
 | `PageSize` | PageSize holds the width and height of a PDF page in points (1/72 inch). |
+| `PageTransition` | PageTransition is the presentation-mode effect a viewer uses when it moves to a page (the page /Trans). |
 | `PasswordBoxField` | PasswordBoxField is a text field whose input is masked (Password flag). |
 | `Path` | Path is a sequence of MoveTo/LineTo/CurveTo/Close operations defining an arbitrary 2D path in PDF user space (origin at page bottom-left, Y up). |
 | `PdfPageStamp` | PdfPageStamp overlays (or underlays) a page from another PDF document as a stamp — the source page is imported once as a Form XObject and drawn into the stamp's Rect, scaled to fit while preserving aspect ratio, positioned by HAlign/VAlign, and honoring Opacity, RotateAngle and Background. |
@@ -702,6 +704,7 @@ stays free of network code.
 | `TextStyle` | TextStyle defines reusable text formatting properties. |
 | `TiffDevice` | TiffDevice renders pages to TIFF. |
 | `TilingPattern` | TilingPattern is a repeating fill (PatternType 1, ISO 32000-1 §8.7.3.1): a small cell of content tiled across whatever shape it fills. |
+| `TransitionStyle` | TransitionStyle is the visual effect of a page transition (Split, Blinds, Box, Wipe, Fade, …). |
 | `TrimMarkAnnotation` | TrimMarkAnnotation shows where a page is cut. |
 | `Type3Font` | Type3Font is a user-defined glyph-stream font. |
 | `UnderlineAnnotation` | UnderlineAnnotation draws a horizontal line under text. |
@@ -802,7 +805,9 @@ stays free of network code.
 - `Document.OpenAction()`/`Document.SetOpenAction(act)`/`Document.RemoveOpenAction()` read, set,
   and clear the `/Catalog/OpenAction` entry (ISO 32000-1 §12.3.2 / §12.6.1) — the action a viewer
   runs when the document opens (GoTo, JavaScript, Named, …). A `GoTo` open action is bound to the
-  document, so its destination resolves to a 1-based page number on read; both round-trip through
+  document, so its destination resolves to a 1-based page number on read;
+  `NewGoToDestinationAction(dest)` takes any of the eight explicit destination kinds or a
+  `NamedDestination`, read back through `GoToAction.Destination()`; both round-trip through
   `Save` and coexist with named destinations. Document-level JavaScript executes in the
   recipient's viewer when the file is opened — embed only scripts you authored or audited.
 
