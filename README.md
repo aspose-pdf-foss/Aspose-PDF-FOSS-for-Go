@@ -102,6 +102,8 @@ flowchart TD
   `XMPRaw()`/`SetXMPRaw()` escape hatch and `SyncInfoToXMP()` to mirror `/Info` into XMP); and the
   `/PageLabels` numbering tree is written with `Document.SetPageLabels` (roman/decimal/alphabetic
   styles, prefix, and start value per range) and read back per-page via `Page.Label()`.
+  `Document.Version()`/`SetVersion()` read and choose the PDF version (saving never lowers it), and
+  `Document.ID()` returns the file identifier as a `DocumentID{Original, Modified}`.
 - **Encryption and digital signatures** — `Document.SetPassword(userPassword, ownerPassword)`
   password-protects the document on save with AES-128 (`/CFM /AESV2`), AES-256 (`/CFM /AESV3`,
   bumps the file to PDF 2.0), or RC4-128 and granular viewer permissions (print, copy, modify,
@@ -524,6 +526,7 @@ stays free of network code.
 | `DestinationType` | DestinationType identifies the destination flavor. |
 | `DestinationXYZ` | DestinationXYZ — [page /XYZ left top zoom]. |
 | `Document` | Document is a PDF document. |
+| `DocumentID` | DocumentID is a file identifier (the trailer /ID) as upper-case hexadecimal. |
 | `DocumentInfo` | DocumentInfo contains document information from the PDF Info dictionary. |
 | `EmbeddedFile` | EmbeddedFile is one attachment: a /Filespec dictionary with an embedded stream. |
 | `EmbeddedFiles` | EmbeddedFiles is the document's collection of attached (embedded) files — the /Catalog/Names/EmbeddedFiles name tree (ISO 32000-1 §7.11.4). |

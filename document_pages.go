@@ -149,10 +149,11 @@ func (d *Document) Split() ([]*Document, error) {
 	for i, page := range d.pages {
 		deps := cloneObjects(collectPageDeps(d.objects, page))
 		result[i] = &Document{
-			objects: deps,
-			pages:   []*pdfObject{deps[page.Num]},
-			nextID:  maxObjectID(deps) + 1,
-			version: d.version,
+			objects:    deps,
+			pages:      []*pdfObject{deps[page.Num]},
+			nextID:     maxObjectID(deps) + 1,
+			version:    d.version,
+			versionSet: d.versionSet,
 		}
 	}
 	return result, nil
@@ -191,9 +192,10 @@ func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
 		clonedPages[i] = merged[p.Num]
 	}
 	return &Document{
-		objects: merged,
-		pages:   clonedPages,
-		nextID:  maxObjectID(merged) + 1,
-		version: d.version,
+		objects:    merged,
+		pages:      clonedPages,
+		nextID:     maxObjectID(merged) + 1,
+		version:    d.version,
+		versionSet: d.versionSet,
 	}, nil
 }

@@ -148,3 +148,97 @@ func TestRepairedFileKeepsVersion(t *testing.T) {
 		t.Errorf("repaired 1.7 file saved as %s", got)
 	}
 }
+
+func TestVersion(t *testing.T) {
+	if v := pdf.NewDocument(200, 200).Version(); v != "1.4" {
+		t.Errorf("new document Version = %s, want 1.4", v)
+	}
+	for _, h := range []string{"%PDF-1.2", "%PDF-1.7", "%PDF-2.0"} {
+		if v := openAsVersion(t, h).Version(); v != h[5:] {
+			t.Errorf("%s source Version = %s", h, v)
+		}
+	}
+}
+
+func TestSetVersion(t *testing.T) {
+	for _, c := range []struct {
+		v, header string
+		alg       *pdf.EncryptionAlgorithm
+	}{
+		{"2.0", "%PDF-2.0", nil},
+		{"1.1", "%PDF-1.1", nil}, // a chosen version is written as is, even below 1.4
+		{"1.7", "%PDF-1.7", nil},
+	} {
+		d := openAsVersion(t, "%PDF-1.5")
+		if err := d.SetVersion(c.v); err != nil {
+			t.Fatal(err)
+		}
+		if d.Version() != c.v {
+			t.Errorf("Version after SetVersion(%s) = %s", c.v, d.Version())
+		}
+		data := savedBytes(t, d)
+		if got := headerOf(data); got != c.header {
+			t.Errorf("SetVersion(%s) saved as %s", c.v, got)
+		}
+		re, err := pdf.OpenStream(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if re.Version() != c.v {
+			t.Errorf("reopened Version = %s, want %s", re.Version(), c.v)
+		}
+	}
+	// The output still gets what its features need.
+	d := pdf.NewDocument(200, 200)
+	_ = d.SetVersion("1.1")
+	d.SetEncryption(pdf.EncryptionOptions{UserPassword: "u", Algorithm: pdf.EncryptionAlgAES128})
+	if got := headerOf(savedBytes(t, d)); got != "%PDF-1.6" {
+		t.Errorf("AES-128 at version 1.1 saved as %s, want %%PDF-1.6", got)
+	}
+	// A version set before splitting carries over.
+	d = pdf.NewDocument(200, 200)
+	_ = d.SetVersion("1.2")
+	parts, _ := d.Split()
+	if got := headerOf(savedBytes(t, parts[0])); got != "%PDF-1.2" {
+		t.Errorf("split of a 1.2 document saved as %s", got)
+	}
+}
+
+func TestSetVersionRejects(t *testing.T) {
+	d := openAsVersion(t, "%PDF-1.7")
+	for _, v := range []string{"", "1.8", "3.0", "1.10", "2", "v1.7", "1,7"} {
+		if err := d.SetVersion(v); err == nil {
+			t.Errorf("SetVersion(%q) accepted", v)
+		}
+	}
+	if d.Version() != "1.7" {
+		t.Errorf("a rejected SetVersion changed Version to %s", d.Version())
+	}
+}
+
+func TestDocumentID(t *testing.T) {
+	d := pdf.NewDocument(200, 200)
+	if _, ok := d.ID(); ok {
+		t.Error("a document built in memory reports an ID")
+	}
+	re, err := pdf.OpenStream(bytes.NewReader(savedBytes(t, d)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, ok := re.ID()
+	if !ok || len(id.Original) != 32 || len(id.Modified) != 32 {
+		t.Fatalf("ID of a saved file = %+v, %v; want two 16-byte identifiers", id, ok)
+	}
+	for _, r := range id.Original + id.Modified {
+		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F') {
+			t.Fatalf("ID %+v is not upper-case hex", id)
+		}
+	}
+	again, err := pdf.OpenStream(bytes.NewReader(savedBytes(t, re)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id2, _ := again.ID(); id2 != id {
+		t.Errorf("ID changed on re-save: %+v → %+v", id, id2)
+	}
+}

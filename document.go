@@ -54,6 +54,7 @@ type Document struct {
 	info         pdfDict                // /Info dict; nil = no metadata
 	sourceName   string                 // base name of the file opened from; "" otherwise
 	version      pdfVersion             // header version of the file opened from (or the highest appended); 0 = none
+	versionSet   bool                   // version chosen by SetVersion: written as is, even below 1.4
 	encrypt      *encryptConfig         // nil = no encryption
 	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
 	nextID       int                    // next available object ID

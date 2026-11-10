@@ -651,3 +651,26 @@ func ExampleDocument_ConvertDeviceCMYKToRGB() {
 	fmt.Println(doc.PageCount())
 	// Output: 1
 }
+
+// ExampleDocument_SetVersion writes a document as PDF 2.0 and reads its version
+// back.
+func ExampleDocument_SetVersion() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	fmt.Println(doc.Version())
+	if err := doc.SetVersion("2.0"); err != nil {
+		log.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		log.Fatal(err)
+	}
+	reopened, err := pdf.OpenStream(&buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, hasID := reopened.ID()
+	fmt.Println(reopened.Version(), hasID)
+	// Output:
+	// 1.4
+	// 2.0 true
+}

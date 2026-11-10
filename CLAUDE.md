@@ -39,6 +39,8 @@ Pure Go library. No external dependencies. All PDF functionality is in the root 
 - `OpenStreamWithPassword(r io.Reader, password)` — same as `OpenWithPassword` but reads from any `io.Reader`
 - `ErrEncrypted` — sentinel error returned by `Open`/`OpenStream` when the file is encrypted; check via `errors.Is(err, asposepdf.ErrEncrypted)`
 - `ErrInvalidPassword` — sentinel error returned by `OpenWithPassword`/`OpenStreamWithPassword` when the password matches neither the user nor the owner password; mirrors Aspose.PDF for .NET's `InvalidPasswordException`
+- `(*Document).Version() string` / `SetVersion(v string) error` (`pdf_version.go`, `pdf-go-qxk2`) — the PDF version: the later of the source header and the catalog `/Version`, `"1.4"` for a document built in memory; `SetVersion` takes `"1.0"`-`"1.7"` or `"2.0"`, removes the catalog `/Version`, and is written as is (even below 1.4, `versionSet`), raised only where the output needs it (see **Header version** under PDF writing). Mirrors Aspose.PDF for .NET's `Document.Version` and creating a `Document` with a `PdfVersion`
+- `(*Document).ID() (DocumentID, bool)` — the trailer `/ID` of the file opened from as `DocumentID{Original, Modified}` upper-case hex; false for a built document or a file without one. Mirrors Aspose.PDF for .NET's `Document.Id`
 - `(*Document).PageCount()` — current page count
 - `(*Document).Pages()` — returns `[]*Page` live views of all pages
 - `(*Document).Page(n)` — returns a `*Page` live view of page n (1-based)
