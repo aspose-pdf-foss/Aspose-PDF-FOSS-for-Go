@@ -55,6 +55,7 @@ type Document struct {
 	sourceName   string                 // base name of the file opened from; "" otherwise
 	version      pdfVersion             // header version of the file opened from (or the highest appended); 0 = none
 	versionSet   bool                   // version chosen by SetVersion: written as is, even below 1.4
+	linearized   bool                   // the source file is linearized (IsLinearized)
 	encrypt      *encryptConfig         // nil = no encryption
 	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
 	nextID       int                    // next available object ID
@@ -233,6 +234,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 			if derr == nil {
 				doc.source = data
 				doc.version = headerVersion(data)
+				doc.linearized = fileIsLinearized(data)
 				return doc, nil
 			}
 			if errors.Is(derr, ErrEncrypted) {
@@ -278,6 +280,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 	}
 	doc.source = data
 	doc.version = headerVersion(data)
+	doc.linearized = fileIsLinearized(data)
 	// The file did not parse as written; record what it took to open it so
 	// the caller can report the damage (see repair.go).
 	doc.repair = RepairReport{

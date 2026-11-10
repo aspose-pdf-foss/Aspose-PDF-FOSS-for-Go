@@ -103,7 +103,9 @@ flowchart TD
   `/PageLabels` numbering tree is written with `Document.SetPageLabels` (roman/decimal/alphabetic
   styles, prefix, and start value per range) and read back per-page via `Page.Label()`.
   `Document.Version()`/`SetVersion()` read and choose the PDF version (saving never lowers it), and
-  `Document.ID()` returns the file identifier as a `DocumentID{Original, Modified}`.
+  `Document.ID()` returns the file identifier as a `DocumentID{Original, Modified}`;
+  `Document.PageMode()`/`SetPageMode()` choose the panel a viewer opens with (bookmarks,
+  thumbnails, layers, attachments, or full screen).
 - **Encryption and digital signatures** — `Document.SetPassword(userPassword, ownerPassword)`
   password-protects the document on save with AES-128 (`/CFM /AESV2`), AES-256 (`/CFM /AESV3`,
   bumps the file to PDF 2.0), or RC4-128 and granular viewer permissions (print, copy, modify,
@@ -245,7 +247,8 @@ flowchart TD
   `Document.OptimizeImages(OptimizeImageOptions)`
   pass (max DPI downscaling, JPEG quality, and PNG→JPEG conversion); reduce file size further with
   `Document.SaveLinearized`/`WriteToLinearized` (linearized/fast-web-view output per ISO 32000-1
-  Annex F, so viewers can render page 1 before the whole file downloads), or `ConvertToGrayscale`.
+  Annex F, so viewers can render page 1 before the whole file downloads; `IsLinearized` tells whether
+  an opened file is), or `ConvertToGrayscale`.
 
 ## Installation
 
@@ -625,6 +628,7 @@ stays free of network code.
 | `PageLabelRange` | PageLabelRange describes a contiguous run of pages that share a numbering style. |
 | `PageLabelStyle` | PageLabelStyle is the numbering style applied within a PageLabelRange. |
 | `PageMarkup` | PageMarkup is the structured text of one page. |
+| `PageMode` | PageMode is how a viewer presents the document when it opens (the catalog /PageMode). |
 | `PageNumberStamp` | PageNumberStamp stamps the page number (and optionally the total), formatted by Format. |
 | `PageRange` | PageRange specifies an inclusive range of pages (1-based). |
 | `PageSize` | PageSize holds the width and height of a PDF page in points (1/72 inch). |
