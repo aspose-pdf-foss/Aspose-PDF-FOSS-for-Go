@@ -66,6 +66,18 @@ func (d *Document) filterAdditionalActions(dict pdfDict, format PDFAFormat) {
 // is in the XMP by now (reconcileInfoAndXMP) but its custom entries, which go under
 // the namespace Adobe's own producers use for them.
 func (d *Document) moveInfoToXMP(meta *XMPMetadata) {
+	d.moveCustomInfoToXMP(meta)
+	modDate, hasDate := d.info["/ModDate"]
+	_, hasPieceInfo := d.catalog["/PieceInfo"]
+	d.info = nil
+	if hasPieceInfo && hasDate {
+		d.info = pdfDict{"/ModDate": modDate}
+	}
+}
+
+// moveCustomInfoToXMP copies the /Info entries outside the standard fields into
+// meta under the pdfx namespace; the standard ones reconcileInfoAndXMP covers.
+func (d *Document) moveCustomInfoToXMP(meta *XMPMetadata) {
 	if info, err := d.Info(); err == nil {
 		for _, k := range slices.Sorted(maps.Keys(info.Custom)) {
 			// A producer may already have written it there, and XMP allows a property once.
@@ -74,12 +86,6 @@ func (d *Document) moveInfoToXMP(meta *XMPMetadata) {
 				meta.Custom = append(meta.Custom, XMPProperty{Namespace: nsPDFX, Prefix: "pdfx", Name: name, Value: info.Custom[k]})
 			}
 		}
-	}
-	modDate, hasDate := d.info["/ModDate"]
-	_, hasPieceInfo := d.catalog["/PieceInfo"]
-	d.info = nil
-	if hasPieceInfo && hasDate {
-		d.info = pdfDict{"/ModDate": modDate}
 	}
 }
 

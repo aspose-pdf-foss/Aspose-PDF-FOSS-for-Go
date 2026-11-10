@@ -102,7 +102,9 @@ flowchart TD
   `XMPRaw()`/`SetXMPRaw()` escape hatch and `SyncInfoToXMP()` to mirror `/Info` into XMP); and the
   `/PageLabels` numbering tree is written with `Document.SetPageLabels` (roman/decimal/alphabetic
   styles, prefix, and start value per range) and read back per-page via `Page.Label()`.
-  `Document.Version()`/`SetVersion()` read and choose the PDF version (saving never lowers it), and
+  `Document.Version()`/`SetVersion()` read and choose the PDF version (saving never lowers it),
+  `Document.ConvertToPDF20()` turns a document into PDF 2.0 (metadata moved into XMP, what PDF 2.0
+  deprecates removed; RC4 or AES-128 encryption is refused with `ErrDeprecatedFeature`), and
   `Document.ID()` returns the file identifier as a `DocumentID{Original, Modified}`;
   `Document.PageMode()`/`SetPageMode()` choose the panel a viewer opens with (bookmarks,
   thumbnails, layers, attachments, or full screen), and `Page.SetTransition`/`SetDisplayDuration`
