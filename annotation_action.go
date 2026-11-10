@@ -51,30 +51,96 @@ func (a *GoToURIAction) encode() pdfDict {
 // usually not what callers want.
 func NewGoToURIAction(uri string) *GoToURIAction { return &GoToURIAction{uri: uri} }
 
-// GoToAction navigates to a page within the same document. PageNum is
-// 1-based; Top is the y-coordinate of the destination view in default
-// user space.
+// GoToAction navigates to a destination within the same document: either a
+// 1-based page and the y-coordinate of the top of the view (NewGoToAction), or
+// any Destination (NewGoToDestinationAction) — one of the eight explicit kinds
+// (XYZ, Fit, FitH, FitV, FitR, FitB, FitBH, FitBV) or a NamedDestination.
 type GoToAction struct {
 	pageNum int
 	top     float64
-	doc     *Document // optional — set when read from existing PDF for resolving page refs
+	dest    Destination // when set, written as /D in place of pageNum/top
+	doc     *Document   // optional — set when read from existing PDF for resolving page refs
 }
 
 func (a *GoToAction) ActionType() ActionType { return ActionTypeGoTo }
 
-// PageNum returns the 1-based destination page number.
-func (a *GoToAction) PageNum() int { return a.pageNum }
+// NewGoToDestinationAction builds a /GoTo action to dest. Its page must belong
+// to the document the action is used in. Mirrors Aspose.PDF for .NET's
+// new GoToAction(destination).
+func NewGoToDestinationAction(dest Destination) *GoToAction {
+	return &GoToAction{dest: dest}
+}
 
-// Top returns the y-coordinate of the destination view.
-func (a *GoToAction) Top() float64 { return a.top }
+// Destination returns the destination: the one the action was built with,
+// the one read from the file (an explicit destination of any kind, or a
+// NamedDestination for a name), or nil for an action built from a page
+// number and top.
+func (a *GoToAction) Destination() Destination { return a.dest }
 
-// SetPageNum updates the destination page number (1-based).
-func (a *GoToAction) SetPageNum(n int) { a.pageNum = n }
+// SetDestination replaces the destination; PageNum and Top then follow it.
+func (a *GoToAction) SetDestination(dest Destination) { a.dest = dest }
 
-// SetTop updates the y-coordinate of the destination view.
-func (a *GoToAction) SetTop(t float64) { a.top = t }
+// PageNum returns the 1-based destination page number; 0 when it cannot be
+// resolved (a name not registered, a page not in the document).
+func (a *GoToAction) PageNum() int {
+	if a.dest != nil {
+		if p := a.dest.Page(); p != nil {
+			return p.Number()
+		}
+		return 0
+	}
+	return a.pageNum
+}
+
+// Top returns the y-coordinate of the destination view; 0 for a destination
+// kind that has none, or leaves it unchanged.
+func (a *GoToAction) Top() float64 {
+	if a.dest != nil {
+		return destinationTop(a.dest)
+	}
+	return a.top
+}
+
+// SetPageNum updates the destination page number (1-based). It replaces a
+// destination set before with a page-and-top view.
+func (a *GoToAction) SetPageNum(n int) { a.top, a.pageNum, a.dest = a.Top(), n, nil }
+
+// SetTop updates the y-coordinate of the destination view. It replaces a
+// destination set before with a page-and-top view.
+func (a *GoToAction) SetTop(t float64) { a.pageNum, a.top, a.dest = a.PageNum(), t, nil }
+
+// destinationTop is the top coordinate a destination states, or 0.
+func destinationTop(d Destination) float64 {
+	switch v := d.(type) {
+	case *DestinationXYZ:
+		if v.useTop {
+			return v.top
+		}
+	case *DestinationFitH:
+		if v.useTop {
+			return v.top
+		}
+	case *DestinationFitBH:
+		if v.useTop {
+			return v.top
+		}
+	case *DestinationFitR:
+		return v.top
+	case *NamedDestination:
+		if inner := v.Resolve(); inner != nil {
+			return destinationTop(inner)
+		}
+	}
+	return 0
+}
 
 func (a *GoToAction) encode() pdfDict {
+	if nd, ok := a.dest.(*NamedDestination); ok {
+		return pdfDict{"/Type": pdfName("/Action"), "/S": pdfName("/GoTo"), "/D": nd.Name()}
+	}
+	if arr := encodeDestination(a.dest); arr != nil {
+		return pdfDict{"/Type": pdfName("/Action"), "/S": pdfName("/GoTo"), "/D": arr}
+	}
 	// /D = [pageRef /XYZ left top zoom]. Per ISO 32000-1 §12.3.2.2 the
 	// first element should be an indirect ref to the destination page.
 	// When doc is set (action read from a PDF or rebuilt from one) we

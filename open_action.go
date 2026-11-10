@@ -4,10 +4,10 @@ package asposepdf
 
 // OpenAction returns the action the viewer runs when the document is
 // opened (/Catalog/OpenAction per ISO 32000-1 §12.3.2 / §12.6.1), or nil
-// when none is set. A GoTo open-action has its destination page resolved
-// to a 1-based PageNum. When /OpenAction is a bare destination array (a
-// "go to page on open" without an explicit action dict) this returns nil
-// — read the destination via NamedDestinations / the page tree instead.
+// when none is set. A GoTo open-action carries its Destination (of any kind)
+// and the 1-based PageNum it resolves to. A bare destination array (a "go to
+// this view on open" without an action dictionary) is returned as the
+// GoToAction it amounts to.
 //
 // Mirrors Aspose.PDF for .NET's Document.OpenAction.
 func (d *Document) OpenAction() Action {
@@ -20,7 +20,12 @@ func (d *Document) OpenAction() Action {
 	}
 	dict, ok := resolveRefToDict(d.objects, raw)
 	if !ok {
-		return nil // bare destination array, or malformed
+		// A bare destination ("go to this view on open", no action dict)
+		// reads as the GoTo action it amounts to.
+		if dest := parseDestination(d, raw); dest != nil {
+			return &GoToAction{dest: dest, doc: d}
+		}
+		return nil
 	}
 	act := parseAction(dict)
 	resolveGoToPage(d, act, dict)
@@ -63,6 +68,9 @@ func resolveGoToPage(doc *Document, act Action, d pdfDict) {
 		return
 	}
 	gt.doc = doc
+	if gt.dest == nil {
+		gt.dest = parseDestination(doc, d["/D"])
+	}
 	if gt.pageNum != 0 {
 		return
 	}
