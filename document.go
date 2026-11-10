@@ -680,9 +680,6 @@ func (d *Document) SetEncryption(opts EncryptionOptions) {
 	}
 	if len(opts.Recipients) > 0 {
 		cfg.recipients = append([]Recipient(nil), opts.Recipients...)
-		if cfg.algorithm == EncryptionAlgAES128 && opts.Algorithm != EncryptionAlgAES128 {
-			cfg.algorithm = EncryptionAlgAES256 // pubsec defaults to AES-256
-		}
 	}
 	d.encrypt = cfg
 }

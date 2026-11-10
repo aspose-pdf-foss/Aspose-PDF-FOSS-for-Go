@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Certificate encryption is documented as defaulting to AES-128**, which is what it does, like password encryption. The README and a comment in the code said AES-256, through a branch that could never run; pass `EncryptionAlgAES256` for it.
 - **`ValidatePDFA` panicked** on a content stream selecting a font whose resource entry refers to no object.
 - **A GoTo action read from a file keeps its destination kind when set again.** One with a `/Fit`, `/FitH` or other non-XYZ destination, or a named one, passed back to `SetOpenAction` or a link's `SetAction` was written as `/XYZ` with only a top coordinate.
 - **Saving no longer lowers the PDF version.** A document opened from a PDF 1.5 to 2.0 file was written with a `%PDF-1.4` header. The header now keeps the source's version, the highest one when documents are combined (`Append`, `Split`, `Extract`, `NUp`, `Booklet`, `ImportForm`), and is at least what the output itself needs: AES-128 encryption now writes `%PDF-1.6`, as its crypt filter is a PDF 1.6 feature. PDF/A-1, 2 and 3 keep a `%PDF-1.n` header, as those parts require, and PDF/A-4 and AES-256 still write `%PDF-2.0`.

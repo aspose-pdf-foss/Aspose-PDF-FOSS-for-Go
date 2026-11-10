@@ -248,3 +248,17 @@ func TestPubSecErrors(t *testing.T) {
 		t.Error("a password-protected document opened with a certificate")
 	}
 }
+
+// With no Algorithm, certificate encryption uses AES-128, like a password.
+func TestPubSecDefaultAlgorithm(t *testing.T) {
+	_, cert := newRecipientKey(t, "Alice")
+	doc := pdf.NewDocument(200, 100)
+	doc.SetEncryption(pdf.EncryptionOptions{Recipients: []pdf.Recipient{{Certificate: cert}}})
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("/AESV2")) || bytes.Contains(buf.Bytes(), []byte("/AESV3")) {
+		t.Error("default certificate encryption is not AES-128 (/AESV2)")
+	}
+}

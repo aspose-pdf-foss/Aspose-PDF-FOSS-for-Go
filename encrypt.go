@@ -173,6 +173,8 @@ type EncryptionOptions struct {
 	// certificates and opens with OpenWithCertificate instead of a
 	// password. The password fields are ignored when it is non-empty, and
 	// a recipient's own Permissions override the document-wide ones.
+	// Algorithm applies as for a password: AES-128 unless set (AES-256 is
+	// the stronger choice); the RC4 algorithms are refused on save.
 	Recipients []Recipient
 }
 

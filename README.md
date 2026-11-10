@@ -739,7 +739,7 @@ stays free of network code.
   §7.6.4): the document is sealed for a list of X.509 certificates — each with optional
   per-recipient `Permissions`, which a password cannot express — and opened with
   `OpenWithCertificate`/`OpenStreamWithCertificate` by supplying the certificate and any
-  `crypto.Decrypter` private key. AES-128 and AES-256 are supported (AES-256 by default); RSA
+  `crypto.Decrypter` private key. AES-128 (the default, as for a password) and AES-256 are supported; RSA
   recipients only, and the file re-saves for the same recipients after editing.
 - `Document.Sign` covers the whole file with one PKCS#7-detached signature, invisible by default
   or visible via `Visible`/`Rect`/`Page`/`SignatureAppearance`; `PAdES` switches the subfilter to
