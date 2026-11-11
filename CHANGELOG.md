@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text in fonts that rely on their embedded program for the encoding is extracted.** A font with neither `/Encoding` nor `/ToUnicode`, such as the symbolic TrueType subsets Word writes, or a CFF or Type1 font using its built-in encoding, extracted as U+FFFD, and `ReplaceText` and `ApplyRedactions` refused to touch text drawn with it. Its characters are now read from the program's own tables. Rendering is unchanged.
 - **`ReplaceText` replaces text drawn inside a Form XObject.** It counted such a match and drew the replacement, but left the original glyphs in the form, so the page showed and extracted both. The form is now copied for that page with the matched glyphs removed; its images and paths stay, and other pages placing the same form are unchanged.
 - **Certificate encryption is documented as defaulting to AES-128**, which is what it does, like password encryption. The README and a comment in the code said AES-256, through a branch that could never run; pass `EncryptionAlgAES256` for it.
 - **`ValidatePDFA` panicked** on a content stream selecting a font whose resource entry refers to no object.

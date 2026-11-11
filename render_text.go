@@ -599,7 +599,7 @@ func (f *renderFont) t1Name(code uint32) string {
 	if f.fi.glyphNames != nil {
 		name = f.fi.glyphNames[byte(code)]
 	}
-	if name == "" && f.fi.known {
+	if name == "" && f.fi.known && !f.fi.programEncoding {
 		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
 			name = runeToStdGlyphName(r)
 		}
@@ -667,7 +667,7 @@ func (f *renderFont) gid(code uint32) uint16 {
 				}
 			}
 		}
-		if f.fi.known {
+		if f.fi.known && !f.fi.programEncoding {
 			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
 				if g := f.cff.runeToGID[r]; g != 0 {
 					return g
@@ -710,7 +710,7 @@ func (f *renderFont) gid(code uint32) uint16 {
 		// WinAnsi byte (0xFC: 'ü' in WinAnsi, '¸' in MacRoman), so umlauts
 		// rendered as cedillas. Raw-code-first remains for programs without
 		// a Unicode cmap (symbolic subsets keyed by their own codes).
-		if len(f.prog.runeToGlyph) > 0 && f.fi.known {
+		if len(f.prog.runeToGlyph) > 0 && f.fi.known && !f.fi.programEncoding {
 			if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
 				if g := f.prog.glyphID(r); g != 0 {
 					return g
@@ -720,7 +720,7 @@ func (f *renderFont) gid(code uint32) uint16 {
 		if g := f.prog.codeToGlyph[c]; g != 0 {
 			return g
 		}
-		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD {
+		if r := f.fi.encoding[code]; r != 0 && r != 0xFFFD && !f.fi.programEncoding {
 			if g := f.prog.glyphID(r); g != 0 {
 				return g
 			}

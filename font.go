@@ -17,7 +17,7 @@ type fontInfo struct {
 	// toUnicodeSeq holds the codes whose ToUnicode destination is several
 	// characters — a ligature glyph mapped to "fi" — with the full sequence.
 	toUnicodeSeq map[uint16][]rune
-	defaultW     float64         // /DW default width for CIDFont (1000 if absent)
+	defaultW     float64 // /DW default width for CIDFont (1000 if absent)
 
 	// Vertical writing (ISO 32000-1 §9.7.4.3): a composite font whose CMap has
 	// WMode 1 advances down the page, each glyph hung from its position vector.
@@ -25,11 +25,16 @@ type fontInfo struct {
 	dw2       [2]float64            // /DW2: the position vector's y and the advance
 	w2        map[uint16][3]float64 // /W2 per CID: advance, position vector x and y
 	vertForms map[uint16]rune       // vertical CID -> its presentation form, for drawing
-	isType0      bool            // true = two-byte character codes (composite font)
-	cidCMap      *cidCMap        // Type0 /Encoding CMap (predefined or embedded); nil = Identity
-	cidToUni     map[uint16]rune // CID → Unicode (Adobe ordering table); nil if unknown
-	ordering     string          // CIDSystemInfo /Ordering (e.g. "GB1"); "" = Identity/unknown
-	known        bool            // false if encoding could not be determined
+	isType0   bool                  // true = two-byte character codes (composite font)
+	cidCMap   *cidCMap              // Type0 /Encoding CMap (predefined or embedded); nil = Identity
+	cidToUni  map[uint16]rune       // CID → Unicode (Adobe ordering table); nil if unknown
+	ordering  string                // CIDSystemInfo /Ordering (e.g. "GB1"); "" = Identity/unknown
+	known     bool                  // false if encoding could not be determined
+	// programEncoding: the encoding was read back from the embedded program
+	// (font_program_encoding.go), the dictionary giving none. It is the
+	// program's own glyph selection seen from the Unicode side, so glyph
+	// selection must not go through it.
+	programEncoding bool
 	// glyphNames maps codes remapped by /Encoding /Differences to their raw
 	// glyph names — needed when a name has no Unicode meaning (ZapfDingbats
 	// a1..a191) and the glyph must be reached by name through the font's
@@ -135,6 +140,12 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 			// program's cmap.
 			fi.encoding = defaultEncodingForFont(canon)
 			fi.known = true
+		} else if enc, ok := programEncoding(objects, fontDict); ok {
+			// No dictionary encoding, but the embedded program says what each
+			// code draws (pdf-go-nw0h).
+			fi.encoding = enc
+			fi.known = true
+			fi.programEncoding = true
 		} else {
 			for i := range fi.encoding {
 				fi.encoding[i] = '\uFFFD'

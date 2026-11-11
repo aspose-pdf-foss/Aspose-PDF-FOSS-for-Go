@@ -242,7 +242,9 @@ func (gf *glyphFont) hasUnicode(raw, cid uint32) bool {
 	if n := gf.fi.glyphNames[byte(raw)]; n != "" && cffGlyphNameRune(n) != 0 {
 		return true
 	}
-	if r := gf.fi.encoding[raw]; r != 0 && r != 0xFFFD {
+	// An encoding read back from the program (programEncoding) is not one the
+	// dictionary gives; the program-name check below decides for those.
+	if r := gf.fi.encoding[raw]; r != 0 && r != 0xFFFD && !gf.fi.programEncoding {
 		return true
 	}
 	// In WinAnsiEncoding every unused code above 040 is a bullet (ISO 32000-1 Annex D).
