@@ -62,7 +62,7 @@ func TestBuildDecryptStateV4R4_WrongCFM(t *testing.T) {
 		"/CF": pdfDict{
 			"/StdCF": pdfDict{
 				"/Type": pdfName("/CryptFilter"),
-				"/CFM":  pdfName("/V2"), // wrong — should be /AESV2
+				"/CFM":  pdfName("/AESV3"), // AES-256 is not a V=4 method
 			},
 		},
 		"/StmF": pdfName("/StdCF"),
@@ -70,7 +70,7 @@ func TestBuildDecryptStateV4R4_WrongCFM(t *testing.T) {
 	}
 	trailer := pdfDict{"/ID": pdfArray{string(bytes.Repeat([]byte{0xCD}, 16))}}
 	if _, err := buildDecryptStateV4R4(encDict, trailer, "x"); err == nil {
-		t.Error("expected error for /CFM /V2 in V=4 dict")
+		t.Error("expected error for /CFM /AESV3 in V=4 dict")
 	}
 }
 

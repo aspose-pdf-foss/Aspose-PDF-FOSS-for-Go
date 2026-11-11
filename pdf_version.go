@@ -52,6 +52,10 @@ func (d *Document) outputVersion(encState *encryptState) pdfVersion {
 			v = max(v, 16) // AESV2 crypt filter, ISO 32000-1 §7.6.5
 		case EncryptionAlgAES256:
 			v = pdfVersion20 // revision 6 is defined by ISO 32000-2
+		case EncryptionAlgRC4_128:
+			if encState.keyPlainMeta {
+				v = max(v, 15) // written as revision 4: crypt filters, PDF 1.5
+			}
 		}
 	}
 	switch d.claimedPDFAPart() {

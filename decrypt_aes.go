@@ -72,8 +72,11 @@ func buildDecryptStateV4R4(encDict pdfDict, trailer pdfDict, password string) (*
 		return nil, fmt.Errorf("V=4 R=4: /CF/%s entry missing or wrong type", stmName)
 	}
 	cfm, _ := cfEntry["/CFM"].(pdfName)
+	if cfm == "/V2" {
+		return buildDecryptStateV4RC4(encDict, cfEntry, trailer, password)
+	}
 	if cfm != "/AESV2" {
-		return nil, fmt.Errorf("V=4 R=4: unsupported /CFM %q (want /AESV2)", cfm)
+		return nil, fmt.Errorf("V=4 R=4: unsupported /CFM %q (want /AESV2 or /V2)", cfm)
 	}
 
 	// Algorithms 2/5/7 are identical between V=2 R=3 and V=4 R=4.
@@ -85,12 +88,41 @@ func buildDecryptStateV4R4(encDict pdfDict, trailer pdfDict, password string) (*
 	}
 	fake["/V"] = 2
 	fake["/R"] = 3
-	state, err := buildDecryptStateV2R3(fake, trailer, password)
+	state, err := buildDecryptStateV2R3(fake, trailer, password, metadataLeftPlain(encDict))
 	if err != nil {
 		return nil, err
 	}
 	state.algorithm = EncryptionAlgAES128
 	return state, nil
+}
+
+// buildDecryptStateV4RC4 is the V=4 R=4 handler with an RC4 crypt filter
+// (/CFM /V2, ISO 32000-1 Table 25, pdf-go-r140): passwords and keys follow
+// the RC4 revision-3 algorithms and objects are decrypted with Algorithm 1,
+// as for V=2. The key length is the crypt filter's /Length — in bytes, as
+// Acrobat writes it, or in bits when larger than 16 — else the dictionary's
+// /Length in bits, else 128 bits. The document is written back as V=2 R=3,
+// the equivalent handler, unless /EncryptMetadata is false: that changes the
+// key and only revision 4 can say so, so it is written back as it came
+// (buildEncryptDict).
+func buildDecryptStateV4RC4(encDict, cfEntry, trailer pdfDict, password string) (*encryptState, error) {
+	keyLen := dictGetInt(cfEntry, "/Length")
+	if keyLen > 16 {
+		keyLen /= 8
+	}
+	if keyLen <= 0 {
+		keyLen = dictGetInt(encDict, "/Length") / 8
+	}
+	if keyLen < 5 || keyLen > 16 {
+		keyLen = 16
+	}
+	fake := make(pdfDict, len(encDict))
+	for k, v := range encDict {
+		fake[k] = v
+	}
+	fake["/V"] = 2
+	fake["/R"] = 3
+	return buildDecryptStateRC4(fake, trailer, password, 3, keyLen, metadataLeftPlain(encDict))
 }
 
 // decryptObjectTreeAES128 walks obj's value tree, AES-decrypting every

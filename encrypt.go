@@ -215,6 +215,11 @@ type encryptState struct {
 	// /Metadata stream is then stored unencrypted and must not be decrypted.
 	// Zero value = metadata is encrypted, which is what this library writes.
 	plainMetadata bool
+	// keyPlainMeta records that the key was derived for a revision-4 handler
+	// with /EncryptMetadata false (computeEncKeyRM), as a parsed file's may be:
+	// such a document must be written back as revision 4 with that entry and
+	// its /Metadata stream unencrypted, or the key no longer matches /O and /U.
+	keyPlainMeta bool
 	// pubSec marks the public-key handler; recipients then carries the CMS
 	// envelopes written to (or read from) /Recipients (pubsec.go).
 	pubSec     bool
@@ -306,6 +311,13 @@ func computeEncKey(userPwd string, ownerEntry []byte, permissions int32, fileID 
 // r>=3 applies the 50 extra MD5 passes. keyLen is the key length in bytes
 // (5 for 40-bit, 16 for 128-bit).
 func computeEncKeyR(userPwd string, ownerEntry []byte, permissions int32, fileID []byte, r, keyLen int) []byte {
+	return computeEncKeyRM(userPwd, ownerEntry, permissions, fileID, r, keyLen, false)
+}
+
+// computeEncKeyRM is computeEncKeyR with Algorithm 2's step (f): for revision
+// 4 and later with /EncryptMetadata false, 0xFFFFFFFF is hashed after the
+// file ID (plainMeta).
+func computeEncKeyRM(userPwd string, ownerEntry []byte, permissions int32, fileID []byte, r, keyLen int, plainMeta bool) []byte {
 	h := md5.New()
 	h.Write(padPassword(userPwd))
 	h.Write(ownerEntry)
@@ -313,6 +325,9 @@ func computeEncKeyR(userPwd string, ownerEntry []byte, permissions int32, fileID
 	binary.LittleEndian.PutUint32(p[:], uint32(permissions))
 	h.Write(p[:])
 	h.Write(fileID)
+	if plainMeta {
+		h.Write([]byte{0xff, 0xff, 0xff, 0xff})
+	}
 	key := h.Sum(nil)[:keyLen]
 	if r >= 3 {
 		for i := 0; i < 50; i++ {
@@ -364,6 +379,17 @@ func encryptBytesRC4(s *encryptState, objNum int, data []byte) []byte {
 	copy(result, data)
 	applyRC4(result, key)
 	return result
+}
+
+// leavesPlain reports whether v is written unencrypted although the document
+// is encrypted: its /Metadata stream, when the key says /EncryptMetadata is
+// false (keyPlainMeta). Nil-safe.
+func (s *encryptState) leavesPlain(v pdfValue) bool {
+	if s == nil || !s.keyPlainMeta {
+		return false
+	}
+	st, ok := v.(*pdfStream)
+	return ok && dictGetName(st.Dict, "/Type") == "/Metadata"
 }
 
 // encryptBytes is the per-object encryption dispatcher. gen is the
@@ -425,7 +451,12 @@ func verifyUserPassword(password string, ownerEntry, storedU, fileID []byte, per
 // /U and compares the first 32 bytes for r==2 (Algorithm 6) or the first
 // 16 bytes for r>=3.
 func verifyUserPasswordR(password string, ownerEntry, storedU, fileID []byte, permissions int32, r, keyLen int) bool {
-	key := computeEncKeyR(password, ownerEntry, permissions, fileID, r, keyLen)
+	return verifyUserPasswordRM(password, ownerEntry, storedU, fileID, permissions, r, keyLen, false)
+}
+
+// verifyUserPasswordRM is verifyUserPasswordR with computeEncKeyRM's plainMeta.
+func verifyUserPasswordRM(password string, ownerEntry, storedU, fileID []byte, permissions int32, r, keyLen int, plainMeta bool) bool {
+	key := computeEncKeyRM(password, ownerEntry, permissions, fileID, r, keyLen, plainMeta)
 	computed := computeUserEntryR(key, fileID, r)
 	n := 16
 	if r == 2 {

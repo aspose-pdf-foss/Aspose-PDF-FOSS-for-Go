@@ -105,7 +105,11 @@ type Document struct {
 	svgFontResolver SVGFontResolver
 }
 
-// Open opens a PDF file and returns a Document.
+// Open opens a PDF file and returns a Document. An encrypted file that needs
+// no password to open (its user password is empty, as when only permissions
+// are restricted) is opened and decrypted, as a viewer would; Permissions
+// reports what it allows, and a Save keeps the encryption. ErrEncrypted is
+// returned when a password is needed.
 //
 // Example:
 //
@@ -128,9 +132,9 @@ func withSourceName(path string) func(*Document, error) (*Document, error) {
 	}
 }
 
-// OpenStream reads a PDF from r and returns a Document. Returns
-// ErrEncrypted if the input is password-protected; in that case retry
-// with OpenStreamWithPassword.
+// OpenStream reads a PDF from r and returns a Document. As Open, it opens an
+// encrypted input whose user password is empty; it returns ErrEncrypted if a
+// password is needed, in which case retry with OpenStreamWithPassword.
 //
 // Example:
 //
@@ -230,7 +234,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 	if startOff, err := findStartXRef(data); err == nil {
 		if xref, trailer, perr := parseXRef(data, startOff); perr == nil {
 			primaryTrailer = trailer
-			doc, derr := buildFromXRef(data, xref, trailer, cred)
+			doc, derr := buildWithEmptyUserPassword(data, xref, trailer, cred)
 			if derr == nil {
 				doc.source = data
 				doc.version = headerVersion(data)
@@ -267,7 +271,7 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 			}
 		}
 	}
-	doc, derr := buildFromXRef(data, xref, trailer, cred)
+	doc, derr := buildWithEmptyUserPassword(data, xref, trailer, cred)
 	if derr != nil {
 		if errors.Is(derr, ErrEncrypted) {
 			return nil, derr
@@ -289,6 +293,24 @@ func openStreamCore(r io.Reader, cred *openCredentials) (*Document, error) {
 		TrailerRecovered:  trailerSynthesised,
 	}
 	return doc, nil
+}
+
+// buildWithEmptyUserPassword is buildFromXRef, except that with no
+// credentials an encrypted file is tried with the empty user password
+// (pdf-go-sso1): a file protected only by an owner password restricts what
+// may be done with it but needs no password to open, and every viewer opens
+// it without asking. ErrEncrypted stays the answer when a password is
+// actually needed, or the file is encrypted for certificate recipients.
+func buildWithEmptyUserPassword(data []byte, xref *xrefTable, trailer pdfDict, cred *openCredentials) (*Document, error) {
+	doc, err := buildFromXRef(data, xref, trailer, cred)
+	if cred != nil || !errors.Is(err, ErrEncrypted) {
+		return doc, err
+	}
+	empty := ""
+	if doc, err := buildFromXRef(data, xref, trailer, &openCredentials{password: &empty}); err == nil {
+		return doc, nil
+	}
+	return nil, ErrEncrypted
 }
 
 // coalesceErr returns the first non-nil error, preferring first.

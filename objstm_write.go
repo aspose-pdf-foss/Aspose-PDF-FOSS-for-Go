@@ -189,7 +189,7 @@ func buildObjectStreamPDF(d *Document, asm *assembled) ([]byte, error) {
 		}
 		offsets[it.id] = int64(buf.Len())
 		var encFn func([]byte) ([]byte, error)
-		if it.encrypt {
+		if it.encrypt && !encState.leavesPlain(it.val) {
 			encFn = encFor(it.id)
 		}
 		if err := writeObject(&buf, it.id, it.val, it.remap, encFn); err != nil {

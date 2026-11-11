@@ -8,9 +8,11 @@ import (
 	"fmt"
 )
 
-// ErrEncrypted is returned by Open / OpenStream when the input PDF carries
-// an /Encrypt dictionary. Callers should retry with OpenWithPassword or
-// OpenStreamWithPassword to supply a user or owner password.
+// ErrEncrypted is returned by Open / OpenStream when the input PDF is
+// encrypted and does not open with the empty user password: it needs a
+// password, or a certificate. Callers should retry with OpenWithPassword or
+// OpenStreamWithPassword to supply a user or owner password (OpenWithCertificate
+// for certificate encryption).
 var ErrEncrypted = errors.New("PDF is encrypted; use OpenWithPassword")
 
 // ErrInvalidPassword is returned by OpenWithPassword / OpenStreamWithPassword
@@ -64,14 +66,14 @@ func buildDecryptStateFor(encDict pdfDict, trailer pdfDict, cred *openCredential
 	switch {
 	case (v == 1 || v == 0) && r == 2:
 		// Original Standard Security Handler: 40-bit RC4 (5-byte key).
-		return buildDecryptStateRC4(encDict, trailer, password, 2, 5)
+		return buildDecryptStateRC4(encDict, trailer, password, 2, 5, false)
 	case v == 2 && r == 3:
 		// RC4 with a key length given by /Length (default 128-bit).
 		keyLen := dictGetInt(encDict, "/Length") / 8
 		if keyLen <= 0 || keyLen > 16 {
 			keyLen = 16
 		}
-		return buildDecryptStateRC4(encDict, trailer, password, 3, keyLen)
+		return buildDecryptStateRC4(encDict, trailer, password, 3, keyLen, false)
 	case v == 4 && r == 4:
 		return buildDecryptStateV4R4(encDict, trailer, password)
 	case v == 5 && (r == 5 || r == 6):
@@ -83,8 +85,8 @@ func buildDecryptStateFor(encDict pdfDict, trailer pdfDict, cred *openCredential
 
 // buildDecryptStateV2R3 is retained for the AES-128 (V=4 R=4) password
 // path, which reuses the RC4 R=3 / 16-byte-key Algorithms 2/5/7.
-func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string) (*encryptState, error) {
-	return buildDecryptStateRC4(encDict, trailer, password, 3, 16)
+func buildDecryptStateV2R3(encDict pdfDict, trailer pdfDict, password string, plainMeta bool) (*encryptState, error) {
+	return buildDecryptStateRC4(encDict, trailer, password, 3, 16, plainMeta)
 }
 
 // buildDecryptStateRC4 parses the /Encrypt dict and the trailer's /ID array,
@@ -102,7 +104,9 @@ func rc4AlgorithmForRevision(r int) EncryptionAlgorithm {
 	return EncryptionAlgRC4_128
 }
 
-func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, keyLen int) (*encryptState, error) {
+// plainMeta is set for a revision-4 handler whose /EncryptMetadata is false,
+// which changes the key (computeEncKeyRM).
+func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, keyLen int, pm bool) (*encryptState, error) {
 	filter := dictGetName(encDict, "/Filter")
 	if filter != "/Standard" {
 		return nil, fmt.Errorf("unsupported /Filter %q (only /Standard is implemented)", filter)
@@ -145,28 +149,30 @@ func buildDecryptStateRC4(encDict pdfDict, trailer pdfDict, password string, r, 
 	}
 
 	// Try user password first; fall back to owner password.
-	if verifyUserPasswordR(password, oBytes, uBytes, fileID, permissions, r, keyLen) {
-		key := computeEncKeyR(password, oBytes, permissions, fileID, r, keyLen)
+	if verifyUserPasswordRM(password, oBytes, uBytes, fileID, permissions, r, keyLen, pm) {
+		key := computeEncKeyRM(password, oBytes, permissions, fileID, r, keyLen, pm)
 		return &encryptState{
-			algorithm:   rc4AlgorithmForRevision(r),
-			key:         key,
-			fileID:      fileID,
-			ownerEntry:  oBytes,
-			userEntry:   uBytes,
-			permissions: permissions,
+			algorithm:    rc4AlgorithmForRevision(r),
+			keyPlainMeta: pm,
+			key:          key,
+			fileID:       fileID,
+			ownerEntry:   oBytes,
+			userEntry:    uBytes,
+			permissions:  permissions,
 		}, nil
 	}
 
 	if userPwd, ok := recoverUserPasswordFromOwnerR(password, oBytes, r, keyLen); ok {
-		if verifyUserPasswordR(userPwd, oBytes, uBytes, fileID, permissions, r, keyLen) {
-			key := computeEncKeyR(userPwd, oBytes, permissions, fileID, r, keyLen)
+		if verifyUserPasswordRM(userPwd, oBytes, uBytes, fileID, permissions, r, keyLen, pm) {
+			key := computeEncKeyRM(userPwd, oBytes, permissions, fileID, r, keyLen, pm)
 			return &encryptState{
-				algorithm:   rc4AlgorithmForRevision(r),
-				key:         key,
-				fileID:      fileID,
-				ownerEntry:  oBytes,
-				userEntry:   uBytes,
-				permissions: permissions,
+				algorithm:    rc4AlgorithmForRevision(r),
+				keyPlainMeta: pm,
+				key:          key,
+				fileID:       fileID,
+				ownerEntry:   oBytes,
+				userEntry:    uBytes,
+				permissions:  permissions,
 			}, nil
 		}
 	}

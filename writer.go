@@ -111,7 +111,7 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		outID := remap[oldID]
 		offsets[outID] = int64(buf.Len())
 		var encFn func([]byte) ([]byte, error)
-		if encState != nil {
+		if encState != nil && !encState.leavesPlain(obj.Value) {
 			encFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(outID, 0, b) }
 		}
 		if err := writeObject(&buf, outID, obj.Value, remapFn, encFn); err != nil {
@@ -578,6 +578,26 @@ func buildEncryptDict(s *encryptState) pdfDict {
 		if n := len(s.key); n > 0 && n < 16 {
 			dict["/Length"] = n * 8
 		}
+		if s.keyPlainMeta {
+			// Opened from a revision-4 file with an RC4 crypt filter and
+			// /EncryptMetadata false: only revision 4 matches its key.
+			dict["/V"] = 4
+			dict["/R"] = 4
+			dict["/Length"] = len(s.key) * 8
+			dict["/CF"] = pdfDict{
+				"/StdCF": pdfDict{
+					"/Type":      pdfName("/CryptFilter"),
+					"/CFM":       pdfName("/V2"),
+					"/AuthEvent": pdfName("/DocOpen"),
+					"/Length":    len(s.key),
+				},
+			}
+			dict["/StmF"] = pdfName("/StdCF")
+			dict["/StrF"] = pdfName("/StdCF")
+		}
+	}
+	if s.keyPlainMeta {
+		dict["/EncryptMetadata"] = false
 	}
 	return dict
 }

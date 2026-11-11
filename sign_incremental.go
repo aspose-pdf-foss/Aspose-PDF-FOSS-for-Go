@@ -251,7 +251,7 @@ func (d *Document) appendRevision(baseNextID int, modified map[int]pdfValue, enc
 	for _, e := range emit {
 		offsets[e.num] = int64(buf.Len())
 		var encFn func([]byte) ([]byte, error)
-		if encState != nil {
+		if encState != nil && !encState.leavesPlain(e.val) {
 			num, gen := e.num, e.gen
 			encFn = func(b []byte) ([]byte, error) { return encState.encryptBytes(num, gen, b) }
 		}
