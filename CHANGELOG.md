@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Paragraphs` reads letterheads and indented openings better.** A paragraph whose first line starts at the left margin and whose other lines are indented below was cut into two columns with its lines interleaved; it is now one block. Blocks set side by side above full-width text (an address beside the sender's details, signature blocks, a pull quote) are now read block by block, where they used to be merged line by line. Rows of a table and the labels of a list keep reading row by row.
 - **Text along a curve reads as one line.** When each glyph is drawn at its own angle, or a rotated line is split into several runs, `ExtractText`, `ExtractTextWithLayout` and `SearchText` used to give each piece a line of its own, so a word came out one letter per line and could not be found. Runs that continue one another along their baselines are now one line, in the order they were drawn, with word gaps measured along the baseline.
 - **Flattened text keeps the space between two words** when the second word's column fell right at the end of the first.
 - **Text drawn bold by fill and stroke is reported as bold.** Producers fake bold with text rendering mode 2 over a regular face; `TextFragment.Bold` now says so.
