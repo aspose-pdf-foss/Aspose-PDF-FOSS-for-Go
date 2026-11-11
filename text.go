@@ -532,6 +532,11 @@ func (e *textExtractor) showStringMultiByte(s string) {
 		if e.font.toUnicode != nil {
 			r = e.font.toUnicode[code]
 		}
+		// An Adobe-ordered descendant (GB1, Japan1, ...): the code is the
+		// Adobe CID, so its ordering table names the character (pdf-go-q2nq).
+		if r == 0 && e.font.cidToUni != nil {
+			r = e.font.cidToUni[code]
+		}
 		if r == 0 {
 			r = '\uFFFD'
 		}
