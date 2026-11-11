@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`ReplaceText` replaces text drawn inside a Form XObject.** It counted such a match and drew the replacement, but left the original glyphs in the form, so the page showed and extracted both. The form is now copied for that page with the matched glyphs removed; its images and paths stay, and other pages placing the same form are unchanged.
 - **Certificate encryption is documented as defaulting to AES-128**, which is what it does, like password encryption. The README and a comment in the code said AES-256, through a branch that could never run; pass `EncryptionAlgAES256` for it.
 - **`ValidatePDFA` panicked** on a content stream selecting a font whose resource entry refers to no object.
 - **A GoTo action read from a file keeps its destination kind when set again.** One with a `/Fit`, `/FitH` or other non-XYZ destination, or a named one, passed back to `SetOpenAction` or a link's `SetAction` was written as `/XYZ` with only a top coordinate.

@@ -59,6 +59,11 @@ const maxFormRedactWork = 10000
 type formRedactBudget struct {
 	spent int
 
+	// textOnly limits the pass to text (ReplaceText, pdf-go-hxi2): inside
+	// a Form XObject only glyphs are removed, while images, inline images
+	// and paths are left as they are. Redaction leaves it false.
+	textOnly bool
+
 	// clones memoizes an already-produced redacted clone's object number,
 	// keyed by what fully determines its content (formCloneKey): the
 	// source Form XObject stream, the CTM composing with its own
@@ -368,6 +373,10 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 				continue
 			}
 
+			if budget != nil && budget.textOnly {
+				out = append(out, op)
+				continue
+			}
 			out = emitClassifiedImageOp(out, op, ctm, regions)
 		case "BI":
 			// An inline image (BI ... ID ... EI, ISO 32000-1 §8.9.7) paints
@@ -384,6 +393,10 @@ func rewriteXObjectDoOperatorsInStream(data []byte, regions []QuadPoint, doc *Do
 			// a redaction region completely untouched, the same class of
 			// leak as pdf-go-ye1z but for pixel data that never became a
 			// separate XObject in the first place.
+			if budget != nil && budget.textOnly {
+				out = append(out, op)
+				continue
+			}
 			out = emitClassifiedImageOp(out, op, ctm, regions)
 		default:
 			out = append(out, op)
@@ -781,9 +794,11 @@ func redactFormXObject(doc *Document, st *pdfStream, parentResources pdfDict, ct
 	if err != nil {
 		return nil, nil, false, err
 	}
-	data, err = rewritePathOperatorsInStream(data, localRegions)
-	if err != nil {
-		return nil, nil, false, err
+	if budget == nil || !budget.textOnly {
+		data, err = rewritePathOperatorsInStream(data, localRegions)
+		if err != nil {
+			return nil, nil, false, err
+		}
 	}
 
 	if string(data) == string(original) {

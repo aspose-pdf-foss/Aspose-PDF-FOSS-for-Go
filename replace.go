@@ -82,6 +82,11 @@ func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, error) {
 // within a single line, like SearchText. Mirrors the find-and-replace idiom of
 // Aspose.PDF for .NET's TextFragmentAbsorber + TextFragment.Text.
 //
+// Text drawn inside a Form XObject is replaced as well: the form is copied
+// for this page with only the matched glyphs removed (its images and paths
+// stay), so other placements of the same form are left unchanged. The
+// ShiftRestOfLine adjustment moves page-level text only.
+//
 // Removing the old text reuses the SAME content-stream rewriter
 // ApplyRedactions does (rewriteTextOperatorsInStream), so it shares that
 // function's one hard limit: a match drawn with a font this pipeline
@@ -184,10 +189,23 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	for _, m := range matches {
 		regions = append(regions, rectAsQuadPoint(m.rect))
 	}
-	fontMap := resolveFontResources(p.doc.objects, p.pageResources())
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, p.pageResources(), nil)
+	// Text drawn inside a Form XObject is removed too (pdf-go-hxi2): the
+	// redaction Do rewriter, limited to text, clones each form a match
+	// reaches into and redirects that one placement to the clone. That
+	// adds resource names, so the page gets its own copy of /Resources
+	// first, as ApplyRedactions does (another page may share them).
+	resources := privateXObjectResources(p.doc.objects, p.pageResources())
+	p.pageDict()["/Resources"] = resources
+	fontMap := resolveFontResources(p.doc.objects, resources)
+	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources, nil)
 	if err != nil {
 		return 0, fmt.Errorf("remove matched text: %w", err)
+	}
+	budget := &formRedactBudget{textOnly: true}
+	preserve := pagePreservedXObjectNames(p, p.doc.objects, resources, budget)
+	data, err = rewriteXObjectDoOperatorsInStream(data, regions, p.doc, resources, 0, budget, preserve, nil)
+	if err != nil {
+		return 0, fmt.Errorf("remove matched text in form: %w", err)
 	}
 
 	// ShiftRestOfLine: move what follows each match on its line by the
