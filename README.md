@@ -988,7 +988,8 @@ stays free of network code.
 
 - `SearchText` (literal, case-insensitive, or RE2 regex, with an optional region) returns
   per-match bounding boxes built from per-glyph positions; `ReplaceText` redraws the replacement
-  at the same baseline/size/colour in a metric-compatible Standard-14 face, and with
+  at the same baseline/size/colour in a metric-compatible Standard-14 face (or, for text that face
+  cannot show, in `ReplaceOptions.Font` or the original's family found by name), and with
   `ReplaceAdjustmentShiftRestOfLine` moves the rest of the line by the change in width so a
   longer replacement does not overlap what follows. Both match within a single text line only.
 - `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
