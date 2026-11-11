@@ -23,6 +23,13 @@ type ReplaceOptions struct {
 	// different width. ReplaceAdjustmentNone (the zero value) leaves it in
 	// place; ReplaceAdjustmentShiftRestOfLine moves it.
 	Adjustment ReplaceAdjustment
+	// Font draws the replacement. Nil chooses one per match: the
+	// Standard-14 face matching the original's family and style when it
+	// covers every character of the replacement, else the original's family
+	// through the FontRepository and the installed fonts (embedded), as
+	// Aspose.PDF for .NET substitutes a font that has the glyphs. With no
+	// font covering it the call fails, naming the character.
+	Font Font
 }
 
 // ReplaceAdjustment selects how ReplaceText makes room for (or closes the
@@ -73,8 +80,12 @@ func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, error) {
 // returns the number of replacements made. The matched glyphs are removed and
 // the replacement is drawn at the same baseline, size, and colour in a
 // metric-compatible Standard-14 face chosen from the original's family and
-// style (so any replacement text renders, even when the original used an
-// embedded subset font that lacks the new glyphs). By default the line is not
+// style (so it renders even when the original used an embedded subset font
+// that lacks the new glyphs). A replacement that face cannot show, such as
+// Cyrillic or Arabic, is drawn in ReplaceOptions.Font, else in the original's
+// family found by name (see ReplaceOptions.Font); with neither the call fails
+// and nothing is changed. The replacement is shaped and, when right-to-left,
+// ends where the match ended. By default the line is not
 // re-flowed: a much longer replacement may overrun following content; with
 // ReplaceOptions.Adjustment = ReplaceAdjustmentShiftRestOfLine the text after
 // each replacement on its line moves by the difference in width instead (the
@@ -112,7 +123,7 @@ func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int
 	if err != nil {
 		return 0, err
 	}
-	n, err := applyReplaceToPage(p, re, replacement, adj)
+	n, err := applyReplaceToPage(p, re, replacement, adj, newReplaceFonts(opts))
 	if n > 0 {
 		p.doc.RemoveUnusedObjects()
 	}
@@ -132,9 +143,10 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 		return 0, err
 	}
 	total := 0
+	fonts := newReplaceFonts(opts)
 	for i := range d.pages {
 		p := &Page{doc: d, index: i}
-		n, err := applyReplaceToPage(p, re, replacement, adj)
+		n, err := applyReplaceToPage(p, re, replacement, adj, fonts)
 		total += n
 		if err != nil {
 			// As with ApplyRedactions: any EARLIER page that already
@@ -161,9 +173,73 @@ type replaceMatch struct {
 	size  float64   // font size in points
 	color Color     // fill colour of the original text
 	font  Font      // Standard-14 face matched to the original's family/style
+
+	fontName     string // the original's font, for a covering substitute
+	bold, italic bool
 }
 
-func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment) (int, error) {
+// replaceFonts picks the font each replacement is drawn in (ReplaceOptions.Font)
+// and keeps the faces loaded by name, so each is embedded once per call.
+type replaceFonts struct {
+	explicit Font
+	byName   map[string]Font // "" value: nothing covering was found
+}
+
+func newReplaceFonts(opts []ReplaceOptions) *replaceFonts {
+	rf := &replaceFonts{byName: map[string]Font{}}
+	for _, o := range opts {
+		if o.Font != nil {
+			rf.explicit = o.Font
+		}
+	}
+	return rf
+}
+
+// firstUncovered returns the first character of text font has no glyph for
+// (default-ignorables draw nothing and are never missing), or 0.
+func firstUncovered(font Font, text string) rune {
+	for _, r := range text {
+		if !isDefaultIgnorable(r) && !fontHasGlyph(font, r) {
+			return r
+		}
+	}
+	return 0
+}
+
+// fontFor returns the font to draw replacement in for m (pdf-go-o4py): until
+// then the Standard-14 face was used whatever the replacement, and a character
+// outside its Latin encoding was written as '?'.
+func (rf *replaceFonts) fontFor(d *Document, m replaceMatch, replacement string) (Font, error) {
+	if rf.explicit != nil {
+		return rf.explicit, nil
+	}
+	missing := firstUncovered(m.font, replacement)
+	if missing == 0 {
+		return m.font, nil
+	}
+	name := cleanFontName(m.fontName)
+	key := fmt.Sprintf("%s|%v|%v", name, m.bold, m.italic)
+	f, seen := rf.byName[key]
+	if !seen {
+		if name != "" {
+			if loaded, err := d.LoadFontByName(name, m.bold, m.italic); err == nil {
+				f = loaded
+			}
+		}
+		rf.byName[key] = f
+	}
+	if f != nil {
+		if r := firstUncovered(f, replacement); r == 0 {
+			return f, nil
+		} else {
+			missing = r
+		}
+	}
+	return nil, fmt.Errorf("replacement character %q (%U) is not in %s, and no installed or registered font of the original's family %q has it; set ReplaceOptions.Font", missing, missing, m.font.BaseFont(), name)
+}
+
+
+func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment, fonts *replaceFonts) (int, error) {
 	lines, err := p.ExtractTextWithLayout()
 	if err != nil {
 		return 0, err
@@ -174,6 +250,17 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	}
 	if len(matches) == 0 {
 		return 0, nil
+	}
+	// Choose every replacement's font before anything changes, so a
+	// replacement no font can show leaves the page as it was.
+	if replacement != "" {
+		for i := range matches {
+			f, err := fonts.fontFor(p.doc, matches[i], replacement)
+			if err != nil {
+				return 0, err
+			}
+			matches[i].font = f
+		}
 	}
 
 	// Remove the old glyphs with the redaction text rewriter (it drops glyphs
@@ -213,13 +300,13 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	if adj == ReplaceAdjustmentShiftRestOfLine {
 		shifts := make([]lineShift, 0, len(matches))
 		for _, m := range matches {
-			width, _, err := fontWidthAndAscent(m.font, m.size)
-			if err != nil {
-				return 0, err
-			}
 			newW := 0.0
 			if replacement != "" {
-				newW = measureString(replacement, width)
+				w, err := MeasureText(replacement, TextStyle{Font: m.font, Size: m.size})
+				if err != nil {
+					return 0, err
+				}
+				newW = w
 			}
 			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)})
 		}
@@ -232,26 +319,25 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 		}
 	}
 
-	// Redraw the replacement at each match's baseline (skipped for an empty
-	// replacement, which is then just a deletion).
-	if replacement != "" {
-		var buf strings.Builder
-		for _, m := range matches {
-			resName, _, encode, _, _, err := p.resolveFontForPage(m.font, m.size)
-			if err != nil {
-				return 0, err
-			}
-			buf.WriteString(fmt.Sprintf("\nq\n%s %s %s rg\nBT\n%s %s Tf\n%s %s Td\n%s Tj\nET\nQ\n",
-				formatFloat(m.color.R), formatFloat(m.color.G), formatFloat(m.color.B),
-				resName, formatFloat(m.size),
-				formatFloat(m.x), formatFloat(m.y),
-				encode(replacement)))
-		}
-		data = append(data, []byte(buf.String())...)
-	}
-
 	if err := replacePageContents(p, data); err != nil {
 		return 0, fmt.Errorf("replace content: %w", err)
+	}
+
+	// Redraw the replacement at each match's baseline (skipped for an empty
+	// replacement, which is then just a deletion). AddTextAt shapes it and
+	// orders it for display; a right-to-left replacement ends where the
+	// match ended.
+	if replacement != "" {
+		for _, m := range matches {
+			style := TextStyle{Font: m.font, Size: m.size, Color: &Color{R: m.color.R, G: m.color.G, B: m.color.B, A: 1}}
+			x := m.x
+			if bidiBaseLevel(replacement, false) == 1 {
+				style.HAlign, x = HAlignRight, m.rect.URX
+			}
+			if err := p.AddTextAt(replacement, style, x, m.y); err != nil {
+				return 0, fmt.Errorf("draw replacement: %w", err)
+			}
+		}
 	}
 	return len(matches), nil
 }
@@ -303,6 +389,10 @@ func collectReplaceMatchesLine(line *TextLine, re *regexp.Regexp) []replaceMatch
 			size:  f.FontSize,
 			color: f.Color,
 			font:  standard14ForFragment(f.FontName, f.Bold, f.Italic),
+
+			fontName: f.FontName,
+			bold:     f.Bold,
+			italic:   f.Italic,
 		})
 	}
 	return out
