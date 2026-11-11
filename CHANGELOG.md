@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`TableAbsorber` reads tables set sideways in their own orientation.** A ruled table whose text runs at 90 or 270 degrees, as on a page with `/Rotate`, came out transposed, its rows as columns; rows, columns and spans now follow the text, and a rotated cell's lines read in order. A ruled table whose last row or column has no closing line, the other rules simply ending together, now keeps it.
 - **A wrapped header cell in a borderless table makes one row.** `TableAbsorber` read a header whose first cell wraps onto two lines as two rows.
 - **`TableAbsorber` keeps ruled tables a few points apart separate.** Two tables drawn close together, one above the other or side by side, were reported as one table with an empty row or column for the gap.
 - **`ReplaceAdjustmentShiftRestOfLine` works on right-to-left lines.** On an Arabic or Hebrew line the text after a replacement lies to its left, and it did not move, so a shorter replacement left a gap and a longer one overlapped. It now moves, and the replacement keeps the right edge of the text it replaced.

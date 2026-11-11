@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -84,54 +85,75 @@ func (c *AbsorbedCell) Text() string {
 	if len(c.fragments) == 0 {
 		return ""
 	}
-	frs := append([]TextFragment(nil), c.fragments...)
-	sort.Slice(frs, func(i, j int) bool {
-		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
-			return frs[i].Y > frs[j].Y
-		}
-		return frs[i].X < frs[j].X
-	})
+	frs := framedFragments(c.fragments)
 	var b strings.Builder
-	prevY := frs[0].Y
+	prevY := frs[0].y
 	prevEnd := 0.0
-	for i, fr := range frs {
+	for i, f := range frs {
 		switch {
 		case i == 0:
-		case fr.Y < prevY-0.5:
+		case f.y < prevY-0.5:
 			b.WriteString("\n")
 		default:
-			if gapIsSpace(prevEnd, fr) {
+			if gapIsSpace(prevEnd, f.at(f.x)) {
 				b.WriteString(" ")
 			}
 		}
-		b.WriteString(fr.Text)
-		prevY = fr.Y
-		prevEnd = fr.X + fr.Width
+		b.WriteString(f.Text)
+		prevY = f.y
+		prevEnd = f.x + f.Width
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// framedFragment is a fragment with its position in its own text direction:
+// x along the baseline, y across it, so rotated text orders into lines as
+// horizontal text does.
+type framedFragment struct {
+	TextFragment
+	x, y float64
+}
+
+// at returns the fragment with X replaced by x, for gapIsSpace.
+func (f framedFragment) at(x float64) TextFragment {
+	fr := f.TextFragment
+	fr.X = x
+	return fr
+}
+
+// framedFragments sorts fragments into reading order in their text frame: top
+// line first, left to right. For unrotated text the frame is the page.
+func framedFragments(in []TextFragment) []framedFragment {
+	out := make([]framedFragment, len(in))
+	for i, fr := range in {
+		sin, cos := math.Sincos(fr.Rotation * math.Pi / 180)
+		out[i] = framedFragment{fr, fr.X*cos + fr.Y*sin, -fr.X*sin + fr.Y*cos}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if diff := out[i].y - out[j].y; diff > 0.5 || diff < -0.5 {
+			return out[i].y > out[j].y
+		}
+		return out[i].x < out[j].x
+	})
+	return out
 }
 
 // absorbedCellRuns converts the cell's fragments to styled runs: visual
 // lines separated by break runs, gap-synthesized spaces, full fragment look.
 // Shared by the DOCX/EPUB/HTML/Markdown table serializers.
 func absorbedCellRuns(cell *AbsorbedCell) []docRun {
-	frs := append([]TextFragment(nil), cell.TextFragments()...)
-	if len(frs) == 0 {
+	if len(cell.TextFragments()) == 0 {
 		return nil
 	}
-	sort.Slice(frs, func(i, j int) bool {
-		if diff := frs[i].Y - frs[j].Y; diff > 0.5 || diff < -0.5 {
-			return frs[i].Y > frs[j].Y
-		}
-		return frs[i].X < frs[j].X
-	})
+	frs := framedFragments(cell.TextFragments())
 	var runs []docRun
-	prevY, prevEnd := frs[0].Y, 0.0
-	for i, fr := range frs {
+	prevY, prevEnd := frs[0].y, 0.0
+	for i, f := range frs {
+		fr := f.TextFragment
 		if i > 0 {
-			if fr.Y < prevY-0.5 {
+			if f.y < prevY-0.5 {
 				runs = append(runs, docRun{br: true})
-			} else if gapIsSpace(prevEnd, fr) && len(runs) > 0 {
+			} else if gapIsSpace(prevEnd, f.at(f.x)) && len(runs) > 0 {
 				runs[len(runs)-1].text += " "
 			}
 		}
@@ -146,7 +168,7 @@ func absorbedCellRuns(cell *AbsorbedCell) []docRun {
 			sub:      fr.IsSubscript,
 			super:    fr.IsSuperscript,
 		})
-		prevY, prevEnd = fr.Y, fr.X+fr.Width
+		prevY, prevEnd = f.y, f.x+fr.Width
 	}
 	return runs
 }
@@ -162,7 +184,8 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 	}
 
 	if len(hRules) >= 2 && len(vRules) >= 2 {
-		if cells := latticeCells(buildLatticeGrid(hRules, vRules)); len(cells) > 0 {
+		gh, gv := closeOpenEdges(hRules, vRules)
+		if cells := latticeCells(buildLatticeGrid(gh, gv)); len(cells) > 0 {
 			for _, group := range groupCells(cells) {
 				for _, comp := range splitAtGaps(group) {
 					if len(comp) < minTableCells {
@@ -300,7 +323,99 @@ func buildAbsorbedTable(comp []latticeCell, lines []TextLine, fills []shadedRect
 			}
 		}
 	}
+	orientTable(table)
 	return table
+}
+
+// tableTextRotation is the direction most of a table's text runs in, by
+// character count: 0, 90, 180 or 270 degrees.
+func tableTextRotation(t *AbsorbedTable) int {
+	count := map[int]int{}
+	for _, row := range t.rows {
+		for _, c := range row.cells {
+			if c.Covered {
+				continue
+			}
+			for _, fr := range c.fragments {
+				q := (int(math.Round(fr.Rotation/90))%4 + 4) % 4
+				count[q*90] += len([]rune(fr.Text))
+			}
+		}
+	}
+	best, bestN := 0, 0
+	for _, rot := range []int{0, 90, 180, 270} {
+		if count[rot] > bestN {
+			best, bestN = rot, count[rot]
+		}
+	}
+	return best
+}
+
+// orientTable turns the grid of a table whose text runs at 90 or 270 degrees
+// into the orientation the text reads in (pdf-go-c19b): the grid was built on
+// the page's axes, so its rows were the table's columns. At 90 degrees the
+// glyphs' tops point left, so the table's first row is the leftmost page
+// column and its columns run up the page; at 270 everything mirrors.
+func orientTable(t *AbsorbedTable) {
+	rot := tableTextRotation(t)
+	if rot != 90 && rot != 270 {
+		return
+	}
+	nR, nC := len(t.rows), len(t.rows[0].cells)
+	grid := make([][]*AbsorbedCell, nC)
+	for i := range grid {
+		grid[i] = make([]*AbsorbedCell, nR)
+	}
+	for r, row := range t.rows {
+		for c, cell := range row.cells {
+			if cell.Covered {
+				continue
+			}
+			top, left := c, nR-r-cell.RowSpan // 90
+			if rot == 270 {
+				top, left = nC-c-cell.ColSpan, r
+			}
+			moved := *cell
+			moved.RowSpan, moved.ColSpan = cell.ColSpan, cell.RowSpan
+			for i := top; i < top+moved.RowSpan; i++ {
+				for j := left; j < left+moved.ColSpan; j++ {
+					if i == top && j == left {
+						grid[i][j] = &moved
+					} else {
+						grid[i][j] = &AbsorbedCell{Rect: cell.Rect, Covered: true}
+					}
+				}
+			}
+		}
+	}
+	colXs, rowYs := t.colXs, t.rowYs
+	newCols := make([]float64, nR+1) // widths are the old rows' heights
+	newRows := make([]float64, nC+1)
+	for k := range newCols {
+		if rot == 90 {
+			newCols[k] = rowYs[k]
+		} else {
+			newCols[k] = -rowYs[nR-k]
+		}
+	}
+	for k := range newRows {
+		if rot == 90 {
+			newRows[k] = -colXs[nC-k]
+		} else {
+			newRows[k] = colXs[k]
+		}
+	}
+	t.rows = nil
+	for i := range nC {
+		c := i // the page column this row is
+		if rot == 270 {
+			c = nC - 1 - i
+		}
+		row := &AbsorbedRow{Rect: Rectangle{LLX: colXs[c], LLY: t.Rect.LLY, URX: colXs[c+1], URY: t.Rect.URY}}
+		row.cells = grid[i]
+		t.rows = append(t.rows, row)
+	}
+	t.colXs, t.rowYs = newCols, newRows
 }
 
 // cellAt locates the anchor cell containing the point.

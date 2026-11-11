@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"math"
 	"sort"
 )
 
@@ -160,6 +161,84 @@ func groupCells(cells []latticeCell) [][]latticeCell {
 	sort.Ints(roots)
 	for _, r := range roots {
 		out = append(out, byRoot[r])
+	}
+	return out
+}
+
+// closeOpenEdges adds the border a grid implies without drawing it: when every
+// rule crossing a table's last border runs on to one common end, that end is
+// the table's edge. A table whose last column (or row) has no closing rule
+// otherwise loses it, as its cells never close (pdf-go-c19b). Both ends of both
+// directions are checked.
+func closeOpenEdges(hRules, vRules []rule) ([]rule, []rule) {
+	return closeEnds(hRules, vRules), closeEnds(vRules, hRules)
+}
+
+// closeEnds returns cross with a rule added at each implied edge of rules: a
+// rule c of cross (a border) such that the rules meeting it number at least
+// three, span c's length, all run on past it to one end at least minSpan away,
+// and meet no other rule of cross beyond it.
+func closeEnds(cross, rules []rule) []rule {
+	const endTol, minSpan = 1.0, 8.0
+	out := append([]rule(nil), cross...)
+	meets := func(c, r rule) bool {
+		return c.pos >= r.lo-xTolPt && c.pos <= r.hi+xTolPt && r.pos >= c.lo-xTolPt && r.pos <= c.hi+xTolPt
+	}
+	for _, c := range cross {
+		var members []rule
+		for _, r := range rules {
+			if meets(c, r) {
+				members = append(members, r)
+			}
+		}
+		if len(members) < 3 {
+			continue
+		}
+		lo, hi := members[0].pos, members[0].pos
+		for _, m := range members {
+			lo, hi = minf(lo, m.pos), maxf(hi, m.pos)
+		}
+		if math.Abs(lo-c.lo) > 2*xTolPt || math.Abs(hi-c.hi) > 2*xTolPt {
+			continue // c is not the whole border of these rules
+		}
+		for _, high := range []bool{true, false} {
+			end, ok := members[0].hi, true
+			if !high {
+				end = members[0].lo
+			}
+			for _, m := range members {
+				e := m.hi
+				if !high {
+					e = m.lo
+				}
+				if math.Abs(e-end) > endTol {
+					ok = false
+					break
+				}
+			}
+			beyond := end - c.pos
+			if !high {
+				beyond = c.pos - end
+			}
+			if !ok || beyond < minSpan {
+				continue
+			}
+			// No other border between c and the end, nor at it.
+			for _, o := range cross {
+				between := (high && o.pos > c.pos+endTol && o.pos <= end+2*endTol) ||
+					(!high && o.pos < c.pos-endTol && o.pos >= end-2*endTol)
+				if between && o.hi > lo+xTolPt && o.lo < hi-xTolPt {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				out = append(out, rule{pos: end, lo: lo, hi: hi})
+			}
+		}
+	}
+	if len(out) != len(cross) {
+		sort.Slice(out, func(i, j int) bool { return out[i].pos < out[j].pos })
 	}
 	return out
 }

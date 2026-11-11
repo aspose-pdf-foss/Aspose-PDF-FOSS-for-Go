@@ -239,3 +239,147 @@ func TestTableAbsorberSplitsTablesAFewPointsApart(t *testing.T) {
 		})
 	}
 }
+
+// rotatedGrid rules a grid of 3 page columns × 2 page rows (60×100pt cells)
+// and writes each logical cell's name rotated by rot degrees, as a table set
+// sideways on the page. name gives the logical cell a page cell holds.
+func rotatedGrid(t *testing.T, rot float64, name func(pc, pr int) string, lines int) *pdf.Document {
+	t.Helper()
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	line := pdf.LineStyle{Color: &pdf.Color{A: 1}, Width: 1}
+	x0, y0 := 100.0, 300.0 // bottom-left
+	for c := 0; c <= 3; c++ {
+		x := x0 + float64(c)*60
+		if err := p.DrawLine(pdf.Point{X: x, Y: y0}, pdf.Point{X: x, Y: y0 + 300}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for r := 0; r <= 2; r++ {
+		y := y0 + float64(r)*150
+		if err := p.DrawLine(pdf.Point{X: x0, Y: y}, pdf.Point{X: x0 + 180, Y: y}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for pc := range 3 {
+		for pr := range 2 { // pr 0 = bottom
+			for l := range lines {
+				// Rotated 90, the baseline runs up and lines step right; at
+				// 270 it runs down and lines step left.
+				x, y := x0+float64(pc)*60+20+float64(l)*14, y0+float64(pr)*150+10
+				if rot == 270 {
+					x, y = x0+float64(pc+1)*60-20-float64(l)*14, y0+float64(pr+1)*150-10
+				}
+				s := name(pc, pr) + " a longer cell text" // far longer than the cell is wide
+				if lines > 1 {
+					s = fmt.Sprintf("%s.%d", s, l)
+				}
+				if err := p.AddTextAt(s, pdf.TextStyle{Size: 10, Rotation: rot}, x, y); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	return doc
+}
+
+// TestTableAbsorberRotatedText: a table whose text runs at 90 or 270 degrees
+// is reported in the orientation the text reads in (pdf-go-c19b).
+func TestTableAbsorberRotatedText(t *testing.T) {
+	for _, tc := range []struct {
+		rot  float64
+		name func(pc, pr int) string
+	}{
+		// At 90 the leftmost page column is the first row and columns run up.
+		{90, func(pc, pr int) string { return fmt.Sprintf("r%dc%d", pc, pr) }},
+		// At 270 the rightmost page column is the first row and columns run down.
+		{270, func(pc, pr int) string { return fmt.Sprintf("r%dc%d", 2-pc, 1-pr) }},
+	} {
+		t.Run(fmt.Sprint(tc.rot), func(t *testing.T) {
+			tables := detectOn(t, rotatedGrid(t, tc.rot, tc.name, 1))
+			if len(tables) != 1 {
+				t.Fatalf("detected %d tables; want 1", len(tables))
+			}
+			rows := tables[0].RowList()
+			if len(rows) != 3 || len(rows[0].CellList()) != 2 {
+				t.Fatalf("%d rows × %d; want 3 × 2", len(rows), len(rows[0].CellList()))
+			}
+			for i, row := range rows {
+				for j, c := range row.CellList() {
+					if want := fmt.Sprintf("r%dc%d a longer cell text", i, j); c.Text() != want {
+						t.Errorf("cell[%d][%d] = %q; want %q", i, j, c.Text(), want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestTableAbsorberRotatedCellLines: the lines of a rotated cell read in order,
+// one per line.
+func TestTableAbsorberRotatedCellLines(t *testing.T) {
+	tables := detectOn(t, rotatedGrid(t, 90, func(pc, pr int) string { return fmt.Sprintf("r%dc%d", pc, pr) }, 2))
+	if len(tables) != 1 {
+		t.Fatalf("detected %d tables; want 1", len(tables))
+	}
+	if got := tables[0].RowList()[1].CellList()[0].Text(); got != "r1c0 a longer cell text.0\nr1c0 a longer cell text.1" {
+		t.Errorf("cell[1][0] = %q; want two lines", got)
+	}
+}
+
+// TestTableAbsorberOpenEdge: a grid whose last row has no closing rule — the
+// column rules run on to a common end — keeps that row (pdf-go-c19b).
+func TestTableAbsorberOpenEdge(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	line := pdf.LineStyle{Color: &pdf.Color{A: 1}, Width: 1}
+	for c := 0; c <= 3; c++ {
+		x := 100 + float64(c)*100
+		if err := p.DrawLine(pdf.Point{X: x, Y: 500}, pdf.Point{X: x, Y: 560}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, y := range []float64{500, 530} { // no rule at 560
+		if err := p.DrawLine(pdf.Point{X: 100, Y: y}, pdf.Point{X: 400, Y: y}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for r, y := range []float64{540, 510} {
+		for c := range 3 {
+			if err := p.AddTextAt(fmt.Sprintf("t%d%d", r, c), pdf.TextStyle{Size: 9}, 105+float64(c)*100, y); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	tables := detectOn(t, doc)
+	if len(tables) != 1 {
+		t.Fatalf("detected %d tables; want 1", len(tables))
+	}
+	rows := tables[0].RowList()
+	if len(rows) != 2 || rows[0].CellList()[2].Text() != "t02" {
+		t.Errorf("%d rows; first row %v", len(rows), rows[0].CellList())
+	}
+}
+
+// TestTableAbsorberTicksAreNoTable: short ticks crossing two long lines and
+// ending together above them are no table edge — the lines are not the ticks'
+// border.
+func TestTableAbsorberTicksAreNoTable(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	line := pdf.LineStyle{Color: &pdf.Color{A: 1}, Width: 1}
+	for _, y := range []float64{500, 510} {
+		if err := p.DrawLine(pdf.Point{X: 100, Y: y}, pdf.Point{X: 500, Y: y}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for k := range 5 {
+		x := 200 + float64(k)*40
+		if err := p.DrawLine(pdf.Point{X: x, Y: 500}, pdf.Point{X: x, Y: 530}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tables := detectOn(t, doc); len(tables) != 0 {
+		t.Errorf("detected %d tables; want none", len(tables))
+	}
+}
