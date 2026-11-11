@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Flattened text keeps the space between two words** when the second word's column fell right at the end of the first.
+- **Text drawn bold by fill and stroke is reported as bold.** Producers fake bold with text rendering mode 2 over a regular face; `TextFragment.Bold` now says so.
 - **`TableAbsorber` reads tables set sideways in their own orientation.** A ruled table whose text runs at 90 or 270 degrees, as on a page with `/Rotate`, came out transposed, its rows as columns; rows, columns and spans now follow the text, and a rotated cell's lines read in order. A ruled table whose last row or column has no closing line, the other rules simply ending together, now keeps it.
 - **A wrapped header cell in a borderless table makes one row.** `TableAbsorber` read a header whose first cell wraps onto two lines as two rows.
 - **`TableAbsorber` keeps ruled tables a few points apart separate.** Two tables drawn close together, one above the other or side by side, were reported as one table with an empty row or column for the gap.

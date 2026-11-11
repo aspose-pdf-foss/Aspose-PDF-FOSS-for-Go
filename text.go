@@ -145,6 +145,8 @@ type textExtractor struct {
 	wordSpace    float64
 	leading      float64
 	horizScaling float64    // Tz / 100; default 1.0
+	renderMode   int        // Tr
+	lineWidth    float64    // w; default 1.0
 	tm           [6]float64 // text matrix
 	lm           [6]float64 // line matrix
 	ctm          [6]float64 // current transformation matrix
@@ -180,6 +182,8 @@ type extractorGState struct {
 	wordSpace    float64
 	leading      float64
 	horizScaling float64
+	renderMode   int
+	lineWidth    float64
 	fillR        float64
 	fillG        float64
 	fillB        float64
@@ -200,6 +204,7 @@ func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *te
 		font:         emptyFontInfo,
 		ctm:          identityMatrix(),
 		horizScaling: 1.0,
+		lineWidth:    1.0,
 	}
 }
 
@@ -407,6 +412,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				ctm: e.ctm, font: e.font, fontSize: e.fontSize,
 				charSpace: e.charSpace, wordSpace: e.wordSpace, leading: e.leading,
 				horizScaling: e.horizScaling, fillR: e.fillR, fillG: e.fillG, fillB: e.fillB,
+				renderMode: e.renderMode, lineWidth: e.lineWidth,
 			})
 
 		case "Q":
@@ -417,6 +423,17 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.charSpace, e.wordSpace, e.leading = s.charSpace, s.wordSpace, s.leading
 				e.horizScaling = s.horizScaling
 				e.fillR, e.fillG, e.fillB = s.fillR, s.fillG, s.fillB
+				e.renderMode, e.lineWidth = s.renderMode, s.lineWidth
+			}
+
+		case "Tr":
+			if len(op.Operands) >= 1 {
+				e.renderMode = int(operandFloat(op.Operands[0]))
+			}
+
+		case "w":
+			if len(op.Operands) >= 1 {
+				e.lineWidth = operandFloat(op.Operands[0])
 			}
 
 		case "BMC":
@@ -709,8 +726,13 @@ func (e *textExtractor) emitRune(r rune) {
 	fontName := e.font.name
 	rotation := e.currentRotation()
 
+	// Fill then stroke (Tr 2, or 6 with clipping) over a regular face is how
+	// producers fake bold (pdf-go-nhcz).
+	bold := e.font.bold || ((e.renderMode == 2 || e.renderMode == 6) && e.lineWidth > 0)
+
 	needNew := e.curFrag == nil ||
 		fontName != e.curFrag.fontName ||
+		bold != e.curFrag.bold ||
 		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01 ||
 		math.Abs(rotation-e.curFrag.rotation) > 0.5
 
@@ -746,7 +768,7 @@ func (e *textExtractor) emitRune(r rune) {
 			fontSize:    effectiveFontSize,
 			height:      height,
 			descent:     descent,
-			bold:        e.font.bold,
+			bold:        bold,
 			italic:      e.font.italic,
 			charSpacing: e.charSpace,
 			colorR:      e.fillR,
