@@ -3,6 +3,7 @@
 package asposepdf_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -171,4 +172,70 @@ func TestTableAbsorberRealFile(t *testing.T) {
 	}
 	t.Logf("PdfWithTable: %d tables, first %dx%d", len(tables),
 		len(tab.RowList()), len(tab.RowList()[0].CellList()))
+}
+
+// drawGrid rules a rows×cols grid of 100×20pt cells with its top-left at
+// (x, top) and writes a label in each cell.
+func drawGrid(t *testing.T, p *pdf.Page, x, top float64, rows, cols int, label string) {
+	t.Helper()
+	line := pdf.LineStyle{Color: &pdf.Color{A: 1}, Width: 1}
+	for r := 0; r <= rows; r++ {
+		y := top - float64(r)*20
+		if err := p.DrawLine(pdf.Point{X: x, Y: y}, pdf.Point{X: x + float64(cols)*100, Y: y}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for c := 0; c <= cols; c++ {
+		xx := x + float64(c)*100
+		if err := p.DrawLine(pdf.Point{X: xx, Y: top}, pdf.Point{X: xx, Y: top - float64(rows)*20}, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			y := top - float64(r+1)*20
+			if err := p.AddText(fmt.Sprintf("%s%d%d", label, r, c), pdf.TextStyle{Size: 9},
+				pdf.Rectangle{LLX: x + float64(c)*100 + 3, LLY: y + 3, URX: x + float64(c+1)*100 - 3, URY: y + 17}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// TestTableAbsorberSplitsTablesAFewPointsApart: two ruled tables drawn 4pt
+// apart are two tables, not one with an empty row between them; the same for
+// tables side by side (pdf-go-t81f).
+func TestTableAbsorberSplitsTablesAFewPointsApart(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		x2, top2     float64
+		rows1, rows2 int
+	}{
+		{"stacked", 60, 700 - 3*20 - 4, 3, 4},
+		{"side by side", 60 + 2*100 + 4, 700, 3, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+			p, _ := doc.Page(1)
+			drawGrid(t, p, 60, 700, tc.rows1, 2, "a")
+			drawGrid(t, p, tc.x2, tc.top2, tc.rows2, 2, "b")
+			tables := detectOn(t, doc)
+			if len(tables) != 2 {
+				t.Fatalf("detected %d tables; want 2", len(tables))
+			}
+			for i, want := range []struct {
+				rows  int
+				first string
+			}{{tc.rows1, "a00"}, {tc.rows2, "b00"}} {
+				rows := tables[i].RowList() // top to bottom, then left to right
+				if len(rows) != want.rows || len(rows[0].CellList()) != 2 {
+					t.Errorf("table %d: %d rows × %d; want %d × 2", i, len(rows), len(rows[0].CellList()), want.rows)
+					continue
+				}
+				if got := rows[0].CellList()[0].Text(); got != want.first {
+					t.Errorf("table %d first cell %q; want %q", i, got, want.first)
+				}
+			}
+		})
+	}
 }

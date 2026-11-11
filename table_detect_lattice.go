@@ -164,6 +164,60 @@ func groupCells(cells []latticeCell) [][]latticeCell {
 	return out
 }
 
+// splitAtGaps splits a component at a band no cell covers: a row (or column)
+// of the component's grid that lies between cells without being part of any.
+// groupCells joins cells whose edges are within cellCornerJoinPt, which also
+// joins two tables drawn a few points apart (pdf-go-t81f); inside one table
+// every band is covered — an empty ruled row is still cells, and a spanning
+// cell covers the bands it crosses — so an uncovered band is the gap between
+// two tables.
+func splitAtGaps(comp []latticeCell) [][]latticeCell {
+	var xs, ys []float64
+	for _, c := range comp {
+		xs = append(xs, c.LLX, c.URX)
+		ys = append(ys, c.LLY, c.URY)
+	}
+	uncovered := func(lo, hi float64, vertical bool) bool {
+		mid := (lo + hi) / 2
+		for _, c := range comp {
+			a, b := c.LLY, c.URY
+			if vertical {
+				a, b = c.LLX, c.URX
+			}
+			if a < mid && mid < b {
+				return false
+			}
+		}
+		return true
+	}
+	split := func(at float64, vertical bool) [][]latticeCell {
+		var low, high []latticeCell
+		for _, c := range comp {
+			edge := c.URY
+			if vertical {
+				edge = c.URX
+			}
+			if edge <= at {
+				low = append(low, c)
+			} else {
+				high = append(high, c)
+			}
+		}
+		return append(splitAtGaps(low), splitAtGaps(high)...)
+	}
+	for _, axis := range []struct {
+		pos      []float64
+		vertical bool
+	}{{snapPositions(ys), false}, {snapPositions(xs), true}} {
+		for k := 0; k+1 < len(axis.pos); k++ {
+			if uncovered(axis.pos[k], axis.pos[k+1], axis.vertical) {
+				return split((axis.pos[k]+axis.pos[k+1])/2, axis.vertical)
+			}
+		}
+	}
+	return [][]latticeCell{comp}
+}
+
 // snapPositions collects the distinct boundary positions of a component
 // (cell tops/bottoms or lefts/rights), snapped within tolerance.
 func snapPositions(vals []float64) []float64 {

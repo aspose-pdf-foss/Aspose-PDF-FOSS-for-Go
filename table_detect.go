@@ -163,12 +163,14 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 
 	if len(hRules) >= 2 && len(vRules) >= 2 {
 		if cells := latticeCells(buildLatticeGrid(hRules, vRules)); len(cells) > 0 {
-			for _, comp := range groupCells(cells) {
-				if len(comp) < minTableCells {
-					continue
-				}
-				if t := buildAbsorbedTable(comp, lines, fills, p.Number()); t != nil {
-					ta.tables = append(ta.tables, t)
+			for _, group := range groupCells(cells) {
+				for _, comp := range splitAtGaps(group) {
+					if len(comp) < minTableCells {
+						continue
+					}
+					if t := buildAbsorbedTable(comp, lines, fills, p.Number()); t != nil {
+						ta.tables = append(ta.tables, t)
+					}
 				}
 			}
 		}
