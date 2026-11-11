@@ -56,8 +56,9 @@ type streamRow struct {
 
 // detectStreamTables finds borderless tables among the page's layout lines.
 // skipRects lists regions already claimed by lattice tables; hRules feeds the
-// structural-agreement guard.
-func detectStreamTables(p *Page, lines []TextLine, skipRects []Rectangle, hRules []rule, pageNo int) []*AbsorbedTable {
+// structural-agreement guard; markup gives the paragraphs of the same text,
+// for the prose guard, and is called only when a candidate gets that far.
+func detectStreamTables(lines []TextLine, skipRects []Rectangle, hRules []rule, pageNo int, markup func() (*PageMarkup, error)) []*AbsorbedTable {
 	rows := buildStreamRows(lines, skipRects)
 	if len(rows) < streamMinRows {
 		return nil
@@ -66,9 +67,19 @@ func detectStreamTables(p *Page, lines []TextLine, skipRects []Rectangle, hRules
 	var tables []*AbsorbedTable
 	var pm *PageMarkup // lazy: Paragraphs() only when a candidate survives to guard 5
 	for _, run := range streamRuns(rows) {
-		t := buildStreamTable(run, hRules, &pm, p, pageNo)
-		if t != nil {
+		if t := buildStreamTable(run, hRules, &pm, markup, pageNo); t != nil {
 			tables = append(tables, t)
+			continue
+		}
+		// Two tables side by side whose rows sit at different heights make
+		// one run of alternating rows; failing as one, each may stand alone.
+		for _, part := range splitRunByExtent(run) {
+			if len(part) < streamMinRows {
+				continue
+			}
+			if t := buildStreamTable(part, hRules, &pm, markup, pageNo); t != nil {
+				tables = append(tables, t)
+			}
 		}
 	}
 	return tables
@@ -207,9 +218,41 @@ func streamRuns(rows []streamRow) [][]streamRow {
 	return runs
 }
 
+// splitRunByExtent parts a run's rows into groups whose horizontal extents do
+// not overlap — the rows of side-by-side blocks — keeping their order. It
+// returns nil when the rows form a single group.
+func splitRunByExtent(run []streamRow) [][]streamRow {
+	type span struct {
+		lo, hi float64
+		i      int
+	}
+	spans := make([]span, len(run))
+	for i, r := range run {
+		spans[i] = span{r.cells[0].lo, r.cells[len(r.cells)-1].hi, i}
+	}
+	sort.Slice(spans, func(a, b int) bool { return spans[a].lo < spans[b].lo })
+	group := make([]int, len(run))
+	g, reach := 0, spans[0].hi
+	for k, sp := range spans {
+		if k > 0 && sp.lo > reach {
+			g++
+		}
+		reach = maxf(reach, sp.hi)
+		group[sp.i] = g
+	}
+	if g == 0 {
+		return nil
+	}
+	parts := make([][]streamRow, g+1)
+	for i, r := range run {
+		parts[group[i]] = append(parts[group[i]], r)
+	}
+	return parts
+}
+
 // buildStreamTable derives the column model for one run and applies the
 // guards; nil when any guard rejects.
-func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, p *Page, pageNo int) *AbsorbedTable {
+func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, markup func() (*PageMarkup, error), pageNo int) *AbsorbedTable {
 	// Guard 3: modal cell count, >= 2, appearing in >= streamModalMin rows.
 	counts := map[int]int{}
 	for _, r := range run {
@@ -403,7 +446,7 @@ func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, p *Page, 
 				continue
 			}
 			withCells++
-			if isListMarkerCell(r.cells[0]) {
+			if isListMarkerCell(r.cells[0]) || unmappedBullet(r) {
 				markers++
 			}
 		}
@@ -531,11 +574,11 @@ func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, p *Page, 
 	// column's paragraphs cover only half the candidate, together nearly
 	// all of it.
 	if *pm == nil {
-		markup, err := p.Paragraphs()
+		m, err := markup()
 		if err != nil {
 			return nil
 		}
-		*pm = &markup
+		*pm = m
 	}
 	area := (rect.URX - rect.LLX) * (rect.URY - rect.LLY)
 	if area <= 0 {
@@ -648,7 +691,10 @@ func isListMarkerCell(c streamCellSpan) bool {
 	if s == "" || len(s) > 5 {
 		return false
 	}
-	if n := []rune(s); len(n) == 1 && strings.ContainsRune("•◦▪‣∙·–—*-", n[0]) {
+	if n := []rune(s); len(n) == 1 && (strings.ContainsRune("•◦▪‣∙·–—*-", n[0]) ||
+		// A bullet from a symbol font extracts as a private-use code point
+		// (U+F0B7).
+		(n[0] >= 0xE000 && n[0] <= 0xF8FF)) {
 		return true
 	}
 	body, tail := s[:len(s)-1], s[len(s)-1]
@@ -659,6 +705,21 @@ func isListMarkerCell(c streamCellSpan) bool {
 		return true
 	}
 	return false
+}
+
+// unmappedBullet reports whether a row opens with a lone U+FFFD — a bullet
+// whose glyph has no Unicode mapping — before readable text. On a page whose
+// text is unmapped throughout, a lone U+FFFD is just a short word.
+func unmappedBullet(r streamRow) bool {
+	if len(r.cells) < 2 || strings.TrimSpace(streamCellText(r.cells[0])) != "�" {
+		return false
+	}
+	for _, c := range r.cells[1:] {
+		if strings.ContainsRune(streamCellText(c), '�') {
+			return false
+		}
+	}
+	return true
 }
 
 // bareIntText parses s as a bare integer of table-plausible length.

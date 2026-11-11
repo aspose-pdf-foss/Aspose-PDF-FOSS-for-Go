@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`TableAbsorber` finds borderless tables of rotated text**, on pages laid out sideways or in sideways blocks, with rows and columns as the text reads; ruled ones were already found. It also finds two borderless tables set side by side whose rows sit at different heights, which it used to miss, and no longer takes a bulleted list for a table when the bullets come from a symbol font.
 - **`Paragraphs` reads letterheads and indented openings better.** A paragraph whose first line starts at the left margin and whose other lines are indented below was cut into two columns with its lines interleaved; it is now one block. Blocks set side by side above full-width text (an address beside the sender's details, signature blocks, a pull quote) are now read block by block, where they used to be merged line by line. Rows of a table and the labels of a list keep reading row by row.
 - **Text along a curve reads as one line.** When each glyph is drawn at its own angle, or a rotated line is split into several runs, `ExtractText`, `ExtractTextWithLayout` and `SearchText` used to give each piece a line of its own, so a word came out one letter per line and could not be found. Runs that continue one another along their baselines are now one line, in the order they were drawn, with word gaps measured along the baseline.
 - **Flattened text keeps the space between two words** when the second word's column fell right at the end of the first.

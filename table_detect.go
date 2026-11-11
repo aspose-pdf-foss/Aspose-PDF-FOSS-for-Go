@@ -204,7 +204,19 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 	for _, t := range ta.tables {
 		latticeRects = append(latticeRects, t.Rect)
 	}
-	ta.tables = append(ta.tables, detectStreamTables(p, lines, latticeRects, hRules, p.Number())...)
+	pageMarkup := func() (*PageMarkup, error) {
+		m, err := p.Paragraphs()
+		return &m, err
+	}
+	ta.tables = append(ta.tables, detectStreamTables(lines, latticeRects, hRules, p.Number(), pageMarkup)...)
+	// Then the same in the frame of text set at a quarter turn.
+	for _, rot := range []float64{90, 270} {
+		var claimed []Rectangle
+		for _, t := range ta.tables {
+			claimed = append(claimed, t.Rect)
+		}
+		ta.tables = append(ta.tables, detectRotatedStreamTables(p, lines, claimed, vRules, rot)...)
+	}
 	sort.SliceStable(ta.tables, func(i, j int) bool {
 		if diff := ta.tables[i].Rect.URY - ta.tables[j].Rect.URY; diff > 0.5 || diff < -0.5 {
 			return diff > 0

@@ -53,7 +53,14 @@ func (p *Page) Paragraphs() (PageMarkup, error) {
 	if sz, err := p.Size(); err == nil && sz.Width > 0 {
 		pageW = sz.Width
 	}
+	out.Sections = markupSections(frags, pageW)
+	return out, nil
+}
 
+// markupSections groups fragments into columns and paragraphs over a page
+// pageW wide.
+func markupSections(frags []textFragment, pageW float64) []MarkupSection {
+	var out []MarkupSection
 	for _, r := range columnRegions(frags, pageW) {
 		cols := r.cols
 		if len(cols) == 0 {
@@ -72,13 +79,13 @@ func (p *Page) Paragraphs() (PageMarkup, error) {
 			if len(paras) == 0 {
 				continue
 			}
-			out.Sections = append(out.Sections, MarkupSection{
+			out = append(out, MarkupSection{
 				Rectangle:  paragraphsBBox(paras),
 				Paragraphs: paras,
 			})
 		}
 	}
-	return out, nil
+	return out
 }
 
 // columnRegion is a part of a page, top to bottom, with its own columns.
