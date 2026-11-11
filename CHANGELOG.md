@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A wrapped header cell in a borderless table makes one row.** `TableAbsorber` read a header whose first cell wraps onto two lines as two rows.
 - **`TableAbsorber` keeps ruled tables a few points apart separate.** Two tables drawn close together, one above the other or side by side, were reported as one table with an empty row or column for the gap.
 - **`ReplaceAdjustmentShiftRestOfLine` works on right-to-left lines.** On an Arabic or Hebrew line the text after a replacement lies to its left, and it did not move, so a shorter replacement left a gap and a longer one overlapped. It now moves, and the replacement keeps the right edge of the text it replaced.
 - **`ReplaceText` draws non-Latin replacements.** A replacement the matched Standard-14 face cannot show, such as Cyrillic, Greek or Arabic, was written as `?`. The new `ReplaceOptions.Font` sets the font to draw it in; without it, the original font's family is looked up among registered and installed fonts and embedded. When no font has a character, the call fails naming it and changes nothing. Replacements are now shaped, and a right-to-left one ends where the matched text ended.

@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"math"
 	"sort"
 	"strings"
 )
@@ -559,7 +560,63 @@ func buildStreamTable(run []streamRow, hRules []rule, pm **PageMarkup, p *Page, 
 		return nil
 	}
 
-	return assembleStreamTable(run, colXs, rect, pageNo)
+	return assembleStreamTable(mergeWrappedHeader(run, colXs), colXs, rect, pageNo)
+}
+
+// mergeWrappedHeader joins the first row into the second when it only starts
+// header cells the second finishes — a header wrapped onto two lines, "Hea" /
+// "der", the other columns written on the second line (pdf-go-2yez). It takes
+// all of: some columns of the first row blank, every column of the second
+// filled, the second a line below at text leading, and the same font and size
+// in the columns the first row fills. The last keeps a group label ("Fruits"
+// above "Apples | 3 | 4"), usually set apart by its style, a row of its own.
+func mergeWrappedHeader(run []streamRow, colXs []float64) []streamRow {
+	if len(run) < 3 {
+		return run
+	}
+	nCols := len(colXs) - 1
+	byCol := func(r streamRow) []*TextFragment {
+		first := make([]*TextFragment, nCols)
+		for _, c := range r.cells {
+			for i := range c.frs {
+				fr := &c.frs[i]
+				if strings.TrimSpace(fr.Text) == "" {
+					continue
+				}
+				k := sort.SearchFloat64s(colXs, fr.X+fr.Width/2) - 1
+				k = max(0, min(k, nCols-1))
+				if first[k] == nil || fr.X < first[k].X {
+					first[k] = fr
+				}
+			}
+		}
+		return first
+	}
+	a, b := byCol(run[0]), byCol(run[1])
+	blank := 0
+	for k := range nCols {
+		if b[k] == nil {
+			return run
+		}
+		if a[k] == nil {
+			blank++
+			continue
+		}
+		if a[k].FontName != b[k].FontName || math.Abs(a[k].FontSize-b[k].FontSize) > 0.1 ||
+			a[k].Bold != b[k].Bold || a[k].Italic != b[k].Italic {
+			return run
+		}
+	}
+	if blank == 0 || blank == nCols {
+		return run
+	}
+	if gap := run[0].baseline - run[1].baseline; gap <= 0 || gap > 1.35*maxf(run[0].size, run[1].size) {
+		return run
+	}
+	merged := run[1]
+	merged.top = run[0].top
+	merged.cells = append(append([]streamCellSpan(nil), run[0].cells...), run[1].cells...)
+	return append([]streamRow{merged}, run[2:]...)
 }
 
 // streamCellText joins a cell's fragments in X order, inserting a space
