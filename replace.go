@@ -51,8 +51,10 @@ const (
 	ReplaceAdjustmentWholeWordsHyphenation ReplaceAdjustment = 2
 	// ReplaceAdjustmentShiftRestOfLine moves the text after the
 	// replacement on the same line by the difference in width, so nothing
-	// overlaps and no gap is left; the line gets longer or shorter. Text on
-	// other lines, and graphics, do not move.
+	// overlaps and no gap is left; the line gets longer or shorter. On a
+	// right-to-left line that text lies to the left and moves left or right
+	// while the replacement keeps the match's right edge. Text on other
+	// lines, and graphics, do not move.
 	ReplaceAdjustmentShiftRestOfLine ReplaceAdjustment = 8
 )
 
@@ -176,6 +178,7 @@ type replaceMatch struct {
 
 	fontName     string // the original's font, for a covering substitute
 	bold, italic bool
+	rtl          bool // the line reads right to left: what follows lies left
 }
 
 // replaceFonts picks the font each replacement is drawn in (ReplaceOptions.Font)
@@ -308,10 +311,17 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 				}
 				newW = w
 			}
+			if m.rtl {
+				// The rest of a right-to-left line lies left of the match,
+				// which keeps its right edge (pdf-go-59bb).
+				shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.LLX, dx: (m.rect.URX - m.rect.LLX) - newW, rtl: true})
+				continue
+			}
 			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)})
 		}
 		for i := range matches {
 			matches[i].x += lineShiftAt(shifts, matches[i].x, matches[i].y)
+			matches[i].rect.URX += lineShiftAt(shifts, matches[i].rect.URX, matches[i].y)
 		}
 		data, err = shiftLineText(data, p.doc.objects, p.pageResources(), shifts)
 		if err != nil {
@@ -331,7 +341,7 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 		for _, m := range matches {
 			style := TextStyle{Font: m.font, Size: m.size, Color: &Color{R: m.color.R, G: m.color.G, B: m.color.B, A: 1}}
 			x := m.x
-			if bidiBaseLevel(replacement, false) == 1 {
+			if m.rtl || bidiBaseLevel(replacement, false) == 1 {
 				style.HAlign, x = HAlignRight, m.rect.URX
 			}
 			if err := p.AddTextAt(replacement, style, x, m.y); err != nil {
@@ -353,6 +363,7 @@ func collectReplaceMatchesLine(line *TextLine, re *regexp.Regexp) []replaceMatch
 	if len(m.owner) == 0 {
 		return nil
 	}
+	rtlLine := bidiBaseLevel(line.Text, false) == 1
 
 	var out []replaceMatch
 	for _, loc := range re.FindAllIndex(m.text, -1) {
@@ -393,6 +404,7 @@ func collectReplaceMatchesLine(line *TextLine, re *regexp.Regexp) []replaceMatch
 			fontName: f.FontName,
 			bold:     f.Bold,
 			italic:   f.Italic,
+			rtl:      rtlLine,
 		})
 	}
 	return out
@@ -446,13 +458,17 @@ func standard14ForFragment(name string, bold, italic bool) Font {
 // y and that start at or after fromX move by dx along the line.
 type lineShift struct {
 	y, tol, fromX, dx float64
+	rtl               bool // moves what lies left of fromX instead of right
 }
 
 // lineShiftAt is the total shift for a glyph at (x, y).
 func lineShiftAt(shifts []lineShift, x, y float64) float64 {
 	d := 0.0
 	for _, s := range shifts {
-		if math.Abs(y-s.y) <= s.tol && x >= s.fromX-0.01 {
+		if math.Abs(y-s.y) > s.tol {
+			continue
+		}
+		if (!s.rtl && x >= s.fromX-0.01) || (s.rtl && x <= s.fromX+0.01) {
 			d += s.dx
 		}
 	}

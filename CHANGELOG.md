@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`ReplaceAdjustmentShiftRestOfLine` works on right-to-left lines.** On an Arabic or Hebrew line the text after a replacement lies to its left, and it did not move, so a shorter replacement left a gap and a longer one overlapped. It now moves, and the replacement keeps the right edge of the text it replaced.
 - **`ReplaceText` draws non-Latin replacements.** A replacement the matched Standard-14 face cannot show, such as Cyrillic, Greek or Arabic, was written as `?`. The new `ReplaceOptions.Font` sets the font to draw it in; without it, the original font's family is looked up among registered and installed fonts and embedded. When no font has a character, the call fails naming it and changes nothing. Replacements are now shaped, and a right-to-left one ends where the matched text ended.
 - **Fonts with several extension subtables in a layout lookup load quickly and shape correctly.** Only the first subtable of such a lookup was read as what it is; the others were misread as rules, which took seconds for fonts such as Arial Bold on first use and dropped those subtables' real rules.
 - **`Open` opens encrypted files that need no password.** A file with an empty user password, which only restricts what may be done with it, returned `ErrEncrypted`, while viewers open it without asking. `Open` and `OpenStream` now open and decrypt it, `Permissions` reports what it allows, and saving keeps the encryption. `ErrEncrypted` is still returned when a password is needed.

@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"bytes"
 	"math"
 	"strings"
 	"testing"
@@ -143,5 +144,97 @@ func TestReplaceUnsupportedAdjustment(t *testing.T) {
 		if _, err := doc.ReplaceText("World", "X", ReplaceOptions{Adjustment: a}); err == nil {
 			t.Errorf("adjustment %d: no error", a)
 		}
+	}
+}
+
+// TestReplaceShiftRestOfLineRightToLeft: on a right-to-left line what follows
+// the match lies to its left, so that is what moves; the replacement keeps the
+// match's right edge (pdf-go-59bb).
+func TestReplaceShiftRestOfLineRightToLeft(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := doc.Page(1)
+	if err := p.AddText("אבג דהוזח טיכ", TextStyle{Font: font, Size: 14}, Rectangle{LLX: 72, LLY: 700, URX: 520, URY: 720}); err != nil {
+		t.Fatal(err)
+	}
+	find := func(pg *Page, q string) Rectangle {
+		t.Helper()
+		ms, err := pg.SearchText(q)
+		if err != nil || len(ms) != 1 {
+			t.Fatalf("SearchText(%q): %d, %v", q, len(ms), err)
+		}
+		return ms[0].Rect
+	}
+	first, mid, last := find(p, "אבג"), find(p, "דהוזח"), find(p, "טיכ")
+	if !(first.LLX > mid.URX && mid.LLX > last.URX) {
+		t.Fatalf("not laid out right to left: %v %v %v", first, mid, last)
+	}
+	if _, err := p.ReplaceText("דהוזח", "X", ReplaceOptions{Adjustment: ReplaceAdjustmentShiftRestOfLine}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	re := reopen(t, buf.Bytes())
+	rp, _ := re.Page(1)
+	x, first2, last2 := find(rp, "X"), find(rp, "אבג"), find(rp, "טיכ")
+	if math.Abs(first2.LLX-first.LLX) > 0.5 {
+		t.Errorf("the word before the match moved: %.2f -> %.2f", first.LLX, first2.LLX)
+	}
+	if math.Abs(x.URX-mid.URX) > 1 {
+		t.Errorf("replacement ends at %.2f, match ended at %.2f", x.URX, mid.URX)
+	}
+	want := last.LLX + (mid.URX - mid.LLX) - (x.URX - x.LLX)
+	if math.Abs(last2.LLX-want) > 1 {
+		t.Errorf("the word after the match is at %.2f, want %.2f (was %.2f)", last2.LLX, want, last.LLX)
+	}
+}
+
+// TestReplaceShiftRestOfLineRightToLeftRepeated: with two replacements on one
+// right-to-left line, the left one moves by the first one's change in width.
+func TestReplaceShiftRestOfLineRightToLeftRepeated(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := doc.Page(1)
+	if err := p.AddText("אבג דהוזח טיכ דהוזח מנס", TextStyle{Font: font, Size: 14}, Rectangle{LLX: 72, LLY: 700, URX: 520, URY: 720}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := p.SearchText("דהוזח")
+	if err != nil || len(before) != 2 {
+		t.Fatalf("SearchText: %d, %v", len(before), err)
+	}
+	right, left := before[0].Rect, before[1].Rect
+	if right.LLX < left.LLX {
+		right, left = left, right
+	}
+	if _, err := p.ReplaceText("דהוזח", "X", ReplaceOptions{Adjustment: ReplaceAdjustmentShiftRestOfLine}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	rp, _ := reopen(t, buf.Bytes()).Page(1)
+	xs, err := rp.SearchText("X")
+	if err != nil || len(xs) != 2 {
+		t.Fatalf("SearchText(X): %d, %v", len(xs), err)
+	}
+	xr, xl := xs[0].Rect, xs[1].Rect
+	if xr.LLX < xl.LLX {
+		xr, xl = xl, xr
+	}
+	shrink := (right.URX - right.LLX) - (xr.URX - xr.LLX)
+	if math.Abs(xr.URX-right.URX) > 1 {
+		t.Errorf("right replacement ends at %.2f, want %.2f", xr.URX, right.URX)
+	}
+	if want := left.URX + shrink; math.Abs(xl.URX-want) > 1 {
+		t.Errorf("left replacement ends at %.2f, want %.2f", xl.URX, want)
 	}
 }
