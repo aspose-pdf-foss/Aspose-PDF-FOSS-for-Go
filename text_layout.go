@@ -245,6 +245,7 @@ func buildFlattenedTextFromFragments(frags []textFragment) string {
 // single space instead.
 func flattenLine(line TextLine, originX, cell float64) string {
 	var out []rune
+	prevEnd := 0.0
 	for _, f := range line.Fragments {
 		if f.Text == "" {
 			continue
@@ -253,13 +254,19 @@ func flattenLine(line TextLine, originX, cell float64) string {
 		if col < 0 {
 			col = 0
 		}
-		if col < len(out) && len(out) > 0 {
-			col = len(out) + 1
+		if len(out) > 0 && col <= len(out) {
+			// Behind or right at the text already placed: a word gap on the
+			// page still gets its space (pdf-go-a2id).
+			joined := out[len(out)-1] == ' ' || strings.HasPrefix(f.Text, " ")
+			if col < len(out) || (!joined && gapIsSpace(prevEnd, f)) {
+				col = len(out) + 1
+			}
 		}
 		for len(out) < col {
 			out = append(out, 0x20)
 		}
 		out = append(out, []rune(f.Text)...)
+		prevEnd = f.X + f.Width
 	}
 	return strings.TrimRight(string(out), " ")
 }

@@ -157,3 +157,26 @@ func TestExtractTextFlattenEmptyPage(t *testing.T) {
 		t.Errorf("empty page flattened to %q", flat)
 	}
 }
+
+// TestFlattenKeepsWordGapAtColumnEnd: a word whose column falls right at the
+// end of the text already placed is still separated by the space the page
+// shows (pdf-go-a2id).
+func TestFlattenKeepsWordGapAtColumnEnd(t *testing.T) {
+	doc := pdf.NewDocument(400, 200)
+	p, _ := doc.Page(1)
+	style := pdf.TextStyle{Font: pdf.FontCourier, Size: 10}
+	// "Hello" ends at 130; "World" starts 2pt on, at column 5 of 6pt cells.
+	if err := p.AddTextAt("Hello", style, 100, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddTextAt("World", style, 132, 100); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.ExtractText(pdf.TextExtractOptions{Mode: pdf.TextExtractFlatten})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(got) != "Hello World" {
+		t.Errorf("flattened %q; want %q", got, "Hello World")
+	}
+}
