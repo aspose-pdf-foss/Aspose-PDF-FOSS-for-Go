@@ -637,13 +637,17 @@ func otParseLookup(b []byte, isGSUB bool) *otLookup {
 	if l.flag&otFlagUseMarkFilteringSet != 0 && 6+n*2+2 <= len(b) {
 		l.markFilter = otU16(b, 6+n*2)
 	}
+	declared := l.kind // l.kind becomes the extended type below
 	for i := 0; i < n; i++ {
 		sb := otSub(b, int(otU16(b, 6+i*2)))
-		kind := l.kind
+		kind := declared
 		// Extension (GSUB 7 / GPOS 9) is one level of indirection to a
 		// subtable of another type, used when the table outgrew 16-bit
-		// offsets. Resolve it here so the engine never sees it.
-		if (isGSUB && kind == 7) || (!isGSUB && kind == 9) {
+		// offsets. Resolve it here so the engine never sees it. Every
+		// subtable of an extension lookup is an extension: testing l.kind,
+		// which the first one changes, read the others' extension headers
+		// as subtables of the extended type.
+		if (isGSUB && declared == 7) || (!isGSUB && declared == 9) {
 			if len(sb) < 8 || otU16(sb, 0) != 1 {
 				continue
 			}
