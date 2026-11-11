@@ -34,6 +34,10 @@ type TextFragment struct {
 	// the box spans Y+descent .. Y+descent+Height. Unexported: used by
 	// SearchText and the comparer for match rectangles.
 	descent float64
+	// endY is the device-space y after the last glyph's advance (the end
+	// point is (X+Width, endY)): the gap to the next fragment of a rotated
+	// line is measured along the baseline.
+	endY float64
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
@@ -50,7 +54,12 @@ func groupFragmentsIntoLines(frags []textFragment) []TextLine {
 		return nil
 	}
 
-	// Rotated fragments (diagonal watermarks, axis labels) must not join
+	// Rotated text that runs on from one fragment to the next (text along a
+	// curve, each glyph at its own angle; a watermark split by a font change)
+	// is one line, in the order it was drawn.
+	chains, frags := chainRotatedFragments(frags)
+
+	// Other rotated fragments (diagonal watermarks, axis labels) must not join
 	// horizontal lines: each becomes its own line, merged back by Y below.
 	var rotated []textFragment
 	upright := frags[:0]
@@ -62,9 +71,13 @@ func groupFragmentsIntoLines(frags []textFragment) []TextLine {
 		}
 	}
 	frags = upright
+	var chainLines []TextLine
+	for _, c := range chains {
+		chainLines = append(chainLines, lineFromOrdered(c))
+	}
 	if len(frags) == 0 {
 		// Only rotated text on the page: emit each as its own line.
-		var lines []TextLine
+		lines := chainLines
 		for _, f := range rotated {
 			lines = append(lines, assembleLine([]textFragment{f}))
 		}
@@ -108,11 +121,79 @@ func groupFragmentsIntoLines(frags []textFragment) []TextLine {
 	for _, f := range rotated {
 		lines = append(lines, assembleLine([]textFragment{f}))
 	}
-	if len(rotated) > 0 {
+	lines = append(lines, chainLines...)
+	if len(rotated) > 0 || len(chainLines) > 0 {
 		sort.SliceStable(lines, func(i, j int) bool { return lines[i].Y > lines[j].Y })
 	}
 
 	return lines
+}
+
+// chainRotatedFragments takes out of frags (in drawing order) the runs of
+// consecutive fragments that continue one another along their baselines and
+// include rotated text: each next fragment starts where the previous one
+// ended, give or take half an em across the baseline and up to an em of word
+// gap along it, at nearly the same size and within 30 degrees of its angle.
+// It returns those runs and the fragments left over (pdf-go-3iwy).
+func chainRotatedFragments(frags []textFragment) (chains [][]textFragment, rest []textFragment) {
+	follows := func(prev, f *textFragment) bool {
+		if math.Abs(prev.rotation) <= 1 && math.Abs(f.rotation) <= 1 {
+			return false // upright text is grouped into lines by position
+		}
+		em := prev.fontSize
+		if em <= 0 || math.Abs(f.fontSize-em) > 0.2*em {
+			return false
+		}
+		turn := math.Mod(f.rotation-prev.rotation+540, 360) - 180
+		if math.Abs(turn) > 30 {
+			return false
+		}
+		along, across := baselineGap(prev.endX, prev.endY, prev.rotation, f.x, f.y)
+		return along >= -0.5*em && along <= em && math.Abs(across) <= 0.5*em
+	}
+	var cur []textFragment
+	flush := func() {
+		rotated := false
+		for i := range cur {
+			rotated = rotated || math.Abs(cur[i].rotation) > 1
+		}
+		if len(cur) > 1 && rotated {
+			chains = append(chains, cur)
+		} else {
+			rest = append(rest, cur...)
+		}
+		cur = nil
+	}
+	for _, f := range frags {
+		if f.text.Len() == 0 {
+			rest = append(rest, f)
+			continue
+		}
+		if len(cur) > 0 && !follows(&cur[len(cur)-1], &f) {
+			flush()
+		}
+		cur = append(cur, f)
+	}
+	flush()
+	return chains, rest
+}
+
+// baselineGap splits the step from a fragment's end point to the next
+// fragment's start into its parts along and across the first one's baseline.
+func baselineGap(endX, endY, rotation, x, y float64) (along, across float64) {
+	sin, cos := math.Sincos(rotation * math.Pi / 180)
+	dx, dy := x-endX, y-endY
+	return dx*cos + dy*sin, dy*cos - dx*sin
+}
+
+// fragmentGap is the space between two fragments of one line: horizontal for
+// upright text, along the first one's baseline for rotated text.
+func fragmentGap(prevEndX, prevEndY, prevRot, x, y, rot float64) float64 {
+	if math.Abs(prevRot) <= 1 && math.Abs(rot) <= 1 {
+		return x - prevEndX
+	}
+	along, _ := baselineGap(prevEndX, prevEndY, prevRot, x, y)
+	return along
 }
 
 // assembleLine builds a TextLine from fragments on the same line.
@@ -120,6 +201,11 @@ func assembleLine(frags []textFragment) TextLine {
 	sort.Slice(frags, func(i, j int) bool {
 		return frags[i].x < frags[j].x
 	})
+	return lineFromOrdered(frags)
+}
+
+// lineFromOrdered builds a TextLine from fragments already in reading order.
+func lineFromOrdered(frags []textFragment) TextLine {
 
 	// Determine baseline Y from the fragment with the largest font size.
 	baselineY := frags[0].y
@@ -144,7 +230,8 @@ func assembleLine(frags []textFragment) TextLine {
 		}
 
 		if lastEmitted >= 0 {
-			gap := f.x - frags[lastEmitted].endX
+			p := &frags[lastEmitted]
+			gap := fragmentGap(p.endX, p.endY, p.rotation, f.x, f.y, f.rotation)
 			// A real inter-word space advances 0.25–0.28 em in proportional
 			// faces, while kerning/tracking gaps stay well under 0.15 em —
 			// so 0.2 em separates them. The old 0.3 em threshold sat ABOVE
@@ -183,6 +270,7 @@ func assembleLine(frags []textFragment) TextLine {
 			Rotation:    f.rotation,
 			runeX:       f.runeX,
 			descent:     f.descent,
+			endY:        f.endY,
 		}
 		// Detect sub/superscript: smaller font with Y offset from baseline.
 		if f.fontSize < maxFontSize*0.85 {

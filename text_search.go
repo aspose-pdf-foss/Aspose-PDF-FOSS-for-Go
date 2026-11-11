@@ -190,7 +190,7 @@ type lineRuneMap struct {
 func buildLineRuneMap(line *TextLine) lineRuneMap {
 	m := lineRuneMap{runeCounts: make([]int, len(line.Fragments))}
 	var havePrev bool
-	var prevEndX float64
+	var prevEndX, prevEndY, prevRot float64
 	for fi := range line.Fragments {
 		f := &line.Fragments[fi]
 		if f.Text == "" {
@@ -198,7 +198,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		}
 		m.runeCounts[fi] = utf8.RuneCountInString(f.Text)
 		if havePrev {
-			gap := f.X - prevEndX
+			gap := fragmentGap(prevEndX, prevEndY, prevRot, f.X, f.Y, f.Rotation)
 			threshold := f.FontSize * 0.3
 			if threshold < 1 {
 				threshold = 1
@@ -218,7 +218,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 			m.text = utf8.AppendRune(m.text, r)
 			k++
 		}
-		prevEndX = f.X + f.Width
+		prevEndX, prevEndY, prevRot = f.X+f.Width, f.endY, f.Rotation
 		havePrev = true
 	}
 	if bidiHasStrongRTL(string(m.text)) {

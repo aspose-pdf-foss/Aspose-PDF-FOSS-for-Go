@@ -111,6 +111,7 @@ type textFragment struct {
 	x, y        float64   // device-space position of first rune
 	runeX       []float64 // device-space x at the start of each rune (len == rune count)
 	endX        float64   // device-space x after last glyph advance
+	endY        float64   // device-space y after last glyph advance
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize
@@ -790,6 +791,7 @@ func (e *textExtractor) emitRune(r rune) {
 func (e *textExtractor) flushFragment() {
 	if e.curFrag != nil {
 		e.curFrag.endX = e.lastX
+		e.curFrag.endY = e.lastY
 		e.curFrag = nil
 	}
 }
