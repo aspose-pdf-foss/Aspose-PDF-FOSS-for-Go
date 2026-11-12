@@ -233,7 +233,7 @@ flowchart TD
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
   (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, limited to the page or a
   rectangle glyph by glyph (`LimitToPageBounds`, `Rectangle`), recover paragraph/column
-  structure (`Paragraphs()`), search and replace text in place, embed and subset TrueType/
+  structure (`Paragraphs()`) and rewrite a paragraph in place (`MarkupParagraph.SetText`), search and replace text in place, embed and subset TrueType/
   OpenType fonts (`.ttf`/`.otf`/`.ttc`) — `Document.LoadFont`/`Document.LoadFontByName("Calibri",
   bold, italic)` resolve faces by family name via a pluggable `FontRepository`, and
   `Document.SubsetFonts()` rebuilds each embedded font's own glyph tables (`glyf`/`loca`/`hmtx`/

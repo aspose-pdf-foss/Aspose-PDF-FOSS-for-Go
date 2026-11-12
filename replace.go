@@ -276,13 +276,6 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 
 	// Remove the old glyphs with the redaction text rewriter (it drops glyphs
 	// whose drawn position falls inside the given regions).
-	data, err := p.contentStreams()
-	if err != nil {
-		return 0, err
-	}
-	if data == nil {
-		data = []byte{}
-	}
 	regions := make([]QuadPoint, 0, len(matches))
 	for _, m := range matches {
 		regions = append(regions, rectAsQuadPoint(m.rect))
@@ -290,23 +283,9 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 			regions = append(regions, rectAsQuadPoint(r))
 		}
 	}
-	// Text drawn inside a Form XObject is removed too (pdf-go-hxi2): the
-	// redaction Do rewriter, limited to text, clones each form a match
-	// reaches into and redirects that one placement to the clone. That
-	// adds resource names, so the page gets its own copy of /Resources
-	// first, as ApplyRedactions does (another page may share them).
-	resources := privateXObjectResources(p.doc.objects, p.pageResources())
-	p.pageDict()["/Resources"] = resources
-	fontMap := resolveFontResources(p.doc.objects, resources)
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources, nil)
+	data, err := stripTextInRegions(p, regions)
 	if err != nil {
-		return 0, fmt.Errorf("remove matched text: %w", err)
-	}
-	budget := &formRedactBudget{textOnly: true}
-	preserve := pagePreservedXObjectNames(p, p.doc.objects, resources, budget)
-	data, err = rewriteXObjectDoOperatorsInStream(data, regions, p.doc, resources, 0, budget, preserve, nil)
-	if err != nil {
-		return 0, fmt.Errorf("remove matched text in form: %w", err)
+		return 0, err
 	}
 
 	// ShiftRestOfLine: move what follows each match on its line by the
@@ -361,6 +340,36 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 		}
 	}
 	return len(matches), nil
+}
+
+// stripTextInRegions returns the page's content with the glyphs drawn inside
+// regions removed, in Form XObjects too (pdf-go-hxi2): the redaction Do
+// rewriter, limited to text, clones each form a region reaches into and
+// redirects that one placement to the clone. That adds resource names, so
+// the page gets its own copy of /Resources first, as ApplyRedactions does
+// (another page may share them). The caller installs the content.
+func stripTextInRegions(p *Page, regions []QuadPoint) ([]byte, error) {
+	data, err := p.contentStreams()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		data = []byte{}
+	}
+	resources := privateXObjectResources(p.doc.objects, p.pageResources())
+	p.pageDict()["/Resources"] = resources
+	fontMap := resolveFontResources(p.doc.objects, resources)
+	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources, nil)
+	if err != nil {
+		return nil, fmt.Errorf("remove matched text: %w", err)
+	}
+	budget := &formRedactBudget{textOnly: true}
+	preserve := pagePreservedXObjectNames(p, p.doc.objects, resources, budget)
+	data, err = rewriteXObjectDoOperatorsInStream(data, regions, p.doc, resources, 0, budget, preserve, nil)
+	if err != nil {
+		return nil, fmt.Errorf("remove matched text in form: %w", err)
+	}
+	return data, nil
 }
 
 // collectReplaceMatchesLine finds matches on one line and captures, for each,

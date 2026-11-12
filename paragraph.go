@@ -24,6 +24,8 @@ type MarkupParagraph struct {
 	Text      string     // the paragraph text (its lines joined with spaces)
 	Rectangle Rectangle  // bounding box in PDF user space
 	Lines     []TextLine // the paragraph's lines (with per-fragment positions)
+
+	page *Page // the page Paragraphs found it on, for SetText
 }
 
 // MarkupSection is a column of paragraphs (left-to-right across the page).
@@ -54,6 +56,11 @@ func (p *Page) Paragraphs() (PageMarkup, error) {
 		pageW = sz.Width
 	}
 	out.Sections = markupSections(frags, pageW)
+	for si := range out.Sections {
+		for pi := range out.Sections[si].Paragraphs {
+			out.Sections[si].Paragraphs[pi].page = p
+		}
+	}
 	return out, nil
 }
 
@@ -393,6 +400,24 @@ func assignColumn(f textFragment, cols [][2]float64) int {
 // significant font-size change (a heading vs body text). A typical spacing of
 // zero means the median of these lines' own.
 func groupLinesToParagraphs(lines []TextLine, typical float64) []MarkupParagraph {
+	// Lines of spaces belong to no paragraph (pdf-go-tjxp). Many producers
+	// space paragraphs with one, so where a line of spaces was dropped and
+	// the text either side stands more than a line and a half apart, a
+	// paragraph ends; one squeezed between two lines a normal pitch apart
+	// (a stray layer some producers interleave) changes nothing.
+	kept := make([]TextLine, 0, len(lines))
+	var blankBefore []bool
+	pending := false
+	for _, l := range lines {
+		if blankLine(l) {
+			pending = true
+			continue
+		}
+		kept = append(kept, l)
+		blankBefore = append(blankBefore, pending && len(kept) > 1)
+		pending = false
+	}
+	lines = kept
 	if len(lines) == 0 {
 		return nil
 	}
@@ -406,16 +431,24 @@ func groupLinesToParagraphs(lines []TextLine, typical float64) []MarkupParagraph
 
 	var paras []MarkupParagraph
 	cur := []TextLine{lines[0]}
+	right := lineRight(lines[0])
 	for i := 1; i < len(lines); i++ {
 		gap := lines[i-1].Y - lines[i].Y
 		prevFS, curFS := lineFontSize(lines[i-1]), lineFontSize(lines[i])
 		newPara := (typical > 0 && gap > typical*1.6) ||
-			curFS > prevFS*1.3 || curFS < prevFS*0.7
+			curFS > prevFS*1.3 || curFS < prevFS*0.7 ||
+			(blankBefore[i] && gap > 1.5*maxf(prevFS, curFS)) ||
+			// A bold line followed by one that is not is a heading set at
+			// body size (pdf-go-tjxp).
+			(allBold(lines[i-1]) && !allBold(lines[i])) ||
+			opensIndented(lines[i-1], lines[i], right)
 		if newPara {
 			paras = append(paras, makeParagraph(cur))
 			cur = nil
+			right = lineRight(lines[i])
 		}
 		cur = append(cur, lines[i])
+		right = maxf(right, lineRight(lines[i]))
 	}
 	if len(cur) > 0 {
 		paras = append(paras, makeParagraph(cur))
@@ -436,6 +469,62 @@ func makeParagraph(lines []TextLine) MarkupParagraph {
 		Rectangle: linesBBox(lines),
 		Lines:     lines,
 	}
+}
+
+// opensIndented reports whether cur opens a new paragraph with an indented
+// first line: prev stops well short of the paragraph's right edge right, cur
+// starts more than an em right of prev and runs on to that edge — an
+// indented first line, not a centred title, whose lines are all short.
+func opensIndented(prev, cur TextLine, right float64) bool {
+	em := lineFontSize(cur)
+	pl, pr, ok1 := textExtent(prev)
+	cl, cr, ok2 := textExtent(cur)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return pr < right-2*em && cl > pl+em && cr >= right-2*em
+}
+
+// textExtent is the horizontal extent of a line's text, trailing spaces
+// left out where they make a fragment of their own.
+func textExtent(l TextLine) (left, right float64, ok bool) {
+	for _, f := range l.Fragments {
+		if strings.TrimSpace(f.Text) == "" || f.Rotation != 0 {
+			continue
+		}
+		if !ok {
+			left, right, ok = f.X, f.X+f.Width, true
+			continue
+		}
+		left, right = minf(left, f.X), maxf(right, f.X+f.Width)
+	}
+	return left, right, ok
+}
+
+func lineRight(l TextLine) float64 {
+	_, r, ok := textExtent(l)
+	if !ok {
+		return 0
+	}
+	return r
+}
+
+// blankLine reports whether a line shows nothing but spaces.
+func blankLine(l TextLine) bool { return strings.TrimSpace(l.Text) == "" }
+
+// allBold reports whether every fragment of a line that shows text is bold.
+func allBold(l TextLine) bool {
+	seen := false
+	for _, f := range l.Fragments {
+		if strings.TrimSpace(f.Text) == "" {
+			continue
+		}
+		if !f.Bold {
+			return false
+		}
+		seen = true
+	}
+	return seen
 }
 
 // lineFontSize returns a line's representative font size (its first fragment's).
