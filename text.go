@@ -28,9 +28,20 @@ const (
 	TextExtractFlatten
 )
 
-// TextExtractOptions configures ExtractText. The zero value is reading order.
+// TextExtractOptions configures ExtractText. The zero value is reading order
+// over everything the page draws.
 type TextExtractOptions struct {
 	Mode TextExtractionMode
+	// LimitToPageBounds keeps only the glyphs inside the page's visible area
+	// (its CropBox), so text drawn off the page is not extracted and a word
+	// cut by the page edge keeps its visible letters. Mirrors Aspose.PDF for
+	// .NET's TextSearchOptions.LimitToPageBounds.
+	LimitToPageBounds bool
+	// Rectangle, when set, keeps only the glyphs inside it (and inside the
+	// page too with LimitToPageBounds). Mirrors TextSearchOptions.Rectangle.
+	// A glyph counts as inside when both ends of its advance along the
+	// baseline are.
+	Rectangle *Rectangle
 }
 
 // ExtractText returns the text content of the page. Characters from fonts with
@@ -56,6 +67,14 @@ func (p *Page) ExtractText(opts ...TextExtractOptions) (string, error) {
 	ext := newTextExtractor(p.doc.objects, fonts)
 	ext.process(ops, resources)
 	if len(opts) > 0 {
+		region, limited, err := p.extractRegion(opts[0])
+		if err != nil {
+			return "", err
+		}
+		if limited {
+			ext.flushFragment()
+			ext.fragments = clipFragments(ext.fragments, region)
+		}
 		switch opts[0].Mode {
 		case TextExtractRaw:
 			return ext.textRaw(), nil
@@ -110,6 +129,7 @@ type textFragment struct {
 	text        strings.Builder
 	x, y        float64   // device-space position of first rune
 	runeX       []float64 // device-space x at the start of each rune (len == rune count)
+	runeY       []float64 // device-space y at the start of each rune
 	endX        float64   // device-space x after last glyph advance
 	endY        float64   // device-space y after last glyph advance
 	fontName    string
@@ -783,6 +803,7 @@ func (e *textExtractor) emitRune(r rune) {
 
 	e.curFrag.text.WriteRune(r)
 	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
+	e.curFrag.runeY = append(e.curFrag.runeY, y)
 	e.lastX = x
 	e.lastY = y
 	e.hasPos = true

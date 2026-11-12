@@ -230,7 +230,8 @@ flowchart TD
   `/Alt` text generation for tagged figures (`ImageDescriptionCopilot`), over any
   OpenAI-compatible endpoint.
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
-  (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, recover paragraph/column
+  (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, limited to the page or a
+  rectangle glyph by glyph (`LimitToPageBounds`, `Rectangle`), recover paragraph/column
   structure (`Paragraphs()`), search and replace text in place, embed and subset TrueType/
   OpenType fonts (`.ttf`/`.otf`/`.ttc`) — `Document.LoadFont`/`Document.LoadFontByName("Calibri",
   bold, italic)` resolve faces by family name via a pluggable `FontRepository`, and
