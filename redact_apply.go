@@ -343,6 +343,32 @@ func applyRedactionsToPage(p *Page) error {
 		return nil // no regions to apply
 	}
 
+	if err := redactPageContent(p, regions, true); err != nil {
+		return err
+	}
+
+	// 6. Render overlay (fill + optional text) for each redact region.
+	// Must happen BEFORE deleting the annotations so accessors still work.
+	for _, ra := range redacts {
+		if err := renderRedactOverlay(p, ra); err != nil {
+			return fmt.Errorf("overlay: %w", err)
+		}
+	}
+
+	// 7. Remove every redact annotation from the collection.
+	for _, ra := range redacts {
+		coll.Delete(ra)
+	}
+
+	return nil
+}
+
+// redactPageContent removes what the page content draws inside regions —
+// glyphs, images, Form XObject content, paths — and installs the rewritten
+// content (steps 2-5 of applyRedactionsToPage). With annotations, the
+// appearance streams of the page's annotations are redacted into as well.
+// The streams the page drew before are left for the caller to reclaim.
+func redactPageContent(p *Page, regions []QuadPoint, annotations bool) error {
 	// 2. Get decoded page content stream bytes.
 	data, err := p.contentStreams()
 	if err != nil {
@@ -437,8 +463,10 @@ func applyRedactionsToPage(p *Page) error {
 	// relative to step 4 above doesn't matter otherwise — annotation
 	// appearance streams are independent objects, never reached through
 	// page /Contents.
-	if err := redactAnnotationAppearances(p, regions, resources, budget); err != nil {
-		return fmt.Errorf("annotation appearance: %w", err)
+	if annotations {
+		if err := redactAnnotationAppearances(p, regions, resources, budget); err != nil {
+			return fmt.Errorf("annotation appearance: %w", err)
+		}
 	}
 
 	// 5c. Drop /Pattern resources nothing on the page paints with any more
@@ -447,19 +475,6 @@ func applyRedactionsToPage(p *Page) error {
 	// it was redacted away. Runs after 5b, so annotation appearances are
 	// in their final, redacted form.
 	prunePagePatterns(p, data, resources, budget)
-
-	// 6. Render overlay (fill + optional text) for each redact region.
-	// Must happen BEFORE deleting the annotations so accessors still work.
-	for _, ra := range redacts {
-		if err := renderRedactOverlay(p, ra); err != nil {
-			return fmt.Errorf("overlay: %w", err)
-		}
-	}
-
-	// 7. Remove every redact annotation from the collection.
-	for _, ra := range redacts {
-		coll.Delete(ra)
-	}
 
 	return nil
 }

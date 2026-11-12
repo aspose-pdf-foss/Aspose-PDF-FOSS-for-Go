@@ -816,7 +816,7 @@ func filterTjString(operand pdfValue, state glyphFilterState, regions []QuadPoin
 		return []contentOp{{Operator: "Tj", Operands: []pdfValue{operand}}}, 0, false, nil
 	}
 
-	if !state.font.known {
+	if !state.font.known && !state.font.positioned {
 		// Generic wording, not "ApplyRedactions" specifically: this
 		// function is shared by ApplyRedactions, Form-XObject
 		// redaction, AND ReplaceText (replace.go reuses it to remove
@@ -1107,7 +1107,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 		return []contentOp{{Operator: "TJ", Operands: []pdfValue{operand}}}, 0, false, nil
 	}
 
-	if !state.font.known {
+	if !state.font.known && !state.font.positioned {
 		// Generic wording, not "ApplyRedactions" specifically: this
 		// function is shared by ApplyRedactions, Form-XObject
 		// redaction, AND ReplaceText (replace.go reuses it to remove

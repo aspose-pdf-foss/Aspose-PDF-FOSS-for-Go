@@ -30,6 +30,11 @@ type fontInfo struct {
 	cidToUni  map[uint16]rune       // CID → Unicode (Adobe ordering table); nil if unknown
 	ordering  string                // CIDSystemInfo /Ordering (e.g. "GB1"); "" = Identity/unknown
 	known     bool                  // false if encoding could not be determined
+	// positioned: every glyph's place is known even when its character is
+	// not — the advances come from the font dictionary or Standard-14
+	// metrics, not a guess, and codes split into glyphs unambiguously.
+	// Redaction and table removal need only this (pdf-go-6jxp).
+	positioned bool
 	// programEncoding: the encoding was read back from the embedded program
 	// (font_program_encoding.go), the dictionary giving none. It is the
 	// program's own glyph selection seen from the Unicode side, so glyph
@@ -94,6 +99,14 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 	if fi.isType0 {
 		fi.cidWidths, fi.defaultW = resolveCIDWidths(objects, fontDict)
 		resolveType0Encoding(objects, fontDict, &fi)
+		// /W and /DW define every advance (DW defaults to 1000); the codes
+		// split by Identity's two bytes or by the CMap.
+		switch e := resolveRef(objects, fontDict["/Encoding"]).(type) {
+		case pdfName:
+			fi.positioned = e == "/Identity-H" || e == "/Identity-V" || fi.cidCMap != nil
+		case *pdfStream:
+			fi.positioned = fi.cidCMap != nil
+		}
 		return fi
 	}
 
@@ -154,6 +167,7 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 	}
 
 	fi.widths = resolveWidths(objects, fontDict, name)
+	fi.positioned = hasStatedWidths(objects, fontDict, name)
 
 	// Type3 widths are expressed in glyph space and must be mapped through
 	// /FontMatrix (ISO 32000-1 §9.6.5) — e.g. matrix .0133 with width 38 is
@@ -468,6 +482,16 @@ func resolveWidths(objects map[int]*pdfObject, fontDict pdfDict, baseFontName st
 		widths[i] = 600
 	}
 	return widths
+}
+
+// hasStatedWidths reports whether resolveWidths finds real widths for the
+// font — a /Widths array or Standard-14 metrics — rather than its guess.
+func hasStatedWidths(objects map[int]*pdfObject, fontDict pdfDict, baseFontName string) bool {
+	if _, ok := resolveRef(objects, fontDict["/Widths"]).(pdfArray); ok {
+		return true
+	}
+	_, ok := standard14Widths(baseFontName)
+	return ok
 }
 
 // lookupEncoding returns the encoding table for a named encoding.

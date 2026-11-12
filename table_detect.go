@@ -45,6 +45,7 @@ type AbsorbedTable struct {
 	// PageNumber is the 1-based source page.
 	PageNumber int
 	rows       []*AbsorbedRow
+	page       *Page     // the page Visit found it on
 	colXs      []float64 // ascending column boundaries (len = cols+1)
 	rowYs      []float64 // ascending row boundaries (len = rows+1)
 }
@@ -216,6 +217,9 @@ func (ta *TableAbsorber) Visit(p *Page) error {
 			claimed = append(claimed, t.Rect)
 		}
 		ta.tables = append(ta.tables, detectRotatedStreamTables(p, lines, claimed, vRules, rot)...)
+	}
+	for _, t := range ta.tables {
+		t.page = p
 	}
 	sort.SliceStable(ta.tables, func(i, j int) bool {
 		if diff := ta.tables[i].Rect.URY - ta.tables[j].Rect.URY; diff > 0.5 || diff < -0.5 {

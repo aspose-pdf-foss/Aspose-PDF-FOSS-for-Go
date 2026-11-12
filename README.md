@@ -204,7 +204,8 @@ flowchart TD
 - **Table detection and Office/eBook conversion** — `TableAbsorber` (`Visit(page)` then
   `TableList()`) recognizes ruled and borderless tables directly from a page's vector geometry (no
   rasterization), with conservative guards so ordinary prose, lists, TOCs, and code listings are
-  never mistaken for tables. This feeds `Document.SaveDocx`/`WriteDocx` (a pure-stdlib OOXML
+  never mistaken for tables; `Remove` and `Replace` delete a found table or draw a new `Table` in
+  its place. Detection feeds `Document.SaveDocx`/`WriteDocx` (a pure-stdlib OOXML
   writer producing styled runs, heading styles, hyperlinks, and lists, plus real Word tables —
   `EnhancedFlow`, the default mode — from detected table structure), `Document.SaveXlsx`/
   `WriteXlsx` (detected tables become Excel worksheets with real numeric cells, merged cells, and
