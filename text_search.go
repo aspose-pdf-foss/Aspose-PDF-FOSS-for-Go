@@ -32,9 +32,20 @@ type SearchOptions struct {
 
 // TextMatch is a single occurrence located by SearchText.
 type TextMatch struct {
-	Text       string    // the matched text as it appears on the page
-	PageNumber int       // 1-based page number the match was found on
-	Rect       Rectangle // bounding box of the match in PDF user space (points)
+	Text       string    // the matched text as it appears on the page; lines it spans are joined by "\n"
+	PageNumber int       // 1-based page number the match starts on
+	Rect       Rectangle // bounding box of the match on that page, in PDF user space (points)
+	// Segments are the match's parts, one per line it covers, each with
+	// its page and box: one segment for a match within a line. Mirrors the
+	// segments of an Aspose.PDF for .NET TextFragment.
+	Segments []TextMatchSegment
+}
+
+// TextMatchSegment is the part of a match on one line.
+type TextMatchSegment struct {
+	Text       string
+	PageNumber int
+	Rect       Rectangle
 }
 
 // Rect precision: horizontal edges are taken from the recorded per-glyph start
@@ -54,8 +65,10 @@ type TextMatch struct {
 // SearchOptions is honored (the last, if several are passed).
 //
 // This mirrors Aspose.PDF for .NET's TextFragmentAbsorber + page.Accept flow.
-// Matches are located within a single text line: a query that would straddle a
-// line break is not found. An empty query, or an invalid regular expression,
+// A literal query is matched within a single text line. A regular expression
+// is matched against the page's lines in reading order joined by "\n", so one
+// such as "first\s+second" finds a phrase broken across lines; the match then
+// has a segment per line. An empty query, or an invalid regular expression,
 // returns an error.
 func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, error) {
 	opt := lastSearchOption(opts)
@@ -67,7 +80,12 @@ func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, err
 	if err != nil {
 		return nil, err
 	}
-	matches := searchLines(lines, re, p.Number())
+	var matches []TextMatch
+	if opt.Regex {
+		matches = searchAcrossLines([]pageLines{{p.Number(), lines}}, re)
+	} else {
+		matches = searchLines(lines, re, p.Number())
+	}
 	if opt.SearchInAnnotations {
 		matches = append(matches, searchAnnotations(p, re)...)
 	}
@@ -76,26 +94,166 @@ func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, err
 
 // SearchText finds every occurrence of query across all pages of the document,
 // returning matches page by page in reading order. Each TextMatch carries the
-// page it was found on. See (*Page).SearchText for matching semantics.
+// page it was found on. See (*Page).SearchText for matching semantics; a
+// regular expression here also matches across pages, the last line of one
+// page joined to the first of the next by "\n", with a segment per line.
 func (d *Document) SearchText(query string, opts ...SearchOptions) ([]TextMatch, error) {
-	re, err := compileSearch(query, lastSearchOption(opts))
+	opt := lastSearchOption(opts)
+	re, err := compileSearch(query, opt)
 	if err != nil {
 		return nil, err
 	}
-	opt := lastSearchOption(opts)
+	var all []pageLines
 	var out []TextMatch
 	for _, p := range d.Pages() {
 		lines, err := p.ExtractTextWithLayout()
 		if err != nil {
 			return nil, err
 		}
-		matches := searchLines(lines, re, p.Number())
-		if opt.SearchInAnnotations {
-			matches = append(matches, searchAnnotations(p, re)...)
+		if opt.Regex {
+			all = append(all, pageLines{p.Number(), lines})
+		} else {
+			out = append(out, searchLines(lines, re, p.Number())...)
 		}
-		out = append(out, filterMatchesByRect(matches, opt.Rectangle)...)
+		if opt.SearchInAnnotations && !opt.Regex {
+			out = append(out, searchAnnotations(p, re)...)
+		}
 	}
-	return out, nil
+	if opt.Regex {
+		out = searchAcrossLines(all, re)
+		if opt.SearchInAnnotations {
+			for _, p := range d.Pages() {
+				out = append(out, searchAnnotations(p, re)...)
+			}
+		}
+	}
+	return filterMatchesByRect(out, opt.Rectangle), nil
+}
+
+// pageLines is a page's layout lines.
+type pageLines struct {
+	page  int
+	lines []TextLine
+}
+
+// lineSpan is the part of a match on one line: runes [r0, r1) of the
+// line's rune map.
+type lineSpan struct {
+	page   int
+	line   *TextLine
+	m      lineRuneMap
+	r0, r1 int
+}
+
+// spanMatch is a match found across lines: its text and its part on each
+// line it covers.
+type spanMatch struct {
+	text  string
+	spans []lineSpan
+}
+
+// findAcrossLines matches re against the lines of the given pages in order,
+// joined by "\n", splitting each match into the lines it covers
+// (pdf-go-1kcx). Zero-width matches and matches of nothing but line joins
+// are left out.
+func findAcrossLines(pages []pageLines, re *regexp.Regexp) []spanMatch {
+	type lineRef struct {
+		page int
+		line *TextLine
+		m    lineRuneMap
+	}
+	var (
+		text     []byte
+		runeByte []int
+		which    []int // per rune: index into refs, -1 for a joining "\n"
+		local    []int // per rune: its index within the line's rune map
+		refs     []lineRef
+	)
+	for _, pl := range pages {
+		for i := range pl.lines {
+			line := &pl.lines[i]
+			if len(line.Fragments) == 0 {
+				continue
+			}
+			m := buildLineRuneMap(line)
+			if len(m.owner) == 0 {
+				continue
+			}
+			if len(refs) > 0 {
+				runeByte = append(runeByte, len(text))
+				which = append(which, -1)
+				local = append(local, -1)
+				text = append(text, '\n')
+			}
+			base := len(text)
+			for k, b := range m.runeByte {
+				runeByte = append(runeByte, base+b)
+				which = append(which, len(refs))
+				local = append(local, k)
+			}
+			text = append(text, m.text...)
+			refs = append(refs, lineRef{pl.page, line, m})
+		}
+	}
+	var out []spanMatch
+	for _, loc := range re.FindAllIndex(text, -1) {
+		b0, b1 := loc[0], loc[1]
+		if b0 == b1 {
+			continue // skip zero-width matches (e.g. "a*")
+		}
+		r0 := sort.SearchInts(runeByte, b0)
+		r1 := sort.SearchInts(runeByte, b1)
+		sm := spanMatch{text: string(text[b0:b1])}
+		for k := r0; k < r1; {
+			if which[k] < 0 {
+				k++
+				continue
+			}
+			j := k
+			for j < r1 && which[j] == which[k] {
+				j++
+			}
+			ref := refs[which[k]]
+			sm.spans = append(sm.spans, lineSpan{ref.page, ref.line, ref.m, local[k], local[j-1] + 1})
+			k = j
+		}
+		if len(sm.spans) > 0 {
+			out = append(out, sm)
+		}
+	}
+	return out
+}
+
+// searchAcrossLines is findAcrossLines as TextMatches, with a segment per
+// line. A match within one line gets exactly the result searchLine gives it.
+func searchAcrossLines(pages []pageLines, re *regexp.Regexp) []TextMatch {
+	var out []TextMatch
+	for _, sm := range findAcrossLines(pages, re) {
+		var match TextMatch
+		for _, sp := range sm.spans {
+			rect, ok := matchRect(sp.line.Fragments, sp.m.owner, sp.m.local, sp.m.runeCounts, sp.r0, sp.r1)
+			if !ok {
+				continue
+			}
+			e := len(sp.m.text)
+			if sp.r1 < len(sp.m.runeByte) {
+				e = sp.m.runeByte[sp.r1]
+			}
+			seg := TextMatchSegment{Text: string(sp.m.text[sp.m.runeByte[sp.r0]:e]), PageNumber: sp.page, Rect: rect}
+			if len(match.Segments) == 0 {
+				match.PageNumber, match.Rect = seg.PageNumber, seg.Rect
+			} else if seg.PageNumber == match.PageNumber {
+				match.Rect = unionRect(match.Rect, seg.Rect)
+			}
+			match.Segments = append(match.Segments, seg)
+		}
+		if len(match.Segments) == 0 {
+			continue
+		}
+		match.Text = sm.text
+		out = append(out, match)
+	}
+	return out
 }
 
 // searchAnnotations returns matches of re within the /Contents text of the
@@ -126,7 +284,11 @@ func filterMatchesByRect(matches []TextMatch, r *Rectangle) []TextMatch {
 	}
 	out := matches[:0]
 	for _, m := range matches {
-		if rectsIntersect(m.Rect, *r) {
+		hit := rectsIntersect(m.Rect, *r)
+		for _, s := range m.Segments {
+			hit = hit || rectsIntersect(s.Rect, *r)
+		}
+		if hit {
 			out = append(out, m)
 		}
 	}
@@ -278,10 +440,12 @@ func searchLine(line *TextLine, re *regexp.Regexp, pageNum int) []TextMatch {
 		if !ok {
 			continue
 		}
+		text := string(m.text[b0:b1])
 		matches = append(matches, TextMatch{
-			Text:       string(m.text[b0:b1]),
+			Text:       text,
 			PageNumber: pageNum,
 			Rect:       rect,
+			Segments:   []TextMatchSegment{{Text: text, PageNumber: pageNum, Rect: rect}},
 		})
 	}
 	return matches

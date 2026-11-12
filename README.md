@@ -993,7 +993,9 @@ stays free of network code.
   at the same baseline/size/colour in a metric-compatible Standard-14 face (or, for text that face
   cannot show, in `ReplaceOptions.Font` or the original's family found by name), and with
   `ReplaceAdjustmentShiftRestOfLine` moves the rest of the line by the change in width so a
-  longer replacement does not overlap what follows. Both match within a single text line only.
+  longer replacement does not overlap what follows. A literal query matches within a line; a
+  regular expression also matches across line breaks (and, on a document, across pages), each
+  match carrying one segment per line.
   `RemoveAllText` on a page or a document removes every text operator, in Form XObjects too,
   and keeps graphics and images.
 - `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
@@ -1055,8 +1057,9 @@ stays free of network code.
   best-effort only.
 - `MarkdownToDocument` has no syntax highlighting yet; `SaveMarkdown` does not reconstruct tables
   from a PDF (cell text flows as paragraphs) and caps inferred heading levels at 3.
-- `SearchText` and `ReplaceText` match within a single text line only — a query that straddles a
-  line break is not found.
+- A literal `SearchText`/`ReplaceText` query matches within a single text line; use a regular
+  expression (`\s+` between words) for one that may straddle a line break. A replacement across
+  lines goes on the first line, and the matched text on later lines is removed.
 - Scanned pages are auto-detected (no extractable text plus a dominant full-page image);
   `OcrOptions.Pages`/`All` override the default selection when auto-detection guesses wrong. The
   bundled `LLMOCREngine` returns line-level OCR text with no coordinates, so

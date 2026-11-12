@@ -125,7 +125,7 @@ func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int
 	if err != nil {
 		return 0, err
 	}
-	n, err := applyReplaceToPage(p, re, replacement, adj, newReplaceFonts(opts))
+	n, err := applyReplaceToPage(p, re, replacement, adj, newReplaceFonts(opts), replaceToSearchOptions(opts).Regex)
 	if n > 0 {
 		p.doc.RemoveUnusedObjects()
 	}
@@ -148,7 +148,7 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 	fonts := newReplaceFonts(opts)
 	for i := range d.pages {
 		p := &Page{doc: d, index: i}
-		n, err := applyReplaceToPage(p, re, replacement, adj, fonts)
+		n, err := applyReplaceToPage(p, re, replacement, adj, fonts, replaceToSearchOptions(opts).Regex)
 		total += n
 		if err != nil {
 			// As with ApplyRedactions: any EARLIER page that already
@@ -179,6 +179,11 @@ type replaceMatch struct {
 	fontName     string // the original's font, for a covering substitute
 	bold, italic bool
 	rtl          bool // the line reads right to left: what follows lies left
+
+	// more holds the boxes of a match's later lines (a regular expression
+	// matching across a line break, pdf-go-1kcx): their text is removed,
+	// the replacement goes on the first line.
+	more []Rectangle
 }
 
 // replaceFonts picks the font each replacement is drawn in (ReplaceOptions.Font)
@@ -241,15 +246,18 @@ func (rf *replaceFonts) fontFor(d *Document, m replaceMatch, replacement string)
 	return nil, fmt.Errorf("replacement character %q (%U) is not in %s, and no installed or registered font of the original's family %q has it; set ReplaceOptions.Font", missing, missing, m.font.BaseFont(), name)
 }
 
-
-func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment, fonts *replaceFonts) (int, error) {
+func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment, fonts *replaceFonts, acrossLines bool) (int, error) {
 	lines, err := p.ExtractTextWithLayout()
 	if err != nil {
 		return 0, err
 	}
 	var matches []replaceMatch
-	for i := range lines {
-		matches = append(matches, collectReplaceMatchesLine(&lines[i], re)...)
+	if acrossLines {
+		matches = collectReplaceMatchesAcrossLines(p.Number(), lines, re)
+	} else {
+		for i := range lines {
+			matches = append(matches, collectReplaceMatchesLine(&lines[i], re)...)
+		}
 	}
 	if len(matches) == 0 {
 		return 0, nil
@@ -278,6 +286,9 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	regions := make([]QuadPoint, 0, len(matches))
 	for _, m := range matches {
 		regions = append(regions, rectAsQuadPoint(m.rect))
+		for _, r := range m.more {
+			regions = append(regions, rectAsQuadPoint(r))
+		}
 	}
 	// Text drawn inside a Form XObject is removed too (pdf-go-hxi2): the
 	// redaction Do rewriter, limited to text, clones each form a match
@@ -373,41 +384,70 @@ func collectReplaceMatchesLine(line *TextLine, re *regexp.Regexp) []replaceMatch
 		}
 		r0 := sort.SearchInts(m.runeByte, b0)
 		r1 := sort.SearchInts(m.runeByte, b1)
-		rect, ok := matchRect(line.Fragments, m.owner, m.local, m.runeCounts, r0, r1)
+		if rm, ok := replaceMatchAt(line, m, r0, r1, rtlLine); ok {
+			out = append(out, rm)
+		}
+	}
+	return out
+}
+
+// collectReplaceMatchesAcrossLines finds the matches of a regular expression
+// over the page's lines joined by "\n" (pdf-go-1kcx): each is replaced on the
+// line it starts on, and its text on later lines is removed.
+func collectReplaceMatchesAcrossLines(page int, lines []TextLine, re *regexp.Regexp) []replaceMatch {
+	var out []replaceMatch
+	for _, sm := range findAcrossLines([]pageLines{{page, lines}}, re) {
+		first := sm.spans[0]
+		rm, ok := replaceMatchAt(first.line, first.m, first.r0, first.r1, bidiBaseLevel(first.line.Text, false) == 1)
 		if !ok {
 			continue
 		}
-		// First real (non-inserted-space) rune of the match gives the start.
-		fi, li := -1, 0
-		for ri := r0; ri < r1 && ri < len(m.owner); ri++ {
-			if m.owner[ri] >= 0 {
-				fi, li = m.owner[ri], m.local[ri]
-				break
+		for _, sp := range sm.spans[1:] {
+			if r, ok := matchRect(sp.line.Fragments, sp.m.owner, sp.m.local, sp.m.runeCounts, sp.r0, sp.r1); ok {
+				rm.more = append(rm.more, r)
 			}
 		}
-		if fi < 0 {
-			continue
-		}
-		f := &line.Fragments[fi]
-		x := f.X
-		if li >= 0 && li < len(f.runeX) {
-			x = f.runeX[li]
-		}
-		out = append(out, replaceMatch{
-			rect:  rect,
-			x:     x,
-			y:     f.Y,
-			size:  f.FontSize,
-			color: f.Color,
-			font:  standard14ForFragment(f.FontName, f.Bold, f.Italic),
-
-			fontName: f.FontName,
-			bold:     f.Bold,
-			italic:   f.Italic,
-			rtl:      rtlLine,
-		})
+		out = append(out, rm)
 	}
 	return out
+}
+
+// replaceMatchAt describes the match of runes [r0, r1) of a line's rune map:
+// its box, and the start position, size, colour and font of its first glyph.
+func replaceMatchAt(line *TextLine, m lineRuneMap, r0, r1 int, rtlLine bool) (replaceMatch, bool) {
+	rect, ok := matchRect(line.Fragments, m.owner, m.local, m.runeCounts, r0, r1)
+	if !ok {
+		return replaceMatch{}, false
+	}
+	// First real (non-inserted-space) rune of the match gives the start.
+	fi, li := -1, 0
+	for ri := r0; ri < r1 && ri < len(m.owner); ri++ {
+		if m.owner[ri] >= 0 {
+			fi, li = m.owner[ri], m.local[ri]
+			break
+		}
+	}
+	if fi < 0 {
+		return replaceMatch{}, false
+	}
+	f := &line.Fragments[fi]
+	x := f.X
+	if li >= 0 && li < len(f.runeX) {
+		x = f.runeX[li]
+	}
+	return replaceMatch{
+		rect:  rect,
+		x:     x,
+		y:     f.Y,
+		size:  f.FontSize,
+		color: f.Color,
+		font:  standard14ForFragment(f.FontName, f.Bold, f.Italic),
+
+		fontName: f.FontName,
+		bold:     f.Bold,
+		italic:   f.Italic,
+		rtl:      rtlLine,
+	}, true
 }
 
 // standard14ForFragment picks the Standard-14 face closest to a fragment's
