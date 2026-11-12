@@ -353,6 +353,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 	m := lineRuneMap{runeCounts: make([]int, len(line.Fragments))}
 	var havePrev bool
 	var prevEndX, prevEndY, prevRot, prevSize float64
+	var prevText string
 	for fi := range line.Fragments {
 		f := &line.Fragments[fi]
 		if f.Text == "" {
@@ -369,7 +370,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 			if threshold < 1 {
 				threshold = 1
 			}
-			if gap > threshold {
+			if gap > threshold && !edgeSpace(prevText, f.Text) {
 				m.runeByte = append(m.runeByte, len(m.text))
 				m.owner = append(m.owner, -1)
 				m.local = append(m.local, -1)
@@ -384,7 +385,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 			m.text = utf8.AppendRune(m.text, r)
 			k++
 		}
-		prevEndX, prevEndY, prevRot, prevSize = f.X+f.Width, f.endY, f.Rotation, f.FontSize
+		prevEndX, prevEndY, prevRot, prevSize, prevText = f.X+f.Width, f.endY, f.Rotation, f.FontSize, f.Text
 		havePrev = true
 	}
 	if bidiHasStrongRTL(string(m.text)) {

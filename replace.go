@@ -595,7 +595,8 @@ func standard14ForFragment(name string, bold, italic bool) Font {
 // y and that start at or after fromX move by dx along the line.
 type lineShift struct {
 	y, tol, fromX, dx float64
-	rtl               bool // moves what lies left of fromX instead of right
+	rtl               bool    // moves what lies left of fromX instead of right
+	toX               float64 // when non-zero, glyphs right of it are not moved
 }
 
 // lineShiftAt is the total shift for a glyph at (x, y).
@@ -603,6 +604,9 @@ func lineShiftAt(shifts []lineShift, x, y float64) float64 {
 	d := 0.0
 	for _, s := range shifts {
 		if math.Abs(y-s.y) > s.tol {
+			continue
+		}
+		if s.toX != 0 && x > s.toX {
 			continue
 		}
 		if (!s.rtl && x >= s.fromX-0.01) || (s.rtl && x <= s.fromX+0.01) {

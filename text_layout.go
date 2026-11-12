@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -204,6 +205,21 @@ func assembleLine(frags []textFragment) TextLine {
 	return lineFromOrdered(frags)
 }
 
+// edgeSpace reports whether prev ends or next starts with white space.
+func edgeSpace(prev, next string) bool {
+	if prev != "" {
+		if r, _ := utf8.DecodeLastRuneInString(prev); unicode.IsSpace(r) {
+			return true
+		}
+	}
+	if next != "" {
+		if r, _ := utf8.DecodeRuneInString(next); unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
+}
+
 // lineFromOrdered builds a TextLine from fragments already in reading order.
 func lineFromOrdered(frags []textFragment) TextLine {
 
@@ -248,7 +264,10 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			if spaceThreshold < 1 {
 				spaceThreshold = 1
 			}
-			if gap > spaceThreshold {
+			// A fragment already ending (or the next starting) with a space
+			// needs none added: a word moved with its trailing space, as a
+			// justified line drawn word by word does, read "The  quick".
+			if gap > spaceThreshold && !edgeSpace(frags[lastEmitted].text.String(), text) {
 				buf.WriteByte(' ')
 			}
 		}

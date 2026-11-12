@@ -233,7 +233,8 @@ flowchart TD
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
   (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, limited to the page or a
   rectangle glyph by glyph (`LimitToPageBounds`, `Rectangle`), recover paragraph/column
-  structure (`Paragraphs()`) and rewrite a paragraph in place (`MarkupParagraph.SetText`), search and replace text in place, embed and subset TrueType/
+  structure (`Paragraphs()`) and rewrite a paragraph in place (`MarkupParagraph.SetText`), re-align the text already in a
+  rectangle — left, right, centred, justified — keeping its fonts (`TextParagraphAbsorber`), search and replace text in place, embed and subset TrueType/
   OpenType fonts (`.ttf`/`.otf`/`.ttc`) — `Document.LoadFont`/`Document.LoadFontByName("Calibri",
   bold, italic)` resolve faces by family name via a pluggable `FontRepository`, and
   `Document.SubsetFonts()` rebuilds each embedded font's own glyph tables (`glyf`/`loca`/`hmtx`/
@@ -563,6 +564,7 @@ stays free of network code.
 | `Gradient` | Gradient is a fill that varies colour across a shape: either a LinearGradient or a RadialGradient. |
 | `GradientStop` | GradientStop is one colour stop in a gradient, positioned at Offset (0 at the gradient's start, 1 at its end). |
 | `HAlign` | HAlign specifies horizontal text alignment within a rectangle. |
+| `HorizontalAlignment` | HorizontalAlignment is how a TextParagraph's lines sit in its rectangle. |
 | `HTMLMode` | HTMLMode selects how SaveHTML / WriteHTML represents page text. |
 | `HTMLSaveOptions` | HTMLSaveOptions configures SaveHTML / WriteHTML. |
 | `HeadingRecognitionStrategy` | HeadingRecognitionStrategy selects how AutoTag finds headings. |
@@ -704,6 +706,8 @@ stays free of network code.
 | `TextIcon` | TextIcon names per ISO 32000-1 §12.5.6.4 Table 172, used in /Subtype /Text annotations' /Name entry. |
 | `TextLine` | TextLine represents a horizontal line of text fragments at a common Y position. |
 | `TextMatch` | TextMatch is a single occurrence located by SearchText. |
+| `TextParagraph` | TextParagraph is the text inside one rectangle of a page: its lines, each made of words, in reading order. |
+| `TextParagraphAbsorber` | TextParagraphAbsorber finds the text inside rectangles of a page as paragraphs whose alignment can be changed. |
 | `TextRecognitionResult` | TextRecognitionResult is the recognized text of one processed page. |
 | `TextStamp` | TextStamp overlays a line (or wrapped block) of text. |
 | `TextStyle` | TextStyle defines reusable text formatting properties. |
