@@ -23,6 +23,7 @@ type otLayout struct {
 	gdef *otGDEF
 	gsub *otLayoutTable
 	gpos *otLayoutTable
+	kern []otKernSubtable // the legacy 'kern' table, opentype_kern.go
 }
 
 // otLayoutTable is the common shape of GSUB and GPOS: a script list
@@ -488,6 +489,7 @@ func parseOTLayout(f *ttfFont) *otLayout {
 		gdef: otParseGDEF(tableSlice(f.data, f.tables, "GDEF")),
 		gsub: gsub,
 		gpos: gpos,
+		kern: otParseKern(tableSlice(f.data, f.tables, "kern")),
 	}
 }
 

@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "sort"
+import (
+	"sort"
+	"unicode"
+)
 
 // The OpenType shaping engine (RTL support, phase 3; epic pdf-go-26u4).
 // opentype.go reads a font's GSUB/GPOS/GDEF tables; this file runs them
@@ -238,7 +241,7 @@ func shapeRun(f *ttfFont, text string, rtl bool) []shapedGlyph {
 			gid:       f.glyphID(r),
 			cluster:   i,
 			mask:      otMaskGlobal,
-			isMark:    bidiClass(r) == clsNSM,
+			isMark:    unicode.Is(unicode.Mn, r), // as HarfBuzz classes glyphs without GDEF
 			ignorable: isDefaultIgnorable(r),
 			text:      string(r),
 		}
@@ -272,6 +275,14 @@ func shapeRun(f *ttfFont, text string, rtl bool) []shapedGlyph {
 		for _, pl := range otBuildPlan(l.gpos, script, gposFeats) {
 			s.applyLookup(pl, false)
 		}
+	}
+	// HarfBuzz's order (opentype_kern.go): the 'kern' table when GPOS does
+	// not kern this script, then marks lose their advance, then attachments.
+	if len(l.kern) > 0 && !otHasFeature(l.gpos, script, "kern") {
+		s.applyKernTable(l.kern)
+	}
+	s.zeroMarkAdvances(l.gpos == nil)
+	if l.gpos != nil {
 		s.resolveAttachments()
 	}
 	s.hideDefaultIgnorables()
