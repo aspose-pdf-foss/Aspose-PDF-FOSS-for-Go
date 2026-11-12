@@ -314,14 +314,14 @@ func (d *Document) ApplyRedactions() error {
 			// of erroring), a later page's failure is no longer a
 			// theoretical edge case.
 			if redacted > 0 {
-				d.RemoveUnusedObjects()
+				d.sweepUnused()
 			}
 			return fmt.Errorf("ApplyRedactions: page %d: %w", page.Number(), err)
 		}
 		redacted++
 	}
 	if redacted > 0 {
-		d.RemoveUnusedObjects()
+		d.sweepUnused()
 	}
 	return nil
 }

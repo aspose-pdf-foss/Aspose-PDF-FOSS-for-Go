@@ -140,9 +140,16 @@ func TestReplaceDefaultDoesNotShift(t *testing.T) {
 
 func TestReplaceUnsupportedAdjustment(t *testing.T) {
 	doc, _ := replaceAdjFixture(t, "Hello World")
-	for _, a := range []ReplaceAdjustment{ReplaceAdjustmentAdjustSpaceWidth, ReplaceAdjustmentWholeWordsHyphenation} {
-		if _, err := doc.ReplaceText("World", "X", ReplaceOptions{Adjustment: a}); err == nil {
-			t.Errorf("adjustment %d: no error", a)
+	for _, o := range []ReplaceOptions{
+		{Adjustment: 4},
+		{Adjustment: ReplaceAdjustmentShiftRestOfLine | ReplaceAdjustmentAdjustSpaceWidth},
+		{Adjustment: ReplaceAdjustmentShiftRestOfLine, FontSizeAdjustment: FontSizeAdjustmentShrinkToFit},
+		{FontSizeAdjustment: 7},
+		{Rectangle: &Rectangle{LLX: 10, LLY: 10, URX: 5, URY: 20}},
+		{LeftAdjustment: 1000},
+	} {
+		if _, err := doc.ReplaceText("World", "X", o); err == nil {
+			t.Errorf("options %+v: no error", o)
 		}
 	}
 }

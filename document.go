@@ -520,7 +520,28 @@ func (d *Document) Append(others ...*Document) {
 // never dropped just because no page happens to reference it too. Returns
 // the number of objects removed.
 func (d *Document) RemoveUnusedObjects() int {
+	return d.removeUnused(false)
+}
+
+// sweepUnused is the RemoveUnusedObjects pass an operation runs on its own
+// (ReplaceText, ApplyRedactions, FlattenTransparency) to drop the content it
+// replaced. It keeps the fonts loaded into the document in this session: a
+// font loaded for later drawing (ReplaceOptions.Font, a face kept for the
+// next AddText) is used by no page yet, and deleting it left the next text
+// drawn with it pointing at nothing (pdf-go-2tdw).
+func (d *Document) sweepUnused() int {
+	return d.removeUnused(true)
+}
+
+func (d *Document) removeUnused(keepSessionFonts bool) int {
 	reachable := collectReachableIDs(d.objects, d.pages)
+	if keepSessionFonts {
+		for _, ef := range d.embeddedFonts {
+			if ef != nil {
+				markReachable(d.objects, pdfRef{Num: ef.fontObjectID}, reachable)
+			}
+		}
+	}
 	for key, v := range d.catalog {
 		if catalogKeyRebuiltByWriter(d, key) {
 			continue

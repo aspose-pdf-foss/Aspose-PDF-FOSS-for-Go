@@ -100,7 +100,7 @@ func (d *Document) flattenTransparencyPages(opts ...FlattenTransparencyOptions) 
 		flattened = append(flattened, p.Number())
 	}
 	if len(flattened) > 0 {
-		d.RemoveUnusedObjects()
+		d.sweepUnused()
 	}
 	d.dropIdleGroups(targets, len(opt.Pages) > 0)
 	return flattened, nil

@@ -551,6 +551,7 @@ stays free of network code.
 | `Flow` | Flow is a document generator that lays content out top-to-bottom and paginates automatically — the "flow" counterpart to the Rectangle-based drawing API. |
 | `FlowOptions` | FlowOptions configures a Flow. |
 | `Font` | Font is implemented by standard 14 fonts and embedded TTF fonts. |
+| `FontSizeAdjustment` | FontSizeAdjustment selects how a replacement laid out in a rectangle changes size to fit it. |
 | `Form` | Form is the document's AcroForm view. |
 | `FormFieldType` | FormFieldType identifies the kind of form field. |
 | `FreeTextAnnotation` | FreeTextAnnotation displays text directly on the page, rendered into /AP/N using an embedded font. |
@@ -993,7 +994,10 @@ stays free of network code.
   at the same baseline/size/colour in a metric-compatible Standard-14 face (or, for text that face
   cannot show, in `ReplaceOptions.Font` or the original's family found by name), and with
   `ReplaceAdjustmentShiftRestOfLine` moves the rest of the line by the change in width so a
-  longer replacement does not overlap what follows. A literal query matches within a line; a
+  longer replacement does not overlap what follows. `ReplaceOptions.Rectangle` lays the
+  replacement out as a paragraph instead — wrapped at whole words, optionally justified
+  (`ReplaceAdjustmentAdjustSpaceWidth`), shrunk or scaled to fit (`FontSizeAdjustment`), its
+  edges moved with `LeftAdjustment`/`RightAdjustment`. A literal query matches within a line; a
   regular expression also matches across line breaks (and, on a document, across pages), each
   match carrying one segment per line.
   `RemoveAllText` on a page or a document removes every text operator, in Form XObjects too,

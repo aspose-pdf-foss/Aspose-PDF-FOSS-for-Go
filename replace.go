@@ -30,7 +30,50 @@ type ReplaceOptions struct {
 	// Aspose.PDF for .NET substitutes a font that has the glyphs. With no
 	// font covering it the call fails, naming the character.
 	Font Font
+
+	// Rectangle lays the replacement out as a paragraph in this rectangle
+	// instead of on the match's line (pdf-go-2tdw): it is wrapped at whole
+	// words to the rectangle's width, its first line's text box touching
+	// the rectangle's top, in the match's font, size and line pitch. Text
+	// longer than the rectangle runs on below it unless FontSizeAdjustment
+	// says otherwise. The same rectangle is used for every match, so this
+	// is meant for a call replacing one. Mirrors Aspose.PDF for .NET's
+	// TextReplaceOptions.Rectangle.
+	//
+	// A paragraph layout is also chosen, in the match's own rectangle (the
+	// union of its lines; for a match on one line, widened to the page's
+	// right edge less the margin left of the match), by FontSizeAdjustment, LeftAdjustment,
+	// RightAdjustment, or an Adjustment of ReplaceAdjustmentAdjustSpaceWidth
+	// or ReplaceAdjustmentWholeWordsHyphenation.
+	Rectangle *Rectangle
+	// FontSizeAdjustment changes the font size of a paragraph layout to fit
+	// its rectangle: ShrinkToFit makes it smaller when the text would run
+	// on below, ScaleToFill makes it the largest that fits. Mirrors
+	// TextReplaceOptions.FontSizeAdjustmentAction.
+	FontSizeAdjustment FontSizeAdjustment
+	// LeftAdjustment and RightAdjustment move the left and the right edge of
+	// a paragraph layout's rectangle, in points (a negative LeftAdjustment
+	// and a positive RightAdjustment widen it). Mirror
+	// TextReplaceOptions.LeftAdjustment and RightAdjustment.
+	LeftAdjustment, RightAdjustment float64
 }
+
+// FontSizeAdjustment selects how a replacement laid out in a rectangle
+// changes size to fit it. Mirrors Aspose.PDF for .NET's
+// TextReplaceOptions.FontSizeAdjustment.
+type FontSizeAdjustment int
+
+const (
+	// FontSizeAdjustmentNone keeps the match's font size; a longer text runs
+	// on below the rectangle.
+	FontSizeAdjustmentNone FontSizeAdjustment = iota
+	// FontSizeAdjustmentShrinkToFit lowers the size until the text fits
+	// the rectangle's height, and leaves it when it fits already.
+	FontSizeAdjustmentShrinkToFit
+	// FontSizeAdjustmentScaleToFill sets the largest size at which the text
+	// fits the rectangle, larger or smaller than the match's.
+	FontSizeAdjustmentScaleToFill
+)
 
 // ReplaceAdjustment selects how ReplaceText makes room for (or closes the
 // gap after) a replacement whose width differs from the text it replaces.
@@ -43,11 +86,15 @@ const (
 	// ReplaceAdjustmentNone leaves the rest of the line in place: a longer
 	// replacement may overlap the text after it.
 	ReplaceAdjustmentNone ReplaceAdjustment = 0
-	// ReplaceAdjustmentAdjustSpaceWidth would keep the line length by
-	// changing word spacing. Not implemented: ReplaceText returns an error.
+	// ReplaceAdjustmentAdjustSpaceWidth lays the replacement out as a
+	// paragraph (see ReplaceOptions.Rectangle) and justifies it: every line
+	// but a paragraph's last is spread to the rectangle's width by the
+	// space between its words.
 	ReplaceAdjustmentAdjustSpaceWidth ReplaceAdjustment = 1
-	// ReplaceAdjustmentWholeWordsHyphenation would re-wrap the paragraph.
-	// Not implemented: ReplaceText returns an error.
+	// ReplaceAdjustmentWholeWordsHyphenation lays the replacement out as a
+	// paragraph wrapped at whole words (see ReplaceOptions.Rectangle); a
+	// word longer than a line is broken. It may be combined with
+	// ReplaceAdjustmentAdjustSpaceWidth (|).
 	ReplaceAdjustmentWholeWordsHyphenation ReplaceAdjustment = 2
 	// ReplaceAdjustmentShiftRestOfLine moves the text after the
 	// replacement on the same line by the difference in width, so nothing
@@ -66,16 +113,43 @@ func replaceToSearchOptions(opts []ReplaceOptions) SearchOptions {
 	return SearchOptions{CaseInsensitive: o.CaseInsensitive, Regex: o.Regex}
 }
 
-func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, error) {
+func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, *replaceLayout, error) {
 	if len(opts) == 0 {
-		return ReplaceAdjustmentNone, nil
+		return ReplaceAdjustmentNone, nil, nil
 	}
-	switch a := opts[len(opts)-1].Adjustment; a {
-	case ReplaceAdjustmentNone, ReplaceAdjustmentShiftRestOfLine:
-		return a, nil
-	default:
-		return 0, fmt.Errorf("replace text: adjustment %d is not supported (use ReplaceAdjustmentNone or ReplaceAdjustmentShiftRestOfLine)", a)
+	o := opts[len(opts)-1]
+	a := o.Adjustment
+	paraBits := ReplaceAdjustmentAdjustSpaceWidth | ReplaceAdjustmentWholeWordsHyphenation
+	if a != ReplaceAdjustmentShiftRestOfLine && a&^paraBits != 0 {
+		return 0, nil, fmt.Errorf("replace text: adjustment %d is not supported", a)
 	}
+	if o.FontSizeAdjustment < FontSizeAdjustmentNone || o.FontSizeAdjustment > FontSizeAdjustmentScaleToFill {
+		return 0, nil, fmt.Errorf("replace text: font size adjustment %d is not supported", o.FontSizeAdjustment)
+	}
+	if o.Rectangle == nil && o.FontSizeAdjustment == FontSizeAdjustmentNone && a&paraBits == 0 &&
+		o.LeftAdjustment == 0 && o.RightAdjustment == 0 {
+		return a, nil, nil
+	}
+	if a == ReplaceAdjustmentShiftRestOfLine {
+		return 0, nil, fmt.Errorf("replace text: ReplaceAdjustmentShiftRestOfLine does not apply to a replacement laid out in a rectangle")
+	}
+	if o.Rectangle != nil {
+		if err := o.Rectangle.validate(); err != nil {
+			return 0, nil, fmt.Errorf("replace text: rectangle: %w", err)
+		}
+	}
+	for _, v := range []float64{o.LeftAdjustment, o.RightAdjustment} {
+		if nonFinite(v) {
+			return 0, nil, fmt.Errorf("replace text: edge adjustment %v is not a finite number", v)
+		}
+	}
+	return ReplaceAdjustmentNone, &replaceLayout{
+		rect:    o.Rectangle,
+		fit:     o.FontSizeAdjustment,
+		justify: a&ReplaceAdjustmentAdjustSpaceWidth != 0,
+		left:    o.LeftAdjustment,
+		right:   o.RightAdjustment,
+	}, nil
 }
 
 // ReplaceText replaces every occurrence of old with replacement on the page and
@@ -91,7 +165,9 @@ func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, error) {
 // re-flowed: a much longer replacement may overrun following content; with
 // ReplaceOptions.Adjustment = ReplaceAdjustmentShiftRestOfLine the text after
 // each replacement on its line moves by the difference in width instead (the
-// paragraph is not re-wrapped, so a line can run past its margin). Matches are located
+// paragraph is not re-wrapped, so a line can run past its margin); with
+// ReplaceOptions.Rectangle (or the other paragraph options) the replacement
+// is laid out as a wrapped paragraph instead. Matches are located
 // within a single line, like SearchText. Mirrors the find-and-replace idiom of
 // Aspose.PDF for .NET's TextFragmentAbsorber + TextFragment.Text.
 //
@@ -121,13 +197,13 @@ func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int
 	if err != nil {
 		return 0, err
 	}
-	adj, err := replaceAdjustment(opts)
+	adj, lay, err := replaceAdjustment(opts)
 	if err != nil {
 		return 0, err
 	}
-	n, err := applyReplaceToPage(p, re, replacement, adj, newReplaceFonts(opts), replaceToSearchOptions(opts).Regex)
+	n, err := applyReplaceToPage(p, re, replacement, adj, lay, newReplaceFonts(opts), replaceToSearchOptions(opts).Regex)
 	if n > 0 {
-		p.doc.RemoveUnusedObjects()
+		p.doc.sweepUnused()
 	}
 	return n, err
 }
@@ -140,7 +216,7 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 	if err != nil {
 		return 0, err
 	}
-	adj, err := replaceAdjustment(opts)
+	adj, lay, err := replaceAdjustment(opts)
 	if err != nil {
 		return 0, err
 	}
@@ -148,7 +224,7 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 	fonts := newReplaceFonts(opts)
 	for i := range d.pages {
 		p := &Page{doc: d, index: i}
-		n, err := applyReplaceToPage(p, re, replacement, adj, fonts, replaceToSearchOptions(opts).Regex)
+		n, err := applyReplaceToPage(p, re, replacement, adj, lay, fonts, replaceToSearchOptions(opts).Regex)
 		total += n
 		if err != nil {
 			// As with ApplyRedactions: any EARLIER page that already
@@ -157,13 +233,13 @@ func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) 
 			// succeeded before surfacing the error, so it doesn't end
 			// up written to the file anyway on the caller's next Save.
 			if total > 0 {
-				d.RemoveUnusedObjects()
+				d.sweepUnused()
 			}
 			return total, fmt.Errorf("replace text: page %d: %w", i+1, err)
 		}
 	}
 	if total > 0 {
-		d.RemoveUnusedObjects()
+		d.sweepUnused()
 	}
 	return total, nil
 }
@@ -184,6 +260,9 @@ type replaceMatch struct {
 	// matching across a line break, pdf-go-1kcx): their text is removed,
 	// the replacement goes on the first line.
 	more []Rectangle
+	// pitch is the distance between the match's first and second lines'
+	// baselines (0 for a match on one line).
+	pitch float64
 }
 
 // replaceFonts picks the font each replacement is drawn in (ReplaceOptions.Font)
@@ -246,7 +325,7 @@ func (rf *replaceFonts) fontFor(d *Document, m replaceMatch, replacement string)
 	return nil, fmt.Errorf("replacement character %q (%U) is not in %s, and no installed or registered font of the original's family %q has it; set ReplaceOptions.Font", missing, missing, m.font.BaseFont(), name)
 }
 
-func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment, fonts *replaceFonts, acrossLines bool) (int, error) {
+func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj ReplaceAdjustment, lay *replaceLayout, fonts *replaceFonts, acrossLines bool) (int, error) {
 	lines, err := p.ExtractTextWithLayout()
 	if err != nil {
 		return 0, err
@@ -329,6 +408,12 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	// match ended.
 	if replacement != "" {
 		for _, m := range matches {
+			if lay != nil {
+				if err := drawReplacementParagraph(p, m, replacement, lay); err != nil {
+					return 0, fmt.Errorf("draw replacement: %w", err)
+				}
+				continue
+			}
 			style := TextStyle{Font: m.font, Size: m.size, Color: &Color{R: m.color.R, G: m.color.G, B: m.color.B, A: 1}}
 			x := m.x
 			if m.rtl || bidiBaseLevel(replacement, false) == 1 {
@@ -410,6 +495,9 @@ func collectReplaceMatchesAcrossLines(page int, lines []TextLine, re *regexp.Reg
 		rm, ok := replaceMatchAt(first.line, first.m, first.r0, first.r1, bidiBaseLevel(first.line.Text, false) == 1)
 		if !ok {
 			continue
+		}
+		if n := len(sm.spans); n > 1 {
+			rm.pitch = (first.line.Y - sm.spans[n-1].line.Y) / float64(n-1)
 		}
 		for _, sp := range sm.spans[1:] {
 			if r, ok := matchRect(sp.line.Fragments, sp.m.owner, sp.m.local, sp.m.runeCounts, sp.r0, sp.r1); ok {

@@ -352,7 +352,7 @@ type lineRuneMap struct {
 func buildLineRuneMap(line *TextLine) lineRuneMap {
 	m := lineRuneMap{runeCounts: make([]int, len(line.Fragments))}
 	var havePrev bool
-	var prevEndX, prevEndY, prevRot float64
+	var prevEndX, prevEndY, prevRot, prevSize float64
 	for fi := range line.Fragments {
 		f := &line.Fragments[fi]
 		if f.Text == "" {
@@ -361,7 +361,11 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		m.runeCounts[fi] = utf8.RuneCountInString(f.Text)
 		if havePrev {
 			gap := fragmentGap(prevEndX, prevEndY, prevRot, f.X, f.Y, f.Rotation)
-			threshold := f.FontSize * 0.3
+			// The rule TextLine.Text is assembled with (lineFromOrdered):
+			// 0.2 em of the smaller font. 0.3 em missed the spaces of a
+			// justified line drawn word by word, so a search for its words
+			// found them run together (pdf-go-2tdw).
+			threshold := 0.2 * minf(f.FontSize, prevSize)
 			if threshold < 1 {
 				threshold = 1
 			}
@@ -380,7 +384,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 			m.text = utf8.AppendRune(m.text, r)
 			k++
 		}
-		prevEndX, prevEndY, prevRot = f.X+f.Width, f.endY, f.Rotation
+		prevEndX, prevEndY, prevRot, prevSize = f.X+f.Width, f.endY, f.Rotation, f.FontSize
 		havePrev = true
 	}
 	if bidiHasStrongRTL(string(m.text)) {

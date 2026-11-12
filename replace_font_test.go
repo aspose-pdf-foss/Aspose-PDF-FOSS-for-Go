@@ -96,3 +96,42 @@ func TestReplaceTextNoFontCovers(t *testing.T) {
 		t.Errorf("page changed: %q", got)
 	}
 }
+
+// TestReplaceTextKeepsFontLoadedForLater: a font loaded before a replacement
+// that does not use it stays usable for the next one; ReplaceText's sweep of
+// the replaced content deleted it, and text drawn with it afterwards pointed
+// at nothing (pdf-go-2tdw).
+func TestReplaceTextKeepsFontLoadedForLater(t *testing.T) {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	p, _ := doc.Page(1)
+	style := pdf.TextStyle{Font: pdf.FontHelvetica, Size: 12}
+	if err := p.AddTextAt("first word", style, 72, 700); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddTextAt("second word", style, 72, 680); err != nil {
+		t.Fatal(err)
+	}
+	font, err := doc.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := doc.ReplaceText("first", "one"); err != nil || n != 1 {
+		t.Fatalf("first replacement: %d, %v", n, err)
+	}
+	if n, err := doc.ReplaceText("second", "второе", pdf.ReplaceOptions{Font: font}); err != nil || n != 1 {
+		t.Fatalf("second replacement: %d, %v", n, err)
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	re, err := pdf.OpenStream(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rp, _ := re.Page(1)
+	text, _ := rp.ExtractText()
+	if !strings.Contains(text, "второе word") || !strings.Contains(text, "one word") {
+		t.Errorf("text after save: %q", text)
+	}
+}
