@@ -992,6 +992,8 @@ stays free of network code.
   cannot show, in `ReplaceOptions.Font` or the original's family found by name), and with
   `ReplaceAdjustmentShiftRestOfLine` moves the rest of the line by the change in width so a
   longer replacement does not overlap what follows. Both match within a single text line only.
+  `RemoveAllText` on a page or a document removes every text operator, in Form XObjects too,
+  and keeps graphics and images.
 - `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
   as JPEG (DCTDecode passthrough) or PNG, across DeviceRGB/DeviceGray/DeviceCMYK/Indexed/ICCBased
   color spaces with soft masks applied as PNG alpha; `Document.ImageInfos()`/`Page.ImageInfos()`
