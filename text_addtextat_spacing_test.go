@@ -4,6 +4,8 @@ package asposepdf
 
 import (
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -85,7 +87,7 @@ func TestAddTextAtSpacingWordSpacingEmbedded(t *testing.T) {
 	if strings.Contains(s, " Tw") {
 		t.Error("embedded font must not use the Tw operator")
 	}
-	if !strings.Contains(s, "TJ") || !strings.Contains(s, "-499.") {
+	if !strings.Contains(s, "TJ") || math.Abs(tjNumber(t, s)+500) > 2 {
 		t.Errorf("want TJ with -500 for 5pt at 10pt:\n%s", s)
 	}
 	if strings.Contains(plain, "TJ") {
@@ -104,9 +106,6 @@ func TestSpacedTJ(t *testing.T) {
 		return b.String()
 	}
 	got := spacedTJ("a b", enc, 10, 5)
-	if got != "[<0001 0002> -500 <0003>] TJ\n" && got != "[<00010002> -500 <0003>] TJ\n" {
-		t.Errorf("got %q", got)
-	}
 	if got != "[<00010002> -500 <0003>] TJ\n" {
 		t.Errorf("got %q", got)
 	}
@@ -178,5 +177,28 @@ func TestAddTextAtSpacingUnshapedEmbeddedAndAlignment(t *testing.T) {
 	want := formatFloat(100-w) + " 200 Td"
 	if !strings.Contains(s, want) {
 		t.Errorf("want %q in:\n%s", want, s)
+	}
+}
+
+// tjNumber returns the single kerning number of a "[<..> n <..>] TJ" array.
+func tjNumber(t *testing.T, s string) float64 {
+	t.Helper()
+	m := regexp.MustCompile(`> (-?[0-9.]+) <`).FindStringSubmatch(s)
+	if m == nil {
+		t.Fatalf("no TJ number in:\n%s", s)
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestSpacedWidthZeroIsExact(t *testing.T) {
+	base := 7*0.0137 + 0.1 // base*100/100 != base
+	for _, tz := range []float64{0, 100} {
+		if got := spacedWidth(base, "a b", 0, 0, tz); got != base {
+			t.Errorf("tz=%v: got %v, want exactly %v", tz, got, base)
+		}
 	}
 }

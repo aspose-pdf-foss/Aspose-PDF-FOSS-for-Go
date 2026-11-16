@@ -169,6 +169,9 @@ func styledFont(f Font, fs FontStyle) Font {
 // spacedWidth applies character spacing tc (per rune), word spacing tw (per
 // U+0020) and horizontal scaling tz (percent; 0 means 100) to a base width.
 func spacedWidth(base float64, text string, tc, tw, tz float64) float64 {
+	if tc == 0 && tw == 0 && (tz == 0 || tz == 100) {
+		return base
+	}
 	runes, spaces := 0, 0
 	for _, r := range text {
 		runes++
