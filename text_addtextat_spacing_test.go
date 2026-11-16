@@ -195,7 +195,8 @@ func tjNumber(t *testing.T, s string) float64 {
 }
 
 func TestSpacedWidthZeroIsExact(t *testing.T) {
-	base := 7*0.0137 + 0.1 // base*100/100 != base
+	i := 7.0
+	base := i*0.0137 + 0.1 // runtime float: base*100/100 != base
 	for _, tz := range []float64{0, 100} {
 		if got := spacedWidth(base, "a b", 0, 0, tz); got != base {
 			t.Errorf("tz=%v: got %v, want exactly %v", tz, got, base)
