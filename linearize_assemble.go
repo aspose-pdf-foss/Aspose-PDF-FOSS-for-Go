@@ -56,46 +56,7 @@ func (d *Document) assemble() (*assembled, error) {
 		d.buildSignatureObjects()
 	}
 
-	outlinesRef, outlineObjs := buildOutlineObjects(d)
-	for _, obj := range outlineObjs {
-		d.objects[obj.Num] = obj
-	}
-
-	ndTreeRef, ndNamesDictRef, ndObjs := buildNamedDestTree(d)
-	if ndTreeRef.Num != 0 {
-		var preserved pdfDict
-		switch v := d.catalog["/Names"].(type) {
-		case pdfRef:
-			if obj, ok := d.objects[v.Num]; ok {
-				if dict, ok := obj.Value.(pdfDict); ok {
-					preserved = pdfDict{}
-					for k, val := range dict {
-						if k != "/Dests" {
-							preserved[k] = deepCopyValue(val)
-						}
-					}
-				}
-			}
-		case pdfDict:
-			preserved = pdfDict{}
-			for k, val := range v {
-				if k != "/Dests" {
-					preserved[k] = deepCopyValue(val)
-				}
-			}
-		}
-		if len(preserved) > 0 {
-			namesObj := ndObjs[1]
-			if dict, ok := namesObj.Value.(pdfDict); ok {
-				for k, val := range preserved {
-					dict[k] = val
-				}
-			}
-		}
-	}
-	for _, obj := range ndObjs {
-		d.objects[obj.Num] = obj
-	}
+	refs := d.injectWriterObjects()
 
 	// The source file's own structure says nothing about this one: its cross-reference
 	// streams hold stale offsets, and its object streams' members are objects already.
@@ -141,25 +102,7 @@ func (d *Document) assemble() (*assembled, error) {
 	// PDF/A-1 guard on object streams, so a PDF/A-4 document stays PDF 2.0.
 	header := d.outputVersion(encState).header()
 
-	catOut := make(pdfDict, len(d.catalog)+2)
-	for k, v := range d.catalog {
-		if k == "/Pages" {
-			continue
-		}
-		catOut[k] = deepCopyValue(v)
-	}
-	catOut["/Type"] = pdfName("/Catalog")
-	catOut["/Pages"] = pdfDirectRef{Num: pagesObjID}
-	if outlinesRef.Num != 0 {
-		catOut["/Outlines"] = outlinesRef
-	} else if d.outlinesRoot != nil {
-		// The outline tree was loaded and emptied: the parsed /Outlines the
-		// catalog still names would bring every removed bookmark back.
-		delete(catOut, "/Outlines")
-	}
-	if ndTreeRef.Num != 0 {
-		catOut["/Names"] = ndNamesDictRef
-	}
+	catOut := d.outputCatalog(pdfDirectRef{Num: pagesObjID}, refs)
 
 	return &assembled{
 		encState:     encState,
@@ -173,4 +116,82 @@ func (d *Document) assemble() (*assembled, error) {
 		catalog:      catOut,
 		header:       header,
 	}, nil
+}
+
+// writerRefs are the objects the writer builds afresh on every save: the
+// outline tree and the named-destination tree, when they were loaded.
+type writerRefs struct {
+	outlines, ndTree, ndNames pdfRef
+}
+
+// injectWriterObjects builds the outline and named-destination objects into
+// d.objects, as every save does (full, linearized and incremental alike).
+func (d *Document) injectWriterObjects() writerRefs {
+	outlinesRef, outlineObjs := buildOutlineObjects(d)
+	for _, obj := range outlineObjs {
+		d.objects[obj.Num] = obj
+	}
+
+	ndTreeRef, ndNamesDictRef, ndObjs := buildNamedDestTree(d)
+	if ndTreeRef.Num != 0 {
+		var preserved pdfDict
+		switch v := d.catalog["/Names"].(type) {
+		case pdfRef:
+			if obj, ok := d.objects[v.Num]; ok {
+				if dict, ok := obj.Value.(pdfDict); ok {
+					preserved = pdfDict{}
+					for k, val := range dict {
+						if k != "/Dests" {
+							preserved[k] = deepCopyValue(val)
+						}
+					}
+				}
+			}
+		case pdfDict:
+			preserved = pdfDict{}
+			for k, val := range v {
+				if k != "/Dests" {
+					preserved[k] = deepCopyValue(val)
+				}
+			}
+		}
+		if len(preserved) > 0 {
+			namesObj := ndObjs[1]
+			if dict, ok := namesObj.Value.(pdfDict); ok {
+				for k, val := range preserved {
+					dict[k] = val
+				}
+			}
+		}
+	}
+	for _, obj := range ndObjs {
+		d.objects[obj.Num] = obj
+	}
+	return writerRefs{outlines: outlinesRef, ndTree: ndTreeRef, ndNames: ndNamesDictRef}
+}
+
+// outputCatalog builds the catalog the writer saves: d.catalog with /Pages
+// set to pages and the rebuilt outline and named-destination trees.
+func (d *Document) outputCatalog(pages pdfValue, refs writerRefs) pdfDict {
+	catOut := make(pdfDict, len(d.catalog)+2)
+	for k, v := range d.catalog {
+		if k == "/Pages" {
+			continue
+		}
+		catOut[k] = deepCopyValue(v)
+	}
+	catOut["/Type"] = pdfName("/Catalog")
+	catOut["/Pages"] = pages
+	if refs.outlines.Num != 0 {
+		catOut["/Outlines"] = refs.outlines
+	} else if d.outlinesRoot != nil {
+		// The outline tree was loaded and emptied: the parsed /Outlines the
+		// catalog still names would bring every removed bookmark back.
+		delete(catOut, "/Outlines")
+	}
+	if refs.ndTree.Num != 0 {
+		catOut["/Names"] = refs.ndNames
+	}
+
+	return catOut
 }

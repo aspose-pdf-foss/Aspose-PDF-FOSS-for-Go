@@ -230,6 +230,8 @@ flowchart TD
   selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
   `/Alt` text generation for tagged figures (`ImageDescriptionCopilot`), over any
   OpenAI-compatible endpoint.
+- **Incremental save** — `SaveIncremental`/`WriteIncremental` keep the opened file's bytes and
+  append only what changed as a new revision, so existing signatures stay valid.
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
   (`TextExtractOptions{Mode: TextExtractRaw}`) with full layout info, limited to the page or a
   rectangle glyph by glyph (`LimitToPageBounds`, `Rectangle`), recover paragraph/column
