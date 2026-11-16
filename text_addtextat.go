@@ -124,7 +124,9 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	}
 
 	shape := resolveSingleLine(font, fontSize, text, style.RTL, width)
-	lineWidth := shape.widthAt(fontSize)
+	lineWidth := spacedWidth(shape.widthAt(fontSize), text, style.CharSpacing, style.WordSpacing, style.HorizontalScaling)
+	invisible := style.Invisible || style.RenderMode == RenderingInvisible
+	_, embedded := font.(*embeddedFont)
 
 	textColor := Color{R: 0, G: 0, B: 0, A: 1}
 	if style.Color != nil {
@@ -172,8 +174,26 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	}
 
 	buf.WriteString("BT\n")
-	if style.Invisible {
+	switch {
+	case invisible:
 		buf.WriteString("3 Tr\n")
+	case style.RenderMode == RenderingStroke || style.RenderMode == RenderingFillStroke:
+		if sc := style.StrokeColor; sc != nil {
+			buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
+				formatFloat(sc.R), formatFloat(sc.G), formatFloat(sc.B)))
+		}
+		buf.WriteString(fmt.Sprintf("%d Tr\n", int(style.RenderMode)))
+	}
+	if style.CharSpacing != 0 {
+		buf.WriteString(fmt.Sprintf("%s Tc\n", formatFloat(style.CharSpacing)))
+	}
+	// A two-byte (embedded) font ignores Tw; its word spacing is applied
+	// through TJ numbers below.
+	if style.WordSpacing != 0 && !embedded {
+		buf.WriteString(fmt.Sprintf("%s Tw\n", formatFloat(style.WordSpacing)))
+	}
+	if style.HorizontalScaling != 0 && style.HorizontalScaling != 100 {
+		buf.WriteString(fmt.Sprintf("%s Tz\n", formatFloat(style.HorizontalScaling)))
 	}
 	buf.WriteString(fmt.Sprintf("%s %s Tf\n", resName, formatFloat(fontSize)))
 	buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
@@ -188,13 +208,15 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	}
 
 	if shape.shaper != nil {
-		buf.WriteString(shape.shaped.showOps(shape.shaper, fontSize))
+		buf.WriteString(shape.shaped.showOpsSpaced(shape.shaper, fontSize, style.WordSpacing))
+	} else if embedded && style.WordSpacing != 0 && strings.ContainsRune(shape.line, ' ') {
+		buf.WriteString(spacedTJ(shape.line, encode, fontSize, style.WordSpacing))
 	} else {
 		buf.WriteString(fmt.Sprintf("%s Tj\n", encode(shape.line)))
 	}
 	buf.WriteString("ET\n")
 
-	if style.Underline && !style.Invisible {
+	if style.Underline && !invisible {
 		buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(textColor.R), formatFloat(textColor.G), formatFloat(textColor.B)))
 		thickness := fontSize * 0.05
@@ -202,7 +224,7 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 		buf.WriteString(fmt.Sprintf("%s %s %s %s re f\n",
 			formatFloat(drawX), formatFloat(ulY), formatFloat(lineWidth), formatFloat(thickness)))
 	}
-	if style.Strikethrough && !style.Invisible {
+	if style.Strikethrough && !invisible {
 		buf.WriteString(fmt.Sprintf("%s %s %s rg\n",
 			formatFloat(textColor.R), formatFloat(textColor.G), formatFloat(textColor.B)))
 		thickness := fontSize * 0.05
@@ -217,6 +239,29 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 		return p.prependToContentStream([]byte(buf.String()))
 	}
 	return p.appendToContentStream([]byte(buf.String()))
+}
+
+// spacedTJ shows an unshaped line in a two-byte font as a TJ array that
+// advances the pen by tw points after every space (Tw does not reach
+// two-byte codes).
+func spacedTJ(line string, encode func(string) string, size, tw float64) string {
+	var arr, run strings.Builder
+	flush := func() {
+		if run.Len() > 0 {
+			arr.WriteString("<" + run.String() + ">")
+			run.Reset()
+		}
+	}
+	for _, r := range line {
+		enc := encode(string(r))
+		run.WriteString(strings.Trim(enc, "<>"))
+		if r == ' ' {
+			flush()
+			arr.WriteString(" " + formatFloat(-tw/size*1000) + " ")
+		}
+	}
+	flush()
+	return fmt.Sprintf("[%s] TJ\n", strings.TrimSpace(arr.String()))
 }
 
 // MeasureText returns the width in points of text drawn as a single line
@@ -250,7 +295,7 @@ func MeasureText(text string, style TextStyle) (float64, error) {
 		return 0, err
 	}
 	shape := resolveSingleLine(font, fontSize, text, style.RTL, width)
-	return shape.widthAt(fontSize), nil
+	return spacedWidth(shape.widthAt(fontSize), text, style.CharSpacing, style.WordSpacing, style.HorizontalScaling), nil
 }
 
 // FontMetrics holds the vertical metrics AddText/AddTextAt use for a font

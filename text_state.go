@@ -101,7 +101,7 @@ func (s *TextState) ApplyChangesFrom(o TextState) {
 	*s = o.inherit(*s)
 }
 
-// style maps the state to a TextStyle (only fields TextStyle has).
+// style maps the state to a TextStyle.
 func (s TextState) style() TextStyle {
 	st := TextStyle{
 		Font:          styledFont(s.Font, s.FontStyle),
@@ -112,6 +112,12 @@ func (s TextState) style() TextStyle {
 		Strikethrough: s.StrikeOut,
 		Invisible:     s.Invisible || s.RenderingMode == RenderingInvisible,
 		Rotation:      s.Rotation,
+
+		CharSpacing:       s.CharacterSpacing,
+		WordSpacing:       s.WordSpacing,
+		HorizontalScaling: s.HorizontalScaling,
+		StrokeColor:       s.StrokingColor,
+		RenderMode:        s.RenderingMode,
 	}
 	if s.LineSpacing > 0 && s.FontSize > 0 {
 		st.LineSpacing = s.LineSpacing / s.FontSize
@@ -179,9 +185,5 @@ func spacedWidth(base float64, text string, tc, tw, tz float64) float64 {
 // MeasureString returns the advance width of text in this state.
 func (s TextState) MeasureString(text string) (float64, error) {
 	r := s.resolved()
-	w, err := MeasureText(text, r.style())
-	if err != nil {
-		return 0, err
-	}
-	return spacedWidth(w, text, r.CharacterSpacing, r.WordSpacing, r.HorizontalScaling), nil
+	return MeasureText(text, r.style())
 }

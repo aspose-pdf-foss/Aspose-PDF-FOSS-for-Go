@@ -45,6 +45,18 @@ type TextStyle struct {
 	Skew          float64 // synthetic oblique: glyph slant in degrees (positive leans right, ~12 matches typical italics); applied per line about its baseline — faux italic for fonts without an italic face
 	Invisible     bool    // if true, glyphs use text rendering mode 3 (ISO 32000-1 §9.3.6): nothing is painted, but the text remains selectable, searchable, and extractable. Underline/Strikethrough decorations are suppressed too. Used for hidden OCR text layers over scanned pages.
 
+	// Text-state fields honoured by AddTextAt and MeasureText only; AddText
+	// ignores them. CharSpacing (Tc) is added after every character,
+	// WordSpacing (Tw) after every U+0020, both in points and both scaled by
+	// HorizontalScaling (Tz, percent; 0 means 100). StrokeColor is the stroking
+	// colour used by RenderStroke/RenderFillStroke (nil = black). RenderMode is
+	// the text rendering mode; RenderingInvisible is equivalent to Invisible.
+	CharSpacing       float64
+	WordSpacing       float64
+	HorizontalScaling float64
+	StrokeColor       *Color
+	RenderMode        TextRenderingMode
+
 	// MissingGlyph controls what AddText/AddTextAt/MeasureText do when
 	// the font has no glyph for a character in text. Zero value
 	// (MissingGlyphAllow) keeps the long-standing default: the character
