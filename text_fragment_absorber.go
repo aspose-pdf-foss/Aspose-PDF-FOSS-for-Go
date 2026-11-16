@@ -247,7 +247,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 		}
 	}
 	f.Width = firstLine.URX - firstLine.LLX
-	f.TextState = f.Segments[0].TextState
+	f.TextState = copyState(f.Segments[0].TextState)
 	f.Position = f.Segments[0].Position
 	for _, sp := range sm.spans[1:] {
 		if sp.page != sm.spans[0].page && noEdit == "" {

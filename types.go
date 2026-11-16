@@ -64,6 +64,11 @@ type pdfObject struct {
 	Num   int
 	Gen   int
 	Value pdfValue // dict, stream, array, etc.
+
+	// contentGen counts how often a page's content was replaced as a whole
+	// (glyphs possibly moved or removed); a text fragment bound to the page
+	// records it, so an edit to a fragment found before is refused.
+	contentGen int
 }
 
 // xrefEntry describes where to find a PDF object.

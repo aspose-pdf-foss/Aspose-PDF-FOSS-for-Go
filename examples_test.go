@@ -128,7 +128,9 @@ func ExampleDocument_Append() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a.Append(b)
+	if err := a.Append(b); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("merged:", a.PageCount(), "pages")
 	// Output: merged: 8 pages
 }

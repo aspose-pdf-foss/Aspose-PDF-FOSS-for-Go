@@ -290,6 +290,7 @@ func (p *Page) applyResize(rp resizePlan) {
 	wrapped = append(wrapped, end)
 	dict["/Contents"] = wrapped
 	p.contentsBounded, p.contentsLen = true, len(wrapped)
+	p.bumpContentGen()
 
 	for _, key := range []string{"/TrimBox", "/BleedBox", "/ArtBox"} {
 		if r, ok := p.ownBox(key); ok {

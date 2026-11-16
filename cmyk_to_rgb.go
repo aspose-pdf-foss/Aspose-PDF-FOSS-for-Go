@@ -187,6 +187,7 @@ func (cv *cmykConverter) page(p *Page) []int {
 		if ops, err := parseContentStream(data); err == nil && cv.rewriteOps(ops, res) {
 			replaced = cv.contentIDs(dict["/Contents"])
 			dict["/Contents"] = pdfRef{Num: cv.d.addObject(&pdfStream{Dict: pdfDict{}, Data: serializeContentOps(ops), Decoded: true})}
+			p.bumpContentGen()
 		}
 	}
 	cv.resources(res)

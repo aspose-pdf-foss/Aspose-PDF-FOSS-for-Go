@@ -154,6 +154,7 @@ func (info *ImageInfo) Remove() error {
 
 	pageDict := info.page.pageDict()
 	pageDict["/Contents"] = pdfRef{Num: newID}
+	info.page.bumpContentGen()
 
 	return nil
 }

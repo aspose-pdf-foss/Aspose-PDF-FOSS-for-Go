@@ -2,7 +2,10 @@
 
 package asposepdf
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ApplyTextChanges draws the edits made to text fragments onto their pages:
 // fragments found by a TextFragmentAbsorber or drawn by a TextBuilder whose
@@ -10,29 +13,39 @@ import "fmt"
 // removed by position (as ReplaceText removes a match) and the fragment is
 // drawn again from its current state: the whole fragment when its text,
 // position, own state or segments changed, else only the segments whose
-// state changed, each at its place. Unchanged fragments cost nothing.
+// state changed, each at its place. Unchanged fragments cost nothing: they
+// are compared in place, without allocating.
 //
 // Every writer (WriteTo, Save, WriteToLinearized, WriteIncremental, the
-// exporters and the renderers) calls it first, so edits reach the output
-// without calling it; call it to read the page back before saving. Applying
-// is idempotent. Mirrors the effect of setting TextFragment.Text or
-// TextFragment.TextState in Aspose.PDF for .NET, which changes the page at
-// once.
+// exporters, the renderers, and the operations building documents from
+// pages: Split, Extract, Append, NUp, Booklet, NewPdfPageStamp, ImportForm)
+// calls it first, so edits reach the output without calling it; call it to
+// read the page back before saving, and before rendering pages from several
+// goroutines (applying changes the document). Applying is idempotent. An
+// incremental signature (an already signed document, SignOptions.Incremental)
+// cannot carry pending edits: Save refuses then. Mirrors the effect of
+// setting TextFragment.Text or TextFragment.TextState in Aspose.PDF for .NET,
+// which changes the page at once.
 //
 // Setting Text on a found fragment replaces its segments with one in the
 // first segment's state; a change to the fragment's TextState applies field
 // by field to every segment. A changed fragment that cannot be edited (on a
 // rotated baseline, a match across pages, a line of a paragraph, text on a
-// form canvas) makes the call fail, naming it, before any page changes; so
-// does one whose old glyphs the content rewriter cannot place (a font with
-// unknown widths), in which case the pages are restored as they were.
+// form canvas, a page whose content was rewritten as a whole after the
+// fragment was found) makes the call fail, naming its page and text, before
+// any page changes; so does one whose old glyphs the content rewriter cannot
+// place (a font with unknown widths), in which case the pages are restored
+// as they were.
 func (d *Document) ApplyTextChanges() error {
-	if len(d.boundFragments) == 0 {
-		return nil
-	}
-	fonts := newReplaceFonts(nil)
 	var plans []*textEditPlan
+	var fonts *replaceFonts
 	for _, f := range d.boundFragments {
+		if b := f.bind; b == nil || b.page == nil || b.snap.matches(f, b.found) {
+			continue
+		}
+		if fonts == nil {
+			fonts = newReplaceFonts(nil)
+		}
 		pl, err := d.planTextEdit(f, fonts)
 		if err != nil {
 			return err
@@ -61,7 +74,7 @@ func (d *Document) ApplyTextChanges() error {
 		p, err := d.Page(idx + 1)
 		if err != nil {
 			tx.rollback()
-			return fmt.Errorf("apply text changes: %w", err)
+			return fmt.Errorf("apply text changes: page %d: %w", idx+1, err)
 		}
 		var regions []QuadPoint
 		for _, pl := range byPage[idx] {
@@ -77,20 +90,45 @@ func (d *Document) ApplyTextChanges() error {
 		}
 		if err != nil {
 			tx.rollback()
-			return fmt.Errorf("apply text changes: page %d: %w", idx+1, err)
+			names := make([]string, len(byPage[idx]))
+			for i, pl := range byPage[idx] {
+				names[i] = pl.name
+			}
+			return fmt.Errorf("apply text changes: page %d: %s: remove the old text: %w", idx+1, strings.Join(names, ", "), err)
 		}
 		for _, pl := range byPage[idx] {
 			if err := pl.draw(p); err != nil {
 				tx.rollback()
-				return fmt.Errorf("apply text changes: fragment %q: %w", pl.f.Text, err)
+				return pl.errorf("draw: %w", err)
 			}
 		}
 	}
 	for _, pl := range plans {
 		pl.commit()
 	}
+	// The other fragments bound on an edited page keep valid regions: only
+	// the edited fragments' glyphs moved. Carry them to the new generation.
+	for _, s := range tx.pages {
+		now := s.obj.contentGen
+		for _, f := range d.boundFragments {
+			if b := f.bind; b != nil && b.obj == s.obj && b.gen == s.gen {
+				b.gen = now
+			}
+		}
+	}
 	d.dropUnreachable(old)
 	return nil
+}
+
+// textChangesPending reports whether a bound fragment changed since it was
+// drawn, found or last applied.
+func (d *Document) textChangesPending() bool {
+	for _, f := range d.boundFragments {
+		if b := f.bind; b != nil && b.page != nil && !b.snap.matches(f, b.found) {
+			return true
+		}
+	}
+	return false
 }
 
 // xobjectRefs returns the objects a resources dictionary's /XObject entries
@@ -118,8 +156,10 @@ type textEditTx struct {
 }
 
 type savedPageKeys struct {
+	obj  *pdfObject
+	gen  int
 	dict pdfDict
-	vals map[string]pdfValue // absent key: nil value with present=false
+	vals map[string]pdfValue
 	has  map[string]bool
 }
 
@@ -128,11 +168,12 @@ var textEditPageKeys = []string{"/Contents", "/Resources", "/Annots"}
 func (d *Document) beginTextEdit(pages []int) *textEditTx {
 	tx := &textEditTx{d: d, nextID: d.nextID}
 	for _, idx := range pages {
-		pd, ok := d.pages[idx].Value.(pdfDict)
+		o := d.pages[idx]
+		pd, ok := o.Value.(pdfDict)
 		if !ok {
 			continue
 		}
-		s := savedPageKeys{dict: pd, vals: map[string]pdfValue{}, has: map[string]bool{}}
+		s := savedPageKeys{obj: o, gen: o.contentGen, dict: pd, vals: map[string]pdfValue{}, has: map[string]bool{}}
 		for _, k := range textEditPageKeys {
 			v, ok := pd[k]
 			s.vals[k], s.has[k] = v, ok
@@ -142,8 +183,9 @@ func (d *Document) beginTextEdit(pages []int) *textEditTx {
 	return tx
 }
 
-// rollback restores the page keys, deletes every object created since and
-// forgets the cached page views (their content and annotation caches).
+// rollback restores the page keys and content generations, deletes every
+// object created since and forgets the cached page views (their content and
+// annotation caches).
 func (tx *textEditTx) rollback() {
 	for _, s := range tx.pages {
 		for _, k := range textEditPageKeys {
@@ -153,6 +195,7 @@ func (tx *textEditTx) rollback() {
 				delete(s.dict, k)
 			}
 		}
+		s.obj.contentGen = s.gen
 	}
 	for id := range tx.d.objects {
 		if id >= tx.nextID {
@@ -171,7 +214,8 @@ func (tx *textEditTx) rollback() {
 // textEditPlan is one changed fragment: what to remove and what to draw.
 type textEditPlan struct {
 	f       *TextFragment
-	page    int // index in d.pages
+	page    int    // index in d.pages
+	name    string // `page N: fragment "old" (new text "new")`, for errors
 	regions []QuadPoint
 
 	// whole redraws the fragment from tmp; else segs lists the segments
@@ -185,13 +229,24 @@ type textEditPlan struct {
 	drawnSeg   [][]QuadPoint
 }
 
-// planTextEdit returns the plan for f, nil when f is unchanged, or an error
-// when f changed and cannot be edited. Nothing is changed on the page.
+func (pl *textEditPlan) errorf(format string, args ...any) error {
+	return fmt.Errorf("apply text changes: page %d: %s: %w", pl.page+1, pl.name, fmt.Errorf(format, args...))
+}
+
+// fragmentName names a fragment in errors by the text it was found or drawn
+// with, and its new text when that changed.
+func fragmentName(f *TextFragment) string {
+	if old := f.bind.snap.text; f.Text != old {
+		return fmt.Sprintf("fragment %q (new text %q)", old, f.Text)
+	}
+	return fmt.Sprintf("fragment %q", f.bind.snap.text)
+}
+
+// planTextEdit returns the plan for a changed fragment f, nil when f is
+// unchanged or its page is gone, or an error when f cannot be edited.
+// Nothing is changed on the page.
 func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEditPlan, error) {
 	b := f.bind
-	if b == nil || b.page == nil {
-		return nil, nil
-	}
 	snap := b.snap
 	found := b.found
 	cur := snapshotOf(f)
@@ -218,12 +273,6 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		}
 	}
 
-	if b.noEdit != "" {
-		return nil, fmt.Errorf("apply text changes: fragment %q cannot be edited: %s", snap.text, b.noEdit)
-	}
-	if b.page.obj != nil {
-		return nil, fmt.Errorf("apply text changes: fragment %q is on a form canvas, not a page", snap.text)
-	}
 	idx := -1
 	for i, o := range d.pages {
 		if o == b.obj {
@@ -231,11 +280,18 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			break
 		}
 	}
-	if idx < 0 {
+	pl := &textEditPlan{f: f, page: idx, whole: whole, name: fragmentName(f)}
+	switch {
+	case b.page.obj != nil:
+		return nil, fmt.Errorf("apply text changes: %s: drawn on a form canvas, not a page", pl.name)
+	case idx < 0:
 		return nil, nil // its page was removed from the document
+	case b.noEdit != "":
+		return nil, pl.errorf("cannot be edited: %s", b.noEdit)
+	case b.gen != b.obj.contentGen:
+		return nil, pl.errorf("cannot be edited: page content was rewritten after the fragment was found")
 	}
 
-	pl := &textEditPlan{f: f, page: idx, whole: whole}
 	perSegment := len(b.drawn) == len(snap.segments)
 	if !whole && !perSegment {
 		pl.whole = true
@@ -244,18 +300,19 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 	// segState is segment i's state with the edits applied: for a found
 	// fragment its own explicit state plus every field of the fragment's
 	// state that changed; for an authored one its own (inheriting) state.
+	// Always a copy: no colour is shared with the caller's fragment.
 	segState := func(s *TextSegment) TextState {
 		if found {
-			return applyStateDiff(s.TextState, snap.state, f.TextState)
+			return copyState(applyStateDiff(s.TextState, snap.state, f.TextState))
 		}
-		return s.TextState
+		return copyState(s.TextState)
 	}
 
 	if pl.whole {
 		pl.regions = append(pl.regions, b.drawn...)
 		tmp := &TextFragment{Position: f.Position}
 		if !found {
-			tmp.TextState = f.TextState
+			tmp.TextState = copyState(f.TextState)
 		}
 		switch {
 		case textChanged && len(f.Segments) > 0:
@@ -264,7 +321,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			if found {
 				// No segments left (an emptied fragment): the fragment's
 				// own state is its first segment's.
-				tmp.Segments = []*TextSegment{{Text: f.Text, TextState: f.TextState}}
+				tmp.Segments = []*TextSegment{{Text: f.Text, TextState: copyState(f.TextState)}}
 			} else {
 				tmp.Text = f.Text
 			}
@@ -274,7 +331,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			}
 		}
 		if err := d.prepareDrawing(tmp, found, fonts); err != nil {
-			return nil, fmt.Errorf("apply text changes: fragment %q: %w", snap.text, err)
+			return nil, pl.errorf("%w", err)
 		}
 		pl.tmp = tmp
 		return pl, nil
@@ -287,10 +344,10 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		one := &TextFragment{Position: pos,
 			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}}}
 		if !found {
-			one.TextState = f.TextState
+			one.TextState = copyState(f.TextState)
 		}
 		if err := d.prepareDrawing(one, found, fonts); err != nil {
-			return nil, fmt.Errorf("apply text changes: fragment %q: %w", snap.text, err)
+			return nil, pl.errorf("%w", err)
 		}
 		pl.segs = append(pl.segs, i)
 		pl.one = append(pl.one, one)

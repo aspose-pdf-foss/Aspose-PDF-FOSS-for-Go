@@ -113,6 +113,9 @@ func (d *Document) ImportForm(form *XForm) (*XForm, error) {
 	if form.doc == d {
 		return form, nil
 	}
+	if err := form.doc.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	srcID, err := form.ensureBuilt()
 	if err != nil {
 		return nil, err

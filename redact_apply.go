@@ -506,7 +506,16 @@ func replacePageContents(p *Page, data []byte) error {
 	}
 
 	pageDict["/Contents"] = pdfRef{Num: newID}
+	p.bumpContentGen()
 	return nil
+}
+
+// bumpContentGen records that the page's content was replaced as a whole,
+// so text fragments found on it before can no longer be edited by position.
+func (p *Page) bumpContentGen() {
+	if o := p.pageObj(); o != nil {
+		o.contentGen++
+	}
 }
 
 // pagePreservedXObjectNames returns the /XObject resource names a page's

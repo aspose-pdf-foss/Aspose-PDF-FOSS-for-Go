@@ -85,6 +85,7 @@ func (cv *grayConverter) rewritePageContent(p *Page, res pdfDict) error {
 	newData := serializeContentOps(cv.grayOps(ops, res))
 	id := cv.doc.addObject(&pdfStream{Dict: pdfDict{}, Data: newData, Decoded: true})
 	p.pageDict()["/Contents"] = pdfRef{Num: id}
+	p.bumpContentGen()
 	return nil
 }
 

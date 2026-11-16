@@ -160,11 +160,16 @@ func TestApplyAfterAppend(t *testing.T) {
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
 	}
-	f.Segments = append(f.Segments, NewTextSegment("second"))
+	second := NewTextSegment("second")
+	second.TextState.ForegroundColor = &Color{1, 0, 0, 1} // a run of its own
+	f.Segments = append(f.Segments, second)
 	r := reopenDoc(t, d)
 	g := absorbOne(t, r, "first second")
-	if len(g.Segments) != 1 && len(g.Segments) != 2 {
+	if len(g.Segments) != 2 || g.Segments[0].Text != "first " || g.Segments[1].Text != "second" {
 		t.Fatalf("segments %d", len(g.Segments))
+	}
+	if c := g.Segments[1].TextState.ForegroundColor; c == nil || c.R < 0.99 {
+		t.Fatalf("second segment colour %+v", c)
 	}
 	for _, s := range g.Segments {
 		if s.TextState.Font.BaseFont() != "Helvetica" {
@@ -348,7 +353,7 @@ func TestApplyNoEditRefused(t *testing.T) {
 	tilt = absorbOne(t, d, "tilted")
 	level = absorbOne(t, d, "level")
 	before := writeBytes(t, openBytes(t, src))
-	level.Text = "flat" // bound after tilt? order does not matter: refused first
+	level.Text = "flat" // a valid edit, which the refusal must not apply either
 	tilt.Text = "upright"
 	err := d.ApplyTextChanges()
 	if err == nil || !strings.Contains(err.Error(), "tilted") || !strings.Contains(err.Error(), "rotated") {
@@ -392,6 +397,12 @@ func TestApplyAtomicRollback(t *testing.T) {
 	b.Segments = b.Segments[:1]
 	if !bytes.Equal(writeBytes(t, d), before) {
 		t.Fatal("failed apply left changes")
+	}
+	// The rollback also restored the pages' content generations: the
+	// fragments are still editable.
+	a.Text = "ALPHA"
+	if err := d.ApplyTextChanges(); err != nil {
+		t.Fatal(err)
 	}
 }
 

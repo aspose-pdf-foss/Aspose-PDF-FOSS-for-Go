@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -51,6 +52,11 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	}
 
 	// Edits to bound text fragments reach the page before anything is written.
+	// An incremental signature appends only the objects it adds itself, so
+	// edits pending then would be lost: refuse them.
+	if d.sign != nil && d.sign.incremental && d.textChangesPending() {
+		return nil, errors.New("text changes pending: save the document, reopen and sign")
+	}
 	if err := d.ApplyTextChanges(); err != nil {
 		return nil, err
 	}

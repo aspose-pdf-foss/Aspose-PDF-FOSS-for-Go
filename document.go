@@ -489,7 +489,20 @@ func (d *Document) Page(n int) (*Page, error) {
 //	doc2, _ := asposepdf.Open("part2.pdf")
 //	doc1.Append(doc2)
 //	doc1.Save("combined.pdf")
-func (d *Document) Append(others ...*Document) {
+//
+// Pending edits to text fragments of the receiver and of every source are
+// applied first (ApplyTextChanges); an error there appends nothing.
+func (d *Document) Append(others ...*Document) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
+	for _, other := range others {
+		if other != nil {
+			if err := other.ApplyTextChanges(); err != nil {
+				return err
+			}
+		}
+	}
 	for _, other := range others {
 		if other == nil {
 			continue
@@ -516,6 +529,7 @@ func (d *Document) Append(others ...*Document) {
 			d.pages = append(d.pages, d.objects[idMap[page.Num]])
 		}
 	}
+	return nil
 }
 
 // RemoveUnusedObjects removes objects from the document that are not

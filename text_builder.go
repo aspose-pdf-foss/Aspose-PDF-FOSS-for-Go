@@ -67,6 +67,8 @@ type fragmentBinding struct {
 	// obj is the page dictionary the fragment is on, so the page is found
 	// again after pages were reordered.
 	obj *pdfObject
+	// gen is the page's content generation when the fragment was bound.
+	gen int
 }
 
 type segmentSnapshot struct {
@@ -141,6 +143,50 @@ func sameState(a, b TextState) bool {
 		a.Rotation == b.Rotation
 }
 
+// compareBlack is the default colour resolvedForCompare uses: read only.
+var compareBlack = Color{0, 0, 0, 1}
+
+// resolvedForCompare is resolved() without allocating, for comparison only:
+// the result shares compareBlack and must not be stored.
+func resolvedForCompare(s TextState) TextState {
+	return s.inherit(TextState{Font: FontHelvetica, FontSize: 12, ForegroundColor: &compareBlack, HorizontalScaling: 100})
+}
+
+// matches reports, without allocating, whether f still looks as s recorded
+// it (snapshotOf(f) would equal s). found selects how segments are recorded.
+func (s *fragmentSnapshot) matches(f *TextFragment, found bool) bool {
+	if f.Text != s.text || f.Position != s.position || !sameState(f.TextState, s.state) {
+		return false
+	}
+	if found {
+		if len(f.Segments) != len(s.segments) {
+			return false
+		}
+		for i, seg := range f.Segments {
+			sn := &s.segments[i]
+			if seg.Text != sn.text || seg.Hyperlink != sn.link || !sameState(seg.TextState, sn.state) {
+				return false
+			}
+		}
+		return true
+	}
+	if len(f.Segments) == 0 {
+		return len(s.segments) == 1 && s.segments[0].text == f.Text && s.segments[0].link == "" &&
+			sameState(resolvedForCompare(f.TextState), s.segments[0].state)
+	}
+	if len(f.Segments) != len(s.segments) {
+		return false
+	}
+	for i, seg := range f.Segments {
+		sn := &s.segments[i]
+		if seg.Text != sn.text || seg.Hyperlink != sn.link ||
+			!sameState(resolvedForCompare(seg.TextState.inherit(f.TextState)), sn.state) {
+			return false
+		}
+	}
+	return true
+}
+
 // equal reports whether two snapshots describe the same fragment.
 func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 	if s.text != o.text || s.position != o.position || len(s.segments) != len(o.segments) ||
@@ -161,6 +207,9 @@ func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 func (d *Document) bindFragment(f *TextFragment) {
 	if f.bind != nil && f.bind.page != nil {
 		f.bind.obj = f.bind.page.pageObj()
+		if f.bind.obj != nil {
+			f.bind.gen = f.bind.obj.contentGen
+		}
 	}
 	if _, ok := d.boundSet[f]; ok {
 		return

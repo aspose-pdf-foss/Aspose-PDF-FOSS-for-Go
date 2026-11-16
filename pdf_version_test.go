@@ -108,7 +108,9 @@ func TestDerivedDocumentsKeepVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	merged := pdf.NewDocument(200, 200)
-	merged.Append(src)
+	if err := merged.Append(src); err != nil {
+		t.Fatal(err)
+	}
 	for name, d := range map[string]*pdf.Document{"Split": parts[0], "Extract": ext, "NUp": nup, "Append": merged} {
 		if got := headerOf(savedBytes(t, d)); got != "%PDF-2.0" {
 			t.Errorf("%s of a 2.0 document saved as %s", name, got)

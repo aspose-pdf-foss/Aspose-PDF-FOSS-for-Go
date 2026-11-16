@@ -142,6 +142,9 @@ func (d *Document) DeletePages(pageNums ...int) error {
 //	    p.Save(fmt.Sprintf("page%03d.pdf", i+1))
 //	}
 func (d *Document) Split() ([]*Document, error) {
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("document has no pages")
 	}
@@ -167,6 +170,9 @@ func (d *Document) Split() ([]*Document, error) {
 //	extracted, err := doc.Extract(asposepdf.PageRange{1, 3}, asposepdf.PageRange{5, 5})
 //	extracted.Save("output.pdf")
 func (d *Document) Extract(ranges ...PageRange) (*Document, error) {
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if len(ranges) == 0 {
 		return nil, fmt.Errorf("no page ranges specified")
 	}
