@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Styled-runs paragraph layout (epic pdf-go-fh4l.3): a paragraph as a
@@ -36,6 +37,9 @@ type runMetrics struct {
 	ascent     float64       // ascent factor (of em)
 	size       float64
 	lineHeight float64
+	// adjust, when set, turns a token's measured width into its drawn width
+	// (character/word spacing, horizontal scaling). Nil for flow callers.
+	adjust func(text string, w float64) float64
 }
 
 func metricsFor(style TextStyle, text string) (runMetrics, error) {
@@ -76,6 +80,16 @@ type runToken struct {
 	w     float64
 	space bool
 	brk   bool
+	soft  bool // a break between pieces of a split word: no empty line
+}
+
+// tokenWidth is the drawn width of one token of run ri.
+func tokenWidth(ms []runMetrics, ri int, text string) float64 {
+	w := ms[ri].measurer.word(text)
+	if ms[ri].adjust != nil {
+		w = ms[ri].adjust(text, w)
+	}
+	return w
 }
 
 // tokenizeRuns measures each token's drawn width via ms[ri].measurer —
@@ -92,7 +106,11 @@ type runToken struct {
 // the slack and have AddText wrap the segment into a second, clipped
 // line; not seen in practice and not fixed here, matching the scope the
 // GitHub issue's own reporter described for styled runs).
-func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
+//
+// With breakLong, a word wider than maxW is split into pieces of at most maxW
+// (at least one rune each), a hard break
+// between the pieces. With breakLong false it never splits.
+func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool) []runToken {
 	var tokens []runToken
 	for ri, r := range runs {
 		if r.brk {
@@ -106,7 +124,7 @@ func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 				for j < len(text) && text[j] == ' ' {
 					j++
 				}
-				tokens = append(tokens, runToken{run: ri, text: text[:j], w: ms[ri].measurer.word(text[:j]), space: true})
+				tokens = append(tokens, runToken{run: ri, text: text[:j], w: tokenWidth(ms, ri, text[:j]), space: true})
 				text = text[j:]
 				continue
 			}
@@ -114,8 +132,30 @@ func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 			if j < 0 {
 				j = len(text)
 			}
-			tokens = append(tokens, runToken{run: ri, text: text[:j], w: ms[ri].measurer.word(text[:j])})
+			word := text[:j]
 			text = text[j:]
+			if w := tokenWidth(ms, ri, word); !breakLong || w <= maxW {
+				tokens = append(tokens, runToken{run: ri, text: word, w: w})
+				continue
+			}
+			for word != "" {
+				n := 0
+				for i, r := range word {
+					end := i + utf8.RuneLen(r)
+					if r == utf8.RuneError {
+						end = i + 1
+					}
+					if i > 0 && tokenWidth(ms, ri, word[:end]) > maxW {
+						break
+					}
+					n = end
+				}
+				tokens = append(tokens, runToken{run: ri, text: word[:n], w: tokenWidth(ms, ri, word[:n])})
+				word = word[n:]
+				if word != "" {
+					tokens = append(tokens, runToken{run: ri, brk: true, soft: true})
+				}
+			}
 		}
 	}
 	return tokens
@@ -126,9 +166,21 @@ func tokenizeRuns(runs []textRun, ms []runMetrics) []runToken {
 // one unbreakable cluster. An oversized cluster gets its own overflowing line
 // (no mid-word breaking, matching browsers' default).
 func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
-	tokens := tokenizeRuns(runs, ms)
+	return layoutRunsOpt(runs, ms, maxW, maxW, false)
+}
 
+// layoutRunsOpt is layoutRuns with a different width for the first line
+// (firstW) and, with breakLong, words wider than the line split across lines.
+func layoutRunsOpt(runs []textRun, ms []runMetrics, maxW, firstW float64, breakLong bool) []runLine {
+	tokens := tokenizeRuns(runs, ms, maxW, breakLong)
 	var lines []runLine
+	limit := func() float64 {
+		if len(lines) == 0 {
+			return firstW
+		}
+		return maxW
+	}
+
 	var cur []runSeg
 	curW := 0.0
 	var pend []runToken // pending inter-word spaces
@@ -194,7 +246,9 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 	for i < len(tokens) {
 		t := tokens[i]
 		if t.brk {
-			flush()
+			if !t.soft || len(cur) > 0 {
+				flush()
+			}
 			i++
 			continue
 		}
@@ -213,14 +267,14 @@ func layoutRuns(runs []textRun, ms []runMetrics, maxW float64) []runLine {
 			clusterW += tokens[j].w
 			j++
 		}
-		if curW > 0 && curW+pendW+clusterW > maxW {
+		if curW > 0 && curW+pendW+clusterW > limit() {
 			flush()
 		}
 		flushPend(tokens[i].run)
 		for ; i < j; i++ {
 			appendSeg(tokens[i].run, tokens[i].text, tokens[i].w)
 		}
-		if curW > maxW {
+		if curW > limit() {
 			flush() // oversized single cluster overflows on its own line
 		}
 	}

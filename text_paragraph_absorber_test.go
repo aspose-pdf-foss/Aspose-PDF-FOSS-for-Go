@@ -153,7 +153,7 @@ func TestTextParagraphAbsorberParagraphs(t *testing.T) {
 	if err := tp.SetHorizontalAlignment(pdf.HorizontalAlignment(9)); err == nil {
 		t.Error("alignment 9 accepted")
 	}
-	if err := (&pdf.TextParagraph{}).SetHorizontalAlignment(pdf.HorizontalAlignmentLeft); err == nil {
+	if err := (&pdf.AbsorbedTextParagraph{}).SetHorizontalAlignment(pdf.HorizontalAlignmentLeft); err == nil {
 		t.Error("a paragraph not found by an absorber was accepted")
 	}
 }
