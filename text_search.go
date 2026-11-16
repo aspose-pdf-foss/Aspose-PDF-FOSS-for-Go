@@ -28,6 +28,11 @@ type SearchOptions struct {
 	// Rect is the annotation's rectangle. Mirrors Aspose.PDF for .NET's
 	// TextSearchOptions.SearchInAnnotations.
 	SearchInAnnotations bool
+	// SearchForTextRelatedGraphics fills in each match's BackgroundColor:
+	// the colour of the filled shape drawn under it (a highlight, a shaded
+	// table cell), or nil when there is none. Mirrors Aspose.PDF for .NET's
+	// TextSearchOptions.SearchForTextRelatedGraphics.
+	SearchForTextRelatedGraphics bool
 }
 
 // TextMatch is a single occurrence located by SearchText.
@@ -39,6 +44,14 @@ type TextMatch struct {
 	// its page and box: one segment for a match within a line. Mirrors the
 	// segments of an Aspose.PDF for .NET TextFragment.
 	Segments []TextMatchSegment
+	// BackgroundColor is the colour of the last filled shape drawn under the
+	// middle of the match's first line, set when the search asked for it
+	// (SearchOptions.SearchForTextRelatedGraphics); nil when no shape lies
+	// there, or for a match in an annotation. Mirrors Aspose.PDF for .NET's
+	// TextState.BackgroundColor of a found fragment.
+	BackgroundColor *Color
+
+	annotation bool // found in an annotation's /Contents
 }
 
 // TextMatchSegment is the part of a match on one line.
@@ -89,7 +102,11 @@ func (p *Page) SearchText(query string, opts ...SearchOptions) ([]TextMatch, err
 	if opt.SearchInAnnotations {
 		matches = append(matches, searchAnnotations(p, re)...)
 	}
-	return filterMatchesByRect(matches, opt.Rectangle), nil
+	matches = filterMatchesByRect(matches, opt.Rectangle)
+	if opt.SearchForTextRelatedGraphics {
+		setMatchBackgrounds(p.doc, matches)
+	}
+	return matches, nil
 }
 
 // SearchText finds every occurrence of query across all pages of the document,
@@ -127,7 +144,11 @@ func (d *Document) SearchText(query string, opts ...SearchOptions) ([]TextMatch,
 			}
 		}
 	}
-	return filterMatchesByRect(out, opt.Rectangle), nil
+	out = filterMatchesByRect(out, opt.Rectangle)
+	if opt.SearchForTextRelatedGraphics {
+		setMatchBackgrounds(d, out)
+	}
+	return out, nil
 }
 
 // pageLines is a page's layout lines.
@@ -270,6 +291,7 @@ func searchAnnotations(p *Page, re *regexp.Regexp) []TextMatch {
 				Text:       content[loc[0]:loc[1]],
 				PageNumber: p.Number(),
 				Rect:       a.Rect(),
+				annotation: true,
 			})
 		}
 	}

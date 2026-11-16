@@ -1003,7 +1003,8 @@ stays free of network code.
   (`ReplaceAdjustmentAdjustSpaceWidth`), shrunk or scaled to fit (`FontSizeAdjustment`), its
   edges moved with `LeftAdjustment`/`RightAdjustment`. A literal query matches within a line; a
   regular expression also matches across line breaks (and, on a document, across pages), each
-  match carrying one segment per line.
+  match carrying one segment per line; `SearchForTextRelatedGraphics` also reports the
+  colour of the highlight or cell shading each match is drawn over.
   `RemoveAllText` on a page or a document removes every text operator, in Form XObjects too,
   and keeps graphics and images.
 - `Document.ExtractImages()`/`Page.ExtractImages()` decode every image on all pages (or one page)
