@@ -39,6 +39,17 @@ type TextFragment struct {
 	// point is (X+Width, endY)): the gap to the next fragment of a rotated
 	// line is measured along the baseline.
 	endY float64
+
+	// Authoring and editing (TextBuilder, absorbers). Zero on fragments
+	// ExtractTextWithLayout returns.
+
+	// TextState is the fragment's own state; segments inherit from it.
+	TextState TextState
+	// Segments are the runs the fragment is made of.
+	Segments []*TextSegment
+	// Position is where the fragment's baseline starts, in page space.
+	Position Position
+	bind     *fragmentBinding
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.

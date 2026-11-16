@@ -71,6 +71,10 @@ type Document struct {
 	// document would drop that revision, so it is written back verbatim.
 	revisionAppended bool
 
+	// boundFragments are the text fragments drawn by a TextBuilder or found
+	// by an absorber, whose edits are applied on save.
+	boundFragments []*TextFragment
+
 	// signaturesRewritten marks a signed document a conversion has changed: the
 	// next save rewrites the file, which its signatures do not cover.
 	signaturesRewritten bool
