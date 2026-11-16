@@ -74,6 +74,7 @@ type Document struct {
 	// boundFragments are the text fragments drawn by a TextBuilder or found
 	// by an absorber, whose edits are applied on save.
 	boundFragments []*TextFragment
+	boundSet       map[*TextFragment]struct{}
 
 	// signaturesRewritten marks a signed document a conversion has changed: the
 	// next save rewrites the file, which its signatures do not cover.

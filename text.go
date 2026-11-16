@@ -754,6 +754,7 @@ func (e *textExtractor) emitRune(r rune) {
 	needNew := e.curFrag == nil ||
 		fontName != e.curFrag.fontName ||
 		bold != e.curFrag.bold ||
+		e.fillR != e.curFrag.colorR || e.fillG != e.curFrag.colorG || e.fillB != e.curFrag.colorB ||
 		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01 ||
 		math.Abs(rotation-e.curFrag.rotation) > 0.5
 

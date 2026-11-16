@@ -58,6 +58,9 @@ type fragmentBinding struct {
 	page  *Page
 	drawn []QuadPoint
 	snap  fragmentSnapshot
+	// noEdit, when set, is why edits to this fragment must be refused (a
+	// found fragment on a rotated baseline).
+	noEdit string
 }
 
 type segmentSnapshot struct {
@@ -130,11 +133,13 @@ func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 // bindFragment remembers f so edits to it can be applied on save.
 // Binding the same fragment again (its text appended twice) keeps one entry.
 func (d *Document) bindFragment(f *TextFragment) {
-	for _, g := range d.boundFragments {
-		if g == f {
-			return
-		}
+	if _, ok := d.boundSet[f]; ok {
+		return
 	}
+	if d.boundSet == nil {
+		d.boundSet = map[*TextFragment]struct{}{}
+	}
+	d.boundSet[f] = struct{}{}
 	d.boundFragments = append(d.boundFragments, f)
 }
 
