@@ -25,6 +25,12 @@ type MarkupParagraph struct {
 	Rectangle Rectangle  // bounding box in PDF user space
 	Lines     []TextLine // the paragraph's lines (with per-fragment positions)
 
+	// Continuations are the parts of the paragraph in later columns or
+	// pages, joined to it when ParagraphOptions.MulticolumnParagraphs (or
+	// PageMarkup.SetMulticolumnParagraphsAllowed) asked for it; Text and
+	// Lines then include them, Rectangle stays the first part's.
+	Continuations []ParagraphContinuation
+
 	page *Page // the page Paragraphs found it on, for SetText
 }
 
@@ -38,12 +44,19 @@ type MarkupSection struct {
 type PageMarkup struct {
 	PageNumber int
 	Sections   []MarkupSection
+
+	multicolumn bool            // paragraphs are joined across columns
+	plain       []MarkupSection // the sections before joining, to go back
+	pageBox     Rectangle       // the page's CropBox, for its header and footer bands
 }
 
 // Paragraphs returns the page's text grouped into columns (sections) and
 // paragraphs. Mirrors Aspose.PDF for .NET's ParagraphAbsorber.
-func (p *Page) Paragraphs() (PageMarkup, error) {
+func (p *Page) Paragraphs(opts ...ParagraphOptions) (PageMarkup, error) {
 	out := PageMarkup{PageNumber: p.Number()}
+	if box, err := p.CropBox(); err == nil {
+		out.pageBox = box
+	}
 	frags, err := p.pageFragments()
 	if err != nil {
 		return out, err
@@ -60,6 +73,9 @@ func (p *Page) Paragraphs() (PageMarkup, error) {
 		for pi := range out.Sections[si].Paragraphs {
 			out.Sections[si].Paragraphs[pi].page = p
 		}
+	}
+	if paragraphOption(opts).MulticolumnParagraphs {
+		out.SetMulticolumnParagraphsAllowed(true)
 	}
 	return out, nil
 }
@@ -166,7 +182,7 @@ func columnRegions(frags []textFragment, pageW float64) []columnRegion {
 }
 
 // Paragraphs returns the structured text of every page.
-func (d *Document) Paragraphs() ([]PageMarkup, error) {
+func (d *Document) Paragraphs(opts ...ParagraphOptions) ([]PageMarkup, error) {
 	pages := d.Pages()
 	out := make([]PageMarkup, len(pages))
 	for i, p := range pages {
@@ -175,6 +191,13 @@ func (d *Document) Paragraphs() ([]PageMarkup, error) {
 			return nil, err
 		}
 		out[i] = pm
+	}
+	if paragraphOption(opts).MulticolumnParagraphs {
+		for i := range out {
+			out[i].plain = copySections(out[i].Sections)
+			out[i].multicolumn = true
+		}
+		joinContinuations(out)
 	}
 	return out, nil
 }
@@ -426,7 +449,14 @@ func groupLinesToParagraphs(lines []TextLine, typical float64) []MarkupParagraph
 		for i := 1; i < len(lines); i++ {
 			gaps = append(gaps, lines[i-1].Y-lines[i].Y)
 		}
-		typical = medianFloat(gaps)
+		// The lower median: with few lines, the gaps between paragraphs
+		// must not raise the line pitch they are measured against (a
+		// column of a heading, three lines and a page number has gaps 12,
+		// 12, 100, 636, whose upper median, 100, hid the 100pt break).
+		sort.Float64s(gaps)
+		if len(gaps) > 0 {
+			typical = gaps[(len(gaps)-1)/2]
+		}
 	}
 
 	var paras []MarkupParagraph

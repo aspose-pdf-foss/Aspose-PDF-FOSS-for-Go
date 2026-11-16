@@ -25,6 +25,9 @@ func (mp *MarkupParagraph) SetText(text string) error {
 	if mp.page == nil {
 		return fmt.Errorf("set paragraph text: not a paragraph Paragraphs found")
 	}
+	if len(mp.Continuations) > 0 {
+		return fmt.Errorf("set paragraph text: the paragraph continues in another column or page; set the text of each part found without MulticolumnParagraphs")
+	}
 	var first *TextFragment
 	var regions []QuadPoint
 	for li := range mp.Lines {
