@@ -5,6 +5,7 @@ package asposepdf
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -153,6 +154,32 @@ func textBox(font Font, size float64) (asc, desc float64, err error) {
 	return m.Ascent, d, nil
 }
 
+// rotateQuad rotates q by deg degrees counter-clockwise about (cx, cy).
+func rotateQuad(q QuadPoint, cx, cy, deg float64) QuadPoint {
+	sin, cos := math.Sincos(deg * math.Pi / 180)
+	rot := func(px, py float64) (float64, float64) {
+		dx, dy := px-cx, py-cy
+		return cx + dx*cos - dy*sin, cy + dx*sin + dy*cos
+	}
+	q.X1, q.Y1 = rot(q.X1, q.Y1)
+	q.X2, q.Y2 = rot(q.X2, q.Y2)
+	q.X3, q.Y3 = rot(q.X3, q.Y3)
+	q.X4, q.Y4 = rot(q.X4, q.Y4)
+	return q
+}
+
+// quadBounds returns the bounding rectangle of q.
+func quadBounds(q QuadPoint) Rectangle {
+	xs := []float64{q.X1, q.X2, q.X3, q.X4}
+	ys := []float64{q.Y1, q.Y2, q.Y3, q.Y4}
+	r := Rectangle{LLX: xs[0], URX: xs[0], LLY: ys[0], URY: ys[0]}
+	for i := 1; i < 4; i++ {
+		r.LLX, r.URX = math.Min(r.LLX, xs[i]), math.Max(r.URX, xs[i])
+		r.LLY, r.URY = math.Min(r.LLY, ys[i]), math.Max(r.URY, ys[i])
+	}
+	return r
+}
+
 type resolvedSegment struct {
 	st        TextState
 	style     TextStyle
@@ -214,6 +241,11 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	for i, s := range segs {
 		r := rs[i]
 		box := Rectangle{LLX: x, LLY: y + r.desc, URX: x + r.width, URY: y + r.asc}
+		quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
+		if rot := r.st.Rotation; rot != 0 {
+			quad = rotateQuad(quad, x, y, rot)
+			box = quadBounds(quad)
+		}
 		if r.st.BackgroundColor != nil && s.Text != "" && r.st.Rotation == 0 {
 			if err := p.DrawRectangle(box, ShapeStyle{FillColor: r.st.BackgroundColor}); err != nil {
 				return fmt.Errorf("text builder: %w", err)
@@ -235,7 +267,7 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 			f.Segments[i].Position = Position{XIndent: x, YIndent: y}
 			f.Segments[i].Rectangle = box
 		}
-		drawn = append(drawn, QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY})
+		drawn = append(drawn, quad)
 		all.WriteString(s.Text)
 		x += r.width
 	}

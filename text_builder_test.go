@@ -271,3 +271,88 @@ func TestFragmentSnapshot(t *testing.T) {
 	mut("segtext", func(g *TextFragment) { g.Segments[0].Text = "q" })
 	mut("segcount", func(g *TextFragment) { g.Segments = append(g.Segments, NewTextSegment("z")) })
 }
+
+func TestAppendTextRotatedQuad(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	f := NewTextFragment("Rotated")
+	f.Position = Position{XIndent: 200, YIndent: 300}
+	f.TextState = TextState{Font: FontHelvetica, FontSize: 12, Rotation: 90}
+	f.Segments[0].Hyperlink = "https://example.com"
+	if err := NewTextBuilder(p).AppendText(f); err != nil {
+		t.Fatal(err)
+	}
+	asc, desc, _ := textBox(FontHelvetica, 12)
+	w, _ := f.TextState.resolved().MeasureString("Rotated")
+	q := f.bind.drawn[0]
+	// 90 degrees CCW about (200,300): (x,y) -> (200-(y-300), 300+(x-200))
+	want := []float64{200 - asc, 300, 200 - asc, 300 + w, 200 - desc, 300, 200 - desc, 300 + w}
+	got := []float64{q.X1, q.Y1, q.X2, q.Y2, q.X3, q.Y3, q.X4, q.Y4}
+	for i := range want {
+		if math.Abs(got[i]-want[i]) > 1e-9 {
+			t.Fatalf("quad coord %d = %v, want %v (%+v)", i, got[i], want[i], q)
+		}
+	}
+	r := f.Segments[0].Rectangle
+	if math.Abs(r.LLX-(200-asc)) > 1e-9 || math.Abs(r.URX-(200-desc)) > 1e-9 || math.Abs(r.URY-(300+w)) > 1e-9 || r.LLY != 300 {
+		t.Fatalf("rectangle %+v", r)
+	}
+	p2 := mustPage(t, reopenDoc(t, d))
+	fr := findFrag(t, p2, "Rotated")
+	if fr.Rotation == 0 {
+		t.Fatal("fragment not rotated")
+	}
+	// the old glyphs: they start at the quad's baseline corner and run its length
+	if fr.X < r.LLX-1 || fr.X > r.URX+1 || fr.Y < r.LLY-1 || fr.Y > r.URY+1 {
+		t.Fatalf("start (%v,%v) outside quad bounds %v", fr.X, fr.Y, r)
+	}
+	if math.Abs(fr.endY-r.URY) > 1 {
+		t.Fatalf("glyphs end at y=%v, quad ends at %v", fr.endY, r.URY)
+	}
+	all := p2.Annotations().All()
+	if len(all) != 1 || all[0].Rect() != r {
+		t.Fatalf("link rect %v want %v", all, r)
+	}
+}
+
+func TestAppendTextAdvanceMatchesDrawing(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	f := NewTextFragment("aa bb")
+	f.Position = Position{XIndent: 60, YIndent: 500}
+	f.TextState = TextState{Font: FontHelvetica, FontSize: 10, CharacterSpacing: 1.5}
+	s2 := NewTextSegment("cc dd")
+	s2.TextState = TextState{WordSpacing: 6}
+	s3 := NewTextSegment("ee ff")
+	s3.TextState = TextState{HorizontalScaling: 50, CharacterSpacing: 2}
+	s4 := NewTextSegment("gg")
+	s4.TextState = TextState{HorizontalScaling: 100, FontSize: 14}
+	f.Segments = append(f.Segments, s2, s3, s4)
+	if err := NewTextBuilder(p).AppendText(f); err != nil {
+		t.Fatal(err)
+	}
+	p2 := mustPage(t, reopenDoc(t, d))
+	find := func(q string) Rectangle {
+		m, err := p2.SearchText(q)
+		if err != nil || len(m) != 1 {
+			t.Fatalf("%q: %v %v", q, m, err)
+		}
+		return m[0].Rect
+	}
+	a, b, c := find("aa bb"), find("cc dd"), find("ee ff")
+	// each segment starts where the previous one ends, measured with MeasureText
+	// on the TextStyle AddTextAt itself drew with (not the builder's own width)
+	w1, _ := MeasureText("aa bb", TextStyle{Font: FontHelvetica, Size: 10, CharSpacing: 1.5})
+	w2, _ := MeasureText("cc dd", TextStyle{Font: FontHelvetica, Size: 10, CharSpacing: 1.5, WordSpacing: 6})
+	if math.Abs(a.LLX-60) > 0.5 || math.Abs(b.LLX-(60+w1)) > 0.5 || math.Abs(c.LLX-(60+w1+w2)) > 0.5 {
+		t.Fatalf("drawn starts %v %v %v, want %v %v %v", a.LLX, b.LLX, c.LLX, 60.0, 60+w1, 60+w1+w2)
+	}
+	w3, _ := MeasureText("ee ff", TextStyle{Font: FontHelvetica, Size: 10, CharSpacing: 2, HorizontalScaling: 50})
+	if g := find("gg"); math.Abs(g.LLX-(60+w1+w2+w3)) > 0.5 {
+		t.Fatalf("segment 4 starts at %v, want %v", g.LLX, 60+w1+w2+w3)
+	}
+	// and the third segment, scaled to 50%, ends before the unscaled width would
+	if c.URX-c.LLX > 0.75*(w1-1.5*5) {
+		t.Fatalf("segment 3 not scaled: width %v", c.URX-c.LLX)
+	}
+}
