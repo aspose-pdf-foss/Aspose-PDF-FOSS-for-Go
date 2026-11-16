@@ -149,6 +149,9 @@ func buildIncrementalPDF(d *Document) ([]byte, error) {
 	case d.catalogNum == 0:
 		return nil, fmt.Errorf("incremental save: the file's catalog number is unknown")
 	}
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	orig, err := d.reparseSource()
 	if err != nil {
 		return nil, fmt.Errorf("incremental save: read the file: %w", err)

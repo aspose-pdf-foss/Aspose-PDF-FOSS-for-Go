@@ -61,19 +61,28 @@ type fragmentBinding struct {
 	// noEdit, when set, is why edits to this fragment must be refused (a
 	// found fragment on a rotated baseline).
 	noEdit string
+	// found marks a fragment the absorber read from the page: its segments
+	// carry their own explicit state, which does not inherit the fragment's.
+	found bool
+	// obj is the page dictionary the fragment is on, so the page is found
+	// again after pages were reordered.
+	obj *pdfObject
 }
 
 type segmentSnapshot struct {
 	text  string
 	link  string
 	state TextState
+	pos   Position
 }
 
-// fragmentSnapshot records a fragment's text, position and each segment's
-// resolved state. Colours are copied by value, fonts kept by identity.
+// fragmentSnapshot records a fragment's text, position, own state and each
+// segment's state (resolved for authored fragments, as found for found
+// ones). Colours are copied by value, fonts kept by identity.
 type fragmentSnapshot struct {
 	text     string
 	position Position
+	state    TextState
 	segments []segmentSnapshot
 }
 
@@ -85,14 +94,30 @@ func copyColor(c *Color) *Color {
 	return &v
 }
 
+// copyState returns st with its colours copied, so later edits through the
+// fragment's colour pointers are seen as changes.
+func copyState(st TextState) TextState {
+	st.ForegroundColor = copyColor(st.ForegroundColor)
+	st.BackgroundColor = copyColor(st.BackgroundColor)
+	st.StrokingColor = copyColor(st.StrokingColor)
+	return st
+}
+
 func snapshotOf(f *TextFragment) fragmentSnapshot {
-	snap := fragmentSnapshot{text: f.Text, position: f.Position}
-	for _, s := range f.segmentsToDraw() {
-		st := s.TextState.resolved()
-		st.ForegroundColor = copyColor(st.ForegroundColor)
-		st.BackgroundColor = copyColor(st.BackgroundColor)
-		st.StrokingColor = copyColor(st.StrokingColor)
-		snap.segments = append(snap.segments, segmentSnapshot{text: s.Text, link: s.Hyperlink, state: st})
+	snap := fragmentSnapshot{text: f.Text, position: f.Position, state: copyState(f.TextState)}
+	if f.bind != nil && f.bind.found {
+		for _, s := range f.Segments {
+			snap.segments = append(snap.segments, segmentSnapshot{text: s.Text, link: s.Hyperlink,
+				state: copyState(s.TextState), pos: s.Position})
+		}
+		return snap
+	}
+	for i, s := range f.segmentsToDraw() {
+		seg := segmentSnapshot{text: s.Text, link: s.Hyperlink, state: copyState(s.TextState.resolved())}
+		if i < len(f.Segments) {
+			seg.pos = f.Segments[i].Position
+		}
+		snap.segments = append(snap.segments, seg)
 	}
 	return snap
 }
@@ -118,7 +143,8 @@ func sameState(a, b TextState) bool {
 
 // equal reports whether two snapshots describe the same fragment.
 func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
-	if s.text != o.text || s.position != o.position || len(s.segments) != len(o.segments) {
+	if s.text != o.text || s.position != o.position || len(s.segments) != len(o.segments) ||
+		!sameState(s.state, o.state) {
 		return false
 	}
 	for i := range s.segments {
@@ -133,6 +159,9 @@ func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 // bindFragment remembers f so edits to it can be applied on save.
 // Binding the same fragment again (its text appended twice) keeps one entry.
 func (d *Document) bindFragment(f *TextFragment) {
+	if f.bind != nil && f.bind.page != nil {
+		f.bind.obj = f.bind.page.pageObj()
+	}
 	if _, ok := d.boundSet[f]; ok {
 		return
 	}
@@ -238,12 +267,25 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	if f == nil {
 		return errors.New("text builder: nil fragment")
 	}
-	p := b.page
+	drawn, err := drawFragment(b.page, f)
+	if err != nil {
+		return err
+	}
+	f.bind = &fragmentBinding{page: b.page, drawn: drawn}
+	f.bind.snap = snapshotOf(f)
+	b.page.doc.bindFragment(f)
+	return nil
+}
+
+// drawFragment draws f on p as AppendText does, recording the text, start
+// position and segment boxes on f, and returns the quad of each segment drawn.
+// It does not bind f (ApplyTextChanges redraws through it).
+func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, error) {
 	segs := f.segmentsToDraw()
 	if len(segs) > 1 {
 		for _, s := range segs {
 			if s.TextState.Rotation != 0 {
-				return errors.New("text builder: rotated multi-segment fragments are not supported")
+				return nil, errors.New("text builder: rotated multi-segment fragments are not supported")
 			}
 		}
 	}
@@ -255,11 +297,11 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 		style := st.style()
 		asc, desc, err := textBox(style.Font, st.FontSize)
 		if err != nil {
-			return fmt.Errorf("text builder: %w", err)
+			return nil, fmt.Errorf("text builder: %w", err)
 		}
 		w, err := st.MeasureString(s.Text)
 		if err != nil {
-			return fmt.Errorf("text builder: %w", err)
+			return nil, fmt.Errorf("text builder: %w", err)
 		}
 		rs[i] = resolvedSegment{st, style, asc, desc, w}
 		if asc > maxAsc {
@@ -271,7 +313,7 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	if f.Position == (Position{}) {
 		crop, err := p.CropBox()
 		if err != nil {
-			return fmt.Errorf("text builder: %w", err)
+			return nil, fmt.Errorf("text builder: %w", err)
 		}
 		x, y = crop.LLX+72, crop.URY-72-maxAsc
 	}
@@ -283,7 +325,7 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 		r := rs[i]
 		box, quad, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
 		if err != nil {
-			return fmt.Errorf("text builder: %w", err)
+			return nil, fmt.Errorf("text builder: %w", err)
 		}
 		if i < len(f.Segments) {
 			f.Segments[i].Position = Position{XIndent: x, YIndent: y}
@@ -296,8 +338,5 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 
 	f.Text = all.String()
 	f.Position = Position{XIndent: startX, YIndent: startY}
-	f.bind = &fragmentBinding{page: p, drawn: drawn}
-	f.bind.snap = snapshotOf(f)
-	p.doc.bindFragment(f)
-	return nil
+	return drawn, nil
 }

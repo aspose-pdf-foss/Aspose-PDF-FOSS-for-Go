@@ -50,6 +50,11 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 		return d.source, nil
 	}
 
+	// Edits to bound text fragments reach the page before anything is written.
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
+
 	// SignOptions.LTV: sign first, then append the validation material as a
 	// further revision. It can only be tied to a signature that exists.
 	if d.sign != nil && d.sign.ltv {

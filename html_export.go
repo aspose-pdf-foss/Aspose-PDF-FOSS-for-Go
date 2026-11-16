@@ -210,6 +210,9 @@ func dirResourceWriter(htmlDir, resDir string) func(string, []byte) (string, err
 // saveHTMLSplit writes one HTML file per exported page as <stem>_p<N>.html,
 // rewiring in-document GoTo links to point across the files.
 func (d *Document) saveHTMLSplit(outputPath string, opt HTMLSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	sel := opt.Pages
 	if len(sel) == 0 {
 		sel = make([]int, d.PageCount())
@@ -252,6 +255,9 @@ func (d *Document) saveHTMLSplit(outputPath string, opt HTMLSaveOptions) error {
 // per page, a raster background under a text layer (transparent in
 // HTMLModeFaithful, visible in HTMLModeText) and link-annotation overlays.
 func (d *Document) WriteHTML(w io.Writer, opts ...HTMLSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	opt := HTMLSaveOptions{}
 	if len(opts) > 0 {
 		opt = opts[0]

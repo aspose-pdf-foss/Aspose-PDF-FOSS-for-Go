@@ -280,7 +280,7 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 		if first[fi] != nil {
 			f.Position = *first[fi]
 		}
-		f.bind = &fragmentBinding{page: pg, drawn: drawn[fi]}
+		f.bind = &fragmentBinding{page: pg, drawn: drawn[fi], noEdit: "text laid out in a paragraph (draw the paragraph again with AppendParagraph)"}
 		f.bind.snap = snapshotOf(f)
 		pg.doc.bindFragment(f)
 	}

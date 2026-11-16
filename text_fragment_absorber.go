@@ -254,7 +254,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			noEdit = "match spans several pages"
 		}
 	}
-	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit}
+	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true}
 	f.bind.snap = snapshotOf(f)
 	return f
 }

@@ -72,6 +72,9 @@ func (d *Document) SaveXlsx(path string, opts ...XlsxSaveOptions) error {
 
 // WriteXlsx writes the document as an Excel (.xlsx) workbook to w.
 func (d *Document) WriteXlsx(w io.Writer, opts ...XlsxSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	var opt XlsxSaveOptions
 	if len(opts) > 0 {
 		opt = opts[0]
