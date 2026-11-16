@@ -122,17 +122,6 @@ type runGroup struct {
 	text []rune
 }
 
-func runeStartX(f *TextFragment, local int) float64 {
-	n := utf8.RuneCountInString(f.Text)
-	if len(f.runeX) == n && local < n {
-		return f.runeX[local]
-	}
-	if n == 0 {
-		return f.X
-	}
-	return f.X + float64(local)/float64(n)*f.Width
-}
-
 func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills map[int][]shadedRect) *TextFragment {
 	if len(sm.spans) == 0 {
 		return nil
@@ -146,7 +135,8 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 	noEdit := ""
 	var union Rectangle
 	haveUnion := false
-	var firstRect Rectangle
+	var firstLine Rectangle
+	haveFirst := false
 	for si := range sm.spans {
 		sp := &sm.spans[si]
 		frags := sp.line.Fragments
@@ -195,16 +185,11 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			if math.Abs(g.src.Rotation) > 1 && noEdit == "" {
 				noEdit = fmt.Sprintf("text on a rotated baseline (%.0f degrees)", g.src.Rotation)
 			}
-			// baseline start: first real rune of the group
+			// The run's visual left edge on its baseline, for either
+			// direction of text.
 			x := rect.LLX
-			for k := g.a; k < g.b; k++ {
-				if fi := sp.m.owner[k]; fi >= 0 {
-					x = runeStartX(&frags[fi], sp.m.local[k])
-					break
-				}
-			}
 			st := TextState{
-				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: !isStandard14Name(g.src.FontName)},
+				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName)},
 				FontSize:        g.src.FontSize,
 				ForegroundColor: copyColor(&g.src.Color),
 				Rotation:        g.src.Rotation,
@@ -218,7 +203,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			if a.opts.SearchForTextRelatedGraphics {
 				ff, ok := fills[sp.page]
 				if !ok {
-					ff = pageFills(pg)
+					ff = pageFills(byNum[sp.page])
 					fills[sp.page] = ff
 				}
 				st.BackgroundColor = backgroundAt(ff, (rect.LLX+rect.URX)/2, (rect.LLY+rect.URY)/2)
@@ -226,12 +211,18 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			seg := &TextSegment{Text: string(g.text), TextState: st,
 				Position: Position{XIndent: x, YIndent: g.src.Y}, Rectangle: rect}
 			if len(f.Segments) == 0 {
-				firstRect = rect
 				src := *g.src
 				f.X, f.Y, f.FontName, f.FontSize, f.Height = x, src.Y, src.FontName, src.FontSize, src.Height
 				f.Bold, f.Italic, f.CharSpacing, f.Color = src.Bold, src.Italic, src.CharSpacing, src.Color
 				f.IsSubscript, f.IsSuperscript, f.Rotation = src.IsSubscript, src.IsSuperscript, src.Rotation
 				f.descent = src.descent
+			}
+			if si == 0 {
+				if !haveFirst {
+					firstLine, haveFirst = rect, true
+				} else {
+					firstLine = unionRect(firstLine, rect)
+				}
 			}
 			f.Segments = append(f.Segments, seg)
 			drawn = append(drawn, QuadPoint{X1: rect.LLX, Y1: rect.URY, X2: rect.URX, Y2: rect.URY,
@@ -239,8 +230,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			if !haveUnion {
 				union, haveUnion = rect, true
 			} else {
-				union.LLX, union.LLY = math.Min(union.LLX, rect.LLX), math.Min(union.LLY, rect.LLY)
-				union.URX, union.URY = math.Max(union.URX, rect.URX), math.Max(union.URY, rect.URY)
+				union = unionRect(union, rect)
 			}
 		}
 	}
@@ -256,15 +246,57 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			return nil
 		}
 	}
-	f.Width = firstRect.URX - firstRect.LLX
+	f.Width = firstLine.URX - firstLine.LLX
 	f.TextState = f.Segments[0].TextState
 	f.Position = f.Segments[0].Position
+	for _, sp := range sm.spans[1:] {
+		if sp.page != sm.spans[0].page && noEdit == "" {
+			noEdit = "match spans several pages"
+		}
+	}
 	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit}
 	f.bind.snap = snapshotOf(f)
 	return f
 }
 
-func isStandard14Name(name string) bool {
-	_, _, ok := standard14VerticalMetrics("/" + cleanFontName(name))
-	return ok
+// fontEmbedded reports whether the page's font resource named by the
+// extraction's font name carries an embedded program (FontFile, FontFile2 or
+// FontFile3 on the descriptor, or on the Type0 descendant's). A font the page
+// resources do not name (one only a Form XObject uses) falls back to "not a
+// Standard-14 name".
+func fontEmbedded(p *Page, name string) bool {
+	want := cleanFontName(name)
+	objs := p.doc.objects
+	if fonts, ok := resolveRefToDict(objs, p.pageResources()["/Font"]); ok {
+		for _, v := range fonts {
+			fd, ok := resolveRefToDict(objs, v)
+			if !ok {
+				continue
+			}
+			if bf, ok := resolveRef(objs, fd["/BaseFont"]).(pdfName); !ok || cleanFontName(string(bf)) != want {
+				continue
+			}
+			return descriptorEmbedded(objs, fd)
+		}
+	}
+	_, _, std := standard14VerticalMetrics("/" + want)
+	return !std
+}
+
+func descriptorEmbedded(objs map[int]*pdfObject, fd pdfDict) bool {
+	if arr, ok := resolveRefToArray(objs, fd["/DescendantFonts"]); ok && len(arr) > 0 {
+		if cd, ok := resolveRefToDict(objs, arr[0]); ok {
+			return descriptorEmbedded(objs, cd)
+		}
+	}
+	desc, ok := resolveRefToDict(objs, fd["/FontDescriptor"])
+	if !ok {
+		return false
+	}
+	for _, k := range []string{"/FontFile", "/FontFile2", "/FontFile3"} {
+		if _, ok := desc[k]; ok {
+			return true
+		}
+	}
+	return false
 }

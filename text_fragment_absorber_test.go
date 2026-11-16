@@ -211,3 +211,185 @@ func TestBindFragmentOnce(t *testing.T) {
 		t.Fatal("bound twice")
 	}
 }
+
+func TestAbsorberWidthIsFirstLine(t *testing.T) {
+	d, _ := absorberDoc(t)
+	a := NewTextFragmentAbsorber("plain bold tail")
+	if err := a.Visit(mustPage(t, d)); err != nil {
+		t.Fatal(err)
+	}
+	f := a.TextFragments()[0]
+	want := f.Segments[2].Rectangle.URX - f.Segments[0].Rectangle.LLX
+	if f.Width < want-0.5 || f.Width > want+0.5 {
+		t.Fatalf("width %v want %v", f.Width, want)
+	}
+	if f.Width < f.Segments[0].Rectangle.URX-f.Segments[0].Rectangle.LLX+10 {
+		t.Fatal("width is the first segment's")
+	}
+}
+
+func TestAbsorberAcrossPages(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	if err := d.AddBlankPageFromFormat(PageFormatA4); err != nil {
+		t.Fatal(err)
+	}
+	for n, s := range []string{"alpha", "beta"} {
+		p, _ := d.Page(n + 1)
+		if n == 1 {
+			if err := p.DrawRectangle(Rectangle{LLX: 90, LLY: 690, URX: 300, URY: 720},
+				ShapeStyle{FillColor: &Color{G: 1, A: 1}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f := NewTextFragment(s)
+		f.Position = Position{XIndent: 100, YIndent: 700}
+		if err := NewTextBuilder(p).AppendText(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := NewTextFragmentAbsorber(`alpha\s+beta`, SearchOptions{Regex: true, SearchForTextRelatedGraphics: true})
+	if err := a.VisitDocument(reopenDoc(t, d)); err != nil {
+		t.Fatal(err)
+	}
+	fs := a.TextFragments()
+	if len(fs) != 1 || len(fs[0].Segments) != 2 {
+		t.Fatalf("got %d", len(fs))
+	}
+	if fs[0].bind.noEdit == "" {
+		t.Fatal("cross-page match editable")
+	}
+	if fs[0].Segments[0].TextState.BackgroundColor != nil {
+		t.Fatal("page 1 has no fill")
+	}
+	if bg := fs[0].Segments[1].TextState.BackgroundColor; bg == nil || bg.G != 1 {
+		t.Fatalf("page 2 background %v", bg)
+	}
+}
+
+func TestAbsorberEmbeddedFlag(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	dj, err := d.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, fnt := range []Font{FontHelvetica, dj} {
+		f := NewTextFragment("word")
+		f.Position = Position{XIndent: 100, YIndent: 700 - float64(i)*40}
+		f.TextState = TextState{Font: fnt}
+		if err := NewTextBuilder(p).AppendText(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := NewTextFragmentAbsorber("word")
+	if err := a.Visit(mustPage(t, reopenDoc(t, d))); err != nil {
+		t.Fatal(err)
+	}
+	fs := a.TextFragments()
+	if len(fs) != 2 || fs[0].TextState.Font.IsEmbedded() || !fs[1].TextState.Font.IsEmbedded() {
+		t.Fatalf("embedded flags wrong (%d fragments)", len(fs))
+	}
+}
+
+func TestAbsorberRTLPosition(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	dj, err := d.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := NewTextFragment("שלום עולם")
+	f.Position = Position{XIndent: 100, YIndent: 600}
+	f.TextState = TextState{Font: dj, FontSize: 20}
+	if err := NewTextBuilder(p).AppendText(f); err != nil {
+		t.Fatal(err)
+	}
+	a := NewTextFragmentAbsorber("שלום")
+	if err := a.Visit(mustPage(t, reopenDoc(t, d))); err != nil {
+		t.Fatal(err)
+	}
+	fs := a.TextFragments()
+	if len(fs) != 1 {
+		t.Fatalf("got %d", len(fs))
+	}
+	r := fs[0].Segments[0].Rectangle
+	if r.URX-r.LLX < 20 {
+		t.Fatalf("rect %+v", r)
+	}
+	if fs[0].Position.XIndent != r.LLX || fs[0].Segments[0].Position.XIndent != r.LLX || fs[0].X != r.LLX {
+		t.Fatalf("position %+v vs left edge %v", fs[0].Position, r.LLX)
+	}
+}
+
+// A colour change inside a line must not change the line text or what
+// SearchText reports, whether the boundary is a space, a hairline gap or none.
+func TestColourBoundaryKeepsTextAndSearch(t *testing.T) {
+	build := func(coloured bool) *Page {
+		d := NewDocumentFromFormat(PageFormatA4)
+		p := mustPage(t, d)
+		col := func(c *Color) *Color {
+			if coloured {
+				return c
+			}
+			return nil
+		}
+		red, blue := col(&Color{R: 1, A: 1}), col(&Color{B: 1, A: 1})
+		x := 100.0
+		// word, space in the other colour, word
+		for _, pc := range []struct {
+			s string
+			c *Color
+		}{{"ab", red}, {" ", blue}, {"cd", red}} {
+			if err := p.AddTextAt(pc.s, TextStyle{Size: 12, Color: pc.c}, x, 700); err != nil {
+				t.Fatal(err)
+			}
+			wd, _ := MeasureText(pc.s, TextStyle{Size: 12})
+			x += wd
+		}
+		// small positive gap between differently coloured pieces
+		x = 100
+		for _, pc := range []struct {
+			s   string
+			c   *Color
+			gap float64
+		}{{"ef", red, 0}, {"gh", blue, 0.6}} {
+			x += pc.gap
+			if err := p.AddTextAt(pc.s, TextStyle{Size: 12, Color: pc.c}, x, 650); err != nil {
+				t.Fatal(err)
+			}
+			wd, _ := MeasureText(pc.s, TextStyle{Size: 12})
+			x += wd
+		}
+		return mustPage(t, reopenDoc(t, d))
+	}
+	base, col := build(false), build(true)
+	lb, _ := base.ExtractTextWithLayout()
+	lc, _ := col.ExtractTextWithLayout()
+	if len(lb) != len(lc) {
+		t.Fatalf("lines %d vs %d", len(lb), len(lc))
+	}
+	split := false
+	for i := range lb {
+		if lb[i].Text != lc[i].Text {
+			t.Fatalf("line %q vs %q", lb[i].Text, lc[i].Text)
+		}
+		if len(lc[i].Fragments) > len(lb[i].Fragments) {
+			split = true
+		}
+	}
+	if !split {
+		t.Fatal("colour did not split any fragment")
+	}
+	for _, q := range []string{"ab cd", "b c", "cd", "efgh", "fg"} {
+		mb, _ := base.SearchText(q)
+		mc, _ := col.SearchText(q)
+		if len(mb) != len(mc) {
+			t.Fatalf("%q: %d vs %d matches", q, len(mb), len(mc))
+		}
+		for i := range mb {
+			if mb[i].Rect != mc[i].Rect {
+				t.Fatalf("%q rect %+v vs %+v", q, mb[i].Rect, mc[i].Rect)
+			}
+		}
+	}
+}
