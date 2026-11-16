@@ -569,3 +569,67 @@ func TestLayoutRunsOptFirstWidthAndTinyBreak(t *testing.T) {
 		t.Fatalf("%d lines for 4 runes at 1pt", len(lines))
 	}
 }
+
+func TestAppendParagraphBreakLongFirstLineIndent(t *testing.T) {
+	long := "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+	tp := oneLine(long)
+	tp.FormattingOptions.WrapMode = WrapByWordsBreakLong
+	tp.FirstLineIndent = 40
+	_, p := buildPara(t, tp)
+	lines := paraLines(t, p)
+	if len(lines) < 3 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	if !pnear(lines[0].x0, 140, 0.01) || lines[0].x1 > 200.01 {
+		t.Fatalf("first line %v..%v must fit 140..200", lines[0].x0, lines[0].x1)
+	}
+	text, _ := p.ExtractText()
+	if strings.Join(strings.Fields(text), "") != long {
+		t.Fatalf("text lost: %q", text)
+	}
+}
+
+func TestAppendParagraphVerticalOverflowSkipsLines(t *testing.T) {
+	f := NewTextFragment(paraWords)
+	tp := NewTextParagraph()
+	tp.Rectangle = Rectangle{LLX: 100, LLY: 650, URX: 200, URY: 700}
+	tp.AppendLine(f)
+	d, p := buildPara(t, tp)
+	lines := paraLines(t, p)
+	if len(lines) == 0 || len(lines) > 4 {
+		t.Fatalf("%d lines drawn in a 50pt rectangle", len(lines))
+	}
+	if m, _ := p.SearchText("tango"); len(m) != 0 {
+		t.Fatal("a line below the rectangle must not be drawn")
+	}
+	if f.Text != paraWords {
+		t.Fatalf("Text must stay the authored text, got %q", f.Text)
+	}
+	if len(f.bind.drawn) != len(lines) || len(d.boundFragments) != 1 {
+		t.Fatalf("bound %d quads for %d drawn lines", len(f.bind.drawn), len(lines))
+	}
+	// bottom aligned: the overflow is cut at the top instead
+	f2 := NewTextFragment(paraWords)
+	tp2 := NewTextParagraph()
+	tp2.Rectangle = tp.Rectangle
+	tp2.VerticalAlignment = VAlignBottom
+	tp2.AppendLine(f2)
+	_, p2 := buildPara(t, tp2)
+	if m, _ := p2.SearchText("alpha"); len(m) != 0 {
+		t.Fatal("a line above the rectangle must not be drawn")
+	}
+	if m, _ := p2.SearchText("tango"); len(m) != 1 {
+		t.Fatal("last line must be drawn")
+	}
+}
+
+func TestAppendParagraphSameFragmentTwiceBoundOnce(t *testing.T) {
+	f := NewTextFragment("twice")
+	tp := NewTextParagraph()
+	tp.AppendLine(f)
+	tp.AppendLine(f)
+	d, _ := buildPara(t, tp)
+	if len(d.boundFragments) != 1 {
+		t.Fatalf("%d bindings", len(d.boundFragments))
+	}
+}

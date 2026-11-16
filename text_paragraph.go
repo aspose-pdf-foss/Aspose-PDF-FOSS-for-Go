@@ -214,8 +214,12 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 	err := func() error {
 		y := top
 		for _, l := range lines {
+			lineTop := y
 			baseline := y - l.ln.ascent
 			y -= l.ln.h
+			if lineTop <= inner.LLY || y >= inner.URY {
+				continue // wholly outside the clip: not drawn, not bound
+			}
 			rs, ms := frags[l.frag], mss[l.frag]
 			f := tp.lines[l.frag]
 			lineW := 0.0
@@ -241,22 +245,9 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 					continue // wholly outside the clip: not drawn
 				}
 				run := &rs[pc.run]
-				box := Rectangle{LLX: x, LLY: baseline + run.desc, URX: x + pc.w, URY: baseline + run.asc}
-				quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
-				if bg := run.st.BackgroundColor; bg != nil {
-					if err := pg.DrawRectangle(box, ShapeStyle{FillColor: bg}); err != nil {
-						return err
-					}
-				}
-				if err := pg.AddTextAt(pc.text, run.style, x, baseline); err != nil {
+				box, quad, err := drawTextPiece(pg, run.st, run.style, run.seg.Hyperlink, pc.text, x, baseline, pc.w, run.asc, run.desc)
+				if err != nil {
 					return err
-				}
-				if run.seg.Hyperlink != "" {
-					link := NewLinkAnnotation(pg, box)
-					link.SetAction(NewGoToURIAction(run.seg.Hyperlink))
-					if err := pg.Annotations().Add(link); err != nil {
-						return err
-					}
 				}
 				if first[l.frag] == nil {
 					first[l.frag] = &Position{XIndent: x, YIndent: baseline}

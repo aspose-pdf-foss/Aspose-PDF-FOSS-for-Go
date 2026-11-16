@@ -83,6 +83,23 @@ type runToken struct {
 	soft  bool // a break between pieces of a split word: no empty line
 }
 
+// fitRunes returns the byte length of the longest prefix of word whose width
+// is at most maxW, at least one rune.
+func fitRunes(ms []runMetrics, ri int, word string, maxW float64) int {
+	n := 0
+	for i, r := range word {
+		end := i + utf8.RuneLen(r)
+		if r == utf8.RuneError {
+			end = i + 1
+		}
+		if i > 0 && tokenWidth(ms, ri, word[:end]) > maxW {
+			break
+		}
+		n = end
+	}
+	return n
+}
+
 // tokenWidth is the drawn width of one token of run ri.
 func tokenWidth(ms []runMetrics, ri int, text string) float64 {
 	w := ms[ri].measurer.word(text)
@@ -108,8 +125,8 @@ func tokenWidth(ms []runMetrics, ri int, text string) float64 {
 // GitHub issue's own reporter described for styled runs).
 //
 // With breakLong, a word wider than maxW is split into pieces of at most maxW
-// (at least one rune each), a hard break
-// between the pieces. With breakLong false it never splits.
+// (at least one rune each) with a soft break between them; without it, words
+// are never split.
 func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool) []runToken {
 	var tokens []runToken
 	for ri, r := range runs {
@@ -139,17 +156,7 @@ func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool)
 				continue
 			}
 			for word != "" {
-				n := 0
-				for i, r := range word {
-					end := i + utf8.RuneLen(r)
-					if r == utf8.RuneError {
-						end = i + 1
-					}
-					if i > 0 && tokenWidth(ms, ri, word[:end]) > maxW {
-						break
-					}
-					n = end
-				}
+				n := fitRunes(ms, ri, word, maxW)
 				tokens = append(tokens, runToken{run: ri, text: word[:n], w: tokenWidth(ms, ri, word[:n])})
 				word = word[n:]
 				if word != "" {
@@ -259,6 +266,18 @@ func layoutRunsOpt(runs []textRun, ms []runMetrics, maxW, firstW float64, breakL
 			}
 			i++
 			continue
+		}
+		// A split word that opens the first line is cut to that line's width.
+		if breakLong && len(lines) == 0 && curW == 0 && firstW < maxW && t.w > firstW {
+			n := fitRunes(ms, t.run, t.text, firstW)
+			if n < len(t.text) {
+				head := runToken{run: t.run, text: t.text[:n], w: tokenWidth(ms, t.run, t.text[:n])}
+				tail := runToken{run: t.run, text: t.text[n:], w: tokenWidth(ms, t.run, t.text[n:])}
+				brk := runToken{run: t.run, brk: true, soft: true}
+				rest := append([]runToken{head, brk, tail}, tokens[i+1:]...)
+				tokens = append(tokens[:i], rest...)
+				t = tokens[i]
+			}
 		}
 		// Cluster: consecutive non-space tokens form one unbreakable word.
 		j := i

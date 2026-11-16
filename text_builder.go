@@ -128,7 +128,13 @@ func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 }
 
 // bindFragment remembers f so edits to it can be applied on save.
+// Binding the same fragment again (its text appended twice) keeps one entry.
 func (d *Document) bindFragment(f *TextFragment) {
+	for _, g := range d.boundFragments {
+		if g == f {
+			return
+		}
+	}
 	d.boundFragments = append(d.boundFragments, f)
 }
 
@@ -178,6 +184,36 @@ func quadBounds(q QuadPoint) Rectangle {
 		r.LLY, r.URY = math.Min(r.LLY, ys[i]), math.Max(r.URY, ys[i])
 	}
 	return r
+}
+
+// drawTextPiece draws text at baseline (x, y): its background box, the text
+// itself and, when hyperlink is set, a link over the box. It returns the box
+// and its quad (rotated with the state's Rotation about (x, y)). Shared by
+// AppendText and AppendParagraph so both bind what they draw alike.
+func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text string, x, y, width, asc, desc float64) (Rectangle, QuadPoint, error) {
+	box := Rectangle{LLX: x, LLY: y + desc, URX: x + width, URY: y + asc}
+	quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
+	if st.Rotation != 0 {
+		quad = rotateQuad(quad, x, y, st.Rotation)
+		box = quadBounds(quad)
+	}
+	if st.BackgroundColor != nil && text != "" && st.Rotation == 0 {
+		if err := p.DrawRectangle(box, ShapeStyle{FillColor: st.BackgroundColor}); err != nil {
+			return box, quad, err
+		}
+	}
+	style.Background = nil // drawn above, as the piece's text box
+	if err := p.AddTextAt(text, style, x, y); err != nil {
+		return box, quad, err
+	}
+	if hyperlink != "" && text != "" {
+		link := NewLinkAnnotation(p, box)
+		link.SetAction(NewGoToURIAction(hyperlink))
+		if err := p.Annotations().Add(link); err != nil {
+			return box, quad, err
+		}
+	}
+	return box, quad, nil
 }
 
 type resolvedSegment struct {
@@ -240,28 +276,9 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	var all strings.Builder
 	for i, s := range segs {
 		r := rs[i]
-		box := Rectangle{LLX: x, LLY: y + r.desc, URX: x + r.width, URY: y + r.asc}
-		quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
-		if rot := r.st.Rotation; rot != 0 {
-			quad = rotateQuad(quad, x, y, rot)
-			box = quadBounds(quad)
-		}
-		if r.st.BackgroundColor != nil && s.Text != "" && r.st.Rotation == 0 {
-			if err := p.DrawRectangle(box, ShapeStyle{FillColor: r.st.BackgroundColor}); err != nil {
-				return fmt.Errorf("text builder: %w", err)
-			}
-		}
-		style := r.style
-		style.Background = nil // drawn above, as the segment's text box
-		if err := p.AddTextAt(s.Text, style, x, y); err != nil {
+		box, quad, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
+		if err != nil {
 			return fmt.Errorf("text builder: %w", err)
-		}
-		if s.Hyperlink != "" && s.Text != "" {
-			link := NewLinkAnnotation(p, box)
-			link.SetAction(NewGoToURIAction(s.Hyperlink))
-			if err := p.Annotations().Add(link); err != nil {
-				return fmt.Errorf("text builder: %w", err)
-			}
 		}
 		if i < len(f.Segments) {
 			f.Segments[i].Position = Position{XIndent: x, YIndent: y}
