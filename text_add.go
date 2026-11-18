@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // nonFinite reports whether v cannot be written as a PDF number at all
@@ -574,10 +576,59 @@ func renderTextInBuilder(
 	return nil
 }
 
+// isNoBreakSpace reports whether r is one of the no-break spaces of
+// Unicode line-breaking class GL (U+00A0, U+202F, U+2007): white space
+// that must not become a line break and is drawn as itself.
+func isNoBreakSpace(r rune) bool {
+	return r == '\u00a0' || r == '\u202f' || r == '\u2007'
+}
+
+// isBreakableSpace reports whether wrapText treats r as white space between
+// words: unicode.IsSpace minus the no-break spaces (GitHub issue #24 point
+// 1). Runs of these collapse to one space when a paragraph is wrapped.
+func isBreakableSpace(r rune) bool {
+	return unicode.IsSpace(r) && !isNoBreakSpace(r)
+}
+
+// isLineSeparator reports whether r forces a line break (Unicode classes
+// BK, CR, LF, NL): LF, CR, NEL, LINE SEPARATOR, PARAGRAPH SEPARATOR.
+func isLineSeparator(r rune) bool {
+	return r == '\n' || r == '\r' || r == '\u0085' || r == '\u2028' || r == '\u2029'
+}
+
+// splitParagraphs splits text at every forced line break: CRLF, CR, LF,
+// NEL (U+0085), LINE SEPARATOR (U+2028) and PARAGRAPH SEPARATOR (U+2029).
+// CRLF counts as one break.
+func splitParagraphs(text string) []string {
+	if !strings.ContainsFunc(text, isLineSeparator) {
+		return []string{text}
+	}
+	var out []string
+	start := 0
+	for i, r := range text {
+		if i < start || !isLineSeparator(r) {
+			continue
+		}
+		out = append(out, text[start:i])
+		start = i + utf8.RuneLen(r)
+		if r == '\r' && strings.HasPrefix(text[start:], "\n") {
+			start++
+		}
+	}
+	return append(out, text[start:])
+}
+
+// splitWords splits one paragraph into words at breakable white space
+// (isBreakableSpace); no-break spaces stay inside the word they join.
+func splitWords(para string) []string {
+	return strings.FieldsFunc(para, isBreakableSpace)
+}
+
 // wrapText splits text into lines that fit within maxWidth points, as
-// measured by m. It breaks at spaces; words longer than maxWidth are
-// broken on rune boundaries. Explicit newlines in the input force a line
-// break.
+// measured by m. It breaks at breakable white space (isBreakableSpace —
+// never at a no-break space); words longer than maxWidth are broken on
+// rune boundaries. CRLF, CR, LF, NEL, U+2028 and U+2029 force a line
+// break (splitParagraphs).
 //
 // For a shaped font (m.shaper != nil) the greedy packing below uses m's
 // fast per-word/per-space estimate, then verifies the finished line's
@@ -592,14 +643,14 @@ func wrapText(text string, m *lineMeasurer, maxWidth float64) []string {
 	}
 
 	var result []string
-	paragraphs := strings.Split(text, "\n")
+	paragraphs := splitParagraphs(text)
 
 	for _, para := range paragraphs {
 		if para == "" {
 			result = append(result, "")
 			continue
 		}
-		words := strings.Fields(para)
+		words := splitWords(para)
 		if len(words) == 0 {
 			result = append(result, "")
 			continue

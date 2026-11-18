@@ -75,7 +75,7 @@ func wrapReplacement(font Font, size float64, text string, rtl bool, width float
 	}
 	for _, para := range strings.Split(text, "\n") {
 		m := lineMeasurerForFont(font, size, para, rtl, wf)
-		for _, w := range strings.Fields(para) {
+		for _, w := range splitWords(para) {
 			if m.word(w) > width+0.01 {
 				broken = true
 			}
@@ -181,7 +181,7 @@ func drawParagraphLine(p *Page, l paragraphLine, style TextStyle, r Rectangle, y
 		style.HAlign = HAlignRight
 		return p.AddTextAt(l.text, style, r.URX, y)
 	}
-	words := strings.Fields(l.text)
+	words := splitWords(l.text)
 	if !justify || l.last || len(words) < 2 {
 		return p.AddTextAt(l.text, style, r.LLX, y)
 	}

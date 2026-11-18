@@ -173,7 +173,7 @@ func (s *flowState) flowTextAround(text string, style TextStyle, st StructType, 
 	}
 
 	for _, para := range strings.Split(text, "\n") {
-		words := strings.Fields(para)
+		words := splitWords(para)
 		for len(words) > 0 {
 			s.pruneFloats()
 			if s.y-lh < s.bottom {
