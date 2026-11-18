@@ -23,7 +23,14 @@ func (f documentFont) IsEmbedded() bool { return f.embedded }
 // TextFragmentAbsorber finds text and returns it as TextFragments whose
 // segments are runs of one font, size, colour and style. Mirrors Aspose.PDF
 // for .NET's TextFragmentAbsorber. An empty phrase finds every line's text.
-// Visits accumulate fragments.
+//
+// Each Visit replaces the fragments of the previous one (as
+// TextParagraphAbsorber and TableAbsorber do); Reset clears them. A visit
+// first applies the document's pending text edits (ApplyTextChanges), so it
+// reads the page as it will be saved, and binds every fragment it finds to
+// the document so an edit to it can be applied later: a visit changes the
+// document and must not run concurrently with other calls on it. Bound
+// fragments live as long as the document does.
 type TextFragmentAbsorber struct {
 	phrase string
 	opts   SearchOptions
@@ -36,15 +43,38 @@ func NewTextFragmentAbsorber(phrase string, opts ...SearchOptions) *TextFragment
 	return &TextFragmentAbsorber{phrase: phrase, opts: lastSearchOption(opts)}
 }
 
-// TextFragments returns the fragments found so far.
-func (a *TextFragmentAbsorber) TextFragments() []*TextFragment { return a.frags }
+// TextFragments returns the fragments the last Visit found (a copy of the
+// list; the fragments themselves are shared, so editing one edits the page
+// on the next ApplyTextChanges or save).
+func (a *TextFragmentAbsorber) TextFragments() []*TextFragment {
+	return append([]*TextFragment(nil), a.frags...)
+}
 
-// Visit finds the phrase on page p.
-func (a *TextFragmentAbsorber) Visit(p *Page) error { return a.visit([]*Page{p}) }
+// Reset clears the fragments found. Mirrors Aspose.PDF for .NET's
+// TextFragmentAbsorber.Reset. Edits already made to them still apply.
+func (a *TextFragmentAbsorber) Reset() { a.frags = nil }
+
+// Visit finds the phrase on page p, replacing the fragments found before. It
+// applies the document's pending text edits first and returns their error.
+func (a *TextFragmentAbsorber) Visit(p *Page) error {
+	if p == nil {
+		return fmt.Errorf("text fragment absorber: nil page")
+	}
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
+	return a.visit([]*Page{p})
+}
 
 // VisitDocument finds the phrase on every page of d (a regular expression may
-// match across pages).
-func (a *TextFragmentAbsorber) VisitDocument(d *Document) error { return a.visit(d.Pages()) }
+// match across pages), replacing the fragments found before. It applies the
+// document's pending text edits first and returns their error.
+func (a *TextFragmentAbsorber) VisitDocument(d *Document) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
+	return a.visit(d.Pages())
+}
 
 func (a *TextFragmentAbsorber) visit(pages []*Page) error {
 	var re *regexp.Regexp
@@ -92,14 +122,16 @@ func (a *TextFragmentAbsorber) visit(pages []*Page) error {
 		}
 	}
 	fills := map[int][]shadedRect{}
+	var found []*TextFragment
 	for _, sm := range matches {
 		f := a.build(sm, byNum, fills)
 		if f == nil {
 			continue
 		}
-		a.frags = append(a.frags, f)
+		found = append(found, f)
 		f.bind.page.doc.bindFragment(f)
 	}
+	a.frags = found
 	return nil
 }
 

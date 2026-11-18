@@ -681,8 +681,10 @@ func TestApplyRollbackDropsPlanningFont(t *testing.T) {
 	d := openBytes(t, src)
 	before := writeBytes(t, openBytes(t, src))
 	fonts, next := len(d.embeddedFonts), d.nextID
-	absorbOne(t, d, "Hello").Text = "Привет" // needs DejaVu found by name
+	// Both found before any edit: a visit applies pending edits first.
+	a := absorbOne(t, d, "Hello")
 	b := absorbOne(t, d, "world")
+	a.Text = "Привет" // needs DejaVu found by name
 	seg := NewTextSegment("x")
 	seg.TextState.Rotation = 30 // rotated multi-segment: drawing fails
 	b.Segments = append(b.Segments, seg)

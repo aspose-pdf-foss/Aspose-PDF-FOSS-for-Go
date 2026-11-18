@@ -87,6 +87,19 @@ func (d *Document) ApplyTextChanges() error {
 		}
 		byPage[pl.page] = append(byPage[pl.page], pl)
 	}
+	// Two changed fragments whose old text overlaps (the same words found
+	// twice, a line and a word in it) cannot both be redrawn: the second
+	// would describe text the first replaces.
+	for _, idx := range order {
+		pls := byPage[idx]
+		for i := range pls {
+			for j := i + 1; j < len(pls); j++ {
+				if quadsOverlap(pls[i].regions, pls[j].regions) {
+					return refuse(fmt.Errorf("apply text changes: page %d: %s and %s: cannot both be edited: their text overlaps", idx+1, pls[i].name, pls[j].name))
+				}
+			}
+		}
+	}
 	pageNames := func(idx int) string {
 		names := make([]string, len(byPage[idx]))
 		for i, pl := range byPage[idx] {
@@ -158,12 +171,28 @@ func (d *Document) ApplyTextChanges() error {
 	for _, pl := range plans {
 		pl.commit()
 	}
-	// The other fragments bound on an edited page keep valid regions: only
-	// the edited fragments' glyphs moved. Carry them to the new generation.
+	// The other fragments bound on an edited page still describe the page
+	// unless their text was stripped by this apply: those are carried to the
+	// new generation, the ones overlapping a stripped region stay on the old
+	// one, so changing them later is refused instead of redrawing text that
+	// is gone (or bringing it back).
+	edited := map[*TextFragment]bool{}
+	for _, pl := range plans {
+		edited[pl.f] = true
+	}
+	strippedOn := map[*pdfObject][]QuadPoint{}
+	for _, idx := range order {
+		strippedOn[d.pages[idx]] = pageRegions[idx]
+	}
 	for _, s := range tx.pages {
 		now := s.obj.contentGen
+		stripped := strippedOn[s.obj]
 		for _, f := range d.boundFragments {
-			if b := f.bind; b != nil && b.obj == s.obj && b.gen == s.gen {
+			b := f.bind
+			if b == nil || b.obj != s.obj || b.gen != s.gen {
+				continue
+			}
+			if edited[f] || !quadsOverlap(b.drawn, stripped) {
 				b.gen = now
 			}
 		}
@@ -178,6 +207,24 @@ func (d *Document) ApplyTextChanges() error {
 	}
 	d.dropUnreachable(kept)
 	return nil
+}
+
+// quadsOverlap reports whether a box of one list overlaps a box of the
+// other by more than a hairline (boxes that only touch, as neighbouring
+// words' do, do not overlap).
+func quadsOverlap(a, b []QuadPoint) bool {
+	const eps = 0.01
+	for _, qa := range a {
+		ra := quadBounds(qa)
+		for _, qb := range b {
+			rb := quadBounds(qb)
+			if math.Min(ra.URX, rb.URX)-math.Max(ra.LLX, rb.LLX) > eps &&
+				math.Min(ra.URY, rb.URY)-math.Max(ra.LLY, rb.LLY) > eps {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // textChangesPending reports whether a bound fragment changed since it was
