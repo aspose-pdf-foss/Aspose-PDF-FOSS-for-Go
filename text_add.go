@@ -405,6 +405,9 @@ func renderTextInBuilder(
 	if nonFinite(style.Skew) {
 		return fmt.Errorf("render text: skew must be finite, got %v", style.Skew)
 	}
+	if err := checkTextStyleValues("render text", style); err != nil {
+		return err
+	}
 
 	font := style.Font
 	if font == nil {
@@ -935,6 +938,9 @@ func measureText(text string, style TextStyle, maxWidth float64) (lines int, lin
 	if fontSize == 0 {
 		fontSize = 12
 	}
+	if err := checkTextStyleValues("measure text", style); err != nil {
+		return 0, 0, err
+	}
 	lineSpacing := style.LineSpacing
 	if lineSpacing == 0 {
 		lineSpacing = 1.2
@@ -1069,6 +1075,9 @@ func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	}
 	if nonFinite(style.Rotation) {
 		return fmt.Errorf("add text: rotation must be finite, got %v", style.Rotation)
+	}
+	if err := checkTextStyleValues("add text", style); err != nil {
+		return err
 	}
 
 	fontSize := style.Size

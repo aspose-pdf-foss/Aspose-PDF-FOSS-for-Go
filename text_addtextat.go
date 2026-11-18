@@ -118,6 +118,9 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	if nonFinite(style.Skew) {
 		return fmt.Errorf("add text at: skew must be finite, got %v", style.Skew)
 	}
+	if err := checkTextStyleValues("add text at", style); err != nil {
+		return err
+	}
 
 	fontSize := style.Size
 	if fontSize == 0 {
@@ -290,6 +293,9 @@ func MeasureText(text string, style TextStyle) (float64, error) {
 		return 0, nil
 	}
 	if err := checkFontSize("measure text", style.Size); err != nil {
+		return 0, err
+	}
+	if err := checkTextStyleValues("measure text", style); err != nil {
 		return 0, err
 	}
 	font := style.Font

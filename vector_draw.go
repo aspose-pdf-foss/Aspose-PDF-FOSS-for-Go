@@ -90,6 +90,9 @@ func (p *Page) DrawLine(from, to Point, style LineStyle) error {
 	if err := p.checkCanvasNotFrozen(); err != nil {
 		return err
 	}
+	if err := checkColor("draw line", "line color", style.Color); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
 	buf.WriteString("q\n")
 	gsOp, err := p.applyAlpha(style.Color, nil)
@@ -163,6 +166,9 @@ func (p *Page) DrawRectangle(rect Rectangle, style ShapeStyle) error {
 		return nil
 	}
 	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
+	if err := checkShapeColors("draw rectangle", style); err != nil {
 		return err
 	}
 	if err := p.resolveShapeGradient(&style); err != nil {
@@ -247,6 +253,9 @@ func (p *Page) DrawEllipse(center Point, rx, ry float64, style ShapeStyle) error
 	if err := p.checkCanvasNotFrozen(); err != nil {
 		return err
 	}
+	if err := checkShapeColors("draw ellipse", style); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -276,6 +285,9 @@ func (p *Page) DrawPolyline(points []Point, style LineStyle) error {
 		return nil
 	}
 	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
+	if err := checkColor("draw polyline", "line color", style.Color); err != nil {
 		return err
 	}
 	var buf bytes.Buffer
@@ -331,6 +343,9 @@ func (p *Page) DrawPath(path *Path, style ShapeStyle) error {
 	if err := p.checkCanvasNotFrozen(); err != nil {
 		return err
 	}
+	if err := checkShapeColors("draw path", style); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -369,6 +384,9 @@ func (p *Page) DrawRoundedRectangle(rect Rectangle, radius float64, style ShapeS
 	if err := p.checkCanvasNotFrozen(); err != nil {
 		return err
 	}
+	if err := checkShapeColors("draw rounded rectangle", style); err != nil {
+		return err
+	}
 	if err := p.resolveShapeGradient(&style); err != nil {
 		return err
 	}
@@ -398,6 +416,9 @@ func (p *Page) DrawPolygon(points []Point, style ShapeStyle) error {
 		return nil
 	}
 	if err := p.checkCanvasNotFrozen(); err != nil {
+		return err
+	}
+	if err := checkShapeColors("draw polygon", style); err != nil {
 		return err
 	}
 	if err := p.resolveShapeGradient(&style); err != nil {

@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -328,5 +329,83 @@ func TestIssue24MissingGlyphDecomposition(t *testing.T) {
 	f := issue24Font(t, d, "testdata/SourceSerif4-Regular.otf")
 	if fontHasGlyph(f, '\u4e2d') {
 		t.Error("U+4E2D reported present in Source Serif 4")
+	}
+}
+
+// Point 4: non-finite LineSpacing and colour components are rejected.
+func TestIssue24NonFiniteStyleValuesRejected(t *testing.T) {
+	nan, inf := math.NaN(), math.Inf(1)
+	styles := map[string]TextStyle{
+		"LineSpacing NaN":  {LineSpacing: nan},
+		"LineSpacing +Inf": {LineSpacing: inf},
+		"LineSpacing -1":   {LineSpacing: -1},
+		"Color R NaN":      {Color: &Color{R: nan, A: 1}},
+		"Color A NaN":      {Color: &Color{A: nan}},
+		"Background G NaN": {Background: &Color{G: nan, A: 1}},
+		"Background B Inf": {Background: &Color{B: inf, A: 1}},
+		"StrokeColor NaN":  {StrokeColor: &Color{R: nan, A: 1}, RenderMode: RenderingFillStroke},
+	}
+	for name, st := range styles {
+		st.Size = 10
+		d := NewDocument(595, 842)
+		p, _ := d.Page(1)
+		if err := p.AddText("first\nsecond", st, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800}); err == nil {
+			t.Errorf("AddText %s: want error", name)
+		}
+		if err := p.AddTextAt("text", st, 50, 50); err == nil {
+			t.Errorf("AddTextAt %s: want error", name)
+		}
+		if _, err := MeasureText("text", st); err == nil {
+			t.Errorf("MeasureText %s: want error", name)
+		}
+		if _, _, err := measureText("text", st, 100); err == nil {
+			t.Errorf("measureText %s: want error", name)
+		}
+		if cs, _ := p.contentStreams(); strings.Contains(string(cs), "NaN") || strings.Contains(string(cs), "Inf") || strings.Contains(string(cs), "BT") {
+			t.Errorf("%s: content written:\n%s", name, cs)
+		}
+	}
+	// Finite, valid values still draw.
+	d := NewDocument(595, 842)
+	p, _ := d.Page(1)
+	if err := p.AddText("ok", TextStyle{Size: 10, LineSpacing: 1.5, Color: &Color{R: 1, A: 0.5}, Background: &Color{G: 1, A: 1}}, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800}); err != nil {
+		t.Errorf("valid style: %v", err)
+	}
+}
+
+func TestIssue24NonFiniteShapeColorsRejected(t *testing.T) {
+	nan := math.NaN()
+	bad := &Color{R: nan, A: 1}
+	rect := Rectangle{LLX: 10, LLY: 10, URX: 100, URY: 100}
+	pts := []Point{{X: 10, Y: 10}, {X: 50, Y: 90}, {X: 90, Y: 10}}
+	calls := map[string]func(p *Page) error{
+		"DrawRectangle fill":   func(p *Page) error { return p.DrawRectangle(rect, ShapeStyle{FillColor: bad}) },
+		"DrawRectangle stroke": func(p *Page) error { return p.DrawRectangle(rect, ShapeStyle{LineStyle: LineStyle{Color: bad, Width: 1}}) },
+		"DrawRoundedRectangle": func(p *Page) error { return p.DrawRoundedRectangle(rect, 5, ShapeStyle{FillColor: bad}) },
+		"DrawCircle":           func(p *Page) error { return p.DrawCircle(Point{X: 50, Y: 50}, 10, ShapeStyle{FillColor: bad}) },
+		"DrawEllipse":          func(p *Page) error { return p.DrawEllipse(Point{X: 50, Y: 50}, 10, 5, ShapeStyle{FillColor: bad}) },
+		"DrawPolygon":          func(p *Page) error { return p.DrawPolygon(pts, ShapeStyle{FillColor: bad}) },
+		"DrawPath": func(p *Page) error {
+			return p.DrawPath(NewPath().MoveTo(0, 0).LineTo(10, 10), ShapeStyle{LineStyle: LineStyle{Color: bad, Width: 1}})
+		},
+		"DrawLine":     func(p *Page) error { return p.DrawLine(Point{}, Point{X: 10, Y: 10}, LineStyle{Color: bad, Width: 1}) },
+		"DrawPolyline": func(p *Page) error { return p.DrawPolyline(pts, LineStyle{Color: bad, Width: 1}) },
+		"gradient stop": func(p *Page) error {
+			g := NewLinearGradient(0, 0, 100, 0, GradientStop{Offset: 0, Color: Color{A: 1}}, GradientStop{Offset: 1, Color: Color{B: nan, A: 1}})
+			return p.DrawRectangle(rect, ShapeStyle{FillGradient: g})
+		},
+	}
+	for name, call := range calls {
+		d := NewDocument(595, 842)
+		p, _ := d.Page(1)
+		if err := call(p); err == nil {
+			t.Errorf("%s with a NaN colour: want error", name)
+		}
+		if cs, _ := p.contentStreams(); strings.Contains(string(cs), "NaN") {
+			t.Errorf("%s: NaN written:\n%s", name, cs)
+		}
+		if res := p.pageResources(); res != nil && res["/Pattern"] != nil {
+			t.Errorf("%s: pattern registered for a rejected call", name)
+		}
 	}
 }
