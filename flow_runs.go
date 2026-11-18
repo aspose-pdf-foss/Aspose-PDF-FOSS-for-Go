@@ -100,6 +100,22 @@ func fitRunes(ms []runMetrics, ri int, word string, maxW float64) int {
 	return n
 }
 
+// splitRunWord returns the first piece of a word of run ri cut to maxW and
+// the byte offset where the rest starts: at the last hyphen or soft hyphen
+// that fits (hyphenBreak, as AddText breaks a word too long for its line),
+// else at the longest prefix that fits (at least one rune). A word that
+// fits whole comes back whole.
+func splitRunWord(ms []runMetrics, ri int, word string, maxW float64) (string, int) {
+	n := fitRunes(ms, ri, word, maxW)
+	if n >= len(word) {
+		return word, len(word)
+	}
+	if head, next, ok := hyphenBreak(word, n, func(s string) bool { return tokenWidth(ms, ri, s) <= maxW }); ok {
+		return head, next
+	}
+	return word[:n], n
+}
+
 // tokenWidth is the drawn width of one token of run ri.
 func tokenWidth(ms []runMetrics, ri int, text string) float64 {
 	w := ms[ri].measurer.word(text)
@@ -156,9 +172,9 @@ func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool)
 				continue
 			}
 			for word != "" {
-				n := fitRunes(ms, ri, word, maxW)
-				tokens = append(tokens, runToken{run: ri, text: word[:n], w: tokenWidth(ms, ri, word[:n])})
-				word = word[n:]
+				head, next := splitRunWord(ms, ri, word, maxW)
+				tokens = append(tokens, runToken{run: ri, text: head, w: tokenWidth(ms, ri, head)})
+				word = word[next:]
 				if word != "" {
 					tokens = append(tokens, runToken{run: ri, brk: true, soft: true})
 				}
@@ -269,10 +285,10 @@ func layoutRunsOpt(runs []textRun, ms []runMetrics, maxW, firstW float64, breakL
 		}
 		// A split word that opens the first line is cut to that line's width.
 		if breakLong && len(lines) == 0 && curW == 0 && firstW < maxW && t.w > firstW {
-			n := fitRunes(ms, t.run, t.text, firstW)
-			if n < len(t.text) {
-				head := runToken{run: t.run, text: t.text[:n], w: tokenWidth(ms, t.run, t.text[:n])}
-				tail := runToken{run: t.run, text: t.text[n:], w: tokenWidth(ms, t.run, t.text[n:])}
+			h, next := splitRunWord(ms, t.run, t.text, firstW)
+			if next < len(t.text) {
+				head := runToken{run: t.run, text: h, w: tokenWidth(ms, t.run, h)}
+				tail := runToken{run: t.run, text: t.text[next:], w: tokenWidth(ms, t.run, t.text[next:])}
 				brk := runToken{run: t.run, brk: true, soft: true}
 				rest := append([]runToken{head, brk, tail}, tokens[i+1:]...)
 				tokens = append(tokens[:i], rest...)

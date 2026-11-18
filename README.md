@@ -865,6 +865,11 @@ stays free of network code.
   (Amiri, Noto Naskh Arabic), vowel marks sit on their base letters, and Latin text kerns. It
   needs no API change — `AddText` shapes automatically — and shaped text stays extractable and
   searchable through `ToUnicode` mappings and `ActualText` spans.
+- `AddText` wraps at white space but never at a no-break space (U+00A0, U+202F, U+2007), starts a
+  new line at CR, LF, CRLF, NEL, U+2028 and U+2029, and breaks a word too long for the line after a
+  hyphen or at a soft hyphen (drawn as a hyphen there) before cutting it elsewhere. Invisible
+  characters (zero-width space, joiners, soft hyphens not used as a break) draw nothing with every
+  font, and `TextStyle.MissingGlyph` reports, or replaces, exactly the characters a font cannot show.
 - `Document.CreateType3Font()` authors a Type3 font (ISO 32000-1 §9.6.5), whose glyphs are
   content streams rather than outlines: `AddGlyph(r, width)` returns a `*Page` canvas in glyph
   space (1000 units per em, baseline at `y = 0`) that accepts the whole drawing API, and the

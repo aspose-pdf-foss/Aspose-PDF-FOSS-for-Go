@@ -409,3 +409,86 @@ func TestIssue24NonFiniteShapeColorsRejected(t *testing.T) {
 		}
 	}
 }
+
+// Point 5: a word too long for its line breaks at a hyphen or soft hyphen
+// before it is cut at an arbitrary rune.
+func TestIssue24HyphenBreaks(t *testing.T) {
+	cases := []struct {
+		text  string
+		width float64
+		want  []string
+	}{
+		{"self-explanatory", 55, []string{"self-", "explanatory"}},
+		{"inter\u00adnationalization", 70, []string{"inter-", "nationalization"}},
+		{"internationalization", 70, []string{"internationaliza", "tion"}},
+		{"-explanatoryexplanatory", 55, []string{"-explanator", "yexplanator", "y"}}, // no break before a leading hyphen
+	}
+	for _, c := range cases {
+		got := issue24Wrap(t, FontHelvetica, 10, c.text, c.width)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%q at %vpt: lines %q, want %q", c.text, c.width, got, c.want)
+		}
+		if n, _, _ := measureText(c.text, TextStyle{Size: 10}, c.width); n != len(c.want) {
+			t.Errorf("%q: measureText %d lines, want %d", c.text, n, len(c.want))
+		}
+	}
+	// Drawn: the soft hyphen used as a break shows as "-", elsewhere nothing.
+	d := NewDocument(595, 842)
+	c := issue24Content(t, d, "inter\u00adnationalization inter\u00adnational", TextStyle{Size: 10}, 70)
+	for _, want := range []string{"(inter-) Tj", "(nationalization) Tj", "(international) Tj"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("content lacks %s:\n%s", want, c)
+		}
+	}
+	// A soft-hyphen head that does not fit with its hyphen is not used.
+	w, _ := MeasureText("inter", TextStyle{Size: 10})
+	got := issue24Wrap(t, FontHelvetica, 10, "inter\u00adnationalization", w+0.5)
+	if got[0] == "inter-" {
+		t.Errorf("soft-hyphen break taken although \"inter-\" is wider than the line: %q", got)
+	}
+}
+
+func TestIssue24HyphenBreaksShapedFont(t *testing.T) {
+	d := NewDocument(595, 842)
+	f := issue24Font(t, d, "testdata/DejaVuSans.ttf")
+	st := TextStyle{Font: f, Size: 10}
+	for _, c := range []struct{ text, head, rest, probe string }{
+		{"self\u2010explanatory", "self\u2010", "explanatory", "self\u2010explanat"},
+		{"inter\u00adnationalization", "inter-", "nationalization", "internationalizat"},
+	} {
+		w, err := MeasureText(c.probe, st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := issue24Wrap(t, f, 10, c.text, w)
+		if want := []string{c.head, c.rest}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%q at %vpt: lines %q, want %q", c.text, w, got, want)
+		}
+	}
+}
+
+// The styled-runs layout (Flow runs, TextParagraph with ByWordsBreakLong)
+// splits a long word the same way.
+func TestIssue24HyphenBreaksRuns(t *testing.T) {
+	runs := []textRun{{text: "self-explanatory inter\u00adnationalization", style: TextStyle{Size: 10}}}
+	m, err := metricsFor(runs[0].style, runs[0].text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := []runMetrics{m}
+	var words []string
+	for _, tok := range tokenizeRuns(runs, ms, 55, true) {
+		if !tok.space && !tok.brk {
+			words = append(words, tok.text)
+		}
+	}
+	want := []string{"self-", "explanatory", "inter-", "nationalizati", "on"}
+	if !reflect.DeepEqual(words, want) {
+		t.Errorf("tokens %q, want %q", words, want)
+	}
+	// First line narrower than the rest.
+	lines := layoutRunsOpt([]textRun{{text: "self-explanatory", style: TextStyle{Size: 10}}}, ms, 200, 55, true)
+	if len(lines) != 2 || lines[0].segs[0].text != "self-" {
+		t.Errorf("first-line split: %+v", lines)
+	}
+}

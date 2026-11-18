@@ -792,68 +792,122 @@ func measureString(s string, width widthFn) float64 {
 	return w
 }
 
-// breakWord breaks a single word into parts that each fit within maxWidth.
-// Splits on rune boundaries so multi-byte UTF-8 is never cut mid-sequence.
-func breakWord(word string, width widthFn, maxWidth float64) []string {
+// breakWordMeasured breaks a single word that does not fit within maxWidth
+// into parts that each do. Before cutting at an arbitrary rune it breaks at
+// a break opportunity inside the word (hyphenBreak: after a hyphen, or at a
+// soft hyphen, which then shows as a hyphen at the end of the line; GitHub
+// issue #24 point 5). A word without one is cut on rune boundaries as
+// before, so multi-byte UTF-8 is never cut mid-sequence.
+//
+// For a shaped font (m.shaper != nil) each growing candidate piece is
+// checked by its real shaped width (m.word) instead of the plain per-rune
+// sum — so a forced split still respects kerning/ligatures within the word
+// (e.g. two letters that kern wider together than their unshaped advances
+// sum to would otherwise both land in one piece that, once shaped, is
+// still too wide for maxWidth; see GitHub issue #14). An unshaped font
+// sums m.width per rune.
+//
+// Cost: this is only reached for a single word that alone exceeds
+// maxWidth — rare in prose. Each candidate's own length is capped by
+// however many runes fit under maxWidth, not by the word's total length,
+// so a long unbroken shaped token (e.g. a URL with no spaces) costs one
+// bounded-length shaped-width call per rune — O(n) shape calls for an
+// n-rune word.
+//
+// A single glyph whose own width already exceeds maxWidth is still
+// emitted alone and overflows when drawn — inherent, not something any
+// wrap-level fix can correct.
+func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string {
+	fits := func(s string) bool { return m.word(s) <= maxWidth }
 	var parts []string
-	var buf strings.Builder
-	var w float64
-	for _, r := range word {
-		cw := width(r)
-		if w+cw > maxWidth && buf.Len() > 0 {
-			parts = append(parts, buf.String())
-			buf.Reset()
-			w = 0
+	for word != "" {
+		n := m.fitPrefix(word, maxWidth)
+		if n >= len(word) {
+			parts = append(parts, word)
+			break
 		}
-		buf.WriteRune(r)
-		w += cw
-	}
-	if buf.Len() > 0 {
-		parts = append(parts, buf.String())
+		if head, next, ok := hyphenBreak(word, n, fits); ok {
+			parts = append(parts, head)
+			word = word[next:]
+			continue
+		}
+		parts = append(parts, word[:n])
+		word = word[n:]
 	}
 	return parts
 }
 
-// breakWordMeasured is breakWord, but for a shaped font (m.shaper != nil)
-// each growing candidate piece is checked by its real shaped width
-// (m.word) instead of the plain per-rune sum — so a forced split still
-// respects kerning/ligatures within the word (e.g. two letters that kern
-// wider together than their unshaped advances sum to would otherwise both
-// land in one piece that, once shaped, is still too wide for maxWidth;
-// see GitHub issue #14). Falls back to plain breakWord for an unshaped
-// font.
-//
-// Cost: this is only reached for a single word that alone exceeds
-// maxWidth — rare in prose. Each candidate's own length is capped by
-// however many runes fit under maxWidth (buf resets on every flush), not
-// by the word's total length, so a long unbroken shaped token (e.g. a URL
-// with no spaces) costs one bounded-length shaped-width call per rune —
-// O(n) shape calls for an n-rune word, same order as breakWord's O(n)
-// plain-sum calls, just each one more expensive (code review of this
-// fix corrected an earlier, overstated O(n²) claim here).
-//
-// A single glyph whose own shaped width already exceeds maxWidth is
-// still emitted alone (the `buf.Len() > 0` guard never fires for it) and
-// overflows when drawn — inherent, not something any wrap-level fix can
-// correct, same as breakWord's pre-existing behavior for an oversized
-// rune.
-func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string {
-	if m.shaper == nil {
-		return breakWord(word, m.width, maxWidth)
-	}
-	var parts []string
-	var buf strings.Builder
-	for _, r := range word {
-		if buf.Len() > 0 && m.word(buf.String()+string(r)) > maxWidth {
-			parts = append(parts, buf.String())
-			buf.Reset()
+// fitPrefix returns the byte length of the longest prefix of word that fits
+// within maxWidth, at least one rune.
+func (m *lineMeasurer) fitPrefix(word string, maxWidth float64) int {
+	n := 0
+	var w float64
+	for i, r := range word {
+		end := i + utf8.RuneLen(r)
+		if r == utf8.RuneError {
+			end = i + 1
 		}
-		buf.WriteRune(r)
+		if m.shaper == nil {
+			w += m.width(r)
+			if n > 0 && w > maxWidth {
+				break
+			}
+		} else if n > 0 && m.word(word[:end]) > maxWidth {
+			break
+		}
+		n = end
 	}
-	if buf.Len() > 0 {
-		parts = append(parts, buf.String())
+	return n
+}
+
+// isHyphenBreak reports whether a word may break after r: HYPHEN-MINUS and
+// HYPHEN (Unicode line-breaking classes HY and BA).
+func isHyphenBreak(r rune) bool {
+	return r == '-' || r == '\u2010'
+}
+
+// hyphenBreak finds the last break opportunity inside word whose head fits
+// within the first n bytes (the part of word that fits on the line): after
+// a hyphen (isHyphenBreak) — the hyphen stays at the end of the head — or
+// at a soft hyphen (U+00AD), whose head is the text before it plus a
+// hyphen-minus, checked with fits since the hyphen adds width. Something
+// must stand before and after the break. It returns the head, the byte
+// offset where the rest of word starts, and whether there is such a break.
+func hyphenBreak(word string, n int, fits func(string) bool) (head string, next int, ok bool) {
+	type cand struct {
+		at   int // byte offset of the hyphen or soft hyphen
+		soft bool
 	}
-	return parts
+	var cands []cand
+	for i, r := range word {
+		if i == 0 {
+			continue
+		}
+		if i > n {
+			break
+		}
+		switch {
+		case r == '\u00ad':
+			cands = append(cands, cand{at: i, soft: true})
+		case isHyphenBreak(r) && i+utf8.RuneLen(r) <= n:
+			cands = append(cands, cand{at: i})
+		}
+	}
+	for k := len(cands) - 1; k >= 0; k-- {
+		c := cands[k]
+		if c.soft {
+			next = c.at + utf8.RuneLen('\u00ad')
+			if next < len(word) && fits(word[:c.at]+"-") {
+				return word[:c.at] + "-", next, true
+			}
+			continue
+		}
+		next = c.at + utf8.RuneLen([]rune(word[c.at:])[0])
+		if next < len(word) {
+			return word[:next], next, true
+		}
+	}
+	return "", 0, false
 }
 
 // escapeStringPDF escapes special characters for a PDF literal string.
@@ -1049,8 +1103,13 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 }
 
 // AddText draws text inside the rectangle using the given style.
-// Text is wrapped at word boundaries to fit the rectangle width.
-// Content exceeding the rectangle height is clipped.
+// Text is wrapped at white space to fit the rectangle width; a no-break
+// space (U+00A0, U+202F, U+2007) never breaks, and CR, LF, CRLF, NEL,
+// U+2028 and U+2029 force a new line. A word wider than the rectangle
+// breaks after a hyphen (U+002D, U+2010) or at a soft hyphen (U+00AD,
+// drawn as a hyphen at the end of the line, and as nothing elsewhere)
+// before it is cut at an arbitrary character. Content exceeding the
+// rectangle height is clipped.
 func (p *Page) AddText(text string, style TextStyle, rect Rectangle) error {
 	if text == "" {
 		return nil
