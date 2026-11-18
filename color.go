@@ -64,16 +64,22 @@ type TextStyle struct {
 	// dropped — with no signal at all (GitHub issue #19,
 	// shadowhunter1470-svg). A default-ignorable code point (a zero-width
 	// joiner, a variation selector, …) is never flagged regardless of
-	// this setting — drawing nothing for one of those is correct, not
-	// missing.
+	// this setting — every font draws one of those as nothing. In AddText
+	// the white space it consumes while wrapping (line breaks, tabs,
+	// ordinary and ideographic spaces) is never flagged either, as it is
+	// not drawn; AddTextAt and MeasureText draw white space as given and
+	// flag it like any other character. A character a shaping font draws
+	// from its decomposition (base letter plus combining mark) counts as
+	// present.
 	MissingGlyph MissingGlyphPolicy
 	// ReplacementRune is substituted for a missing glyph when
 	// MissingGlyph is MissingGlyphReplace. Zero value (rune 0) means
 	// U+FFFD, the Unicode replacement character — the same substitution
 	// this library's own text extraction already uses for a character
 	// it can't map back from a glyph. If the font has no glyph for the
-	// replacement rune either, that draws .notdef in turn; pick a
-	// replacement the font actually covers if that matters.
+	// replacement rune either, the call returns an error naming the
+	// replacement and the font; pick a replacement the font covers
+	// (Standard-14 fonts have no U+FFFD — use '?').
 	ReplacementRune rune
 }
 

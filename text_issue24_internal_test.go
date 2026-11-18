@@ -200,3 +200,133 @@ func TestIssue24IgnorablesUnshapedEmbedded(t *testing.T) {
 		}
 	}
 }
+
+func issue24Extract(t *testing.T, d *Document) string {
+	t.Helper()
+	texts, err := d.ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(texts, "|")
+}
+
+// Point 3a: white space AddText consumes is not a missing glyph.
+func TestIssue24MissingGlyphSkipsSeparators(t *testing.T) {
+	texts := []string{"first\nsecond", "a\tb", "a\r\nb", "a\u3000b"}
+	fonts := map[string]func(*testing.T, *Document) Font{
+		"Helvetica": func(*testing.T, *Document) Font { return FontHelvetica },
+		"DejaVu":    func(t *testing.T, d *Document) Font { return issue24Font(t, d, "testdata/DejaVuSans.ttf") },
+	}
+	for fname, mk := range fonts {
+		for _, text := range texts {
+			var want string
+			for i, pol := range []MissingGlyphPolicy{MissingGlyphAllow, MissingGlyphError, MissingGlyphReplace} {
+				d := NewDocument(595, 842)
+				p, _ := d.Page(1)
+				err := p.AddText(text, TextStyle{Font: mk(t, d), Size: 10, MissingGlyph: pol}, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800})
+				if err != nil {
+					t.Errorf("%s %q policy %d: %v", fname, text, pol, err)
+					continue
+				}
+				got := issue24Extract(t, d)
+				if i == 0 {
+					want = got
+				} else if got != want {
+					t.Errorf("%s %q policy %d: extracted %q, want %q", fname, text, pol, got, want)
+				}
+			}
+		}
+	}
+	// AddTextAt and MeasureText draw white space as given and keep flagging it.
+	d := NewDocument(595, 842)
+	p, _ := d.Page(1)
+	st := TextStyle{Size: 10, MissingGlyph: MissingGlyphError}
+	if err := p.AddTextAt("a\tb", st, 50, 50); err == nil {
+		t.Error("AddTextAt with a tab and MissingGlyphError: want error")
+	}
+	if _, err := MeasureText("a\tb", st); err == nil {
+		t.Error("MeasureText with a tab and MissingGlyphError: want error")
+	}
+}
+
+// Point 3b: a replacement the font lacks is an error, never .notdef.
+func TestIssue24ReplacementMustBeInFont(t *testing.T) {
+	cases := []struct {
+		path string
+		rep  rune
+	}{
+		{"fonts/Carlito-Regular.ttf", 0},
+		{"fonts/Carlito-Regular.ttf", '\u25a1'},
+		{"testdata/SourceSerif4-Regular.otf", 0},
+		{"", 0}, // Helvetica: U+FFFD is not in WinAnsi
+	}
+	for _, c := range cases {
+		d := NewDocument(595, 842)
+		var f Font = FontHelvetica
+		name := "Helvetica"
+		if c.path != "" {
+			f = issue24Font(t, d, c.path)
+			name = f.BaseFont()
+		}
+		p, _ := d.Page(1)
+		st := TextStyle{Font: f, Size: 10, MissingGlyph: MissingGlyphReplace, ReplacementRune: c.rep}
+		err := p.AddText("a\u4e2db", st, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800})
+		if err == nil {
+			cs, _ := p.contentStreams()
+			t.Errorf("%s rep %U: want error, content:\n%s", c.path, c.rep, cs)
+			continue
+		}
+		want := "U+FFFD"
+		if c.rep != 0 {
+			want = "U+25A1"
+		}
+		if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: error %q does not name the replacement %s and the font %s", c.path, err, want, name)
+		}
+		if _, err := MeasureText("a\u4e2db", st); err == nil {
+			t.Errorf("%s: MeasureText: want error", c.path)
+		}
+		if err := p.AddTextAt("a\u4e2db", st, 50, 50); err == nil {
+			t.Errorf("%s: AddTextAt: want error", c.path)
+		}
+	}
+	// A replacement the font has still works.
+	d := NewDocument(595, 842)
+	p, _ := d.Page(1)
+	if err := p.AddText("a\u4e2db", TextStyle{Size: 10, MissingGlyph: MissingGlyphReplace, ReplacementRune: '?'}, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800}); err != nil {
+		t.Errorf("Helvetica with '?': %v", err)
+	}
+}
+
+// Point 3c: a character a shaping font draws from its decomposition is
+// not missing.
+func TestIssue24MissingGlyphDecomposition(t *testing.T) {
+	for _, text := range []string{"a\u01f5b", "a\u1e7fb"} {
+		d := NewDocument(595, 842)
+		f := issue24Font(t, d, "testdata/SourceSerif4-Regular.otf")
+		ef := f.(*embeddedFont)
+		if ef.ttf.glyphID([]rune(text)[1]) != 0 {
+			t.Fatalf("fixture has a precomposed glyph for %q", text)
+		}
+		st := TextStyle{Font: f, Size: 10, MissingGlyph: MissingGlyphError}
+		p, _ := d.Page(1)
+		if err := p.AddText(text, st, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800}); err != nil {
+			t.Errorf("%q: AddText: %v", text, err)
+		}
+		if _, err := MeasureText(text, st); err != nil {
+			t.Errorf("%q: MeasureText: %v", text, err)
+		}
+		if err := p.AddTextAt(text, st, 50, 50); err != nil {
+			t.Errorf("%q: AddTextAt: %v", text, err)
+		}
+		if issue24PDFAHasNotdef(t, d) {
+			t.Errorf("%q: ConvertToPDFA reports a .notdef glyph", text)
+		}
+	}
+	// A character with no decomposition stays missing.
+	d := NewDocument(595, 842)
+	f := issue24Font(t, d, "testdata/SourceSerif4-Regular.otf")
+	if fontHasGlyph(f, '\u4e2d') {
+		t.Error("U+4E2D reported present in Source Serif 4")
+	}
+}

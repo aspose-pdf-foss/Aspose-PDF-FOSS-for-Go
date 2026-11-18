@@ -43,7 +43,21 @@ func fontHasGlyph(font Font, r rune) bool {
 		_, ok := encodeRuneForStandardFont("/"+f.name, r)
 		return ok
 	case *embeddedFont:
-		return f.ttf.glyphID(r) != 0
+		if f.ttf.glyphID(r) != 0 {
+			return true
+		}
+		// A shaping font draws a character it lacks from its decomposition
+		// when it has every piece (normalizeForFont: "ǵ" as g + U+0301), so
+		// such a character is not missing (GitHub issue #24 point 3c).
+		if !fontHasShaping(f.ttf) {
+			return false
+		}
+		for _, p := range normalizeForFont(f.ttf, []rune{r}) {
+			if f.ttf.glyphID(p) == 0 {
+				return false
+			}
+		}
+		return true
 	case *Type3Font:
 		_, ok := f.byRune[r]
 		return ok
@@ -60,15 +74,22 @@ func fontHasGlyph(font Font, r rune) bool {
 // font has no glyph for: MissingGlyphError names the first such
 // character and returns an error instead of the text; MissingGlyphReplace
 // substitutes style.ReplacementRune (U+FFFD when zero) for each one and
-// returns the modified text to draw/measure instead of the original.
-func applyMissingGlyphPolicy(font Font, text string, style TextStyle) (string, error) {
+// returns the modified text to draw/measure instead of the original, or an
+// error naming the replacement and the font when the font has no glyph for
+// the replacement either (GitHub issue #24 point 3b: it drew .notdef).
+//
+// wraps is set for AddText's path, where wrapText consumes breakable white
+// space and line separators (isBreakableSpace) instead of drawing them, so
+// they are never flagged there (GitHub issue #24 point 3a); AddTextAt and
+// MeasureText draw white space as given and pass false.
+func applyMissingGlyphPolicy(font Font, text string, style TextStyle, wraps bool) (string, error) {
 	if style.MissingGlyph == MissingGlyphAllow {
 		return text, nil
 	}
 	var sb strings.Builder
-	changed := false
+	changed, repChecked := false, false
 	for _, r := range text {
-		if isDefaultIgnorable(r) || fontHasGlyph(font, r) {
+		if isDefaultIgnorable(r) || (wraps && isBreakableSpace(r)) || fontHasGlyph(font, r) {
 			sb.WriteRune(r)
 			continue
 		}
@@ -78,6 +99,12 @@ func applyMissingGlyphPolicy(font Font, text string, style TextStyle) (string, e
 		rep := style.ReplacementRune
 		if rep == 0 {
 			rep = '�'
+		}
+		if !repChecked {
+			if !fontHasGlyph(font, rep) {
+				return "", fmt.Errorf("replacement %q (%U) for %q (%U) is not in font %s", rep, rep, r, r, font.BaseFont())
+			}
+			repChecked = true
 		}
 		sb.WriteRune(rep)
 		changed = true
@@ -383,7 +410,7 @@ func renderTextInBuilder(
 	if font == nil {
 		font = FontHelvetica
 	}
-	text, err := applyMissingGlyphPolicy(font, text, style)
+	text, err := applyMissingGlyphPolicy(font, text, style, true)
 	if err != nil {
 		return fmt.Errorf("render text: %w", err)
 	}

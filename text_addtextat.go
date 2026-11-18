@@ -127,7 +127,7 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	if font == nil {
 		font = FontHelvetica
 	}
-	text, err := applyMissingGlyphPolicy(font, text, style)
+	text, err := applyMissingGlyphPolicy(font, text, style, false)
 	if err != nil {
 		return fmt.Errorf("add text at: %w", err)
 	}
@@ -296,7 +296,7 @@ func MeasureText(text string, style TextStyle) (float64, error) {
 	if font == nil {
 		font = FontHelvetica
 	}
-	text, err := applyMissingGlyphPolicy(font, text, style)
+	text, err := applyMissingGlyphPolicy(font, text, style, false)
 	if err != nil {
 		return 0, fmt.Errorf("measure text: %w", err)
 	}
