@@ -172,3 +172,27 @@ func TestAbsorberResultsReplaceAndReset(t *testing.T) {
 		t.Fatal("Reset kept fragments")
 	}
 }
+
+// A neighbour the edit did not strip but a longer replacement now draws
+// over is refused when changed later, instead of removing the new glyphs.
+func TestNeighbourOverdrawnByReplacementRefused(t *testing.T) {
+	d := helloWorldDoc(t)
+	hello := firstFound(t, NewTextFragmentAbsorber("Hello"), d)
+	world := firstFound(t, NewTextFragmentAbsorber("world"), d)
+	hello.Text = "Greetings to the"
+	if err := d.ApplyTextChanges(); err != nil {
+		t.Fatal(err)
+	}
+	if quadsOverlap(world.bind.drawn, hello.bind.drawn) == false {
+		t.Fatal("fixture: the replacement does not reach the neighbour")
+	}
+	world.Text = "earth"
+	err := d.ApplyTextChanges()
+	if err == nil || !strings.Contains(err.Error(), "rewritten") {
+		t.Fatalf("got %v", err)
+	}
+	world.Text = "world"
+	if txt := savedText(t, d); !strings.Contains(txt, "Greetings to the") {
+		t.Fatalf("text %q", txt)
+	}
+}

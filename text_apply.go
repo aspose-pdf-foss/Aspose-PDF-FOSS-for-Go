@@ -180,17 +180,25 @@ func (d *Document) ApplyTextChanges() error {
 		pl.commit()
 	}
 	// The other fragments bound on an edited page still describe the page
-	// unless their text was stripped by this apply: those are carried to the
-	// new generation, the ones overlapping a stripped region stay on the old
-	// one, so changing them later is refused instead of redrawing text that
-	// is gone (or bringing it back).
+	// unless this apply stripped their text or drew over it: those are
+	// carried to the new generation, the ones overlapping a stripped region
+	// or newly drawn text stay on the old one, so changing them later is
+	// refused instead of redrawing text that is gone (or bringing it back)
+	// or removing the new glyphs inside their box.
 	edited := map[*TextFragment]bool{}
 	for _, pl := range plans {
 		edited[pl.f] = true
 	}
 	strippedOn := map[*pdfObject][]QuadPoint{}
 	for _, idx := range order {
-		strippedOn[d.pages[idx]] = pageRegions[idx]
+		touched := append([]QuadPoint(nil), pageRegions[idx]...)
+		for _, pl := range byPage[idx] {
+			touched = append(touched, pl.drawnWhole...)
+			for _, q := range pl.drawnSeg {
+				touched = append(touched, q...)
+			}
+		}
+		strippedOn[d.pages[idx]] = touched
 	}
 	for _, s := range tx.pages {
 		now := s.obj.contentGen
