@@ -101,6 +101,26 @@ func checkFontSize(context string, size float64) error {
 	return nil
 }
 
+// dropDefaultIgnorables removes the default-ignorable characters
+// (isDefaultIgnorable: ZWSP, joiners, WORD JOINER, U+FEFF, soft hyphen, ...)
+// from s. On the rune-by-rune path (Standard-14, Type3, embedded fonts
+// without GSUB/GPOS) they would otherwise be drawn as "?" or glyph 0; the
+// OpenType shaper already hides them (hideDefaultIgnorables), so with this
+// every font draws them as nothing with zero advance (GitHub issue #24
+// point 2). The width and encode callbacks of the Standard-14 and embedded
+// fonts skip them too, so wrapping measures them as zero.
+func dropDefaultIgnorables(s string) string {
+	if !strings.ContainsFunc(s, isDefaultIgnorable) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if isDefaultIgnorable(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // widthFn returns advance width in points for a single rune.
 type widthFn func(r rune) float64
 
@@ -837,6 +857,9 @@ func fontWidthAndAscent(font Font, size float64) (widthFn, float64, error) {
 			return encodeRuneForStandardFont(pdfFontName, r)
 		}
 		width := func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			code, ok := encodeRune(r)
 			if !ok {
 				code = byte('?')
@@ -847,6 +870,9 @@ func fontWidthAndAscent(font Font, size float64) (widthFn, float64, error) {
 
 	case *embeddedFont:
 		width := func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			gid := f.ttf.glyphID(r)
 			if int(gid) >= len(f.ttf.glyphWidths) {
 				return 0
@@ -910,6 +936,9 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 			return encodeRuneForStandardFont(pdfFontName, r)
 		}
 		width = func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			code, ok := encodeRune(r)
 			if !ok {
 				code = byte('?')
@@ -920,6 +949,9 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 			var b strings.Builder
 			b.WriteByte('(')
 			for _, r := range s {
+				if isDefaultIgnorable(r) {
+					continue
+				}
 				code, ok := encodeRune(r)
 				if !ok {
 					code = byte('?')
@@ -941,6 +973,9 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 
 	case *embeddedFont:
 		width = func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			gid := f.ttf.glyphID(r)
 			if int(gid) >= len(f.ttf.glyphWidths) {
 				return 0
@@ -951,6 +986,9 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 			var b strings.Builder
 			b.WriteByte('<')
 			for _, r := range s {
+				if isDefaultIgnorable(r) {
+					continue
+				}
 				gid := f.ttf.glyphID(r)
 				f.useGlyph(gid)
 				fmt.Fprintf(&b, "%04X", gid)
@@ -1427,6 +1465,9 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			return encodeRuneForStandardFont(pdfFontName, r)
 		}
 		width = func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			code, ok := encodeRune(r)
 			if !ok {
 				code = byte('?')
@@ -1437,6 +1478,9 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			var b strings.Builder
 			b.WriteByte('(')
 			for _, r := range s {
+				if isDefaultIgnorable(r) {
+					continue
+				}
 				code, ok := encodeRune(r)
 				if !ok {
 					code = byte('?')
@@ -1492,6 +1536,9 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			return "", nil, nil, 0, 0, fmt.Errorf("resolve font: font was loaded into a different document")
 		}
 		width = func(r rune) float64 {
+			if isDefaultIgnorable(r) {
+				return 0 // drawn as nothing: see dropDefaultIgnorables
+			}
 			gid := f.ttf.glyphID(r)
 			if int(gid) >= len(f.ttf.glyphWidths) {
 				return 0
@@ -1502,6 +1549,9 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			var b strings.Builder
 			b.WriteByte('<')
 			for _, r := range s {
+				if isDefaultIgnorable(r) {
+					continue
+				}
 				gid := f.ttf.glyphID(r)
 				f.useGlyph(gid)
 				fmt.Fprintf(&b, "%04X", gid)

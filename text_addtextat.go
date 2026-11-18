@@ -42,10 +42,24 @@ func resolveSingleLine(font Font, size float64, text string, rtl bool, width wid
 	if shaper != nil {
 		return singleLineShape{shaper: shaper, shaped: shapeLine(shaper.ttf, text, baseLevel, needBidi)}
 	}
+	// The rune-by-rune path draws a default-ignorable character as
+	// nothing (the shaper hides them the same way), so it is dropped
+	// before measuring and encoding (GitHub issue #24 point 2).
+	text = dropDefaultIgnorables(text)
 	if needBidi {
 		text = bidiVisualString(text, baseLevel)
 	}
 	return singleLineShape{line: text, width: width}
+}
+
+// spacingText is the text whose characters character and word spacing
+// apply to: the drawn line on the rune-by-rune path (default-ignorables
+// dropped), the caller's text when shaped.
+func (s singleLineShape) spacingText(text string) string {
+	if s.shaper != nil {
+		return text
+	}
+	return s.line
 }
 
 // widthAt returns the line's real drawn width at size.
@@ -124,7 +138,7 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	}
 
 	shape := resolveSingleLine(font, fontSize, text, style.RTL, width)
-	lineWidth := spacedWidth(shape.widthAt(fontSize), text, style.CharSpacing, style.WordSpacing, style.HorizontalScaling)
+	lineWidth := spacedWidth(shape.widthAt(fontSize), shape.spacingText(text), style.CharSpacing, style.WordSpacing, style.HorizontalScaling)
 	invisible := style.Invisible || style.RenderMode == RenderingInvisible
 	_, embedded := font.(*embeddedFont)
 
@@ -295,7 +309,7 @@ func MeasureText(text string, style TextStyle) (float64, error) {
 		return 0, err
 	}
 	shape := resolveSingleLine(font, fontSize, text, style.RTL, width)
-	return spacedWidth(shape.widthAt(fontSize), text, style.CharSpacing, style.WordSpacing, style.HorizontalScaling), nil
+	return spacedWidth(shape.widthAt(fontSize), shape.spacingText(text), style.CharSpacing, style.WordSpacing, style.HorizontalScaling), nil
 }
 
 // FontMetrics holds the vertical metrics AddText/AddTextAt use for a font

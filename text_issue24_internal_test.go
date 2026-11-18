@@ -127,3 +127,76 @@ func TestIssue24MeasureTextAgrees(t *testing.T) {
 		t.Errorf("measureText U+2028: %d lines, want 2", n)
 	}
 }
+
+// issue24PDFAHasNotdef converts d to PDF/A-2B and reports whether the
+// report names a .notdef or missing glyph.
+func issue24PDFAHasNotdef(t *testing.T, d *Document) bool {
+	t.Helper()
+	rep, err := d.ConvertToPDFA(PDFA2B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, is := range rep.Issues {
+		if is.Rule == "NOTDEF_GLYPH_USED" || is.Rule == "GLYPH_MISSING" {
+			return true
+		}
+	}
+	return false
+}
+
+var issue24Ignorables = []string{"\u200b", "\u200d", "\u2060", "\ufeff", "\u00ad"}
+
+func TestIssue24IgnorablesHelvetica(t *testing.T) {
+	for _, ig := range issue24Ignorables {
+		d := NewDocument(595, 842)
+		c := issue24Content(t, d, "a"+ig+"b", TextStyle{Size: 10, MissingGlyph: MissingGlyphError}, 500)
+		if !strings.Contains(c, "(ab) Tj") {
+			t.Errorf("%U: Helvetica drew something for it:\n%s", []rune(ig)[0], c)
+		}
+		p, _ := d.Page(1)
+		if err := p.AddTextAt("c"+ig+"d", TextStyle{Size: 10}, 50, 100); err != nil {
+			t.Fatal(err)
+		}
+		cs, _ := p.contentStreams()
+		if !strings.Contains(string(cs), "(cd) Tj") {
+			t.Errorf("%U: AddTextAt drew something for it:\n%s", []rune(ig)[0], cs)
+		}
+		w1, _ := MeasureText("a"+ig+"b", TextStyle{Size: 10, CharSpacing: 1})
+		w2, _ := MeasureText("ab", TextStyle{Size: 10, CharSpacing: 1})
+		if w1 != w2 {
+			t.Errorf("%U: MeasureText %v, want %v", []rune(ig)[0], w1, w2)
+		}
+	}
+}
+
+// Carlito (bundled) has no GSUB/GPOS and no glyph for these characters, so
+// they used to be written as glyph 0.
+func TestIssue24IgnorablesUnshapedEmbedded(t *testing.T) {
+	for _, ig := range issue24Ignorables {
+		d := NewDocument(595, 842)
+		f := issue24Font(t, d, "fonts/Carlito-Regular.ttf")
+		if fontHasShaping(f.(*embeddedFont).ttf) {
+			t.Fatal("fixture has layout tables")
+		}
+		c := issue24Content(t, d, "a"+ig+"b", TextStyle{Font: f, Size: 10, MissingGlyph: MissingGlyphError}, 500)
+		if strings.Contains(c, "0000") {
+			t.Errorf("%U: glyph 0 drawn:\n%s", []rune(ig)[0], c)
+		}
+		p, _ := d.Page(1)
+		if err := p.AddTextAt("a"+ig+"b", TextStyle{Font: f, Size: 10, MissingGlyph: MissingGlyphError}, 50, 100); err != nil {
+			t.Fatal(err)
+		}
+		cs, _ := p.contentStreams()
+		if strings.Contains(string(cs), "0000") {
+			t.Errorf("%U: AddTextAt drew glyph 0:\n%s", []rune(ig)[0], cs)
+		}
+		w1, _ := MeasureText("a"+ig+"b", TextStyle{Font: f, Size: 10})
+		w2, _ := MeasureText("ab", TextStyle{Font: f, Size: 10})
+		if w1 != w2 {
+			t.Errorf("%U: MeasureText %v, want %v", []rune(ig)[0], w1, w2)
+		}
+		if issue24PDFAHasNotdef(t, d) {
+			t.Errorf("%U: ConvertToPDFA reports a .notdef glyph", []rune(ig)[0])
+		}
+	}
+}
