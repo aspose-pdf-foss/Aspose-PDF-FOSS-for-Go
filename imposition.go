@@ -241,14 +241,17 @@ func (result *Document) importAllPages(src *Document, idMap map[int]int) ([]int,
 
 // importPageAsXObject copies srcPage's resource graph into result (remapping
 // object IDs through idMap) and builds a Form XObject whose content is the
-// page's content stream and whose /BBox is the page MediaBox. Returns the new
-// XObject's object ID and the BBox.
+// page's content stream and whose /BBox is the page's visible area (CropBox
+// intersected with MediaBox, else MediaBox). For a page with /Rotate 90, 180
+// or 270 the form's /Matrix turns it into its displayed orientation. Returns
+// the new XObject's object ID and the displayed box (the box after /Matrix,
+// with its lower-left corner at the origin when rotated).
 func (result *Document) importPageAsXObject(src *Document, srcPage *Page, idMap map[int]int) (int, Rectangle, error) {
 	content, err := srcPage.contentStreams()
 	if err != nil {
 		return 0, Rectangle{}, err
 	}
-	box, err := srcPage.MediaBox()
+	box, matrix, shown, err := srcPage.visibleFormBox()
 	if err != nil {
 		return 0, Rectangle{}, err
 	}
@@ -270,13 +273,46 @@ func (result *Document) importPageAsXObject(src *Document, srcPage *Page, idMap 
 			"/Subtype":   pdfName("/Form"),
 			"/FormType":  1,
 			"/BBox":      pdfArray{box.LLX, box.LLY, box.URX, box.URY},
-			"/Matrix":    pdfArray{1.0, 0.0, 0.0, 1.0, 0.0, 0.0},
+			"/Matrix":    pdfArray{matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]},
 			"/Resources": remappedRes,
 		},
 		Data:    content,
 		Decoded: true,
 	}}
-	return xobjID, box, nil
+	return xobjID, shown, nil
+}
+
+// visibleFormBox returns the /BBox a Form XObject standing for the page needs
+// (CropBox intersected with MediaBox; MediaBox when there is no CropBox or the
+// intersection is empty), the /Matrix that applies the page's /Rotate, and the
+// box the form occupies after that matrix.
+func (p *Page) visibleFormBox() (box Rectangle, matrix [6]float64, shown Rectangle, err error) {
+	media, err := p.MediaBox()
+	if err != nil {
+		return
+	}
+	box = media
+	if crop, cerr := p.CropBox(); cerr == nil {
+		if in := intersectRects(crop, media); in.URX > in.LLX && in.URY > in.LLY {
+			box = in
+		}
+	}
+	w, h := box.URX-box.LLX, box.URY-box.LLY
+	switch ((int(p.Rotation())%360)+360)%360 {
+	case 90:
+		matrix = [6]float64{0, -1, 1, 0, -box.LLY, box.URX}
+		shown = Rectangle{URX: h, URY: w}
+	case 180:
+		matrix = [6]float64{-1, 0, 0, -1, box.URX, box.URY}
+		shown = Rectangle{URX: w, URY: h}
+	case 270:
+		matrix = [6]float64{0, 1, -1, 0, box.URY, -box.LLX}
+		shown = Rectangle{URX: h, URY: w}
+	default:
+		matrix = [6]float64{1, 0, 0, 1, 0, 0}
+		shown = box
+	}
+	return
 }
 
 // importGraph copies every object reachable from root in srcObjects into

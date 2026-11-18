@@ -262,7 +262,7 @@ func spreadPaneSizes(srcDoc, dstDoc *Document, pageNum int) (left, right PageSiz
 		if e != nil {
 			return PageSize{}, PageSize{}, e
 		}
-		if left, err = p.Size(); err != nil {
+		if left, err = displayedPageSize(p); err != nil {
 			return PageSize{}, PageSize{}, err
 		}
 	}
@@ -271,7 +271,7 @@ func spreadPaneSizes(srcDoc, dstDoc *Document, pageNum int) (left, right PageSiz
 		if e != nil {
 			return PageSize{}, PageSize{}, e
 		}
-		if right, err = p.Size(); err != nil {
+		if right, err = displayedPageSize(p); err != nil {
 			return PageSize{}, PageSize{}, err
 		}
 	}
@@ -286,6 +286,16 @@ func spreadPaneSizes(srcDoc, dstDoc *Document, pageNum int) (left, right PageSiz
 		right = left
 	}
 	return left, right, nil
+}
+
+// displayedPageSize is the size of the page as a stamp of it appears: its
+// visible area with /Rotate applied.
+func displayedPageSize(p *Page) (PageSize, error) {
+	_, _, shown, err := p.visibleFormBox()
+	if err != nil {
+		return PageSize{}, err
+	}
+	return PageSize{Width: shown.URX - shown.LLX, Height: shown.URY - shown.LLY}, nil
 }
 
 func stampSideBySidePane(page *Page, srcDoc *Document, pageNum int, rect Rectangle) error {
