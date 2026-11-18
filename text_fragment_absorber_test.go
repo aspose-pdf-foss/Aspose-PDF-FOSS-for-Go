@@ -186,7 +186,9 @@ func TestAbsorberRectangleAndInvalid(t *testing.T) {
 	}
 }
 
-func TestExtractionSplitsOnColour(t *testing.T) {
+// A colour change keeps one extraction fragment (line text unchanged) while
+// the absorber splits the segment there.
+func TestColourSplitsSegmentsNotFragments(t *testing.T) {
 	d := NewDocumentFromFormat(PageFormatA4)
 	p := mustPage(t, d)
 	f := NewTextFragment("ab")
@@ -197,9 +199,17 @@ func TestExtractionSplitsOnColour(t *testing.T) {
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
 	}
-	lines, _ := mustPage(t, reopenDoc(t, d)).ExtractTextWithLayout()
-	if len(lines) != 1 || lines[0].Text != "abcd" || len(lines[0].Fragments) != 2 {
+	p = mustPage(t, reopenDoc(t, d))
+	lines, _ := p.ExtractTextWithLayout()
+	if len(lines) != 1 || lines[0].Text != "abcd" || len(lines[0].Fragments) != 1 {
 		t.Fatalf("%q %d", lines[0].Text, len(lines[0].Fragments))
+	}
+	a := NewTextFragmentAbsorber("abcd")
+	if err := a.Visit(p); err != nil {
+		t.Fatal(err)
+	}
+	if fs := a.TextFragments(); len(fs) != 1 || len(fs[0].Segments) != 2 || fs[0].Segments[1].Text != "cd" {
+		t.Fatal("colour did not split the segments")
 	}
 }
 
@@ -369,17 +379,10 @@ func TestColourBoundaryKeepsTextAndSearch(t *testing.T) {
 	if len(lb) != len(lc) {
 		t.Fatalf("lines %d vs %d", len(lb), len(lc))
 	}
-	split := false
 	for i := range lb {
-		if lb[i].Text != lc[i].Text {
-			t.Fatalf("line %q vs %q", lb[i].Text, lc[i].Text)
+		if lb[i].Text != lc[i].Text || len(lb[i].Fragments) != len(lc[i].Fragments) {
+			t.Fatalf("line %q (%d fragments) vs %q (%d)", lb[i].Text, len(lb[i].Fragments), lc[i].Text, len(lc[i].Fragments))
 		}
-		if len(lc[i].Fragments) > len(lb[i].Fragments) {
-			split = true
-		}
-	}
-	if !split {
-		t.Fatal("colour did not split any fragment")
 	}
 	for _, q := range []string{"ab cd", "b c", "cd", "efgh", "fg"} {
 		mb, _ := base.SearchText(q)

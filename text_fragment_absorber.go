@@ -110,15 +110,28 @@ type runKey struct {
 	bold, italic bool
 }
 
-func keyOf(f *TextFragment) runKey {
-	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), f.Color.R, f.Color.G, f.Color.B, f.Bold, f.Italic}
+// keyOf is the run key of rune li of fragment f: its look with the rune's
+// own fill colour (extraction keeps a colour change inside one fragment, so
+// line text stays as it was; segments split there).
+func keyOf(f *TextFragment, li int) runKey {
+	c := runeColorOf(f, li)
+	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), c.R, c.G, c.B, f.Bold, f.Italic}
+}
+
+// runeColorOf is the fill colour of rune li of f.
+func runeColorOf(f *TextFragment, li int) Color {
+	if li >= 0 && li < len(f.runeColor) {
+		return f.runeColor[li]
+	}
+	return f.Color
 }
 
 type runGroup struct {
 	a, b int
 	key  runKey
-	src  *TextFragment
-	span *lineSpan
+	src   *TextFragment
+	color Color // the run's fill colour (its first rune's)
+	span  *lineSpan
 	text []rune
 }
 
@@ -160,7 +173,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 				continue
 			}
 			src := &frags[fi]
-			key := keyOf(src)
+			key := keyOf(src, sp.m.local[k])
 			if cur == nil || cur.key != key {
 				start := k
 				text := []rune(nil)
@@ -168,7 +181,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 					start, text = pending, pendText
 					pending, pendText = -1, nil
 				}
-				cur = &runGroup{a: start, key: key, src: src, span: sp, text: text}
+				cur = &runGroup{a: start, key: key, src: src, color: runeColorOf(src, sp.m.local[k]), span: sp, text: text}
 				cur.text = append(cur.text, r)
 				groups = append(groups, cur)
 				cur.b = k + 1
@@ -191,7 +204,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			st := TextState{
 				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName)},
 				FontSize:        math.Abs(g.src.FontSize), // a negative Tf size (or Tz) reports a negative effective size
-				ForegroundColor: copyColor(&g.src.Color),
+				ForegroundColor: copyColor(&g.color),
 				Rotation:        g.src.Rotation,
 			}
 			if g.src.Bold {
@@ -213,7 +226,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			if len(f.Segments) == 0 {
 				src := *g.src
 				f.X, f.Y, f.FontName, f.FontSize, f.Height = x, src.Y, src.FontName, src.FontSize, src.Height
-				f.Bold, f.Italic, f.CharSpacing, f.Color = src.Bold, src.Italic, src.CharSpacing, src.Color
+				f.Bold, f.Italic, f.CharSpacing, f.Color = src.Bold, src.Italic, src.CharSpacing, g.color
 				f.IsSubscript, f.IsSuperscript, f.Rotation = src.IsSubscript, src.IsSuperscript, src.Rotation
 				f.descent = src.descent
 			}

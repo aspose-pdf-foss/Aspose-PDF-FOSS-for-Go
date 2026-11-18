@@ -49,7 +49,9 @@ func clipFragments(frags []textFragment, r Rectangle) []textFragment {
 		if len(runes) != len(f.runeX) || len(runes) != len(f.runeY) {
 			// No per-glyph positions (a span emitted as one): all or nothing.
 			if inside(f.x, f.y) && inside(f.endX, f.endY) {
-				out = append(out, cloneFragment(f, string(runes), f.runeX, f.runeY, f.x, f.y, f.endX, f.endY))
+				c := cloneFragment(f, string(runes), f.runeX, f.runeY, f.x, f.y, f.endX, f.endY)
+				clipRuneColors(&c, f, 0, len(runes))
+				out = append(out, c)
 			}
 			continue
 		}
@@ -62,8 +64,10 @@ func clipFragments(frags []textFragment, r Rectangle) []textFragment {
 			if end < len(runes) {
 				ex, ey = f.runeX[end], f.runeY[end]
 			}
-			out = append(out, cloneFragment(f, string(runes[start:end]), f.runeX[start:end], f.runeY[start:end],
-				f.runeX[start], f.runeY[start], ex, ey))
+			c := cloneFragment(f, string(runes[start:end]), f.runeX[start:end], f.runeY[start:end],
+				f.runeX[start], f.runeY[start], ex, ey)
+			clipRuneColors(&c, f, start, end)
+			out = append(out, c)
 			start = -1
 		}
 		for k := range runes {
@@ -95,4 +99,13 @@ func cloneFragment(f *textFragment, text string, runeX, runeY []float64, x, y, e
 		bold: f.bold, italic: f.italic, charSpacing: f.charSpacing,
 		colorR: f.colorR, colorG: f.colorG, colorB: f.colorB, rotation: f.rotation,
 	}
+}
+
+// clipRuneColors gives c f's per-rune colours for runes [start, end), when f
+// has them.
+func clipRuneColors(c *textFragment, f *textFragment, start, end int) {
+	if f.runeColor == nil || len(f.runeColor) < end {
+		return
+	}
+	c.runeColor = append([]Color(nil), f.runeColor[start:end]...)
 }
