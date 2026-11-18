@@ -230,6 +230,11 @@ flowchart TD
   selectable layer, document Q&A with conversation history (`ChatCopilot`), and automatic
   `/Alt` text generation for tagged figures (`ImageDescriptionCopilot`), over any
   OpenAI-compatible endpoint.
+- **Text object model** — the Aspose.PDF for .NET way to write and edit text: `TextBuilder.AppendText`
+  draws a `TextFragment` of styled `TextSegment`s (`TextState`: font, size, colours, spacing,
+  scaling, hyperlinks, backgrounds), `AppendParagraph` wraps, aligns and justifies a `TextParagraph`,
+  and `TextFragmentAbsorber` finds text as editable fragments — set `Text`, `Position` or
+  `TextState` and the page changes when the document is saved (or at once with `ApplyTextChanges`).
 - **Incremental save** — `SaveIncremental`/`WriteIncremental` keep the opened file's bytes and
   append only what changed as a new revision, so existing signatures stay valid.
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
@@ -307,7 +312,9 @@ func main() {
 	// Merge two PDFs into one — Append mutates the receiver in place.
 	a, _ := pdf.Open("file1.pdf")
 	b, _ := pdf.Open("file2.pdf")
-	a.Append(b)
+	if err := a.Append(b); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("merged:", a.PageCount(), "pages")
 	a.Save("merged.pdf")
 }
@@ -708,8 +715,17 @@ stays free of network code.
 | `TextIcon` | TextIcon names per ISO 32000-1 §12.5.6.4 Table 172, used in /Subtype /Text annotations' /Name entry. |
 | `TextLine` | TextLine represents a horizontal line of text fragments at a common Y position. |
 | `TextMatch` | TextMatch is a single occurrence located by SearchText. |
-| `TextParagraph` | TextParagraph is the text inside one rectangle of a page: its lines, each made of words, in reading order. |
-| `TextParagraphAbsorber` | TextParagraphAbsorber finds the text inside rectangles of a page as paragraphs whose alignment can be changed. |
+| `AbsorbedTextParagraph` | AbsorbedTextParagraph is the text inside one rectangle of a page: its lines, each made of words, in reading order. |
+| `TextParagraph` | TextParagraph is a block of text laid out inside a rectangle: wrapped, aligned, optionally justified and indented. |
+| `TextBuilder` | TextBuilder appends text fragments and paragraphs to a page. |
+| `TextSegment` | TextSegment is a run of text with one TextState inside a TextFragment. |
+| `TextState` | TextState describes the look of a piece of text; zero fields are inherited from the enclosing level. |
+| `TextFormattingOptions` | TextFormattingOptions holds how a TextParagraph lays out its text. |
+| `TextFragmentAbsorber` | TextFragmentAbsorber finds text and returns it as TextFragments whose segments are runs of one font, size, colour and style. |
+| `WordWrapMode` | WordWrapMode says how a TextParagraph breaks its lines. |
+| `Position` | Position is an offset of a text fragment from its default place, in points. |
+| `FontStyle` | FontStyle is a bit set of font style flags. |
+| `TextParagraphAbsorber` | TextParagraphAbsorber finds the text inside rectangles of a page as AbsorbedTextParagraphs whose alignment can be changed. |
 | `TextRecognitionResult` | TextRecognitionResult is the recognized text of one processed page. |
 | `TextStamp` | TextStamp overlays a line (or wrapped block) of text. |
 | `TextStyle` | TextStyle defines reusable text formatting properties. |
