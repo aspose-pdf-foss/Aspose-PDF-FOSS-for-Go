@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-11-18
+
+The Aspose.PDF for .NET text object model: `TextFragment`, `TextSegment`, `TextState`, `TextBuilder`, `TextParagraph` and `TextFragmentAbsorber`, with edits to found and drawn text applied on save. `Document.Append` now returns an `error` (breaking). A security fix for exponential time in PDF/A and PDF/UA layer checks (GHSA-mp4r-cgm3-cq84), much less memory when rendering with installed fonts, faster PDF/A conversion and writing, imported pages that keep their rotation and crop box, and line breaking and invalid-input fixes in `AddText`.
+
 ### Added
 
 - **`AddText` breaks a word too long for its line at a hyphen or soft hyphen** ([#24](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues/24)). A word wider than the rectangle was cut at whatever character fitted; it now breaks after a hyphen-minus (U+002D) or HYPHEN (U+2010), or at a soft hyphen (U+00AD), which then shows as a hyphen at the end of the line, before falling back to a cut at an arbitrary character: `"self-explanatory"` in 55 points becomes `"self-"` / `"explanatory"` rather than `"self-explana"` / `"tory"`. A soft hyphen not used as a break draws nothing. Words that fit and words without such characters wrap as before. Flow paragraphs, text beside a floating box, table cells, styled runs and `TextParagraph` with `WrapByWordsBreakLong` break the same way. Requested by shadowhunter1470-svg.
@@ -718,7 +722,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.14.0...v0.15.0
