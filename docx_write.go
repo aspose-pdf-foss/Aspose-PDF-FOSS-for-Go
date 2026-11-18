@@ -80,6 +80,9 @@ func (d *Document) SaveDocx(path string, opts ...DocSaveOptions) error {
 
 // WriteDocx writes the document as a Word (.docx) package to w.
 func (d *Document) WriteDocx(w io.Writer, opts ...DocSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	var opt DocSaveOptions
 	if len(opts) > 0 {
 		opt = opts[0]

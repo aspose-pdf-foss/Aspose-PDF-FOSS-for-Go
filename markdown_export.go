@@ -80,6 +80,9 @@ func (d *Document) SaveMarkdown(path string, opts ...MarkdownSaveOptions) error 
 // and with EmbedImages unset, images are skipped (a stream has no natural
 // place for files).
 func (d *Document) WriteMarkdown(w io.Writer, opts ...MarkdownSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	var opt MarkdownSaveOptions
 	if len(opts) > 0 {
 		opt = opts[0]

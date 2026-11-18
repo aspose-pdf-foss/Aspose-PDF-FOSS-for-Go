@@ -40,7 +40,9 @@ func TestDocumentAppend(t *testing.T) {
 				others = append(others, doc)
 			}
 
-			base.Append(others...)
+			if err := base.Append(others...); err != nil {
+				t.Fatal(err)
+			}
 			if base.PageCount() != wantPages {
 				t.Fatalf("expected %d pages, got %d", wantPages, base.PageCount())
 			}

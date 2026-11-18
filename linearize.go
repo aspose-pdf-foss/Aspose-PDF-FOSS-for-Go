@@ -63,6 +63,9 @@ func buildLinearizedPDF(d *Document) ([]byte, error) {
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("linearize: document has no pages")
 	}
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 
 	asm, err := d.assemble()
 	if err != nil {

@@ -193,6 +193,10 @@ func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, *replaceLayout
 // recoverable in the saved file) — so, like ApplyRedactions, call
 // ReplaceText only after placing everything else you mean to keep.
 func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return 0, err
+	}
 	re, err := compileSearch(old, replaceToSearchOptions(opts))
 	if err != nil {
 		return 0, err
@@ -212,6 +216,10 @@ func (p *Page) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int
 // pages, returning the total number of replacements. See (*Page).ReplaceText
 // for the replacement strategy and limitations.
 func (d *Document) ReplaceText(old, replacement string, opts ...ReplaceOptions) (int, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return 0, err
+	}
 	re, err := compileSearch(old, replaceToSearchOptions(opts))
 	if err != nil {
 		return 0, err

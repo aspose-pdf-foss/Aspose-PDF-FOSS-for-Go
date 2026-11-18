@@ -23,6 +23,9 @@ func NewPdfPageStamp(srcDoc *Document, srcPageNum int) (*PdfPageStamp, error) {
 	if srcDoc == nil {
 		return nil, fmt.Errorf("NewPdfPageStamp: nil source document")
 	}
+	if err := srcDoc.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if srcPageNum < 1 || srcPageNum > srcDoc.PageCount() {
 		return nil, fmt.Errorf("NewPdfPageStamp: source page %d out of range [1,%d]", srcPageNum, srcDoc.PageCount())
 	}

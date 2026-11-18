@@ -65,6 +65,9 @@ type BookletOptions struct {
 // an ordinary, spec-compliant PDF. It mirrors the intent of Aspose.PDF for
 // .NET's PdfFileEditor.MakeNUp, adapted to this library's Document API.
 func (d *Document) NUp(opts NUpOptions) (*Document, error) {
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if opts.Rows < 1 || opts.Cols < 1 {
 		return nil, fmt.Errorf("NUp: Rows and Cols must be >= 1")
 	}
@@ -122,6 +125,9 @@ func (d *Document) NUp(opts NUpOptions) (*Document, error) {
 // ordinary PDF; it mirrors the intent of Aspose.PDF for .NET's
 // PdfFileEditor.MakeBooklet, adapted to this library's Document API.
 func (d *Document) Booklet(opts BookletOptions) (*Document, error) {
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("Booklet: document has no pages")
 	}

@@ -71,6 +71,17 @@ type Document struct {
 	// document would drop that revision, so it is written back verbatim.
 	revisionAppended bool
 
+	// boundFragments are the text fragments drawn by a TextBuilder or found
+	// by an absorber, whose edits are applied on save.
+	boundFragments []*TextFragment
+	boundSet       map[*TextFragment]struct{}
+	// textBgNext is, per page (or form canvas) dictionary, the next id for
+	// the marked-content section of a background a TextBuilder draws.
+	textBgNext map[*pdfObject]int
+	// liveForms are the XForm handles given out (CreateForm, Page.Forms,
+	// ImportForm): their forms survive the cleanup after a text edit.
+	liveForms map[*XForm]struct{}
+
 	// signaturesRewritten marks a signed document a conversion has changed: the
 	// next save rewrites the file, which its signatures do not cover.
 	signaturesRewritten bool
@@ -484,7 +495,20 @@ func (d *Document) Page(n int) (*Page, error) {
 //	doc2, _ := asposepdf.Open("part2.pdf")
 //	doc1.Append(doc2)
 //	doc1.Save("combined.pdf")
-func (d *Document) Append(others ...*Document) {
+//
+// Pending edits to text fragments of the receiver and of every source are
+// applied first (ApplyTextChanges); an error there appends nothing.
+func (d *Document) Append(others ...*Document) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
+	for _, other := range others {
+		if other != nil {
+			if err := other.ApplyTextChanges(); err != nil {
+				return err
+			}
+		}
+	}
 	for _, other := range others {
 		if other == nil {
 			continue
@@ -511,6 +535,7 @@ func (d *Document) Append(others ...*Document) {
 			d.pages = append(d.pages, d.objects[idMap[page.Num]])
 		}
 	}
+	return nil
 }
 
 // RemoveUnusedObjects removes objects from the document that are not
@@ -730,6 +755,10 @@ func (d *Document) SetEncryption(opts EncryptionOptions) {
 // WriteTo writes the document to w. It implements io.WriterTo.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	if d.revisionAppended {
+		// Edits pending then would be lost: ApplyTextChanges refuses them.
+		if err := d.ApplyTextChanges(); err != nil {
+			return 0, err
+		}
 		n, err := w.Write(d.source)
 		return int64(n), err
 	}

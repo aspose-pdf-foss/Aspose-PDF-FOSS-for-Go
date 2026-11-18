@@ -51,6 +51,9 @@ func (d *Document) SaveEpub(path string, opts ...EpubSaveOptions) error {
 
 // WriteEpub writes the document as an EPUB 3 package to w.
 func (d *Document) WriteEpub(w io.Writer, opts ...EpubSaveOptions) error {
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	var opt EpubSaveOptions
 	if len(opts) > 0 {
 		opt = opts[0]

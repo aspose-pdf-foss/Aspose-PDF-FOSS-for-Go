@@ -191,6 +191,13 @@ func (l shapedLine) spanText(a, b int) string {
 // number wherever they differ. Glyphs placed off the baseline, such as
 // marks, are bracketed by a text rise (Ts).
 func (l shapedLine) showOps(ef *embeddedFont, size float64) string {
+	return l.showOpsSpaced(ef, size, 0)
+}
+
+// showOpsSpaced is showOps with word spacing tw (points): a two-byte font
+// ignores the Tw operator, so the pen is advanced by tw after every glyph
+// standing for a space through a TJ number.
+func (l shapedLine) showOpsSpaced(ef *embeddedFont, size, tw float64) string {
 	perUnit := 1000 / l.upem
 	mappable := make([]bool, len(l.glyphs))
 	for i, g := range l.glyphs {
@@ -261,6 +268,9 @@ func (l shapedLine) showOps(ef *embeddedFont, size float64) string {
 		// After the glyph the pen sits at its offset plus the declared
 		// width; the shaped position wants its origin plus its advance.
 		adjust += float64(g.advance-g.xOff)*perUnit - pdfGlyphWidth(ef.ttf, g.gid)
+		if tw != 0 && g.text == " " {
+			adjust += tw / size * 1000
+		}
 		if i == spanEnd {
 			flushArray()
 			out.WriteString("EMC\n")

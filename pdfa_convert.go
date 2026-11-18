@@ -60,6 +60,10 @@ const nsPDFAID = "http://www.aiim.org/pdfa/ns/id/"
 // rasterized page is a no-op the second time, per FlattenTransparency's own
 // idempotence guarantee).
 func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("ConvertToPDFA: document has no pages")
 	}

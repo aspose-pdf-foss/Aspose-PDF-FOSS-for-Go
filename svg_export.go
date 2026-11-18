@@ -37,6 +37,9 @@ type SVGSaveOptions struct {
 
 // WriteSVG writes the page as one standalone SVG document to w.
 func (p *Page) WriteSVG(w io.Writer, opts ...SVGSaveOptions) error {
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	var opt SVGSaveOptions
 	if len(opts) > 0 {
 		opt = opts[0]

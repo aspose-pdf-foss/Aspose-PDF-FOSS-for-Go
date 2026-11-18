@@ -135,6 +135,10 @@ type HiddenDataSanitizationResult struct {
 // FlattenTransparency's own partial-progress-on-error convention.
 func (d *Document) Sanitize(opts HiddenDataSanitizationOptions) (HiddenDataSanitizationResult, error) {
 	var res HiddenDataSanitizationResult
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return res, err
+	}
 	if opts.ImageDPI < 0 {
 		return res, fmt.Errorf("asposepdf: Sanitize: ImageDPI must be >= 0, got %v", opts.ImageDPI)
 	}

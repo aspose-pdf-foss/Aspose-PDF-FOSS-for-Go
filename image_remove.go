@@ -115,6 +115,10 @@ func (info *ImageInfo) Remove() error {
 	if info.page == nil || info.stream == nil {
 		return fmt.Errorf("image info: no image data")
 	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := info.page.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if info.Name == "" {
 		return fmt.Errorf("remove image: inline images cannot be removed")
 	}
@@ -154,6 +158,7 @@ func (info *ImageInfo) Remove() error {
 
 	pageDict := info.page.pageDict()
 	pageDict["/Contents"] = pdfRef{Num: newID}
+	info.page.bumpContentGen()
 
 	return nil
 }

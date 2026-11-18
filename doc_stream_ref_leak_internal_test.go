@@ -132,7 +132,9 @@ func TestAppendDoesNotRewriteAppendedStreamText(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mainReopened.Append(aReopened)
+	if err := mainReopened.Append(aReopened); err != nil {
+		t.Fatal(err)
+	}
 
 	var outBuf bytes.Buffer
 	if _, err := mainReopened.WriteTo(&outBuf); err != nil {

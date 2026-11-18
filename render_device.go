@@ -47,6 +47,9 @@ func intersectRects(a, b Rectangle) Rectangle {
 // renderer does not yet support is skipped rather than erroring, so a page
 // always produces an image.
 func (p *Page) RenderImage(opts RenderOptions) (image.Image, error) {
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	return p.renderImage(opts, false, false, false)
 }
 

@@ -49,6 +49,10 @@ const pdfuaExtensionSchema = `<rdf:Description rdf:about="" xmlns:pdfaExtension=
 // either order. Mirrors the intent of Aspose.PDF for .NET's
 // Document.Convert(PdfFormat.PDF_UA_1).
 func (d *Document) ConvertToPDFUA() (*PDFUAValidationReport, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("ConvertToPDFUA: document has no pages")
 	}

@@ -20,6 +20,10 @@ import (
 // (documented): Separation/DeviceN tints, Pattern fills, and type 0/4 shading
 // functions, whose colours pass through unconverted.
 func (d *Document) ConvertToGrayscale() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	cv := &grayConverter{doc: d, visited: map[int]bool{}, streams: map[*pdfStream]bool{}}
 	for i := range d.pages {
 		page, err := d.Page(i + 1)
@@ -85,6 +89,7 @@ func (cv *grayConverter) rewritePageContent(p *Page, res pdfDict) error {
 	newData := serializeContentOps(cv.grayOps(ops, res))
 	id := cv.doc.addObject(&pdfStream{Dict: pdfDict{}, Data: newData, Decoded: true})
 	p.pageDict()["/Contents"] = pdfRef{Num: id}
+	p.bumpContentGen()
 	return nil
 }
 

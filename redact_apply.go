@@ -289,6 +289,10 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // Best-effort semantics: partial state on failure. Call
 // ValidateRedactions first to surface problems before mutating.
 func (d *Document) ApplyRedactions() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	redacted := 0
 	for _, page := range d.Pages() {
 		if !pageHasRedact(page) {
@@ -506,7 +510,16 @@ func replacePageContents(p *Page, data []byte) error {
 	}
 
 	pageDict["/Contents"] = pdfRef{Num: newID}
+	p.bumpContentGen()
 	return nil
+}
+
+// bumpContentGen records that the page's content was replaced as a whole,
+// so text fragments found on it before can no longer be edited by position.
+func (p *Page) bumpContentGen() {
+	if o := p.pageObj(); o != nil {
+		o.contentGen++
+	}
 }
 
 // pagePreservedXObjectNames returns the /XObject resource names a page's

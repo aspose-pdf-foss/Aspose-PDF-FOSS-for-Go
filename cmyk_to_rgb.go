@@ -34,6 +34,10 @@ import (
 // A document whose output intent is CMYK needs none of this and would stop
 // conforming, so it is refused with an error.
 func (d *Document) ConvertDeviceCMYKToRGB() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if d.outputIntentComponents() == 4 {
 		return errors.New("ConvertDeviceCMYKToRGB: the output intent is CMYK, which covers DeviceCMYK and not DeviceRGB")
 	}
@@ -187,6 +191,7 @@ func (cv *cmykConverter) page(p *Page) []int {
 		if ops, err := parseContentStream(data); err == nil && cv.rewriteOps(ops, res) {
 			replaced = cv.contentIDs(dict["/Contents"])
 			dict["/Contents"] = pdfRef{Num: cv.d.addObject(&pdfStream{Dict: pdfDict{}, Data: serializeContentOps(ops), Decoded: true})}
+			p.bumpContentGen()
 		}
 	}
 	cv.resources(res)

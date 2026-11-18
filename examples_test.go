@@ -128,7 +128,9 @@ func ExampleDocument_Append() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a.Append(b)
+	if err := a.Append(b); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("merged:", a.PageCount(), "pages")
 	// Output: merged: 8 pages
 }
@@ -673,4 +675,60 @@ func ExampleDocument_SetVersion() {
 	// Output:
 	// 1.4
 	// 2.0 true
+}
+
+// Draw a fragment of two styled segments with a TextBuilder.
+func ExampleTextBuilder_AppendText() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+
+	f := pdf.NewTextFragment("Hello, ")
+	f.TextState = pdf.TextState{Font: pdf.FontHelvetica, FontSize: 18}
+	bold := pdf.NewTextSegment("world!")
+	bold.TextState.FontStyle = pdf.FontStyleBold
+	f.Segments = append(f.Segments, bold)
+	f.Position = pdf.Position{XIndent: 72, YIndent: 72}
+
+	if err := pdf.NewTextBuilder(page).AppendText(f); err != nil {
+		log.Fatal(err)
+	}
+	text, _ := page.ExtractText()
+	fmt.Println(strings.TrimSpace(text))
+	// Output: Hello, world!
+}
+
+// Find text, change it, save, and read the saved document back.
+func ExampleTextFragmentAbsorber() {
+	doc := pdf.NewDocumentFromFormat(pdf.PageFormatA4)
+	page, _ := doc.Page(1)
+	f := pdf.NewTextFragment("Invoice 100")
+	f.Position = pdf.Position{XIndent: 72, YIndent: 72}
+	if err := pdf.NewTextBuilder(page).AppendText(f); err != nil {
+		log.Fatal(err)
+	}
+
+	absorber := pdf.NewTextFragmentAbsorber("Invoice")
+	if err := absorber.VisitDocument(doc); err != nil {
+		log.Fatal(err)
+	}
+	for _, found := range absorber.TextFragments() {
+		found.Text = "Receipt"
+	}
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		log.Fatal(err)
+	}
+	reopened, err := pdf.OpenStream(&buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	check := pdf.NewTextFragmentAbsorber("Receipt")
+	if err := check.VisitDocument(reopened); err != nil {
+		log.Fatal(err)
+	}
+	for _, found := range check.TextFragments() {
+		fmt.Println(found.Text)
+	}
+	// Output: Receipt
 }

@@ -83,7 +83,9 @@ func TestDocumentMetadataAfterAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open doc2: %v", err)
 	}
-	doc1.Append(doc2)
+	if err := doc1.Append(doc2); err != nil {
+		t.Fatal(err)
+	}
 
 	meta, err := doc1.Info()
 	if err != nil {

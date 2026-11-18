@@ -126,12 +126,16 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 
 // textFragment is a contiguous run of text at a single position.
 type textFragment struct {
-	text        strings.Builder
-	x, y        float64   // device-space position of first rune
-	runeX       []float64 // device-space x at the start of each rune (len == rune count)
-	runeY       []float64 // device-space y at the start of each rune
-	endX        float64   // device-space x after last glyph advance
-	endY        float64   // device-space y after last glyph advance
+	text  strings.Builder
+	x, y  float64   // device-space position of first rune
+	runeX []float64 // device-space x at the start of each rune (len == rune count)
+	runeY []float64 // device-space y at the start of each rune
+	// runeColor is each rune's fill colour, nil while every rune has the
+	// fragment's (colorR/G/B): a colour change does not start a fragment
+	// (it would change line text), but the absorber splits segments by it.
+	runeColor   []Color
+	endX        float64 // device-space x after last glyph advance
+	endY        float64 // device-space y after last glyph advance
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize
@@ -801,12 +805,30 @@ func (e *textExtractor) emitRune(r rune) {
 		e.curFrag = &e.fragments[len(e.fragments)-1]
 	}
 
+	e.curFrag.recordColor(e.fillR, e.fillG, e.fillB)
 	e.curFrag.text.WriteRune(r)
 	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
 	e.curFrag.runeY = append(e.curFrag.runeY, y)
 	e.lastX = x
 	e.lastY = y
 	e.hasPos = true
+}
+
+// recordColor notes the fill colour of the rune about to be added. The
+// per-rune list is only allocated once a rune's colour differs from the
+// fragment's.
+func (f *textFragment) recordColor(r, g, b float64) {
+	if f.runeColor == nil {
+		if r == f.colorR && g == f.colorG && b == f.colorB {
+			return
+		}
+		n := len(f.runeX)
+		f.runeColor = make([]Color, n, n+8)
+		for i := range f.runeColor {
+			f.runeColor[i] = Color{R: f.colorR, G: f.colorG, B: f.colorB, A: 1}
+		}
+	}
+	f.runeColor = append(f.runeColor, Color{R: r, G: g, B: b, A: 1})
 }
 
 func (e *textExtractor) flushFragment() {

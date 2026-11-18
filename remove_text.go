@@ -23,11 +23,19 @@ import (
 
 // RemoveAllText removes every text-showing operator from the page content.
 func (p *Page) RemoveAllText() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	return p.doc.removeAllText([]*Page{p})
 }
 
 // RemoveAllText removes every text-showing operator from all pages.
 func (d *Document) RemoveAllText() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	return d.removeAllText(d.Pages())
 }
 

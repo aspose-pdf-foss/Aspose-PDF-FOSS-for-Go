@@ -15,7 +15,7 @@ import (
 // TJ numbers (shiftLineText, the machinery of ReplaceAdjustmentShiftRestOfLine),
 // so the text keeps its fonts, its embedded subsets and its extraction.
 
-// HorizontalAlignment is how a TextParagraph's lines sit in its rectangle.
+// HorizontalAlignment is how an AbsorbedTextParagraph's lines sit in its rectangle.
 // Mirrors Aspose.PDF for .NET's HorizontalAlignment.
 type HorizontalAlignment int
 
@@ -42,7 +42,7 @@ const (
 // TextParagraphAbsorber.
 type TextParagraphAbsorber struct {
 	rects      []Rectangle
-	paragraphs []*TextParagraph
+	paragraphs []*AbsorbedTextParagraph
 }
 
 // NewTextParagraphAbsorber returns an absorber taking one paragraph from
@@ -53,20 +53,20 @@ func NewTextParagraphAbsorber(rects ...Rectangle) *TextParagraphAbsorber {
 }
 
 // TextParagraphs returns the paragraphs the last Visit found.
-func (a *TextParagraphAbsorber) TextParagraphs() []*TextParagraph {
-	return append([]*TextParagraph(nil), a.paragraphs...)
+func (a *TextParagraphAbsorber) TextParagraphs() []*AbsorbedTextParagraph {
+	return append([]*AbsorbedTextParagraph(nil), a.paragraphs...)
 }
 
-// TextParagraph is the text inside one rectangle of a page: its lines, each
+// AbsorbedTextParagraph is the text inside one rectangle of a page: its lines, each
 // made of words, in reading order.
-type TextParagraph struct {
+type AbsorbedTextParagraph struct {
 	page  *Page
 	rect  Rectangle
 	lines []paraTextLine
 	align HorizontalAlignment
 }
 
-// paraTextLine is a line of a TextParagraph: its baseline, size and words,
+// paraTextLine is a line of an AbsorbedTextParagraph: its baseline, size and words,
 // left to right.
 type paraTextLine struct {
 	y, size float64
@@ -112,7 +112,7 @@ func (a *TextParagraphAbsorber) Visit(p *Page) error {
 		if err != nil {
 			return err
 		}
-		tp := &TextParagraph{page: p, rect: r}
+		tp := &AbsorbedTextParagraph{page: p, rect: r}
 		for i := range lines {
 			if l, ok := paragraphTextLine(&lines[i]); ok {
 				tp.lines = append(tp.lines, l)
@@ -198,14 +198,14 @@ func paragraphTextLine(line *TextLine) (paraTextLine, bool) {
 func isSpaceRune(r rune) bool { return r == ' ' || r == '\t' || r == ' ' }
 
 // Page returns the page the paragraph is on.
-func (tp *TextParagraph) Page() *Page { return tp.page }
+func (tp *AbsorbedTextParagraph) Page() *Page { return tp.page }
 
 // Rectangle returns the rectangle the paragraph was taken from, which its
 // alignment refers to.
-func (tp *TextParagraph) Rectangle() Rectangle { return tp.rect }
+func (tp *AbsorbedTextParagraph) Rectangle() Rectangle { return tp.rect }
 
 // Lines returns the text of each line, its words joined by single spaces.
-func (tp *TextParagraph) Lines() []string {
+func (tp *AbsorbedTextParagraph) Lines() []string {
 	out := make([]string, len(tp.lines))
 	for i, l := range tp.lines {
 		w := make([]string, len(l.words))
@@ -218,22 +218,26 @@ func (tp *TextParagraph) Lines() []string {
 }
 
 // Text returns the paragraph's lines joined by spaces.
-func (tp *TextParagraph) Text() string { return strings.Join(tp.Lines(), " ") }
+func (tp *AbsorbedTextParagraph) Text() string { return strings.Join(tp.Lines(), " ") }
 
 // HorizontalAlignment returns the alignment last set, None until then.
-func (tp *TextParagraph) HorizontalAlignment() HorizontalAlignment { return tp.align }
+func (tp *AbsorbedTextParagraph) HorizontalAlignment() HorizontalAlignment { return tp.align }
 
 // SetHorizontalAlignment moves the paragraph's words so its lines sit in its
 // rectangle as a says; each line keeps its words and its baseline. The
 // glyphs stay what they were, moved with TJ numbers in the page's content
 // stream. Text drawn inside a Form XObject, or on a rotated baseline, is not
 // moved. Mirrors setting Aspose.PDF for .NET's TextParagraph.HorizontalAlignment.
-func (tp *TextParagraph) SetHorizontalAlignment(a HorizontalAlignment) error {
+func (tp *AbsorbedTextParagraph) SetHorizontalAlignment(a HorizontalAlignment) error {
 	if a < HorizontalAlignmentNone || a > HorizontalAlignmentFullJustify {
 		return fmt.Errorf("set horizontal alignment: unknown alignment %d", a)
 	}
 	if tp.page == nil {
 		return fmt.Errorf("set horizontal alignment: the paragraph was not found by a TextParagraphAbsorber")
+	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := tp.page.doc.ApplyTextChanges(); err != nil {
+		return err
 	}
 	tp.align = a
 	if a == HorizontalAlignmentNone {
