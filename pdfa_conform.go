@@ -438,6 +438,12 @@ func (d *Document) ocMissingFromOrder(cfg pdfDict) pdfArray {
 	var walk func(v pdfValue, depth int)
 	walk = func(v pdfValue, depth int) {
 		if r, ok := v.(pdfRef); ok {
+			// An array reached a second time was walked already: without this
+			// a nested /Order sharing its arrays is walked once per path, which
+			// grows exponentially with its depth (GHSA-mp4r-cgm3-cq84).
+			if seen[r.Num] {
+				return
+			}
 			seen[r.Num] = true
 		}
 		if arr, ok := resolveRef(d.objects, v).(pdfArray); ok && depth < maxFormDepth {
