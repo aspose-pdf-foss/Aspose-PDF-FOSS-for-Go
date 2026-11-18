@@ -53,12 +53,20 @@ func (d *Document) forEachContentStream(fn func(data []byte, res pdfDict)) {
 	}
 }
 
+// resolveFontHook is resolveFont, replaceable in tests that count calls.
+var resolveFontHook = resolveFont
+
 // pdfaUsedCIDs returns, per composite (Type0) font object, the character
 // identifiers its text actually selects — the set an embedded subset has to
 // cover. Codes are decoded through the font own CMap, so a predefined CJK
 // encoding yields real CIDs rather than raw bytes.
 func (d *Document) pdfaUsedCIDs() map[int]map[uint16]bool {
 	out := map[int]map[uint16]bool{}
+	// A font's CMap is decoded once per walk, not at every Tf: a document that
+	// selects its font on each line used to re-parse the font's /ToUnicode and
+	// /W that often, three walks per ConvertToPDFA (GitHub #22). The cache lives
+	// for this walk only, as a conversion step may change a font between walks.
+	cmaps := map[int]*cidCMap{}
 	d.forEachContentStream(func(data []byte, res pdfDict) {
 		fonts, ok := resolveRefToDict(d.objects, res["/Font"])
 		if !ok {
@@ -69,9 +77,9 @@ func (d *Document) pdfaUsedCIDs() map[int]map[uint16]bool {
 			return
 		}
 		var (
-			curNum int
-			curFI  fontInfo
-			have   bool
+			curNum  int
+			curCMap *cidCMap
+			have    bool
 		)
 		show := func(v pdfValue) {
 			s, ok := v.(string)
@@ -83,10 +91,10 @@ func (d *Document) pdfaUsedCIDs() map[int]map[uint16]bool {
 				set = map[uint16]bool{}
 				out[curNum] = set
 			}
-			if curFI.cidCMap != nil {
+			if curCMap != nil {
 				b := []byte(s)
 				for len(b) > 0 {
-					_, cid, n := curFI.cidCMap.next(b)
+					_, cid, n := curCMap.next(b)
 					if n <= 0 {
 						break
 					}
@@ -118,7 +126,12 @@ func (d *Document) pdfaUsedCIDs() map[int]map[uint16]bool {
 				if !ok || dictGetName(fd, "/Subtype") != "/Type0" {
 					continue
 				}
-				curNum, curFI, have = ref.Num, resolveFont(d.objects, fd), true
+				cm, seen := cmaps[ref.Num]
+				if !seen {
+					cm = resolveFontHook(d.objects, fd).cidCMap
+					cmaps[ref.Num] = cm
+				}
+				curNum, curCMap, have = ref.Num, cm, true
 			case "Tj", "'", "\"":
 				if len(op.Operands) > 0 {
 					show(op.Operands[len(op.Operands)-1])
