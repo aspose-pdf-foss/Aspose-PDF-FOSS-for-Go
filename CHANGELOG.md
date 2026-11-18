@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Page.Rotation` reads `/Rotate` the way the specification defines it.** The value is inherited from the page tree (ISO 32000-1 Table 30), may be an indirect reference, and is normalised into 0/90/180/270 (`-90` reads as 270, `450` as 90, a value that is not a multiple of 90 as 0). Before, an indirect or out-of-range value came back raw, so the renderer, imposition, stamps and `ResizeContents`, which all go through `Rotation`, treated such a page as unrotated or mis-rotated.
+
 ## [0.17.0] — 2026-11-18
 
 The Aspose.PDF for .NET text object model: `TextFragment`, `TextSegment`, `TextState`, `TextBuilder`, `TextParagraph` and `TextFragmentAbsorber`, with edits to found and drawn text applied on save. `Document.Append` now returns an `error` (breaking). A security fix for exponential time in PDF/A and PDF/UA layer checks (GHSA-mp4r-cgm3-cq84), much less memory when rendering with installed fonts, faster PDF/A conversion and writing, imported pages that keep their rotation and crop box, and line breaking and invalid-input fixes in `AddText`.

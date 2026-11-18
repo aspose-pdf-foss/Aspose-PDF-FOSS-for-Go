@@ -103,7 +103,35 @@ func (p *Page) Rotation() RotationAngle {
 	if d == nil {
 		return Rotate0
 	}
-	return RotationAngle(dictGetInt(d, "/Rotate"))
+	// /Rotate is inheritable (ISO 32000-1 Table 30): walk /Parent while the
+	// key is absent. The value may be an indirect reference; anything that is
+	// not a multiple of 90 reads as unrotated, other multiples are normalised
+	// into [0, 360).
+	var objects map[int]*pdfObject
+	if p.doc != nil {
+		objects = p.doc.objects
+	}
+	for depth := 0; d != nil && depth < 64; depth++ {
+		if v, ok := d["/Rotate"]; ok {
+			var deg int
+			switch n := resolveRef(objects, v).(type) {
+			case int:
+				deg = n
+			case float64:
+				deg = int(n)
+			}
+			if deg%90 != 0 {
+				return Rotate0
+			}
+			return RotationAngle(((deg % 360) + 360) % 360)
+		}
+		parent, ok := resolveRefToDict(objects, d["/Parent"])
+		if !ok {
+			break
+		}
+		d = parent
+	}
+	return Rotate0
 }
 
 // MediaBox returns the page's MediaBox as a Rectangle in PDF user space.
