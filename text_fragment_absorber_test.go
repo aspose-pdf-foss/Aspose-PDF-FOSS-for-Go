@@ -3,6 +3,7 @@
 package asposepdf
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -391,5 +392,39 @@ func TestColourBoundaryKeepsTextAndSearch(t *testing.T) {
 				t.Fatalf("%q rect %+v vs %+v", q, mb[i].Rect, mc[i].Rect)
 			}
 		}
+	}
+}
+
+// Text set with a negative size and a negative horizontal scale reads upright and reports a negative effective size; the found
+// state carries the size as a magnitude, so the fragment can be edited.
+func TestAbsorberNegativeSizeEditable(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	if _, err := p.ensureStandardFontResource("/Helvetica"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.appendToContentStream([]byte("BT /F0 -12 Tf -100 Tz 1 0 0 1 100 200 Tm (Flipped) Tj ET\n")); err != nil {
+		t.Fatal(err)
+	}
+	d = reopenDoc(t, d)
+	p = mustPage(t, d)
+	a := NewTextFragmentAbsorber("Flipped")
+	if err := a.Visit(p); err != nil {
+		t.Fatal(err)
+	}
+	fr := a.TextFragments()
+	if len(fr) != 1 {
+		t.Fatalf("found %d fragments", len(fr))
+	}
+	if got := fr[0].Segments[0].TextState.FontSize; got != 12 {
+		t.Fatalf("segment size %v, want 12", got)
+	}
+	fr[0].Text = "Edited"
+	if err := d.ApplyTextChanges(); err != nil {
+		t.Fatal(err)
+	}
+	txt, _ := p.ExtractText()
+	if !strings.Contains(txt, "Edited") || strings.Contains(txt, "Flipped") {
+		t.Fatalf("extracted %q", txt)
 	}
 }

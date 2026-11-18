@@ -190,7 +190,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			x := rect.LLX
 			st := TextState{
 				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName)},
-				FontSize:        g.src.FontSize,
+				FontSize:        math.Abs(g.src.FontSize), // a negative Tf size (or Tz) reports a negative effective size
 				ForegroundColor: copyColor(&g.src.Color),
 				Rotation:        g.src.Rotation,
 			}

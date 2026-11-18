@@ -1093,7 +1093,7 @@ func (p *Page) ensureStandardFontResource(pdfFontName string) (string, error) {
 		if !ok {
 			continue
 		}
-		if bf, ok := dict["/BaseFont"].(pdfName); ok && string(bf) == pdfFontName {
+		if bf, ok := dict["/BaseFont"].(pdfName); ok && string(bf) == pdfFontName && p.doc.standardFontEncodingMatches(dict, pdfFontName) {
 			return name, nil
 		}
 	}
@@ -1119,6 +1119,28 @@ func (p *Page) ensureStandardFontResource(pdfFontName string) (string, error) {
 	fontDict[name] = pdfRef{Num: fontID}
 
 	return name, nil
+}
+
+// standardFontEncodingMatches reports whether an existing font dictionary
+// with the BaseFont pdfFontName takes the codes AddText writes: WinAnsi
+// (plain, or as the base of an encoding with no /Differences), or the built-in
+// encoding for Symbol and ZapfDingbats. A font of the same name with other
+// codes (an OCR producer's custom /Differences) must not be reused: the text
+// would show other characters.
+func (d *Document) standardFontEncodingMatches(dict pdfDict, pdfFontName string) bool {
+	enc := resolveRef(d.objects, dict["/Encoding"])
+	if pdfFontName == "/Symbol" || pdfFontName == "/ZapfDingbats" {
+		return enc == nil
+	}
+	switch e := enc.(type) {
+	case pdfName:
+		return string(e) == "/WinAnsiEncoding"
+	case pdfDict:
+		base, _ := resolveRef(d.objects, e["/BaseEncoding"]).(pdfName)
+		_, diff := e["/Differences"]
+		return string(base) == "/WinAnsiEncoding" && !diff
+	}
+	return false
 }
 
 // ensureEmbeddedFontResource registers an already-embedded font (created by LoadFont)
@@ -1392,7 +1414,7 @@ func resolveFontForXObject(font Font, size float64, doc *Document, resources pdf
 			if !ok {
 				continue
 			}
-			if bf, ok := dict["/BaseFont"].(pdfName); ok && string(bf) == pdfFontName {
+			if bf, ok := dict["/BaseFont"].(pdfName); ok && string(bf) == pdfFontName && doc.standardFontEncodingMatches(dict, pdfFontName) {
 				return name, width, encode, 0.8, 0, nil
 			}
 		}
