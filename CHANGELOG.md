@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A damaged object stream no longer panics `Open`** (`pdf-go-kcse`). `/First` past the data or negative, a negative or enormous `/N`, and header offsets that are negative or lie beyond the stream used to cause slice-bounds or allocation panics in the object-stream member lookup; such a stream now gives an error, or the offending member is skipped.
 - **`Page.Rotation` reads `/Rotate` the way the specification defines it.** The value is inherited from the page tree (ISO 32000-1 Table 30), may be an indirect reference, and is normalised into 0/90/180/270 (`-90` reads as 270, `450` as 90, a value that is not a multiple of 90 as 0). Before, an indirect or out-of-range value came back raw, so the renderer, imposition, stamps and `ResizeContents`, which all go through `Rotation`, treated such a page as unrotated or mis-rotated.
 
 ## [0.17.0] — 2026-11-18

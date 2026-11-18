@@ -424,13 +424,16 @@ func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject,
 	}
 	n := dictGetInt(s.Dict, "/N")
 	first := dictGetInt(s.Dict, "/First")
+	if n < 0 || first < 0 || first > len(s.Data) {
+		return nil, fmt.Errorf("object stream %d: invalid /N or /First", streamObjNum)
+	}
 	headerData := s.Data[:first]
 	hl := newLexer(headerData)
 	type objOffset struct {
 		num    int
 		offset int
 	}
-	offsets := make([]objOffset, 0, n)
+	offsets := make([]objOffset, 0, min(n, len(headerData)/2+1))
 	for i := 0; i < n; i++ {
 		t1, _ := hl.Next()
 		t2, _ := hl.Next()
@@ -439,6 +442,9 @@ func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject,
 		}
 		oNum := toIntBytes(t1.raw)
 		oOff := toIntBytes(t2.raw)
+		if oOff < 0 || oOff > len(s.Data)-first {
+			continue
+		}
 		offsets = append(offsets, objOffset{num: oNum, offset: first + oOff})
 	}
 	objs := make([]*pdfObject, 0, len(offsets))
