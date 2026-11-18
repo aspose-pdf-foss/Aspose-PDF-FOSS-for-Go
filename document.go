@@ -75,6 +75,9 @@ type Document struct {
 	// by an absorber, whose edits are applied on save.
 	boundFragments []*TextFragment
 	boundSet       map[*TextFragment]struct{}
+	// textBgNext is, per page (or form canvas) dictionary, the next id for
+	// the marked-content section of a background a TextBuilder draws.
+	textBgNext map[*pdfObject]int
 
 	// signaturesRewritten marks a signed document a conversion has changed: the
 	// next save rewrites the file, which its signatures do not cover.
@@ -749,6 +752,10 @@ func (d *Document) SetEncryption(opts EncryptionOptions) {
 // WriteTo writes the document to w. It implements io.WriterTo.
 func (d *Document) WriteTo(w io.Writer) (int64, error) {
 	if d.revisionAppended {
+		// Edits pending then would be lost: ApplyTextChanges refuses them.
+		if err := d.ApplyTextChanges(); err != nil {
+			return 0, err
+		}
 		n, err := w.Write(d.source)
 		return int64(n), err
 	}

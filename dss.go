@@ -46,6 +46,11 @@ func (d *Document) AddValidationInfo(opts ...ValidationOptions) error {
 	if len(d.source) == 0 {
 		return fmt.Errorf("AddValidationInfo: requires a document opened from an existing PDF (Open/OpenStream)")
 	}
+	// The appended revision carries only the validation material: text edits
+	// pending now would be lost.
+	if d.textChangesPending() {
+		return fmt.Errorf("AddValidationInfo: text changes pending: save the document, reopen and add validation info")
+	}
 	o := lastValidationOption(opts)
 	fields := d.collectSignatureFields()
 	if len(fields) == 0 {

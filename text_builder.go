@@ -69,6 +69,18 @@ type fragmentBinding struct {
 	obj *pdfObject
 	// gen is the page's content generation when the fragment was bound.
 	gen int
+	// owned, for a fragment drawn by AppendText (one entry per drawn
+	// quad), is what was drawn with each segment besides its glyphs: the
+	// background box and the link. A redraw removes them. A found
+	// fragment owns nothing: its background and links are the page's.
+	owned []ownedPiece
+}
+
+// ownedPiece is what a drawn segment drew besides its glyphs: its background
+// box (the id of its marked-content section, 0 for none) and its link.
+type ownedPiece struct {
+	bg   int
+	link *LinkAnnotation
 }
 
 type segmentSnapshot struct {
@@ -270,10 +282,12 @@ func quadBounds(q QuadPoint) Rectangle {
 }
 
 // drawTextPiece draws text at baseline (x, y): its background box, the text
-// itself and, when hyperlink is set, a link over the box. It returns the box
-// and its quad (rotated with the state's Rotation about (x, y)). Shared by
-// AppendText and AppendParagraph so both bind what they draw alike.
-func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text string, x, y, width, asc, desc float64) (Rectangle, QuadPoint, error) {
+// itself and, when hyperlink is set, a link over the box. It returns the box,
+// its quad (rotated with the state's Rotation about (x, y)) and what it drew
+// besides the glyphs. Shared by AppendText and AppendParagraph so both bind
+// what they draw alike.
+func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text string, x, y, width, asc, desc float64) (Rectangle, QuadPoint, ownedPiece, error) {
+	var own ownedPiece
 	box := Rectangle{LLX: x, LLY: y + desc, URX: x + width, URY: y + asc}
 	quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
 	if st.Rotation != 0 {
@@ -281,22 +295,25 @@ func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text strin
 		box = quadBounds(quad)
 	}
 	if st.BackgroundColor != nil && text != "" && st.Rotation == 0 {
-		if err := p.DrawRectangle(box, ShapeStyle{FillColor: st.BackgroundColor}); err != nil {
-			return box, quad, err
+		id, err := p.drawTextBackground(box, st.BackgroundColor)
+		if err != nil {
+			return box, quad, own, err
 		}
+		own.bg = id
 	}
 	style.Background = nil // drawn above, as the piece's text box
 	if err := p.AddTextAt(text, style, x, y); err != nil {
-		return box, quad, err
+		return box, quad, own, err
 	}
 	if hyperlink != "" && text != "" {
 		link := NewLinkAnnotation(p, box)
 		link.SetAction(NewGoToURIAction(hyperlink))
 		if err := p.Annotations().Add(link); err != nil {
-			return box, quad, err
+			return box, quad, own, err
 		}
+		own.link = link
 	}
-	return box, quad, nil
+	return box, quad, own, nil
 }
 
 type resolvedSegment struct {
@@ -316,25 +333,26 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	if f == nil {
 		return errors.New("text builder: nil fragment")
 	}
-	drawn, err := drawFragment(b.page, f)
+	drawn, owned, err := drawFragment(b.page, f)
 	if err != nil {
 		return err
 	}
-	f.bind = &fragmentBinding{page: b.page, drawn: drawn}
+	f.bind = &fragmentBinding{page: b.page, drawn: drawn, owned: owned}
 	f.bind.snap = snapshotOf(f)
 	b.page.doc.bindFragment(f)
 	return nil
 }
 
 // drawFragment draws f on p as AppendText does, recording the text, start
-// position and segment boxes on f, and returns the quad of each segment drawn.
-// It does not bind f (ApplyTextChanges redraws through it).
-func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, error) {
+// position and segment boxes on f, and returns the quad of each segment drawn
+// and what was drawn with it besides its glyphs. It does not bind f
+// (ApplyTextChanges redraws through it).
+func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, []ownedPiece, error) {
 	segs := f.segmentsToDraw()
 	if len(segs) > 1 {
 		for _, s := range segs {
 			if s.TextState.Rotation != 0 {
-				return nil, errors.New("text builder: rotated multi-segment fragments are not supported")
+				return nil, nil, errors.New("text builder: rotated multi-segment fragments are not supported")
 			}
 		}
 	}
@@ -346,11 +364,11 @@ func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, error) {
 		style := st.style()
 		asc, desc, err := textBox(style.Font, st.FontSize)
 		if err != nil {
-			return nil, fmt.Errorf("text builder: %w", err)
+			return nil, nil, fmt.Errorf("text builder: %w", err)
 		}
 		w, err := st.MeasureString(s.Text)
 		if err != nil {
-			return nil, fmt.Errorf("text builder: %w", err)
+			return nil, nil, fmt.Errorf("text builder: %w", err)
 		}
 		rs[i] = resolvedSegment{st, style, asc, desc, w}
 		if asc > maxAsc {
@@ -362,20 +380,22 @@ func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, error) {
 	if f.Position == (Position{}) {
 		crop, err := p.CropBox()
 		if err != nil {
-			return nil, fmt.Errorf("text builder: %w", err)
+			return nil, nil, fmt.Errorf("text builder: %w", err)
 		}
 		x, y = crop.LLX+72, crop.URY-72-maxAsc
 	}
 	startX, startY := x, y
 
 	var drawn []QuadPoint
+	var owned []ownedPiece
 	var all strings.Builder
 	for i, s := range segs {
 		r := rs[i]
-		box, quad, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
+		box, quad, own, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
 		if err != nil {
-			return nil, fmt.Errorf("text builder: %w", err)
+			return nil, nil, fmt.Errorf("text builder: %w", err)
 		}
+		owned = append(owned, own)
 		if i < len(f.Segments) {
 			f.Segments[i].Position = Position{XIndent: x, YIndent: y}
 			f.Segments[i].Rectangle = box
@@ -387,5 +407,5 @@ func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, error) {
 
 	f.Text = all.String()
 	f.Position = Position{XIndent: startX, YIndent: startY}
-	return drawn, nil
+	return drawn, owned, nil
 }

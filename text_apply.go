@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -34,11 +35,30 @@ import (
 // form canvas, a page whose content was rewritten as a whole after the
 // fragment was found) makes the call fail, naming its page and text, before
 // any page changes; so does one whose old glyphs the content rewriter cannot
-// place (a font with unknown widths), in which case the pages are restored
-// as they were.
+// place (a font with unknown glyph positions on the page) or whose new text
+// no font covers: a font found on the page is replaced by the Standard-14
+// face of its family, else that family by name, as ReplaceText chooses.
+// Edited right-to-left text keeps its right edge unless Position changed.
+// A fragment drawn by a TextBuilder takes the background box and link it
+// was drawn with along when redrawn; a found fragment's background and links
+// are the page's and stay. A document carrying a revision appended in memory
+// (AddValidationInfo) is written as it is, so edits to it are refused too.
 func (d *Document) ApplyTextChanges() error {
 	var plans []*textEditPlan
 	var fonts *replaceFonts
+	// Planning may embed a fallback font; a refusal takes it out again, so
+	// a refused call leaves the document as it was.
+	planNext, planFonts := d.nextID, len(d.embeddedFonts)
+	refuse := func(err error) error {
+		for id := range d.objects {
+			if id >= planNext {
+				delete(d.objects, id)
+			}
+		}
+		d.nextID = planNext
+		d.embeddedFonts = d.embeddedFonts[:planFonts]
+		return err
+	}
 	for _, f := range d.boundFragments {
 		if b := f.bind; b == nil || b.page == nil || b.snap.matches(f, b.found) {
 			continue
@@ -48,7 +68,7 @@ func (d *Document) ApplyTextChanges() error {
 		}
 		pl, err := d.planTextEdit(f, fonts)
 		if err != nil {
-			return err
+			return refuse(err)
 		}
 		if pl != nil {
 			plans = append(plans, pl)
@@ -67,6 +87,32 @@ func (d *Document) ApplyTextChanges() error {
 		}
 		byPage[pl.page] = append(byPage[pl.page], pl)
 	}
+	pageNames := func(idx int) string {
+		names := make([]string, len(byPage[idx]))
+		for i, pl := range byPage[idx] {
+			names[i] = pl.name
+		}
+		return strings.Join(names, ", ")
+	}
+
+	// Text the content rewriter cannot place (a font with unknown glyph
+	// positions) is refused here, before any page changes: the page-level
+	// rewrite is run on the page's content without keeping the result.
+	pageRegions := map[int][]QuadPoint{}
+	for _, idx := range order {
+		var regions []QuadPoint
+		for _, pl := range byPage[idx] {
+			regions = append(regions, pl.regions...)
+		}
+		pageRegions[idx] = regions
+		p, err := d.Page(idx + 1)
+		if err != nil {
+			return refuse(fmt.Errorf("apply text changes: page %d: %w", idx+1, err))
+		}
+		if err := checkTextRemovable(p, regions); err != nil {
+			return refuse(fmt.Errorf("apply text changes: page %d: %s: cannot be edited: %w", idx+1, pageNames(idx), err))
+		}
+	}
 
 	tx := d.beginTextEdit(order)
 	var old []int
@@ -76,25 +122,29 @@ func (d *Document) ApplyTextChanges() error {
 			tx.rollback()
 			return fmt.Errorf("apply text changes: page %d: %w", idx+1, err)
 		}
-		var regions []QuadPoint
+		bgs := map[int]bool{}
 		for _, pl := range byPage[idx] {
-			regions = append(regions, pl.regions...)
+			pl.p = p
+			for _, own := range pl.removed {
+				if own.bg != 0 {
+					bgs[own.bg] = true
+				}
+			}
 		}
 		old = append(old, contentStreamIDs(p.pageDict()["/Contents"])...)
-		old = append(old, xobjectRefs(d.objects, p.pageResources())...)
+		old = append(old, formGraphRefs(d.objects, p.pageResources())...)
 		// Every region on the page is stripped before anything is drawn,
 		// so one fragment's new text is not removed with another's old.
-		data, err := stripTextInRegions(p, regions)
+		data, err := stripTextInRegions(p, pageRegions[idx])
+		if err == nil {
+			data, err = removeTextBackgrounds(data, bgs)
+		}
 		if err == nil {
 			err = replacePageContents(p, data)
 		}
 		if err != nil {
 			tx.rollback()
-			names := make([]string, len(byPage[idx]))
-			for i, pl := range byPage[idx] {
-				names[i] = pl.name
-			}
-			return fmt.Errorf("apply text changes: page %d: %s: remove the old text: %w", idx+1, strings.Join(names, ", "), err)
+			return fmt.Errorf("apply text changes: page %d: %s: remove the old text: %w", idx+1, pageNames(idx), err)
 		}
 		for _, pl := range byPage[idx] {
 			if err := pl.draw(p); err != nil {
@@ -131,20 +181,20 @@ func (d *Document) textChangesPending() bool {
 	return false
 }
 
-// xobjectRefs returns the objects a resources dictionary's /XObject entries
-// name: forms the strip may clone, left unreachable when every placement was.
-func xobjectRefs(objects map[int]*pdfObject, res pdfDict) []int {
-	xo, ok := resolveRefToDict(objects, res["/XObject"])
-	if !ok {
-		return nil
+// checkTextRemovable reports an error when the content rewriter refuses the
+// page's text (a font whose glyph positions are unknown), without changing
+// the page.
+func checkTextRemovable(p *Page, regions []QuadPoint) error {
+	data, err := p.contentStreams()
+	if err != nil {
+		return err
 	}
-	var ids []int
-	for _, v := range xo {
-		if r, ok := v.(pdfRef); ok {
-			ids = append(ids, r.Num)
-		}
+	res := p.pageResources()
+	fontMap := resolveFontResources(p.doc.objects, res)
+	if _, err := rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, res, nil); err != nil {
+		return fmt.Errorf("the positions of the page's glyphs are unknown: %w", err)
 	}
-	return ids
+	return nil
 }
 
 // textEditTx remembers what drawing changes on the pages an edit touches,
@@ -227,6 +277,13 @@ type textEditPlan struct {
 
 	drawnWhole []QuadPoint
 	drawnSeg   [][]QuadPoint
+	ownWhole   []ownedPiece
+	ownSeg     [][]ownedPiece
+
+	// removed is what the old drawing owned besides its glyphs (background
+	// boxes, links), removed with it; p is the page drawn on.
+	removed []ownedPiece
+	p       *Page
 }
 
 func (pl *textEditPlan) errorf(format string, args ...any) error {
@@ -290,6 +347,8 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		return nil, pl.errorf("cannot be edited: %s", b.noEdit)
 	case b.gen != b.obj.contentGen:
 		return nil, pl.errorf("cannot be edited: page content was rewritten after the fragment was found")
+	case d.revisionAppended:
+		return nil, pl.errorf("cannot be edited: the document carries a revision appended in memory (AddValidationInfo) and is written as it is; save it, reopen and edit")
 	}
 
 	perSegment := len(b.drawn) == len(snap.segments)
@@ -308,8 +367,12 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		return copyState(s.TextState)
 	}
 
+	owned := len(b.owned) == len(b.drawn)
 	if pl.whole {
 		pl.regions = append(pl.regions, b.drawn...)
+		if owned {
+			pl.removed = append(pl.removed, b.owned...)
+		}
 		tmp := &TextFragment{Position: f.Position}
 		if !found {
 			tmp.TextState = copyState(f.TextState)
@@ -333,6 +396,12 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		if err := d.prepareDrawing(tmp, found, fonts); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
+		if found && f.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
+			// Right-to-left text keeps its right edge on its line.
+			if err := keepRightEdge(tmp, b.drawn, snap); err != nil {
+				return nil, pl.errorf("%w", err)
+			}
+		}
 		pl.tmp = tmp
 		return pl, nil
 	}
@@ -341,6 +410,9 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		s := f.Segments[i]
 		pos := snap.segments[i].pos
 		pl.regions = append(pl.regions, b.drawn[i])
+		if owned {
+			pl.removed = append(pl.removed, b.owned[i])
+		}
 		one := &TextFragment{Position: pos,
 			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}}}
 		if !found {
@@ -353,6 +425,33 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		pl.one = append(pl.one, one)
 	}
 	return pl, nil
+}
+
+// keepRightEdge moves tmp's start so its text ends where the old text's
+// first line ended (the right edge of the quads drawn on the first baseline).
+func keepRightEdge(tmp *TextFragment, drawn []QuadPoint, snap fragmentSnapshot) error {
+	right, ok := 0.0, false
+	for i, q := range drawn {
+		if i < len(snap.segments) && snap.segments[i].pos.YIndent != snap.position.YIndent {
+			continue
+		}
+		if r := quadBounds(q).URX; !ok || r > right {
+			right, ok = r, true
+		}
+	}
+	if !ok {
+		return nil
+	}
+	w := 0.0
+	for _, s := range tmp.segmentsToDraw() {
+		sw, err := s.TextState.MeasureString(s.Text)
+		if err != nil {
+			return err
+		}
+		w += sw
+	}
+	tmp.Position.XIndent = right - w
+	return nil
 }
 
 // prepareDrawing resolves the fonts tmp's segments are drawn in. Fonts found
@@ -467,23 +566,25 @@ func (pl *textEditPlan) draw(p *Page) error {
 		if pl.tmp.Text == "" && len(pl.tmp.Segments) == 0 {
 			return nil
 		}
-		drawn, err := drawFragment(p, pl.tmp)
+		drawn, owned, err := drawFragment(p, pl.tmp)
 		if err != nil {
 			return err
 		}
-		pl.drawnWhole = drawn
+		pl.drawnWhole, pl.ownWhole = drawn, owned
 		return nil
 	}
 	for _, one := range pl.one {
 		if one.Segments[0].Text == "" {
 			pl.drawnSeg = append(pl.drawnSeg, nil)
+			pl.ownSeg = append(pl.ownSeg, nil)
 			continue
 		}
-		drawn, err := drawFragment(p, one)
+		drawn, owned, err := drawFragment(p, one)
 		if err != nil {
 			return err
 		}
 		pl.drawnSeg = append(pl.drawnSeg, drawn)
+		pl.ownSeg = append(pl.ownSeg, owned)
 	}
 	return nil
 }
@@ -501,10 +602,16 @@ func dropEmptySegments(f *TextFragment) {
 	f.Segments = kept
 }
 
-// commit records the drawn result on the fragment and refreshes its
-// snapshot, so a later apply finds nothing changed.
+// commit records the drawn result on the fragment, removes the links the
+// old drawing made and refreshes the snapshot, so a later apply finds nothing
+// changed.
 func (pl *textEditPlan) commit() {
 	f, b := pl.f, pl.f.bind
+	for _, own := range pl.removed {
+		if own.link != nil && pl.p != nil {
+			pl.p.Annotations().Delete(own.link)
+		}
+	}
 	if pl.whole {
 		f.Segments = pl.tmp.Segments
 		if pl.drawnWhole != nil {
@@ -512,6 +619,9 @@ func (pl *textEditPlan) commit() {
 			f.Position = pl.tmp.Position
 		}
 		b.drawn = pl.drawnWhole
+		if !b.found {
+			b.owned = pl.ownWhole
+		}
 	} else {
 		for k, i := range pl.segs {
 			s := f.Segments[i]
@@ -523,7 +633,50 @@ func (pl *textEditPlan) commit() {
 			if q := pl.drawnSeg[k]; len(q) == 1 {
 				b.drawn[i] = q[0]
 			}
+			if !b.found && len(b.owned) == len(b.drawn) {
+				b.owned[i] = ownedPiece{}
+				if o := pl.ownSeg[k]; len(o) == 1 {
+					b.owned[i] = o[0]
+				}
+			}
 		}
 	}
+	if b.found {
+		refreshValueFields(f)
+	}
 	b.snap = snapshotOf(f)
+}
+
+// refreshValueFields sets a found fragment's value fields (those
+// ExtractTextWithLayout fills) to what was drawn: its first segment's
+// font, size and colour, and the extent of its first line.
+func refreshValueFields(f *TextFragment) {
+	if len(f.Segments) == 0 {
+		f.Text, f.Width = "", 0
+		return
+	}
+	var all strings.Builder
+	for _, s := range f.Segments {
+		all.WriteString(s.Text)
+	}
+	f.Text = all.String()
+	s0 := f.Segments[0]
+	st := s0.TextState.resolved()
+	f.Y = s0.Position.YIndent
+	f.FontSize = st.FontSize
+	if st.Font != nil {
+		f.FontName = styledFont(st.Font, st.FontStyle).BaseFont()
+	}
+	if c := st.ForegroundColor; c != nil {
+		f.Color = *c
+	}
+	f.Bold, f.Italic = st.FontStyle&FontStyleBold != 0, st.FontStyle&FontStyleItalic != 0
+	left, right := s0.Rectangle.LLX, s0.Rectangle.URX
+	for _, s := range f.Segments[1:] {
+		if s.Position.YIndent != s0.Position.YIndent {
+			continue
+		}
+		left, right = math.Min(left, s.Rectangle.LLX), math.Max(right, s.Rectangle.URX)
+	}
+	f.X, f.Width = left, right-left
 }

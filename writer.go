@@ -48,6 +48,10 @@ func buildDocumentPDF(d *Document) ([]byte, error) {
 	// memory (AddValidationInfo) is written back verbatim: rebuilding it would
 	// drop the revision, and with it the /DSS.
 	if d.revisionAppended {
+		// Edits pending then would be lost: ApplyTextChanges refuses them.
+		if err := d.ApplyTextChanges(); err != nil {
+			return nil, err
+		}
 		return d.source, nil
 	}
 

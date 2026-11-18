@@ -245,7 +245,7 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 					continue // wholly outside the clip: not drawn
 				}
 				run := &rs[pc.run]
-				box, quad, err := drawTextPiece(pg, run.st, run.style, run.seg.Hyperlink, pc.text, x, baseline, pc.w, run.asc, run.desc)
+				box, quad, _, err := drawTextPiece(pg, run.st, run.style, run.seg.Hyperlink, pc.text, x, baseline, pc.w, run.asc, run.desc)
 				if err != nil {
 					return err
 				}
