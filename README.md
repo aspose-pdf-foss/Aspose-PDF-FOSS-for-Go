@@ -234,7 +234,8 @@ flowchart TD
   draws a `TextFragment` of styled `TextSegment`s (`TextState`: font, size, colours, spacing,
   scaling, hyperlinks, backgrounds), `AppendParagraph` wraps, aligns and justifies a `TextParagraph`,
   and `TextFragmentAbsorber` finds text as editable fragments — set `Text`, `Position` or
-  `TextState` and the page changes when the document is saved (or at once with `ApplyTextChanges`).
+  `TextState` and the page changes when the document is saved (or at once with `ApplyTextChanges`;
+  a later search, and any operation that rewrites page content, applies it first).
 - **Incremental save** — `SaveIncremental`/`WriteIncremental` keep the opened file's bytes and
   append only what changed as a new revision, so existing signatures stay valid.
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
@@ -491,6 +492,7 @@ stays free of network code.
 | `AFRelationship` | AFRelationship says how an embedded file relates to the document. |
 | `AIClient` | AIClient is the contract every copilot consumes: one call, one chat completion. |
 | `APIError` | APIError is returned when the AI endpoint answers with a non-2xx status. |
+| `AbsorbedTextParagraph` | AbsorbedTextParagraph is the text inside one rectangle of a page: its lines, each made of words, in reading order. |
 | `Action` | Action is the common interface implemented by every concrete action type. |
 | `ActionType` | ActionType identifies the kind of action attached to an annotation (typically a LinkAnnotation's /A entry). |
 | `Annotation` | Annotation is the common interface implemented by every concrete annotation type. |
@@ -562,6 +564,7 @@ stays free of network code.
 | `FlowOptions` | FlowOptions configures a Flow. |
 | `Font` | Font is implemented by standard 14 fonts and embedded TTF fonts. |
 | `FontSizeAdjustment` | FontSizeAdjustment selects how a replacement laid out in a rectangle changes size to fit it. |
+| `FontStyle` | FontStyle is a bit set of font style flags. |
 | `Form` | Form is the document's AcroForm view. |
 | `FormFieldType` | FormFieldType identifies the kind of form field. |
 | `FreeTextAnnotation` | FreeTextAnnotation displays text directly on the page, rendered into /AP/N using an embedded font. |
@@ -573,11 +576,11 @@ stays free of network code.
 | `Gradient` | Gradient is a fill that varies colour across a shape: either a LinearGradient or a RadialGradient. |
 | `GradientStop` | GradientStop is one colour stop in a gradient, positioned at Offset (0 at the gradient's start, 1 at its end). |
 | `HAlign` | HAlign specifies horizontal text alignment within a rectangle. |
-| `HorizontalAlignment` | HorizontalAlignment is how a TextParagraph's lines sit in its rectangle. |
 | `HTMLMode` | HTMLMode selects how SaveHTML / WriteHTML represents page text. |
 | `HTMLSaveOptions` | HTMLSaveOptions configures SaveHTML / WriteHTML. |
 | `HeadingRecognitionStrategy` | HeadingRecognitionStrategy selects how AutoTag finds headings. |
 | `HighlightAnnotation` | HighlightAnnotation marks a region with semi-transparent highlight color. |
+| `HorizontalAlignment` | HorizontalAlignment is how a TextParagraph's lines sit in its rectangle. |
 | `Image` | Image holds an extracted image with its encoded data and metadata. |
 | `ImageColorSpace` | ImageColorSpace describes the original color space of the image in the PDF. |
 | `ImageDescriptionCopilot` | ImageDescriptionCopilot describes images with a vision model. |
@@ -658,6 +661,7 @@ stays free of network code.
 | `Point` | Point is a single point in PDF user-space coordinates. |
 | `PolygonAnnotation` | PolygonAnnotation draws a closed polygon through a `[]pdf.Point` list of vertices, with a stroked border and optional interior fill. |
 | `PolylineAnnotation` | PolylineAnnotation draws an open polyline through a `[]pdf.Point` list of vertices, with a stroked border, optional line endings at the first and last vertex, and optional interior fill for closed endings. |
+| `Position` | Position is where a text fragment's (or segment's) baseline starts, in page space (points from the page's bottom-left corner); the zero value means unset. |
 | `PrinterMarkCornerPosition` | PrinterMarkCornerPosition is the page corner a trim or bleed mark belongs to. |
 | `PrinterMarkSidePosition` | PrinterMarkSidePosition is the page margin a registration mark is centred in. |
 | `PrinterMarksKind` | PrinterMarksKind selects the marks AddPrinterMarks adds; values combine with |. |
@@ -709,25 +713,21 @@ stays free of network code.
 | `TaggedContent` | TaggedContent is the facade for authoring a Tagged PDF (ISO 32000-1 §14.8): it owns the document's logical structure tree and sets the catalog marks PDF/UA requires. |
 | `TextAnnotation` | TextAnnotation is a sticky-note annotation. |
 | `TextBoxField` | TextBoxField is a single- or multi-line text input. |
+| `TextBuilder` | TextBuilder appends text fragments and paragraphs to a page. |
 | `TextExtractOptions` | TextExtractOptions configures ExtractText. |
 | `TextExtractionMode` | TextExtractionMode selects how ExtractText orders the extracted text. |
+| `TextFormattingOptions` | TextFormattingOptions holds how a TextParagraph lays out its text. |
 | `TextFragment` | TextFragment represents a contiguous run of text with uniform font. |
+| `TextFragmentAbsorber` | TextFragmentAbsorber finds text and returns it as TextFragments whose segments are runs of one font, size, colour and style. |
 | `TextIcon` | TextIcon names per ISO 32000-1 §12.5.6.4 Table 172, used in /Subtype /Text annotations' /Name entry. |
 | `TextLine` | TextLine represents a horizontal line of text fragments at a common Y position. |
 | `TextMatch` | TextMatch is a single occurrence located by SearchText. |
-| `AbsorbedTextParagraph` | AbsorbedTextParagraph is the text inside one rectangle of a page: its lines, each made of words, in reading order. |
 | `TextParagraph` | TextParagraph is a block of text laid out inside a rectangle: wrapped, aligned, optionally justified and indented. |
-| `TextBuilder` | TextBuilder appends text fragments and paragraphs to a page. |
-| `TextSegment` | TextSegment is a run of text with one TextState inside a TextFragment. |
-| `TextState` | TextState describes the look of a piece of text; zero fields are inherited from the enclosing level. |
-| `TextFormattingOptions` | TextFormattingOptions holds how a TextParagraph lays out its text. |
-| `TextFragmentAbsorber` | TextFragmentAbsorber finds text and returns it as TextFragments whose segments are runs of one font, size, colour and style. |
-| `WordWrapMode` | WordWrapMode says how a TextParagraph breaks its lines. |
-| `Position` | Position is an offset of a text fragment from its default place, in points. |
-| `FontStyle` | FontStyle is a bit set of font style flags. |
 | `TextParagraphAbsorber` | TextParagraphAbsorber finds the text inside rectangles of a page as AbsorbedTextParagraphs whose alignment can be changed. |
 | `TextRecognitionResult` | TextRecognitionResult is the recognized text of one processed page. |
+| `TextSegment` | TextSegment is a run of text with one TextState inside a TextFragment. |
 | `TextStamp` | TextStamp overlays a line (or wrapped block) of text. |
+| `TextState` | TextState describes the look of a piece of text; zero fields are inherited from the enclosing level. |
 | `TextStyle` | TextStyle defines reusable text formatting properties. |
 | `TiffDevice` | TiffDevice renders pages to TIFF. |
 | `TilingPattern` | TilingPattern is a repeating fill (PatternType 1, ISO 32000-1 §8.7.3.1): a small cell of content tiled across whatever shape it fills. |
@@ -737,10 +737,11 @@ stays free of network code.
 | `UnderlineAnnotation` | UnderlineAnnotation draws a horizontal line under text. |
 | `Usage` | Usage reports token counts when the provider returns them. |
 | `VAlign` | VAlign specifies vertical text alignment within a rectangle. |
-| `ValidationOptions` | ValidationOptions configures signature verification. |
 | `ValidationIssue` | ValidationIssue describes a single problem found in a PDF file. |
+| `ValidationOptions` | ValidationOptions configures signature verification. |
 | `ValidationReport` | ValidationReport is returned by Validate and summarises the structural integrity of a PDF. |
 | `WidgetAnnotation` | WidgetAnnotation is the read-only view of a form widget annotation surfaced through AnnotationCollection. |
+| `WordWrapMode` | WordWrapMode says how a TextParagraph breaks its lines. |
 | `XForm` | XForm is a reusable Form XObject (ISO 32000-1 §8.10) — an independent content stream (with its own resources) that can be placed on any number of pages and positions with a single Do invocation. Create one with `Document.CreateForm(w, h)` and draw into it via `Canvas()`, place it with `Page.AddForm(form, rect)`, list a page's existing forms with `Page.Forms()`, or copy one (with its whole resource graph) from another document with `Document.ImportForm`. |
 | `XMPMetadata` | XMPMetadata is the document's XMP packet modelled as common schema fields plus a list of arbitrary Custom properties. |
 | `XMPProperty` | XMPProperty is a single simple (string-valued) XMP property in an arbitrary namespace. |

@@ -22,7 +22,14 @@ import (
 // pages: Split, Extract, Append, NUp, Booklet, NewPdfPageStamp, ImportForm)
 // calls it first, so edits reach the output without calling it; call it to
 // read the page back before saving, and before rendering pages from several
-// goroutines (applying changes the document). Applying is idempotent. An
+// goroutines (applying changes the document). The operations that rewrite
+// page content (ReplaceText, ApplyRedactions, ConvertToGrayscale,
+// ConvertDeviceCMYKToRGB, FlattenTransparency, AutoTag, RemoveAllText,
+// MarkupParagraph.SetText, AbsorbedTextParagraph.SetHorizontalAlignment,
+// ImageInfo.Remove, ResizeContents, Sanitize, ConvertToPDFA, ConvertToPDFUA,
+// TableAbsorber.Remove and Replace) and TextFragmentAbsorber visits call it
+// first too. Applying is idempotent. Neither applying nor a visit may run
+// concurrently with other calls on the document. An
 // incremental signature (an already signed document, SignOptions.Incremental)
 // cannot carry pending edits: Save refuses then. Mirrors the effect of
 // setting TextFragment.Text or TextFragment.TextState in Aspose.PDF for .NET,
@@ -33,7 +40,8 @@ import (
 // by field to every segment. A changed fragment that cannot be edited (on a
 // rotated baseline, a match across pages, a line of a paragraph, text on a
 // form canvas, a page whose content was rewritten as a whole after the
-// fragment was found) makes the call fail, naming its page and text, before
+// fragment was found, text an earlier edit replaced, or text another changed
+// fragment covers too) makes the call fail, naming its page and text, before
 // any page changes; so does one whose old glyphs the content rewriter cannot
 // place (a font with unknown glyph positions on the page) or whose new text
 // no font covers: a font found on the page is replaced by the Standard-14

@@ -4,8 +4,13 @@ package asposepdf
 
 import "strings"
 
-// Position is an offset of a text fragment from its default place, in points.
-// Mirrors Aspose.PDF for .NET's Position.
+// Position is where a text fragment's (or segment's) baseline starts: an
+// absolute point on the page in user space, in points from the page's
+// bottom-left corner, not an offset. Mirrors Aspose.PDF for .NET's Position.
+//
+// The zero value means unset (the default place: the CropBox's top-left
+// corner less 72pt), so the page origin itself cannot be targeted; set a tiny
+// non-zero value, such as XIndent 0.001, to place text at (0, 0).
 type Position struct{ XIndent, YIndent float64 }
 
 // FontStyle is a bit set of font style flags. Mirrors Aspose.PDF for .NET's FontStyles.

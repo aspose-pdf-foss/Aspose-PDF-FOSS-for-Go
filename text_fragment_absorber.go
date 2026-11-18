@@ -159,12 +159,12 @@ func runeColorOf(f *TextFragment, li int) Color {
 }
 
 type runGroup struct {
-	a, b int
-	key  runKey
+	a, b  int
+	key   runKey
 	src   *TextFragment
 	color Color // the run's fill colour (its first rune's)
 	span  *lineSpan
-	text []rune
+	text  []rune
 }
 
 func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills map[int][]shadedRect) *TextFragment {
@@ -233,9 +233,13 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			// The run's visual left edge on its baseline, for either
 			// direction of text.
 			x := rect.LLX
+			// A negative Tf size (or Tz) mirrors the glyphs and reports a
+			// negative effective size; the state carries its magnitude,
+			// as a size to draw with must be positive, so a mirrored run
+			// is redrawn upright when edited.
 			st := TextState{
 				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName)},
-				FontSize:        math.Abs(g.src.FontSize), // a negative Tf size (or Tz) reports a negative effective size
+				FontSize:        math.Abs(g.src.FontSize),
 				ForegroundColor: copyColor(&g.color),
 				Rotation:        g.src.Rotation,
 			}

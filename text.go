@@ -126,16 +126,16 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 
 // textFragment is a contiguous run of text at a single position.
 type textFragment struct {
-	text        strings.Builder
-	x, y        float64   // device-space position of first rune
-	runeX       []float64 // device-space x at the start of each rune (len == rune count)
-	runeY       []float64 // device-space y at the start of each rune
+	text  strings.Builder
+	x, y  float64   // device-space position of first rune
+	runeX []float64 // device-space x at the start of each rune (len == rune count)
+	runeY []float64 // device-space y at the start of each rune
 	// runeColor is each rune's fill colour, nil while every rune has the
 	// fragment's (colorR/G/B): a colour change does not start a fragment
 	// (it would change line text), but the absorber splits segments by it.
-	runeColor []Color
-	endX        float64   // device-space x after last glyph advance
-	endY        float64   // device-space y after last glyph advance
+	runeColor   []Color
+	endX        float64 // device-space x after last glyph advance
+	endY        float64 // device-space y after last glyph advance
 	fontName    string
 	fontSize    float64 // effective font size (fontSize * textScaleX)
 	height      float64 // (ascent - descent) / 1000 * fontSize

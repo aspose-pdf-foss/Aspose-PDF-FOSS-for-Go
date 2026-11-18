@@ -51,7 +51,8 @@ type TextFragment struct {
 	TextState TextState
 	// Segments are the runs the fragment is made of.
 	Segments []*TextSegment
-	// Position is where the fragment's baseline starts, in page space.
+	// Position is where the fragment's baseline starts: an absolute point
+	// in page space (user space), not an offset. Zero means unset.
 	Position Position
 	bind     *fragmentBinding
 }

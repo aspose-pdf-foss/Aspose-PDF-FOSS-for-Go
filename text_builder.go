@@ -326,6 +326,12 @@ type resolvedSegment struct {
 // AppendText draws the fragment's segments one after another on a baseline
 // starting at the fragment's Position (the page's top-left margin when unset),
 // with no wrapping. Each segment inherits the fragment's TextState.
+//
+// The fragment is bound to the document so a later change to it can be
+// applied (ApplyTextChanges, or any save); bindings live as long as the
+// document does. AppendText is not atomic: every segment is measured before
+// drawing, but should drawing a segment fail (a link that cannot be added),
+// the segments before it stay on the page and the fragment is not bound.
 func (b *TextBuilder) AppendText(f *TextFragment) error {
 	if b == nil || b.page == nil {
 		return errors.New("text builder: nil page")
