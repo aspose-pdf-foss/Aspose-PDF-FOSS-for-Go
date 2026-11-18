@@ -76,10 +76,10 @@ type TextStyle struct {
 	// MissingGlyph is MissingGlyphReplace. Zero value (rune 0) means
 	// U+FFFD, the Unicode replacement character — the same substitution
 	// this library's own text extraction already uses for a character
-	// it can't map back from a glyph. If the font has no glyph for the
-	// replacement rune either, the call returns an error naming the
-	// replacement and the font; pick a replacement the font covers
-	// (Standard-14 fonts have no U+FFFD — use '?').
+	// it can't map back from a glyph — or '?' when the font has no U+FFFD
+	// (the Standard-14 fonts). If the font has no glyph for an explicitly
+	// set replacement rune, the call returns an error naming the
+	// replacement and the font.
 	ReplacementRune rune
 }
 

@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"os"
 	"reflect"
@@ -256,10 +257,9 @@ func TestIssue24ReplacementMustBeInFont(t *testing.T) {
 		path string
 		rep  rune
 	}{
-		{"fonts/Carlito-Regular.ttf", 0},
 		{"fonts/Carlito-Regular.ttf", '\u25a1'},
-		{"testdata/SourceSerif4-Regular.otf", 0},
-		{"", 0}, // Helvetica: U+FFFD is not in WinAnsi
+		{"testdata/SourceSerif4-Regular.otf", '\ufffd'},
+		{"", '\ufffd'}, // Helvetica: U+FFFD is not in WinAnsi
 	}
 	for _, c := range cases {
 		d := NewDocument(595, 842)
@@ -277,10 +277,7 @@ func TestIssue24ReplacementMustBeInFont(t *testing.T) {
 			t.Errorf("%s rep %U: want error, content:\n%s", c.path, c.rep, cs)
 			continue
 		}
-		want := "U+FFFD"
-		if c.rep != 0 {
-			want = "U+25A1"
-		}
+		want := fmt.Sprintf("%U", c.rep)
 		if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s: error %q does not name the replacement %s and the font %s", c.path, err, want, name)
 		}
@@ -289,6 +286,22 @@ func TestIssue24ReplacementMustBeInFont(t *testing.T) {
 		}
 		if err := p.AddTextAt("a\u4e2db", st, 50, 50); err == nil {
 			t.Errorf("%s: AddTextAt: want error", c.path)
+		}
+	}
+	// The default replacement falls back to '?' in a font without U+FFFD.
+	for _, path := range []string{"fonts/Carlito-Regular.ttf", ""} {
+		d := NewDocument(595, 842)
+		var f Font = FontHelvetica
+		if path != "" {
+			f = issue24Font(t, d, path)
+		}
+		p, _ := d.Page(1)
+		st := TextStyle{Font: f, Size: 10, MissingGlyph: MissingGlyphReplace}
+		if err := p.AddText("a中b", st, Rectangle{LLX: 50, LLY: 600, URX: 550, URY: 800}); err != nil {
+			t.Errorf("%q default replacement: %v", path, err)
+		}
+		if txt, _ := p.ExtractText(); !strings.Contains(txt, "a?b") {
+			t.Errorf("%q default replacement: extracted %q, want a?b", path, txt)
 		}
 	}
 	// A replacement the font has still works.

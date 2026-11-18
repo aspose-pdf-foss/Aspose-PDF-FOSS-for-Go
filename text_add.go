@@ -73,7 +73,8 @@ func fontHasGlyph(font Font, r rune) bool {
 // which draw nothing by design, not because they're missing) for one
 // font has no glyph for: MissingGlyphError names the first such
 // character and returns an error instead of the text; MissingGlyphReplace
-// substitutes style.ReplacementRune (U+FFFD when zero) for each one and
+// substitutes style.ReplacementRune (when zero: U+FFFD, or '?' for a font
+// without U+FFFD) for each one and
 // returns the modified text to draw/measure instead of the original, or an
 // error naming the replacement and the font when the font has no glyph for
 // the replacement either (GitHub issue #24 point 3b: it drew .notdef).
@@ -98,7 +99,12 @@ func applyMissingGlyphPolicy(font Font, text string, style TextStyle, wraps bool
 		}
 		rep := style.ReplacementRune
 		if rep == 0 {
+			// The default is U+FFFD, else '?' for a font without it (the
+			// Standard-14 faces), so the default policy works with any font.
 			rep = '�'
+			if !fontHasGlyph(font, rep) {
+				rep = '?'
+			}
 		}
 		if !repChecked {
 			if !fontHasGlyph(font, rep) {
