@@ -224,7 +224,6 @@ func TestApplyRotatedRefused(t *testing.T) {
 		!strings.Contains(err.Error(), "rotated") {
 		t.Fatalf("err %v", err)
 	}
-	tilt.TextState.FontSize = 0
 	tilt.TextState = copyState(tilt.bind.snap.state)
 	if !bytes.Equal(writeBytes(t, d), before) {
 		t.Fatal("refused edit changed the page")
@@ -636,5 +635,171 @@ func TestRemoveTextBackgroundsNested(t *testing.T) {
 	}
 	if len(ops) != 2 || ops[0].Operator != "re" || ops[1].Operator != "f" {
 		t.Fatalf("ops %+v", ops)
+	}
+}
+
+// A form the caller still holds survives an edit of its only placement, nested
+// forms included: placing it again draws its original text.
+func TestApplyKeepsLiveForms(t *testing.T) {
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	inner := d.CreateForm(200, 40)
+	if err := inner.Canvas().AddText("Shared caption", TextStyle{Font: FontHelvetica, Size: 12},
+		Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 40}); err != nil {
+		t.Fatal(err)
+	}
+	outer := d.CreateForm(200, 40)
+	if err := outer.Canvas().AddForm(inner, Rectangle{LLX: 0, LLY: 0, URX: 200, URY: 40}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddForm(outer, Rectangle{LLX: 100, LLY: 600, URX: 300, URY: 640}); err != nil {
+		t.Fatal(err)
+	}
+	absorbOne(t, d, "Shared").Text = "Edited"
+	if err := d.ApplyTextChanges(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddForm(outer, Rectangle{LLX: 100, LLY: 300, URX: 300, URY: 340}); err != nil {
+		t.Fatal(err)
+	}
+	r := openBytes(t, writeBytes(t, d))
+	txt, err := mustPage(t, r).ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(txt, "Edited caption") || !strings.Contains(txt, "Shared caption") {
+		t.Fatalf("text %q", txt)
+	}
+}
+
+// A failure after planning (here while drawing) also takes out the fallback
+// font planning loaded: the document is as it was.
+func TestApplyRollbackDropsPlanningFont(t *testing.T) {
+	AddFontFile("testdata/DejaVuSans.ttf")
+	defer ClearFontSources()
+	src := dejaVuDoc(t, "Hello world")
+	d := openBytes(t, src)
+	before := writeBytes(t, openBytes(t, src))
+	fonts, next := len(d.embeddedFonts), d.nextID
+	absorbOne(t, d, "Hello").Text = "Привет" // needs DejaVu found by name
+	b := absorbOne(t, d, "world")
+	seg := NewTextSegment("x")
+	seg.TextState.Rotation = 30 // rotated multi-segment: drawing fails
+	b.Segments = append(b.Segments, seg)
+	if err := d.ApplyTextChanges(); err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(d.embeddedFonts) != fonts || d.nextID != next {
+		t.Fatalf("fonts %d->%d next %d->%d", fonts, len(d.embeddedFonts), next, d.nextID)
+	}
+	absorbed := d.boundFragments
+	for _, f := range absorbed {
+		f.Text = f.bind.snap.text
+		f.Segments = f.Segments[:len(f.bind.snap.segments)]
+	}
+	if !bytes.Equal(writeBytes(t, d), before) {
+		t.Fatal("failed apply left changes")
+	}
+}
+
+// A background section with no EMC is an error, never a cut stream.
+func TestRemoveTextBackgroundsUnterminated(t *testing.T) {
+	data := []byte("/AsposeTextBackground <</N 3>> BDC q 0 0 1 1 re f Q BT /F1 12 Tf (x) Tj ET")
+	if _, err := removeTextBackgrounds(data, map[int]bool{3: true}); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+// backgroundDoc draws "boxed" over a yellow box: as a text background (marked
+// section) or as a plain rectangle.
+func backgroundDoc(t *testing.T, marked bool) *Document {
+	t.Helper()
+	d := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d)
+	f := NewTextFragment("boxed")
+	f.Position = Position{XIndent: 100, YIndent: 600}
+	f.TextState = TextState{Font: FontHelvetica, FontSize: 12}
+	if marked {
+		f.TextState.BackgroundColor = &Color{1, 1, 0, 1}
+	}
+	if err := NewTextBuilder(p).AppendText(f); err != nil {
+		t.Fatal(err)
+	}
+	if !marked {
+		if err := p.prependToContentStream([]byte("q 1 1 0 rg " + rectOps(f.Segments[0].Rectangle) + " f Q\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return openBytes(t, writeBytes(t, d))
+}
+
+func rectOps(r Rectangle) string {
+	return formatFloat(r.LLX) + " " + formatFloat(r.LLY) + " " + formatFloat(r.URX-r.LLX) + " " + formatFloat(r.URY-r.LLY) + " re"
+}
+
+// The background marker costs no conformance: the PDF/UA and PDF/A reports
+// of a document with it equal those of one with a plain box.
+func TestTextBackgroundMarkerConformance(t *testing.T) {
+	rules := func(marked bool) (ua, pa []string) {
+		d := backgroundDoc(t, marked)
+		if !marked {
+			if pageOps(t, d, "BDC") != 0 {
+				t.Fatal("plain fixture has a section")
+			}
+		} else if pageOps(t, d, "BDC") != 1 {
+			t.Fatal("marked fixture has no section")
+		}
+		if _, err := d.AutoTag(AutoTaggingSettings{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.ConvertToPDFUA(); err != nil {
+			t.Fatal(err)
+		}
+		for _, i := range d.ValidatePDFUA().Issues {
+			ua = append(ua, i.Rule)
+		}
+		e := backgroundDoc(t, marked)
+		if _, err := e.ConvertToPDFA(PDFA2B); err != nil {
+			t.Fatal(err)
+		}
+		for _, i := range e.ValidatePDFA(PDFA2B).Issues {
+			pa = append(pa, i.Rule)
+		}
+		return ua, pa
+	}
+	ua0, pa0 := rules(false)
+	ua1, pa1 := rules(true)
+	if strings.Join(ua0, ",") != strings.Join(ua1, ",") || strings.Join(pa0, ",") != strings.Join(pa1, ",") {
+		t.Fatalf("PDF/UA %v vs %v, PDF/A %v vs %v", ua0, ua1, pa0, pa1)
+	}
+	if len(pa1) != 0 {
+		t.Fatalf("PDF/A-2b issues %v", pa1)
+	}
+	t.Logf("PDF/UA issues (both) %v", ua1)
+}
+
+// A form handle from Page.Forms keeps the forms nested in it, which no handle
+// names, through an edit of its only placement.
+func TestApplyKeepsNestedFormsOfLiveForm(t *testing.T) {
+	d := openBytes(t, nestedFormDoc(t, 1))
+	p := mustPage(t, d)
+	forms := p.Forms()
+	if len(forms) != 1 {
+		t.Fatalf("forms %d", len(forms))
+	}
+	absorbOne(t, d, "Shared").Text = "Edited"
+	if err := d.ApplyTextChanges(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddForm(forms[0], Rectangle{LLX: 100, LLY: 200, URX: 300, URY: 240}); err != nil {
+		t.Fatal(err)
+	}
+	r := openBytes(t, writeBytes(t, d))
+	txt, err := mustPage(t, r).ExtractText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(txt, "Edited caption") || !strings.Contains(txt, "Shared caption") {
+		t.Fatalf("text %q", txt)
 	}
 }

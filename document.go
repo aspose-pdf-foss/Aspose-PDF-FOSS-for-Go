@@ -78,6 +78,9 @@ type Document struct {
 	// textBgNext is, per page (or form canvas) dictionary, the next id for
 	// the marked-content section of a background a TextBuilder draws.
 	textBgNext map[*pdfObject]int
+	// liveForms are the XForm handles given out (CreateForm, Page.Forms,
+	// ImportForm): their forms survive the cleanup after a text edit.
+	liveForms map[*XForm]struct{}
 
 	// signaturesRewritten marks a signed document a conversion has changed: the
 	// next save rewrites the file, which its signatures do not cover.

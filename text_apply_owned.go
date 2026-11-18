@@ -102,6 +102,9 @@ func removeTextBackgrounds(data []byte, ids map[int]bool) ([]byte, error) {
 		}
 		out = append(out, op)
 	}
+	if depth > 0 {
+		return nil, fmt.Errorf("text background section without its EMC")
+	}
 	return serializeContentOps(out), nil
 }
 

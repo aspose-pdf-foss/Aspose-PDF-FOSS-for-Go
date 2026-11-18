@@ -30,11 +30,43 @@ func (d *Document) CreateForm(width, height float64) *XForm {
 		"/MediaBox":  pdfArray{0.0, 0.0, width, height},
 		"/Resources": pdfDict{},
 	}
-	return &XForm{
+	return d.trackForm(&XForm{
 		doc:    d,
 		canvas: &Page{doc: d, obj: &pdfObject{Value: canvasDict}},
 		bbox:   Rectangle{URX: width, URY: height},
+	})
+}
+
+// trackForm records x as held by the caller: an edit never deletes a form a
+// live handle can place again (ApplyTextChanges' cleanup of forms it cloned).
+func (d *Document) trackForm(x *XForm) *XForm {
+	if d.liveForms == nil {
+		d.liveForms = map[*XForm]struct{}{}
 	}
+	d.liveForms[x] = struct{}{}
+	return x
+}
+
+// liveFormGraph returns the objects of every form a live handle names, with
+// everything their resources reach (nested forms, images).
+func (d *Document) liveFormGraph() map[int]bool {
+	keep := map[int]bool{}
+	for x := range d.liveForms {
+		if x.formID == 0 {
+			continue
+		}
+		keep[x.formID] = true
+		if o, ok := d.objects[x.formID]; ok {
+			if s, ok := o.Value.(*pdfStream); ok {
+				if res, ok := resolveRefToDict(d.objects, s.Dict["/Resources"]); ok {
+					for _, id := range formGraphRefs(d.objects, res) {
+						keep[id] = true
+					}
+				}
+			}
+		}
+	}
+	return keep
 }
 
 // Canvas returns the drawing surface for the form. Use the full *Page drawing
@@ -97,7 +129,7 @@ func (p *Page) Forms() []*XForm {
 			continue
 		}
 		seen[ref.Num] = true
-		out = append(out, &XForm{doc: p.doc, formID: ref.Num, bbox: bboxFromForm(p.doc, st)})
+		out = append(out, p.doc.trackForm(&XForm{doc: p.doc, formID: ref.Num, bbox: bboxFromForm(p.doc, st)}))
 	}
 	return out
 }
@@ -127,7 +159,7 @@ func (d *Document) ImportForm(form *XForm) (*XForm, error) {
 	if !ok {
 		return nil, fmt.Errorf("ImportForm: failed to import the form object")
 	}
-	return &XForm{doc: d, formID: ref.Num, bbox: form.bbox}, nil
+	return d.trackForm(&XForm{doc: d, formID: ref.Num, bbox: form.bbox}), nil
 }
 
 // bboxFromForm reads a Form XObject's /BBox as a Rectangle (zero if missing).

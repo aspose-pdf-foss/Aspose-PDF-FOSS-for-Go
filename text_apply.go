@@ -115,6 +115,8 @@ func (d *Document) ApplyTextChanges() error {
 	}
 
 	tx := d.beginTextEdit(order)
+	// A rollback also takes out what planning loaded (a fallback font).
+	tx.nextID, tx.fonts = planNext, planFonts
 	var old []int
 	for _, idx := range order {
 		p, err := d.Page(idx + 1)
@@ -166,7 +168,15 @@ func (d *Document) ApplyTextChanges() error {
 			}
 		}
 	}
-	d.dropUnreachable(old)
+	// A form a live XForm handle names may be placed again: never deleted.
+	keep := d.liveFormGraph()
+	kept := old[:0]
+	for _, id := range old {
+		if !keep[id] {
+			kept = append(kept, id)
+		}
+	}
+	d.dropUnreachable(kept)
 	return nil
 }
 
@@ -202,6 +212,7 @@ func checkTextRemovable(p *Page, regions []QuadPoint) error {
 type textEditTx struct {
 	d      *Document
 	nextID int
+	fonts  int // len(d.embeddedFonts) to restore
 	pages  []savedPageKeys
 }
 
@@ -216,7 +227,7 @@ type savedPageKeys struct {
 var textEditPageKeys = []string{"/Contents", "/Resources", "/Annots"}
 
 func (d *Document) beginTextEdit(pages []int) *textEditTx {
-	tx := &textEditTx{d: d, nextID: d.nextID}
+	tx := &textEditTx{d: d, nextID: d.nextID, fonts: len(d.embeddedFonts)}
 	for _, idx := range pages {
 		o := d.pages[idx]
 		pd, ok := o.Value.(pdfDict)
@@ -253,6 +264,7 @@ func (tx *textEditTx) rollback() {
 		}
 	}
 	tx.d.nextID = tx.nextID
+	tx.d.embeddedFonts = tx.d.embeddedFonts[:tx.fonts]
 	for _, p := range tx.d.pageCache {
 		if p != nil {
 			p.contentsBounded = false
