@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 )
@@ -299,7 +300,9 @@ func (r *fontRepository) ensureSystemIndexed() {
 		})
 	}
 	for _, p := range files {
-		for i, f := range r.loadAll(p) {
+		_, cached := r.parsed[p]
+		fonts := r.loadAll(p)
+		for i, f := range fonts {
 			ref := fontRef{path: p, index: i}
 			if ps := strings.ToLower(f.postScriptName); ps != "" {
 				if _, exists := r.sysByName[ps]; !exists {
@@ -330,8 +333,19 @@ func (r *fontRepository) ensureSystemIndexed() {
 				}
 			}
 		}
+		// The index needs the faces' names and styles, not their outlines and
+		// character maps: drop what this pass parsed, so the installed fonts are
+		// not kept in memory for the life of the process (GitHub #21). A face a
+		// document draws with is parsed again by load and cached from then on.
+		// A file that is not a font keeps its empty entry, so it is not re-read,
+		// and a file parsed before this pass stays as it was.
+		if !cached && len(fonts) > 0 {
+			delete(r.parsed, p)
+		}
 	}
 	r.sysIndexed = true
+	// Indexing read every installed font file; hand that memory back.
+	debug.FreeOSMemory()
 }
 
 // cjkOrderingFamilies returns well-known installed font families covering an
@@ -508,7 +522,10 @@ func styleKey(bold, italic bool, name string) string {
 }
 
 // systemFontDirs returns the OS font directories for the current platform.
-func systemFontDirs() []string {
+// A variable so tests can point it at a folder of their own.
+var systemFontDirs = defaultSystemFontDirs
+
+func defaultSystemFontDirs() []string {
 	switch runtime.GOOS {
 	case "windows":
 		var dirs []string

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // documentFileID returns the two /ID elements for a fresh (non-incremental)
@@ -447,9 +448,11 @@ func writeValue(buf *bytes.Buffer, v pdfValue, remapFn func(int) int, encFn func
 		data := val.Data
 		if val.Decoded {
 			var zbuf bytes.Buffer
-			w := zlib.NewWriter(&zbuf)
+			w := zlibWriterPool.Get().(*zlib.Writer)
+			w.Reset(&zbuf)
 			_, _ = w.Write(data) // in-memory buffer: cannot fail
 			_ = w.Close()
+			zlibWriterPool.Put(w)
 			data = zbuf.Bytes()
 			d["/Filter"] = pdfName("/FlateDecode")
 		}
@@ -601,3 +604,9 @@ func buildEncryptDict(s *encryptState) pdfDict {
 	}
 	return dict
 }
+
+// zlibWriterPool reuses deflate state between streams: creating a writer
+// allocates about a megabyte of compressor state, which dominated WriteTo for
+// documents of many small content streams (GitHub #22). Reset puts a writer in
+// the state of a new one, so the output is byte for byte the same.
+var zlibWriterPool = sync.Pool{New: func() any { return zlib.NewWriter(nil) }}
