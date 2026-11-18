@@ -235,6 +235,10 @@ func (tp *AbsorbedTextParagraph) SetHorizontalAlignment(a HorizontalAlignment) e
 	if tp.page == nil {
 		return fmt.Errorf("set horizontal alignment: the paragraph was not found by a TextParagraphAbsorber")
 	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := tp.page.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	tp.align = a
 	if a == HorizontalAlignmentNone {
 		return nil

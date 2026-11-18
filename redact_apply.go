@@ -289,6 +289,10 @@ func collectRedactRegions(p *Page) []QuadPoint {
 // Best-effort semantics: partial state on failure. Call
 // ValidateRedactions first to surface problems before mutating.
 func (d *Document) ApplyRedactions() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	redacted := 0
 	for _, page := range d.Pages() {
 		if !pageHasRedact(page) {

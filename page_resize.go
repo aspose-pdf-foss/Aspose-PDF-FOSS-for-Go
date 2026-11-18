@@ -113,6 +113,10 @@ func ResizeMarginsPercent(left, right, top, bottom float64) ContentsResizeParame
 // its content. Every page is checked before any is changed. Mirrors Aspose.PDF
 // for .NET's PdfFileEditor.ResizeContents.
 func (d *Document) ResizeContents(params ContentsResizeParameters, pageNums ...int) error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if len(pageNums) == 0 {
 		for i := range d.pages {
 			pageNums = append(pageNums, i+1)
@@ -150,6 +154,10 @@ func (d *Document) ResizeContents(params ContentsResizeParameters, pageNums ...i
 
 // ResizeContents rescales this page; see Document.ResizeContents.
 func (p *Page) ResizeContents(params ContentsResizeParameters) error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := p.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	rp, err := p.planResize(params)
 	if err != nil {
 		return fmt.Errorf("ResizeContents: %w", err)

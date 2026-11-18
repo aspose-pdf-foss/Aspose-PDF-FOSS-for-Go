@@ -101,6 +101,10 @@ var ErrAlreadyTagged = errors.New("asposepdf: document is already tagged")
 // auto-tagging Aspose.PDF for .NET applies through
 // PdfFormatConversionOptions.AutoTaggingSettings.
 func (d *Document) AutoTag(s AutoTaggingSettings) (*AutoTagResult, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return nil, err
+	}
 	if d.tagged != nil {
 		return nil, ErrAlreadyTagged
 	}

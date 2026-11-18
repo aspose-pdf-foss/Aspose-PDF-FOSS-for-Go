@@ -21,6 +21,10 @@ func (ta *TableAbsorber) Remove(t *AbsorbedTable) error {
 	if t == nil || t.page == nil {
 		return fmt.Errorf("remove table: not a table this absorber found")
 	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := t.page.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if err := removeTableContent(t); err != nil {
 		return err
 	}
@@ -34,6 +38,10 @@ func (ta *TableAbsorber) Remove(t *AbsorbedTable) error {
 func (ta *TableAbsorber) Replace(page *Page, t *AbsorbedTable, table *Table) error {
 	if t == nil || t.page == nil {
 		return fmt.Errorf("replace table: not a table this absorber found")
+	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := t.page.doc.ApplyTextChanges(); err != nil {
+		return err
 	}
 	if page == nil || table == nil {
 		return fmt.Errorf("replace table: nil page or table")

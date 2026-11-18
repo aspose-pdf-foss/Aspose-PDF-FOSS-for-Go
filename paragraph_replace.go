@@ -25,6 +25,10 @@ func (mp *MarkupParagraph) SetText(text string) error {
 	if mp.page == nil {
 		return fmt.Errorf("set paragraph text: not a paragraph Paragraphs found")
 	}
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := mp.page.doc.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if len(mp.Continuations) > 0 {
 		return fmt.Errorf("set paragraph text: the paragraph continues in another column or page; set the text of each part found without MulticolumnParagraphs")
 	}

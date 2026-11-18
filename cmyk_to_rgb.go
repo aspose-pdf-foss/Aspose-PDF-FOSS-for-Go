@@ -34,6 +34,10 @@ import (
 // A document whose output intent is CMYK needs none of this and would stop
 // conforming, so it is refused with an error.
 func (d *Document) ConvertDeviceCMYKToRGB() error {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return err
+	}
 	if d.outputIntentComponents() == 4 {
 		return errors.New("ConvertDeviceCMYKToRGB: the output intent is CMYK, which covers DeviceCMYK and not DeviceRGB")
 	}

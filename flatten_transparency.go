@@ -57,6 +57,10 @@ type FlattenTransparencyOptions struct {
 // TRANSPARENCY check, which scans every object rather than only reachable
 // ones, would still trip on them.
 func (d *Document) FlattenTransparency(opts ...FlattenTransparencyOptions) (int, error) {
+	// Pending text edits are drawn first: this rewrites page content.
+	if err := d.ApplyTextChanges(); err != nil {
+		return 0, err
+	}
 	pages, err := d.flattenTransparencyPages(opts...)
 	return len(pages), err
 }
