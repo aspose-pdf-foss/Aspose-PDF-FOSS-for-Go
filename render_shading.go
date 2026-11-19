@@ -171,11 +171,61 @@ func (f *fnConst) eval([]float64) []float64 { return f.c }
 // parseFunction builds a pdfFunc from a function dict/stream or an array of
 // functions. Unsupported types fall back to a constant colour.
 func parseFunction(objects map[int]*pdfObject, v pdfValue) pdfFunc {
-	v = resolveRef(objects, v)
+	p := &fnParser{objects: objects, done: map[int]pdfFunc{}, active: map[int]bool{}}
+	return p.parse(v, true)
+}
+
+// maxFunctionDepth bounds stitching functions nested in one another.
+const maxFunctionDepth = 32
+
+// fnParser parses one function tree. A function object reached again is the
+// one already parsed: a stitching function whose /Functions name the same
+// object several times, level after level, would otherwise be parsed once per
+// path, which grows exponentially with the depth. One that refers back to
+// itself, or nests deeper than maxFunctionDepth, is a constant.
+type fnParser struct {
+	objects map[int]*pdfObject
+	done    map[int]pdfFunc
+	active  map[int]bool
+	depth   int
+}
+
+func (p *fnParser) parse(v pdfValue, top bool) pdfFunc {
+	if r, ok := v.(pdfRef); ok {
+		if fn, ok := p.done[r.Num]; ok {
+			return fn
+		}
+		if p.active[r.Num] || p.depth >= maxFunctionDepth {
+			return &fnConst{c: []float64{0.5}}
+		}
+		p.active[r.Num] = true
+		p.depth++
+		fn := p.parseValue(resolveRef(p.objects, v), top)
+		p.depth--
+		delete(p.active, r.Num)
+		p.done[r.Num] = fn
+		return fn
+	}
+	if p.depth >= maxFunctionDepth {
+		return &fnConst{c: []float64{0.5}}
+	}
+	p.depth++
+	defer func() { p.depth-- }()
+	return p.parseValue(v, top)
+}
+
+func (p *fnParser) parseValue(v pdfValue, top bool) pdfFunc {
+	objects := p.objects
 	if arr, ok := v.(pdfArray); ok {
+		// An array of functions is only meaningful as a whole /Function
+		// value (ISO 32000-1 §8.7.4.5.2): its outputs are concatenated, so
+		// arrays nested in arrays would multiply them.
+		if !top {
+			return &fnConst{c: []float64{0.5}}
+		}
 		fns := make([]pdfFunc, 0, len(arr))
 		for _, e := range arr {
-			if fn := parseFunction(objects, e); fn != nil {
+			if fn := p.parse(e, false); fn != nil {
 				fns = append(fns, fn)
 			}
 		}
@@ -211,7 +261,7 @@ func parseFunction(objects map[int]*pdfObject, v pdfValue) pdfFunc {
 		var fns []pdfFunc
 		if arr, ok := resolveRefToArray(objects, d["/Functions"]); ok {
 			for _, e := range arr {
-				fns = append(fns, parseFunction(objects, e))
+				fns = append(fns, p.parse(e, false))
 			}
 		}
 		if len(fns) == 0 {

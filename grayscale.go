@@ -24,7 +24,7 @@ func (d *Document) ConvertToGrayscale() error {
 	if err := d.ApplyTextChanges(); err != nil {
 		return err
 	}
-	cv := &grayConverter{doc: d, visited: map[int]bool{}, streams: map[*pdfStream]bool{}}
+	cv := &grayConverter{doc: d, visited: map[int]bool{}, streams: map[*pdfStream]bool{}, convertible: map[int]bool{}, converted: map[int]bool{}}
 	for i := range d.pages {
 		page, err := d.Page(i + 1)
 		if err != nil {
@@ -41,6 +41,13 @@ type grayConverter struct {
 	doc     *Document
 	visited map[int]bool        // colorspace/shading/pattern objects already done
 	streams map[*pdfStream]bool // content/image streams already done
+	// Function objects already judged and already converted. A stitching
+	// function names its sub-functions by reference, and a crafted one names
+	// the same object many times, level after level: walked once per path, it
+	// costs exponentially more than it holds (and one naming itself never
+	// ends). A function shared by two shadings is converted once.
+	convertible map[int]bool
+	converted   map[int]bool
 }
 
 func rgbToGray(r, g, b float64) float64 { return 0.3*r + 0.59*g + 0.11*b }
@@ -381,19 +388,31 @@ func (cv *grayConverter) appearanceStreams(ap pdfValue) {
 	if !ok {
 		return
 	}
-	var walk func(v pdfValue)
-	walk = func(v pdfValue) {
+	// An appearance dictionary nests state dictionaries one level; a damaged
+	// or crafted one can name itself, or the same dictionary many times.
+	seen := map[int]bool{}
+	var walk func(v pdfValue, depth int)
+	walk = func(v pdfValue, depth int) {
+		if r, ok := v.(pdfRef); ok {
+			if seen[r.Num] {
+				return
+			}
+			seen[r.Num] = true
+		}
 		switch t := resolveRef(cv.doc.objects, v).(type) {
 		case *pdfStream:
 			cv.formXObject(t)
 		case pdfDict:
+			if depth >= 2 {
+				return
+			}
 			for _, sub := range t {
-				walk(sub)
+				walk(sub, depth+1)
 			}
 		}
 	}
 	for _, v := range apDict {
-		walk(v)
+		walk(v, 0)
 	}
 }
 
@@ -504,7 +523,21 @@ func (cv *grayConverter) functionDict(v pdfValue) pdfDict {
 // functionConvertible reports whether a function is a type 2/3 (and, for 3, all
 // of its sub-functions) so its output can be greyed.
 func (cv *grayConverter) functionConvertible(v pdfValue) bool {
-	d := cv.functionDict(v)
+	r, isRef := v.(pdfRef)
+	if isRef {
+		if ok, seen := cv.convertible[r.Num]; seen {
+			return ok // false while it is being judged: it names itself
+		}
+		cv.convertible[r.Num] = false
+	}
+	ok := cv.functionConvertibleDict(cv.functionDict(v))
+	if isRef {
+		cv.convertible[r.Num] = ok
+	}
+	return ok
+}
+
+func (cv *grayConverter) functionConvertibleDict(d pdfDict) bool {
 	if d == nil {
 		return false
 	}
@@ -523,6 +556,12 @@ func (cv *grayConverter) functionConvertible(v pdfValue) bool {
 }
 
 func (cv *grayConverter) convertFunction(v pdfValue, kind csKind) {
+	if r, ok := v.(pdfRef); ok {
+		if cv.converted[r.Num] {
+			return
+		}
+		cv.converted[r.Num] = true
+	}
 	d := cv.functionDict(v)
 	if d == nil {
 		return

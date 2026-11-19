@@ -43,7 +43,7 @@ func (f *fnPostScript) eval(in []float64) []float64 {
 
 // execPS runs a program against the stack and returns the new stack.
 func execPS(prog []psItem, st []float64, depth int) []float64 {
-	if depth > 64 {
+	if depth > maxPSDepth {
 		return st
 	}
 	pop := func() float64 {
@@ -188,8 +188,11 @@ func applyPSOp(op string, st []float64) []float64 {
 		push(a)
 		push(b)
 	case "copy":
+		// Each copy can double the stack: a dozen of them in a short program
+		// would ask for gigabytes. A Type 4 function's stack holds 100
+		// operands (ISO 32000-1 Annex C); this stays well above that.
 		n := int(pop())
-		if n > 0 && n <= len(st) {
+		if n > 0 && n <= len(st) && len(st)+n <= maxPSStack {
 			st = append(st, st[len(st)-n:]...)
 		}
 	case "index":
@@ -262,19 +265,39 @@ func parsePSProgram(data []byte) []psItem {
 	if i >= len(toks) {
 		return nil
 	}
-	prog, _ := parsePSBlock(toks, i+1)
+	prog, _ := parsePSBlock(toks, i+1, 0)
 	return prog
 }
 
-func parsePSBlock(toks []string, pos int) ([]psItem, int) {
+// maxPSDepth bounds procedures nested in one another, which execPS stops
+// running beyond too. Deeper ones are skipped while parsing rather than
+// recursed into: a program of nothing but opening braces would otherwise
+// recurse once per brace, and a compressed stream holds millions of them.
+const maxPSDepth = 64
+
+// maxPSStack bounds the operand stack that copy can grow.
+const maxPSStack = 1000
+
+func parsePSBlock(toks []string, pos, depth int) ([]psItem, int) {
 	var out []psItem
 	for pos < len(toks) {
 		t := toks[pos]
 		switch {
 		case t == "}":
 			return out, pos + 1
+		case t == "{" && depth >= maxPSDepth:
+			open := 1
+			for pos++; pos < len(toks) && open > 0; pos++ {
+				switch toks[pos] {
+				case "{":
+					open++
+				case "}":
+					open--
+				}
+			}
+			out = append(out, []psItem{})
 		case t == "{":
-			sub, np := parsePSBlock(toks, pos+1)
+			sub, np := parsePSBlock(toks, pos+1, depth+1)
 			out = append(out, sub)
 			pos = np
 		default:

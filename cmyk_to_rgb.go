@@ -61,6 +61,12 @@ type cmykConverter struct {
 	d       *Document
 	done    map[*pdfStream]bool
 	sampled map[[2]int]pdfRef // function object and inputs -> its RGB form
+	// Function objects already judged by functionKnown, and appearance
+	// dictionaries already followed. Both are reached by reference, and a
+	// crafted file names one object many times, level after level: followed
+	// once per path, that costs exponentially more than the file holds.
+	known  map[int]bool
+	apSeen map[int]bool
 }
 
 // cmykKind says how sc/scn operands relate to the current colour space.
@@ -224,6 +230,15 @@ func (cv *cmykConverter) contentIDs(v pdfValue) []int {
 func (cv *cmykConverter) appearance(v pdfValue, depth int) {
 	if depth > 2 {
 		return
+	}
+	if r, ok := v.(pdfRef); ok {
+		if cv.apSeen == nil {
+			cv.apSeen = map[int]bool{}
+		}
+		if cv.apSeen[r.Num] {
+			return
+		}
+		cv.apSeen[r.Num] = true
 	}
 	switch t := resolveRef(cv.d.objects, v).(type) {
 	case *pdfStream:
@@ -524,10 +539,27 @@ func sampledGrid(inputs int) int {
 // functionKnown reports whether parseFunction evaluates this function rather than
 // falling back to a constant.
 func (cv *cmykConverter) functionKnown(v pdfValue, depth int) bool {
-	objects := cv.d.objects
 	if depth > maxColorSpaceDepth {
 		return false
 	}
+	r, isRef := v.(pdfRef)
+	if !isRef {
+		return cv.functionKnownValue(v, depth)
+	}
+	if cv.known == nil {
+		cv.known = map[int]bool{}
+	}
+	if known, seen := cv.known[r.Num]; seen {
+		return known
+	}
+	cv.known[r.Num] = false // while it is judged: one naming itself is not known
+	known := cv.functionKnownValue(v, depth)
+	cv.known[r.Num] = known
+	return known
+}
+
+func (cv *cmykConverter) functionKnownValue(v pdfValue, depth int) bool {
+	objects := cv.d.objects
 	if arr, ok := resolveRef(objects, v).(pdfArray); ok {
 		for _, e := range arr {
 			if !cv.functionKnown(e, depth+1) {
