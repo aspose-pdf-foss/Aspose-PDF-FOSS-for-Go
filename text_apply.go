@@ -35,6 +35,8 @@ import (
 // setting TextFragment.Text or TextFragment.TextState in Aspose.PDF for .NET,
 // which changes the page at once.
 //
+// A segment whose Position changed is drawn at its new place (a drawn
+// fragment is redrawn whole, so the segments following on from it move too).
 // Setting Text on a found fragment replaces its segments with one in the
 // first segment's state; a change to the fragment's TextState applies field
 // by field to every segment. A changed fragment that cannot be edited (on a
@@ -347,6 +349,7 @@ type textEditPlan struct {
 	// redrawn, each from its own one-segment fragment.
 	whole bool
 	tmp   *TextFragment
+	place []Position // where tmp's segments given a position go
 	segs  []int
 	one   []*TextFragment
 
@@ -391,12 +394,18 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 				whole = true
 				break
 			}
+			// A moved segment of a drawn fragment moves the segments
+			// following on from it too: the whole fragment is redrawn.
+			if !found && cur.segments[i].pos != snap.segments[i].pos {
+				whole = true
+				break
+			}
 		}
 	}
 	var changedSegs []int
 	if !whole {
 		for i := range cur.segments {
-			if !sameState(cur.segments[i].state, snap.segments[i].state) {
+			if !sameState(cur.segments[i].state, snap.segments[i].state) || cur.segments[i].pos != snap.segments[i].pos {
 				changedSegs = append(changedSegs, i)
 			}
 		}
@@ -468,10 +477,20 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 				tmp.Segments = append(tmp.Segments, &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink})
 			}
 		}
+		// Segments given a position of their own are drawn there; the
+		// first one's starts the fragment unless its Position changed.
+		place := f.explicitPositions()
+		if len(tmp.Segments) != len(place) {
+			place = place[:min(len(place), 1)]
+		}
+		if len(place) > 0 && place[0] != (Position{}) && f.Position == snap.position {
+			tmp.Position = place[0]
+		}
+		pl.place = place
 		if err := d.prepareDrawing(tmp, found, fonts); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
-		if found && f.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
+		if found && tmp.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
 			// Right-to-left text keeps its right edge on its line.
 			if err := keepRightEdge(tmp, b.drawn, snap); err != nil {
 				return nil, pl.errorf("%w", err)
@@ -484,6 +503,9 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 	for _, i := range changedSegs {
 		s := f.Segments[i]
 		pos := snap.segments[i].pos
+		if s.Position != pos {
+			pos = s.Position // the segment was moved
+		}
 		pl.regions = append(pl.regions, b.drawn[i])
 		if owned {
 			pl.removed = append(pl.removed, b.owned[i])
@@ -637,11 +659,11 @@ func applyStateDiff(st, was, now TextState) TextState {
 // Segments with no text draw nothing: an emptied fragment is a deletion.
 func (pl *textEditPlan) draw(p *Page) error {
 	if pl.whole {
-		dropEmptySegments(pl.tmp)
+		pl.place = dropEmptySegments(pl.tmp, pl.place)
 		if pl.tmp.Text == "" && len(pl.tmp.Segments) == 0 {
 			return nil
 		}
-		drawn, owned, err := drawFragment(p, pl.tmp)
+		drawn, owned, err := drawFragment(p, pl.tmp, pl.place)
 		if err != nil {
 			return err
 		}
@@ -654,7 +676,7 @@ func (pl *textEditPlan) draw(p *Page) error {
 			pl.ownSeg = append(pl.ownSeg, nil)
 			continue
 		}
-		drawn, owned, err := drawFragment(p, one)
+		drawn, owned, err := drawFragment(p, one, nil)
 		if err != nil {
 			return err
 		}
@@ -664,17 +686,24 @@ func (pl *textEditPlan) draw(p *Page) error {
 	return nil
 }
 
-func dropEmptySegments(f *TextFragment) {
+// dropEmptySegments removes f's segments with no text, and their entries of
+// place (the positions given per segment), which it returns.
+func dropEmptySegments(f *TextFragment, place []Position) []Position {
 	if len(f.Segments) == 0 {
-		return
+		return place
 	}
 	kept := f.Segments[:0]
-	for _, s := range f.Segments {
+	var keptPlace []Position
+	for i, s := range f.Segments {
 		if s.Text != "" {
 			kept = append(kept, s)
+			if i < len(place) {
+				keptPlace = append(keptPlace, place[i])
+			}
 		}
 	}
 	f.Segments = kept
+	return keptPlace
 }
 
 // commit records the drawn result on the fragment, removes the links the
@@ -694,6 +723,7 @@ func (pl *textEditPlan) commit() {
 			f.Position = pl.tmp.Position
 		}
 		b.drawn = pl.drawnWhole
+		b.placed = placedFlags(pl.place)
 		if !b.found {
 			b.owned = pl.ownWhole
 		}

@@ -12,6 +12,14 @@ import (
 // TextSegment is a run of text with one TextState inside a TextFragment.
 // Mirrors Aspose.PDF for .NET's TextSegment. Position and Rectangle are filled
 // for segments that were drawn or found on a page.
+//
+// A Position set on a segment (other than the first, which starts at the
+// fragment's Position) places it there, an absolute baseline start like the
+// fragment's; the segments after it without one follow on from its end. On a
+// drawn or found fragment, changing a segment's Position moves that segment
+// when the change is applied (the first one moves the fragment's start). In
+// Aspose.PDF for .NET a segment's position moves with the fragment's; here
+// it stays where it was set.
 type TextSegment struct {
 	Text      string
 	TextState TextState
@@ -69,6 +77,10 @@ type fragmentBinding struct {
 	obj *pdfObject
 	// gen is the page's content generation when the fragment was bound.
 	gen int
+	// placed[i] reports whether segment i was drawn at a Position given for
+	// it rather than following on from the segment before it, so a recorded
+	// position is told from a chosen one when the fragment is redrawn.
+	placed []bool
 	// owned, for a fragment drawn by AppendText (one entry per drawn
 	// quad), is what was drawn with each segment besides its glyphs: the
 	// background box and the link. A redraw removes them. A found
@@ -176,7 +188,7 @@ func (s *fragmentSnapshot) matches(f *TextFragment, found bool) bool {
 		}
 		for i, seg := range f.Segments {
 			sn := &s.segments[i]
-			if seg.Text != sn.text || seg.Hyperlink != sn.link || !sameState(seg.TextState, sn.state) {
+			if seg.Text != sn.text || seg.Hyperlink != sn.link || seg.Position != sn.pos || !sameState(seg.TextState, sn.state) {
 				return false
 			}
 		}
@@ -191,7 +203,7 @@ func (s *fragmentSnapshot) matches(f *TextFragment, found bool) bool {
 	}
 	for i, seg := range f.Segments {
 		sn := &s.segments[i]
-		if seg.Text != sn.text || seg.Hyperlink != sn.link ||
+		if seg.Text != sn.text || seg.Hyperlink != sn.link || seg.Position != sn.pos ||
 			!sameState(resolvedForCompare(seg.TextState.inherit(f.TextState)), sn.state) {
 			return false
 		}
@@ -207,7 +219,7 @@ func (s fragmentSnapshot) equal(o fragmentSnapshot) bool {
 	}
 	for i := range s.segments {
 		a, b := s.segments[i], o.segments[i]
-		if a.text != b.text || a.link != b.link || !sameState(a.state, b.state) {
+		if a.text != b.text || a.link != b.link || a.pos != b.pos || !sameState(a.state, b.state) {
 			return false
 		}
 	}
@@ -339,21 +351,56 @@ func (b *TextBuilder) AppendText(f *TextFragment) error {
 	if f == nil {
 		return errors.New("text builder: nil fragment")
 	}
-	drawn, owned, err := drawFragment(b.page, f)
+	place := f.explicitPositions()
+	if f.Position == (Position{}) && len(place) > 0 && place[0] != (Position{}) {
+		f.Position = place[0] // the first segment's Position starts the fragment
+	}
+	drawn, owned, err := drawFragment(b.page, f, place)
 	if err != nil {
 		return err
 	}
-	f.bind = &fragmentBinding{page: b.page, drawn: drawn, owned: owned}
+	f.bind = &fragmentBinding{page: b.page, drawn: drawn, owned: owned, placed: placedFlags(place)}
 	f.bind.snap = snapshotOf(f)
 	b.page.doc.bindFragment(f)
 	return nil
 }
 
+// explicitPositions returns, per segment of f, the Position it is to be drawn
+// at, zero for one following on from the segment before it: a segment's
+// Position, unless it is only the position recorded when the fragment was
+// last drawn or found there (not one given for it).
+func (f *TextFragment) explicitPositions() []Position {
+	out := make([]Position, len(f.Segments))
+	b := f.bind
+	for i, s := range f.Segments {
+		if s.Position == (Position{}) {
+			continue
+		}
+		if b != nil && i < len(b.snap.segments) && s.Position == b.snap.segments[i].pos &&
+			(i >= len(b.placed) || !b.placed[i]) {
+			continue
+		}
+		out[i] = s.Position
+	}
+	return out
+}
+
+// placedFlags reports which segments place gives a position (the first one
+// never counts: it starts the fragment).
+func placedFlags(place []Position) []bool {
+	flags := make([]bool, len(place))
+	for i := 1; i < len(place); i++ {
+		flags[i] = place[i] != (Position{})
+	}
+	return flags
+}
+
 // drawFragment draws f on p as AppendText does, recording the text, start
 // position and segment boxes on f, and returns the quad of each segment drawn
-// and what was drawn with it besides its glyphs. It does not bind f
-// (ApplyTextChanges redraws through it).
-func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, []ownedPiece, error) {
+// and what was drawn with it besides its glyphs. place[i], when set (i > 0),
+// is where segment i starts instead of the end of the segment before it. It
+// does not bind f (ApplyTextChanges redraws through it).
+func drawFragment(p *Page, f *TextFragment, place []Position) ([]QuadPoint, []ownedPiece, error) {
 	segs := f.segmentsToDraw()
 	if len(segs) > 1 {
 		for _, s := range segs {
@@ -397,6 +444,9 @@ func drawFragment(p *Page, f *TextFragment) ([]QuadPoint, []ownedPiece, error) {
 	var all strings.Builder
 	for i, s := range segs {
 		r := rs[i]
+		if i > 0 && i < len(place) && place[i] != (Position{}) {
+			x, y = place[i].XIndent, place[i].YIndent
+		}
 		box, quad, own, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
 		if err != nil {
 			return nil, nil, fmt.Errorf("text builder: %w", err)
