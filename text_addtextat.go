@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 // singleLineShape carries whatever a single already-finished line needs for
@@ -144,6 +145,9 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	lineWidth := spacedWidth(shape.widthAt(fontSize), shape.spacingText(text), style.CharSpacing, style.WordSpacing, style.HorizontalScaling)
 	invisible := style.Invisible || style.RenderMode == RenderingInvisible
 	_, embedded := font.(*embeddedFont)
+	if pf, ok := font.(*pageFont); ok && pf.twoByte() {
+		embedded = true // Tw does not reach its codes either
+	}
 
 	textColor := Color{R: 0, G: 0, B: 0, A: 1}
 	if style.Color != nil {
@@ -199,6 +203,9 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 			buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
 				formatFloat(sc.R), formatFloat(sc.G), formatFloat(sc.B)))
 		}
+		if style.strokeWidth > 0 {
+			buf.WriteString(fmt.Sprintf("%s w\n", formatFloat(style.strokeWidth)))
+		}
 		buf.WriteString(fmt.Sprintf("%d Tr\n", int(style.RenderMode)))
 	}
 	if style.CharSpacing != 0 {
@@ -224,7 +231,12 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 		buf.WriteString(fmt.Sprintf("%s %s Td\n", formatFloat(drawX), formatFloat(drawY)))
 	}
 
-	if shape.shaper != nil {
+	if shape.shaper == nil && style.Rotation == 0 && style.HAlign == HAlignLeft &&
+		shape.line == text && len(style.glyphX) == utf8.RuneCountInString(text) {
+		tj, w := placedTJ(text, encode, width, fontSize, drawX, embedded, style)
+		buf.WriteString(tj)
+		lineWidth = w
+	} else if shape.shaper != nil {
 		buf.WriteString(shape.shaped.showOpsSpaced(shape.shaper, fontSize, style.WordSpacing))
 	} else if embedded && style.WordSpacing != 0 && strings.ContainsRune(shape.line, ' ') {
 		buf.WriteString(spacedTJ(shape.line, encode, fontSize, style.WordSpacing))
@@ -367,5 +379,39 @@ func GetFontMetrics(f Font, size float64) (FontMetrics, error) {
 	if ef, ok := f.(*embeddedFont); ok {
 		m.Descent = float64(ef.ttf.descent) / float64(ef.ttf.unitsPerEm) * size
 	}
+	if pf, ok := f.(*pageFont); ok && pf.fi.descent < 0 {
+		m.Descent = pf.fi.descent / 1000 * size
+	}
 	return m, nil
+}
+
+// placedTJ shows text as a TJ array that starts each character's glyph at
+// style.glyphX (a NaN entry follows on from the glyph before), measuring
+// advances as the viewer does (width, Tc, Tw for a one-byte space, Tz). It
+// returns the operator and the width drawn, from x to the end of the last
+// glyph.
+func placedTJ(text string, encode encodeFn, width widthFn, size, x float64, twoByte bool, style TextStyle) (string, float64) {
+	th := style.HorizontalScaling / 100
+	if th == 0 {
+		th = 1
+	}
+	var arr strings.Builder
+	pen := x
+	for i, r := range []rune(text) {
+		if want := style.glyphX[i]; i > 0 && !math.IsNaN(want) {
+			if d := want - pen; math.Abs(d) > 1e-4 {
+				arr.WriteString(formatFloat(-d * 1000 / (size * th)))
+				arr.WriteByte(' ')
+			}
+			pen = want
+		}
+		arr.WriteString(encode(string(r)))
+		arr.WriteByte(' ')
+		adv := width(r) + style.CharSpacing
+		if r == ' ' && !twoByte {
+			adv += style.WordSpacing
+		}
+		pen += adv * th
+	}
+	return fmt.Sprintf("[%s] TJ\n", strings.TrimSpace(arr.String())), pen - x
 }

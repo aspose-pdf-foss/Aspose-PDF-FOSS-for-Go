@@ -119,7 +119,11 @@ func resolveFontResources(objects map[int]*pdfObject, resources pdfDict) map[str
 		if !ok {
 			continue
 		}
-		fonts[name] = resolveFont(objects, fd)
+		fi := resolveFont(objects, fd)
+		if r, ok := val.(pdfRef); ok {
+			fi.ref = r.Num
+		}
+		fonts[name] = fi
 	}
 	return fonts
 }
@@ -133,15 +137,19 @@ type textFragment struct {
 	// runeColor is each rune's fill colour, nil while every rune has the
 	// fragment's (colorR/G/B): a colour change does not start a fragment
 	// (it would change line text), but the absorber splits segments by it.
-	runeColor   []Color
-	endX        float64 // device-space x after last glyph advance
-	endY        float64 // device-space y after last glyph advance
-	fontName    string
-	fontSize    float64 // effective font size (fontSize * textScaleX)
-	height      float64 // (ascent - descent) / 1000 * fontSize
-	descent     float64 // descent / 1000 * fontSize: how far the text box reaches below the baseline (≤ 0)
-	bold        bool
-	italic      bool
+	runeColor []Color
+	endX      float64 // device-space x after last glyph advance
+	endY      float64 // device-space y after last glyph advance
+	fontName  string
+	fontSize  float64 // effective font size (fontSize * textScaleX)
+	height    float64 // (ascent - descent) / 1000 * fontSize
+	descent   float64 // descent / 1000 * fontSize: how far the text box reaches below the baseline (≤ 0)
+	bold      bool
+	italic    bool
+	// fontRef is the object number of the font every rune was drawn in, 0
+	// when unknown or when the runes come from several font objects.
+	fontRef     int
+	fontMixed   bool
 	charSpacing float64
 	colorR      float64 // fill color RGB (0-1)
 	colorG      float64
@@ -754,10 +762,14 @@ func (e *textExtractor) emitRune(r rune) {
 	// Fill then stroke (Tr 2, or 6 with clipping) over a regular face is how
 	// producers fake bold (pdf-go-nhcz).
 	bold := e.font.bold || ((e.renderMode == 2 || e.renderMode == 6) && e.lineWidth > 0)
+	// A text matrix leaning the glyphs forward over an upright face is how
+	// producers (and an edit setting FontStyleItalic) fake italic.
+	italic := e.font.italic || e.slanted()
 
 	needNew := e.curFrag == nil ||
 		fontName != e.curFrag.fontName ||
 		bold != e.curFrag.bold ||
+		italic != e.curFrag.italic ||
 		math.Abs(effectiveFontSize-e.curFrag.fontSize) > 0.01 ||
 		math.Abs(rotation-e.curFrag.rotation) > 0.5
 
@@ -794,7 +806,8 @@ func (e *textExtractor) emitRune(r rune) {
 			height:      height,
 			descent:     descent,
 			bold:        bold,
-			italic:      e.font.italic,
+			italic:      italic,
+			fontRef:     e.font.ref,
 			charSpacing: e.charSpace,
 			colorR:      e.fillR,
 			colorG:      e.fillG,
@@ -805,6 +818,9 @@ func (e *textExtractor) emitRune(r rune) {
 		e.curFrag = &e.fragments[len(e.fragments)-1]
 	}
 
+	if e.font.ref != e.curFrag.fontRef {
+		e.curFrag.fontMixed = true
+	}
 	e.curFrag.recordColor(e.fillR, e.fillG, e.fillB)
 	e.curFrag.text.WriteRune(r)
 	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
@@ -867,6 +883,25 @@ func (e *textExtractor) currentPos() (float64, float64) {
 
 // currentRotation returns the baseline angle of the combined text matrix in
 // degrees CCW, snapped to 0 for effectively-horizontal text.
+// slanted reports whether the combined text matrix leans the glyphs forward
+// by 5 to 40 degrees off the perpendicular of their baseline (a sheared,
+// faked italic).
+func (e *textExtractor) slanted() bool {
+	m := matMul(e.tm, e.ctm)
+	bx, by, ux, uy := m[0], m[1], m[2], m[3]
+	blen := math.Hypot(bx, by)
+	if blen == 0 {
+		return false
+	}
+	along := (ux*bx + uy*by) / blen
+	perp := (bx*uy - by*ux) / blen
+	if perp <= 0 {
+		return false
+	}
+	lean := along / perp
+	return lean > 0.087 && lean < 0.84 // tan 5Â° .. tan 40Â°
+}
+
 func (e *textExtractor) currentRotation() float64 {
 	m := matMul(e.tm, e.ctm)
 	deg := math.Atan2(m[1], m[0]) * 180 / math.Pi

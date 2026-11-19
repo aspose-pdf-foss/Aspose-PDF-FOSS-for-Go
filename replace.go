@@ -278,6 +278,9 @@ type replaceMatch struct {
 type replaceFonts struct {
 	explicit Font
 	byName   map[string]Font // "" value: nothing covering was found
+	// pageFonts holds the fonts found on pages an edit draws with again,
+	// by object number (nil: not drawable); see pageFont.
+	pageFonts map[int]*pageFont
 }
 
 func newReplaceFonts(opts []ReplaceOptions) *replaceFonts {

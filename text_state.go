@@ -127,6 +127,21 @@ func (s TextState) style() TextStyle {
 	if s.LineSpacing > 0 && s.FontSize > 0 {
 		st.LineSpacing = s.LineSpacing / s.FontSize
 	}
+	// A style the document's font lacks is emulated: bold as fill and
+	// stroke, italic as a slant, so the glyphs keep their widths.
+	if pf, ok := s.Font.(*pageFont); ok {
+		bold, italic, _ := pf.emulatedStyle(s.FontStyle)
+		if bold && st.RenderMode == RenderingFill && !st.Invisible {
+			st.RenderMode = RenderingFillStroke
+			if st.StrokeColor == nil {
+				st.StrokeColor = s.ForegroundColor
+			}
+			st.strokeWidth = s.FontSize / 30
+		}
+		if italic {
+			st.Skew = 12
+		}
+	}
 	return st
 }
 
@@ -134,6 +149,9 @@ func (s TextState) style() TextStyle {
 func styledFont(f Font, fs FontStyle) Font {
 	if f == nil || fs == FontStyleRegular || f.IsEmbedded() {
 		return f
+	}
+	if _, ok := f.(*pageFont); ok {
+		return f // a style it lacks is emulated (TextState.style)
 	}
 	bold, italic := fs&FontStyleBold != 0, fs&FontStyleItalic != 0
 	name := f.BaseFont()

@@ -54,6 +54,10 @@ func textBoxEm(f Font) (asc, desc float64) {
 		if u := float64(f.ttf.unitsPerEm); u > 0 && f.ttf.ascent > 0 {
 			return float64(f.ttf.ascent) / u, float64(f.ttf.descent) / u
 		}
+	case *pageFont:
+		if f.fi.ascent > 0 {
+			return f.fi.ascent / 1000, f.fi.descent / 1000
+		}
 	}
 	return 0.8, -0.2
 }

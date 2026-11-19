@@ -43,6 +43,10 @@ type TextFragment struct {
 	// point is (X+Width, endY)): the gap to the next fragment of a rotated
 	// line is measured along the baseline.
 	endY float64
+	// fontRef is the object number of the font dictionary the fragment is
+	// drawn in, 0 when unknown or when it is drawn in several. Unexported:
+	// an edit of found text draws again in the page's own font.
+	fontRef int
 
 	// Authoring and editing (TextBuilder, absorbers). Zero on fragments
 	// ExtractTextWithLayout returns.
@@ -307,6 +311,9 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			runeColor:   f.runeColor,
 			descent:     f.descent,
 			endY:        f.endY,
+		}
+		if !f.fontMixed {
+			tf.fontRef = f.fontRef
 		}
 		// Detect sub/superscript: smaller font with Y offset from baseline.
 		if f.fontSize < maxFontSize*0.85 {

@@ -15,6 +15,9 @@ import (
 type documentFont struct {
 	name     string
 	embedded bool
+	// ref is the object number of the font dictionary the text is drawn
+	// in, 0 when unknown: an edit draws again in it (pageFont).
+	ref int
 }
 
 func (f documentFont) BaseFont() string { return f.name }
@@ -238,7 +241,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			// as a size to draw with must be positive, so a mirrored run
 			// is redrawn upright when edited.
 			st := TextState{
-				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName)},
+				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName), ref: g.src.fontRef},
 				FontSize:        math.Abs(g.src.FontSize),
 				ForegroundColor: copyColor(&g.color),
 				Rotation:        g.src.Rotation,
@@ -258,7 +261,8 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 				st.BackgroundColor = backgroundAt(ff, (rect.LLX+rect.URX)/2, (rect.LLY+rect.URY)/2)
 			}
 			seg := &TextSegment{Text: string(g.text), TextState: st,
-				Position: Position{XIndent: x, YIndent: g.src.Y}, Rectangle: rect}
+				Position: Position{XIndent: x, YIndent: g.src.Y}, Rectangle: rect,
+				glyphX: segmentGlyphX(sp, frags, g.a, g.b)}
 			if len(f.Segments) == 0 {
 				src := *g.src
 				f.X, f.Y, f.FontName, f.FontSize, f.Height = x, src.Y, src.FontName, src.FontSize, src.Height
@@ -350,4 +354,32 @@ func descriptorEmbedded(objs map[int]*pdfObject, fd pdfDict) bool {
 		}
 	}
 	return false
+}
+
+// segmentGlyphX returns where each character of runes a..b of a line span
+// starts on the page, NaN for a space the extraction inserted between
+// fragments; nil when the positions are unknown, do not increase (a
+// ligature's characters share one glyph) or the line reads right to left.
+// An edit keeping the segment's text and metrics redraws each glyph there.
+func segmentGlyphX(sp *lineSpan, frags []TextFragment, a, b int) []float64 {
+	if bidiHasStrongRTL(string(sp.m.text)) {
+		return nil
+	}
+	xs := make([]float64, 0, b-a)
+	last := math.Inf(-1)
+	for k := a; k < b; k++ {
+		fi := sp.m.owner[k]
+		if fi < 0 {
+			xs = append(xs, math.NaN())
+			continue
+		}
+		f := &frags[fi]
+		li := sp.m.local[k]
+		if li < 0 || li >= len(f.runeX) || math.Abs(f.Rotation) > 0.5 || f.runeX[li] <= last {
+			return nil
+		}
+		last = f.runeX[li]
+		xs = append(xs, last)
+	}
+	return xs
 }

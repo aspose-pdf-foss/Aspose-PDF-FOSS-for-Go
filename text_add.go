@@ -61,6 +61,9 @@ func fontHasGlyph(font Font, r rune) bool {
 	case *Type3Font:
 		_, ok := f.byRune[r]
 		return ok
+	case *pageFont:
+		_, ok := f.codes[r]
+		return ok
 	default:
 		return false
 	}
@@ -975,6 +978,9 @@ func fontWidthAndAscent(font Font, size float64) (widthFn, float64, error) {
 	case *Type3Font:
 		return f.widthFn(size), 0.8, nil
 
+	case *pageFont:
+		return f.widthFn(size), f.ascentFactor(), nil
+
 	default:
 		return nil, 0, fmt.Errorf("font: unsupported type %T", font)
 	}
@@ -1102,6 +1108,13 @@ func (p *Page) resolveFontForPage(font Font, size float64) (resName string, widt
 			return "", nil, nil, 0, 0, e
 		}
 		return name, f.widthFn(size), f.encodeString, 0.8, 0, nil
+
+	case *pageFont:
+		name, e := p.ensurePageFontResource(f)
+		if e != nil {
+			return "", nil, nil, 0, 0, e
+		}
+		return name, f.widthFn(size), f.encode, f.ascentFactor(), 0, nil
 
 	default:
 		return "", nil, nil, 0, 0, fmt.Errorf("add text: unsupported font type %T", font)

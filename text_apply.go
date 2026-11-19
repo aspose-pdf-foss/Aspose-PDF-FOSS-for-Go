@@ -46,8 +46,13 @@ import (
 // fragment covers too) makes the call fail, naming its page and text, before
 // any page changes; so does one whose old glyphs the content rewriter cannot
 // place (a font with unknown glyph positions on the page) or whose new text
-// no font covers: a font found on the page is replaced by the Standard-14
-// face of its family, else that family by name, as ReplaceText chooses.
+// no font covers. Found text is drawn again in the page's own font when that
+// font shows the new text (a style it lacks is emulated: bold as fill and
+// stroke, italic as a slant), else in the Standard-14 face of its family,
+// else that family by name, as ReplaceText chooses; a found segment whose
+// text, position, font, size and spacing are unchanged keeps every glyph
+// where it was, so a change of colour, background, decoration or style does
+// not move the text.
 // Edited right-to-left text keeps its right edge unless Position changed.
 // A fragment drawn by a TextBuilder takes the background box and link it
 // was drawn with along when redrawn; a found fragment's background and links
@@ -473,8 +478,12 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 				tmp.Text = f.Text
 			}
 		default:
-			for _, s := range f.Segments {
-				tmp.Segments = append(tmp.Segments, &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink})
+			for i, s := range f.Segments {
+				ts := &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}
+				if found && f.Position == snap.position && i < len(snap.segments) {
+					ts.glyphX = keptGlyphs(s, ts.TextState, snap.segments[i])
+				}
+				tmp.Segments = append(tmp.Segments, ts)
 			}
 		}
 		// Segments given a position of their own are drawn there; the
@@ -483,11 +492,17 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		if len(tmp.Segments) != len(place) {
 			place = place[:min(len(place), 1)]
 		}
+		for i, ts := range tmp.Segments {
+			// A segment redrawn glyph by glyph stays on its own baseline.
+			if i > 0 && i < len(place) && ts.glyphX != nil {
+				place[i] = Position{XIndent: f.Segments[i].Position.XIndent, YIndent: snap.segments[i].pos.YIndent}
+			}
+		}
 		if len(place) > 0 && place[0] != (Position{}) && f.Position == snap.position {
 			tmp.Position = place[0]
 		}
 		pl.place = place
-		if err := d.prepareDrawing(tmp, found, fonts); err != nil {
+		if err := d.prepareDrawing(tmp, found, fonts, &snap); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
 		if found && tmp.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
@@ -512,16 +527,37 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		}
 		one := &TextFragment{Position: pos,
 			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}}}
+		if found && s.Position == snap.segments[i].pos {
+			one.Segments[0].glyphX = keptGlyphs(s, one.Segments[0].TextState, snap.segments[i])
+		}
 		if !found {
 			one.TextState = copyState(f.TextState)
 		}
-		if err := d.prepareDrawing(one, found, fonts); err != nil {
+		if err := d.prepareDrawing(one, found, fonts, &snap); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
 		pl.segs = append(pl.segs, i)
 		pl.one = append(pl.one, one)
 	}
 	return pl, nil
+}
+
+// keptGlyphs returns the glyph positions a found segment s is redrawn at,
+// st being its state with the edits applied: where they were, when its text
+// and position are unchanged and so is everything that sets its glyphs'
+// advances (font, size, spacing, scaling); a change of colour, background,
+// decoration or style keeps every glyph in its place. Nil otherwise.
+func keptGlyphs(s *TextSegment, st TextState, was segmentSnapshot) []float64 {
+	o := was.state
+	if s.Text != was.text || s.Position != was.pos || st.Font != o.Font || st.FontSize != o.FontSize ||
+		st.CharacterSpacing != o.CharacterSpacing || st.WordSpacing != o.WordSpacing ||
+		st.HorizontalScaling != o.HorizontalScaling || st.Rotation != 0 || o.Rotation != 0 {
+		return nil
+	}
+	if _, _, ok := glyphSpan(s.glyphX, s.Text); !ok {
+		return nil
+	}
+	return s.glyphX
 }
 
 // keepRightEdge moves tmp's start so its text ends where the old text's
@@ -554,9 +590,9 @@ func keepRightEdge(tmp *TextFragment, drawn []QuadPoint, snap fragmentSnapshot) 
 // prepareDrawing resolves the fonts tmp's segments are drawn in. Fonts found
 // on the page (documentFont) are not drawable as they are; drawingFont picks
 // one.
-func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceFonts) error {
+func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceFonts, snap *fragmentSnapshot) error {
 	if len(tmp.Segments) == 0 {
-		f, err := d.drawingFont(tmp.TextState, tmp.Text, fonts)
+		f, err := d.drawingFont(tmp.TextState, tmp.Text, fonts, snap)
 		if err != nil {
 			return err
 		}
@@ -564,7 +600,7 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 		return nil
 	}
 	if !found {
-		f, err := d.drawingFont(tmp.TextState, "", fonts)
+		f, err := d.drawingFont(tmp.TextState, "", fonts, snap)
 		if err != nil {
 			return err
 		}
@@ -575,7 +611,7 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 		if !found {
 			st = st.inherit(tmp.TextState)
 		}
-		f, err := d.drawingFont(st, s.Text, fonts)
+		f, err := d.drawingFont(st, s.Text, fonts, snap)
 		if err != nil {
 			return err
 		}
@@ -587,14 +623,29 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 }
 
 // drawingFont is the font text in state st is drawn in when an edited
-// fragment is redrawn: a font found on the page is replaced by the closest
-// Standard-14 face of its family and style, or that family by name when the
-// face lacks a character of text (as ReplaceText chooses); any other font is
-// used as it is. The single place the drawing font of an edit is chosen.
-func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts) (Font, error) {
-	df, ok := st.Font.(documentFont)
-	if !ok {
+// fragment is redrawn: a font found on the page is drawn with again when it
+// covers text and the style can be had from it (pageFont); else it is
+// replaced by the closest Standard-14 face of its family and style, or that
+// family by name when the face lacks a character of text (as ReplaceText
+// chooses); any other font is used as it is. snap is the fragment as it was
+// found (the characters it showed in each font). The single place the
+// drawing font of an edit is chosen.
+func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts, snap *fragmentSnapshot) (Font, error) {
+	var df documentFont
+	switch f := st.Font.(type) {
+	case documentFont:
+		df = f
+	case *pageFont:
+		df = f.src
+	default:
 		return st.Font, nil
+	}
+	// The font the text is drawn in on the page, when it shows the text
+	// and the style can be had from it.
+	if pf := fonts.pageFont(d, df, snap); pf != nil {
+		if _, _, ok := pf.emulatedStyle(st.FontStyle); ok && pf.covers(text) {
+			return pf, nil
+		}
 	}
 	bold, italic := st.FontStyle&FontStyleBold != 0, st.FontStyle&FontStyleItalic != 0
 	m := replaceMatch{font: standard14ForFragment(df.name, bold, italic), fontName: df.name, bold: bold, italic: italic}
@@ -718,6 +769,11 @@ func (pl *textEditPlan) commit() {
 	}
 	if pl.whole {
 		f.Segments = pl.tmp.Segments
+		if b.found {
+			for _, s := range f.Segments {
+				s.TextState = documentFontOf(s.TextState)
+			}
+		}
 		if pl.drawnWhole != nil {
 			f.Text = pl.tmp.Text
 			f.Position = pl.tmp.Position
@@ -732,7 +788,7 @@ func (pl *textEditPlan) commit() {
 			s := f.Segments[i]
 			one := pl.one[k].Segments[0]
 			if b.found {
-				s.TextState = one.TextState
+				s.TextState = documentFontOf(one.TextState)
 			}
 			s.Position, s.Rectangle = one.Position, one.Rectangle
 			if q := pl.drawnSeg[k]; len(q) == 1 {

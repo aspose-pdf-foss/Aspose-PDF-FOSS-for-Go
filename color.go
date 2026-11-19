@@ -57,6 +57,14 @@ type TextStyle struct {
 	StrokeColor       *Color
 	RenderMode        TextRenderingMode
 
+	// strokeWidth, when positive, is the line width (w) stroked glyphs are
+	// drawn with: an emulated bold (pageFont).
+	strokeWidth float64
+	// glyphX, when it holds one position per character, is where AddTextAt
+	// starts each character's glyph (NaN: where the previous one ends): a
+	// found segment redrawn with every glyph in its place.
+	glyphX []float64
+
 	// MissingGlyph controls what AddText/AddTextAt/MeasureText do when
 	// the font has no glyph for a character in text. Zero value
 	// (MissingGlyphAllow) keeps the long-standing default: the character

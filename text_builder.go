@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // TextSegment is a run of text with one TextState inside a TextFragment.
@@ -26,6 +28,11 @@ type TextSegment struct {
 	Hyperlink string
 	Position  Position
 	Rectangle Rectangle
+
+	// glyphX, on a found segment, is where each character of Text starts
+	// on the page (NaN for a space extraction inserted), so a redraw that
+	// keeps the text and its metrics puts every glyph back in its place.
+	glyphX []float64
 }
 
 // NewTextSegment returns a segment holding text.
@@ -423,6 +430,22 @@ func drawFragment(p *Page, f *TextFragment, place []Position) ([]QuadPoint, []ow
 		if err != nil {
 			return nil, nil, fmt.Errorf("text builder: %w", err)
 		}
+		if first, last, ok := glyphSpan(s.glyphX, s.Text); ok {
+			// Every glyph goes back where it was, with the character
+			// spacing the glyphs were set with (so the text reads as it
+			// did, without gaps taken for spaces); the segment spans from
+			// its first glyph to the end of its last.
+			if st.CharacterSpacing == 0 {
+				st.CharacterSpacing = inferCharSpacing(st, s.Text, s.glyphX)
+				style.CharSpacing = st.CharacterSpacing
+			}
+			tail, err := st.MeasureString(string([]rune(s.Text)[last:]))
+			if err != nil {
+				return nil, nil, fmt.Errorf("text builder: %w", err)
+			}
+			w = s.glyphX[last] - s.glyphX[first] + tail
+			style.glyphX = s.glyphX
+		}
 		rs[i] = resolvedSegment{st, style, asc, desc, w}
 		if asc > maxAsc {
 			maxAsc = asc
@@ -447,6 +470,9 @@ func drawFragment(p *Page, f *TextFragment, place []Position) ([]QuadPoint, []ow
 		if i > 0 && i < len(place) && place[i] != (Position{}) {
 			x, y = place[i].XIndent, place[i].YIndent
 		}
+		if first, _, ok := glyphSpan(s.glyphX, s.Text); ok {
+			x = s.glyphX[first]
+		}
 		box, quad, own, err := drawTextPiece(p, r.st, r.style, s.Hyperlink, s.Text, x, y, r.width, r.asc, r.desc)
 		if err != nil {
 			return nil, nil, fmt.Errorf("text builder: %w", err)
@@ -464,4 +490,57 @@ func drawFragment(p *Page, f *TextFragment, place []Position) ([]QuadPoint, []ow
 	f.Text = all.String()
 	f.Position = Position{XIndent: startX, YIndent: startY}
 	return drawn, owned, nil
+}
+
+// glyphSpan returns the first and last characters of text with a known
+// glyph position in xs, when xs gives one position per character of text.
+func glyphSpan(xs []float64, text string) (first, last int, ok bool) {
+	if len(xs) == 0 || len(xs) != utf8.RuneCountInString(text) {
+		return 0, 0, false
+	}
+	first, last = -1, -1
+	for i, x := range xs {
+		if math.IsNaN(x) {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		last = i
+	}
+	return first, last, first >= 0
+}
+
+// inferCharSpacing returns the character spacing (Tc, in unscaled text space
+// units) the glyphs at xs were set with: the median, over neighbouring
+// characters other than spaces, of how far the next glyph starts past the
+// end of this one's advance. Zero when it is under a hundredth of a point.
+func inferCharSpacing(st TextState, text string, xs []float64) float64 {
+	plain := st
+	plain.CharacterSpacing, plain.WordSpacing = 0, 0
+	th := st.HorizontalScaling / 100
+	if th == 0 {
+		th = 1
+	}
+	runes := []rune(text)
+	var gaps []float64
+	for i := 0; i+1 < len(runes) && i+1 < len(xs); i++ {
+		if runes[i] == ' ' || math.IsNaN(xs[i]) || math.IsNaN(xs[i+1]) {
+			continue
+		}
+		w, err := plain.MeasureString(string(runes[i]))
+		if err != nil {
+			return 0
+		}
+		gaps = append(gaps, xs[i+1]-xs[i]-w)
+	}
+	if len(gaps) == 0 {
+		return 0
+	}
+	sort.Float64s(gaps)
+	g := gaps[len(gaps)/2]
+	if math.Abs(g) < 0.01 {
+		return 0
+	}
+	return g / th
 }

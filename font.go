@@ -49,6 +49,9 @@ type fontInfo struct {
 	italic     bool
 	serif      bool    // /FontDescriptor /Flags Serif bit (used to pick a substitute)
 	ascent     float64 // from /FontDescriptor /Ascent (in 1/1000 text space)
+	// ref is the number of the font dictionary's object when the resources
+	// name it by reference (resolveFontResources), else 0.
+	ref int
 	descent    float64 // from /FontDescriptor /Descent (negative, in 1/1000 text space)
 }
 
