@@ -366,7 +366,15 @@ func (f *cffFont) glyphContours(gid uint16) (contours []glyphContour) {
 
 // --- Type2 charstring interpreter ----------------------------------------
 
+// maxCharstringOps bounds the operands and operators one glyph's charstring
+// runs, subroutines included (CFF and Type1 alike). Subroutine nesting is
+// limited, but a subroutine can call the next one many times at each level, so
+// a few kilobytes of charstrings could otherwise run for hours. A real glyph
+// runs a few thousand at most.
+const maxCharstringOps = 1 << 17
+
 type t2interp struct {
+	ops          int // operands and operators run so far, against maxCharstringOps
 	font         *cffFont
 	local        [][]byte
 	lbias, gbias int
@@ -387,6 +395,10 @@ func (in *t2interp) run(cs []byte, depth int) {
 	}
 	i := 0
 	for i < len(cs) && !in.done {
+		if in.ops++; in.ops > maxCharstringOps {
+			in.done = true
+			return
+		}
 		b0 := cs[i]
 		if b0 >= 32 || b0 == 28 { // operand
 			v, n := t2Number(cs[i:])

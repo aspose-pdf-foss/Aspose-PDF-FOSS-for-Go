@@ -79,6 +79,7 @@ func (f *type1Font) glyphContours(gid uint16) (contours []glyphContour) {
 
 // t1Interp is the Type1 charstring interpreter state.
 type t1Interp struct {
+	ops      int // operands and operators run so far, against maxCharstringOps
 	f        *type1Font
 	stack    []float64
 	ps       []float64 // PostScript stack for callothersubr/pop
@@ -135,6 +136,10 @@ func (ip *t1Interp) run(cs []byte, depth int) {
 		return
 	}
 	for i := 0; i < len(cs); {
+		if ip.ops++; ip.ops > maxCharstringOps {
+			ip.done = true
+			return
+		}
 		b := cs[i]
 		i++
 		switch {
@@ -365,16 +370,18 @@ func (ip *t1Interp) seac(asb, adx, ady float64, bchar, achar, depth int) {
 	accName := stdEncodingName(achar)
 	if baseName != "" {
 		if cs := ip.f.charstrings[baseName]; cs != nil {
-			sub := &t1Interp{f: ip.f}
+			sub := &t1Interp{f: ip.f, ops: ip.ops}
 			sub.run(cs, depth+1)
+			ip.ops = sub.ops
 			sub.closeContour()
 			ip.contours = append(ip.contours, sub.contours...)
 		}
 	}
 	if accName != "" {
 		if cs := ip.f.charstrings[accName]; cs != nil {
-			sub := &t1Interp{f: ip.f}
+			sub := &t1Interp{f: ip.f, ops: ip.ops}
 			sub.run(cs, depth+1)
+			ip.ops = sub.ops
 			sub.closeContour()
 			dx := adx - asb + ip.sbx
 			for _, c := range sub.contours {

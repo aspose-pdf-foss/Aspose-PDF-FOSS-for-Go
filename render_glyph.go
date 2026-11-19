@@ -61,13 +61,22 @@ func (f *ttfFont) glyphContours(gid uint16) (contours []glyphContour) {
 	if glyf == nil {
 		return nil
 	}
-	return f.glyphContoursRec(gid, loca, glyf, 0)
+	budget := maxCompositeWork
+	return f.glyphContoursRec(gid, loca, glyf, 0, &budget)
 }
 
-func (f *ttfFont) glyphContoursRec(gid uint16, loca []uint32, glyf []byte, depth int) []glyphContour {
-	if depth > 8 || int(gid)+1 >= len(loca) {
+// maxCompositeWork bounds the components a composite glyph reaches and the
+// points they bring, nesting included. Nesting is limited, but a composite can
+// name another one many times at each level, so a few kilobytes of glyf could
+// otherwise produce more points than memory holds. TrueType itself counts
+// both in 16 bits (maxp maxCompositePoints, maxComponentElements).
+const maxCompositeWork = 1 << 17
+
+func (f *ttfFont) glyphContoursRec(gid uint16, loca []uint32, glyf []byte, depth int, budget *int) []glyphContour {
+	if depth > 8 || int(gid)+1 >= len(loca) || *budget <= 0 {
 		return nil
 	}
+	*budget--
 	start, end := loca[gid], loca[gid+1]
 	if start >= end || end > uint32(len(glyf)) {
 		return nil // empty glyph
@@ -78,7 +87,7 @@ func (f *ttfFont) glyphContoursRec(gid uint16, loca []uint32, glyf []byte, depth
 	}
 	numContours := int(int16(binary.BigEndian.Uint16(b[0:2])))
 	if numContours < 0 {
-		return f.parseCompositeGlyph(b, loca, glyf, depth)
+		return f.parseCompositeGlyph(b, loca, glyf, depth, budget)
 	}
 	return parseSimpleGlyph(b, numContours)
 }
@@ -175,7 +184,7 @@ func parseSimpleGlyph(b []byte, numContours int) []glyphContour {
 }
 
 // parseCompositeGlyph decodes a composite glyph by transforming its components.
-func (f *ttfFont) parseCompositeGlyph(b []byte, loca []uint32, glyf []byte, depth int) []glyphContour {
+func (f *ttfFont) parseCompositeGlyph(b []byte, loca []uint32, glyf []byte, depth int, budget *int) []glyphContour {
 	const (
 		argsAreWords = 0x0001
 		argsAreXY    = 0x0002
@@ -221,7 +230,10 @@ func (f *ttfFont) parseCompositeGlyph(b []byte, loca []uint32, glyf []byte, dept
 		}
 
 		if flags&argsAreXY != 0 { // point-matching args are not supported
-			for _, ct := range f.glyphContoursRec(compGID, loca, glyf, depth+1) {
+			for _, ct := range f.glyphContoursRec(compGID, loca, glyf, depth+1, budget) {
+				if *budget -= len(ct); *budget < 0 {
+					break
+				}
 				tc := make(glyphContour, len(ct))
 				for i, p := range ct {
 					tc[i] = glyphPoint{x: a*p.x + cc*p.y + dx, y: bb*p.x + d*p.y + dy, on: p.on}
