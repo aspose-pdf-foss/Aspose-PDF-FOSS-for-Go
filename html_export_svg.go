@@ -332,6 +332,7 @@ func (rd *renderer) vecPatch(paint func(*renderer)) {
 	}
 	buf := image.NewRGBA(image.Rect(0, 0, rd.w, rd.h))
 	sub := newRenderer(rd.page, buf, rd.w, rd.h, rd.base)
+	sub.formWork = rd.formWork
 	sub.gs = rd.gs
 	sub.gs.vecClip = 0
 	sub.res = rd.res

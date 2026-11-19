@@ -148,8 +148,11 @@ func (rd *renderer) fillTilingPattern(tp *tilingPattern, rule fillRule) {
 		}
 	}
 
+	if rd.formWork.exhausted() {
+		return
+	}
 	ops, err := parseContentStream(tp.content)
-	if err != nil {
+	if err != nil || !rd.formWork.spend(len(ops)*len(tiles)) {
 		return
 	}
 	savedGS, savedRes, savedStack, savedFl := rd.gs, rd.res, len(rd.stack), rd.fl

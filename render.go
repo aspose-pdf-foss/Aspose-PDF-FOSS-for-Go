@@ -120,6 +120,11 @@ type renderer struct {
 	ocOff    map[int]bool
 	ocHidden int
 	mcStack  []bool
+
+	// formWork bounds the operators run in forms, tiling cells and Type3
+	// glyphs for the page; sub-renderers (groups, soft masks, vector
+	// patches) share their parent's (pdf-go-u2lc).
+	formWork *formWorkBudget
 }
 
 func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer {
@@ -142,6 +147,7 @@ func newRenderer(p *Page, img *image.RGBA, w, h int, base [6]float64) *renderer 
 		ts:        textState{hScale: 1},
 		fontCache: map[string]*renderFont{},
 		ocOff:     ocOffSet(p.doc.objects, p.doc.catalog),
+		formWork:  newFormWorkBudget(),
 	}
 }
 

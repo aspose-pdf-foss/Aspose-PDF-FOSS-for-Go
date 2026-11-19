@@ -190,6 +190,7 @@ type textExtractor struct {
 	// Form-XObject recursion guard (see doFormXObject).
 	formDepth   int
 	activeForms map[int]bool
+	formWork    *formWorkBudget
 
 	// Text state.
 	font         *fontInfo
@@ -269,6 +270,7 @@ func newTextExtractor(objects map[int]*pdfObject, fonts map[string]fontInfo) *te
 		ctm:          identityMatrix(),
 		horizScaling: 1.0,
 		lineWidth:    1.0,
+		formWork:     newFormWorkBudget(),
 	}
 }
 
@@ -1113,8 +1115,11 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 	e.formDepth++
 	defer func() { e.formDepth-- }()
 
+	if e.formWork.exhausted() {
+		return
+	}
 	ops, err := parseContentStream(stream.Data)
-	if err != nil {
+	if err != nil || !e.formWork.spend(len(ops)) {
 		return
 	}
 

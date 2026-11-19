@@ -934,6 +934,7 @@ func resolveColorSpaceInline(dict pdfDict) ImageColorSpace {
 type imgFormGuard struct {
 	depth  int
 	active map[int]bool
+	work   *formWorkBudget
 }
 
 const maxImgFormDepth = 32
@@ -941,7 +942,7 @@ const maxImgFormDepth = 32
 // collectImageInfos walks content stream ops, tracking CTM, and collects image metadata
 // without decoding pixel data.
 func collectImageInfos(objects map[int]*pdfObject, ops []contentOp, resources pdfDict) []ImageInfo {
-	return collectImageInfosGuarded(objects, ops, resources, &imgFormGuard{})
+	return collectImageInfosGuarded(objects, ops, resources, &imgFormGuard{work: newFormWorkBudget()})
 }
 
 func collectImageInfosGuarded(objects map[int]*pdfObject, ops []contentOp, resources pdfDict, g *imgFormGuard) []ImageInfo {
@@ -1136,6 +1137,9 @@ func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name s
 		return nil
 	}
 
+	if g.work.exhausted() {
+		return nil
+	}
 	var data []byte
 	if stream.Decoded {
 		data = stream.Data
@@ -1148,7 +1152,7 @@ func formXObjectImageInfos(objects map[int]*pdfObject, resources pdfDict, name s
 	}
 
 	ops, err := parseContentStream(data)
-	if err != nil {
+	if err != nil || !g.work.spend(len(ops)) {
 		return nil
 	}
 

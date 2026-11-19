@@ -50,7 +50,7 @@ const maxVisitFormDepth = 8
 // painted path. With recurseForms it follows Do into Form XObjects (depth
 // capped, cycles guarded), applying the form /Matrix.
 func visitPaths(objects map[int]*pdfObject, ops []contentOp, resources pdfDict, recurseForms bool, fn func(pathVisit)) {
-	st := &pathVisitState{objects: objects, recurse: recurseForms, fn: fn, active: map[int]bool{}}
+	st := &pathVisitState{objects: objects, recurse: recurseForms, fn: fn, active: map[int]bool{}, work: newFormWorkBudget()}
 	st.walk(ops, resources, identityMatrix(), 1.0, 0)
 }
 
@@ -59,6 +59,7 @@ type pathVisitState struct {
 	recurse bool
 	fn      func(pathVisit)
 	active  map[int]bool // form object numbers on the recursion stack
+	work    *formWorkBudget
 }
 
 func (st *pathVisitState) walk(ops []contentOp, resources pdfDict, baseCTM [6]float64, baseW float64, depth int) {
@@ -276,6 +277,9 @@ func (st *pathVisitState) enterForm(name string, resources pdfDict, ctm [6]float
 	if !ok || dictGetName(stream.Dict, "/Subtype") != "/Form" {
 		return
 	}
+	if st.work.exhausted() {
+		return
+	}
 	data := stream.Data
 	if !stream.Decoded {
 		var err error
@@ -285,7 +289,7 @@ func (st *pathVisitState) enterForm(name string, resources pdfDict, ctm [6]float
 		}
 	}
 	ops, err := parseContentStream(data)
-	if err != nil {
+	if err != nil || !st.work.spend(len(ops)) {
 		return
 	}
 	formCTM := ctm

@@ -35,7 +35,7 @@ func (rd *renderer) applySoftMask(sm pdfValue) {
 // user space) and reduces it to a per-pixel mask: coverage alpha for an alpha
 // mask, luminosity over a black backdrop for a luminosity mask.
 func (rd *renderer) renderSoftMaskGroup(group *pdfStream, alpha bool) []float32 {
-	if rd.depth >= 8 || rd.w <= 0 || rd.h <= 0 {
+	if rd.depth >= 8 || rd.w <= 0 || rd.h <= 0 || rd.formWork.exhausted() {
 		return nil
 	}
 	mimg := image.NewRGBA(image.Rect(0, 0, rd.w, rd.h))
@@ -48,6 +48,7 @@ func (rd *renderer) renderSoftMaskGroup(group *pdfStream, alpha bool) []float32 
 	}
 
 	sub := newRenderer(rd.page, mimg, rd.w, rd.h, rd.base)
+	sub.formWork = rd.formWork
 	sub.gs.ctm = rd.gs.ctm // the mask is defined in the current user space
 	sub.depth = rd.depth + 1
 	sub.drawFormXObject(group)

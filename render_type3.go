@@ -76,8 +76,11 @@ func (rd *renderer) drawType3Glyph(f *renderFont, code uint32) {
 	if !ok {
 		return
 	}
+	if rd.formWork.exhausted() {
+		return
+	}
 	ops, err := parseContentStream(decodedStreamData(stream))
-	if err != nil {
+	if err != nil || !rd.formWork.spend(len(ops)) {
 		return
 	}
 

@@ -65,6 +65,9 @@ func (rd *renderer) drawFormGroup(stream *pdfStream) {
 		}
 		return
 	}
+	if rd.formWork.exhausted() {
+		return // the page's form budget is spent: no buffer for nothing
+	}
 	if rd.depth >= 8 || rd.w <= 0 || rd.h <= 0 {
 		// Too deep for an off-screen pass: fall back to inline execution.
 		rd.drawFormXObject(stream)
@@ -73,6 +76,7 @@ func (rd *renderer) drawFormGroup(stream *pdfStream) {
 	buf := image.NewRGBA(image.Rect(0, 0, rd.w, rd.h))
 
 	sub := newRenderer(rd.page, buf, rd.w, rd.h, rd.base)
+	sub.formWork = rd.formWork
 	sub.gs.ctm = rd.gs.ctm // the group is defined in the current user space
 	sub.depth = rd.depth + 1
 	sub.suppressText = rd.suppressText // group content is page content

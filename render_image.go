@@ -133,11 +133,11 @@ func (rd *renderer) drawInlineImage(operands []pdfValue) {
 // drawFormXObject interprets a form XObject's content with its own resources
 // and /Matrix, sharing the page's image buffer and graphics state.
 func (rd *renderer) drawFormXObject(stream *pdfStream) {
-	if rd.depth >= 12 {
+	if rd.depth >= 12 || rd.formWork.exhausted() {
 		return
 	}
 	ops, err := parseContentStream(decodedStreamData(stream))
-	if err != nil {
+	if err != nil || !rd.formWork.spend(len(ops)) {
 		return
 	}
 	savedGS := rd.gs
