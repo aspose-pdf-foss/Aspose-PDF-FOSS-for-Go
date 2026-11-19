@@ -209,6 +209,10 @@ type textExtractor struct {
 	fillR, fillG, fillB float64 // RGB, 0-1
 	// Stroking colour, reported with found text (rendering modes 1, 2).
 	strokeR, strokeG, strokeB float64
+	// fillTint and strokeTint convert sc/scn and SC/SCN operands in the
+	// colour space cs/CS set (Separation, DeviceN, a non-sRGB ICCBased),
+	// nil for a device space: the renderer's csTintConverter.
+	fillTint, strokeTint tintFunc
 
 	// Marked content stack for ActualText support (BDC/BMC/EMC).
 	mcStack []markedContentEntry
@@ -245,6 +249,8 @@ type extractorGState struct {
 	strokeR      float64
 	strokeG      float64
 	strokeB      float64
+	fillTint     tintFunc
+	strokeTint   tintFunc
 }
 
 // markedContentEntry tracks a BDC/BMC nesting level.
@@ -471,6 +477,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				charSpace: e.charSpace, wordSpace: e.wordSpace, leading: e.leading,
 				horizScaling: e.horizScaling, fillR: e.fillR, fillG: e.fillG, fillB: e.fillB,
 				strokeR: e.strokeR, strokeG: e.strokeG, strokeB: e.strokeB,
+				fillTint: e.fillTint, strokeTint: e.strokeTint,
 				renderMode: e.renderMode, lineWidth: e.lineWidth,
 			})
 
@@ -483,6 +490,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.horizScaling = s.horizScaling
 				e.fillR, e.fillG, e.fillB = s.fillR, s.fillG, s.fillB
 				e.strokeR, e.strokeG, e.strokeB = s.strokeR, s.strokeG, s.strokeB
+				e.fillTint, e.strokeTint = s.fillTint, s.strokeTint
 				e.renderMode, e.lineWidth = s.renderMode, s.lineWidth
 			}
 
@@ -524,21 +532,69 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 		case "g", "rg", "k":
 			if r, g, b, ok := deviceColorOperands(op.Operands, op.Operator); ok {
 				e.fillR, e.fillG, e.fillB = r, g, b
+				e.fillTint = nil
 			}
 		case "G", "RG", "K":
 			if r, g, b, ok := deviceColorOperands(op.Operands, op.Operator); ok {
 				e.strokeR, e.strokeG, e.strokeB = r, g, b
+				e.strokeTint = nil
+			}
+		case "cs", "CS":
+			// Separation, DeviceN and non-sRGB ICCBased spaces convert their
+			// operands as the renderer does; text filled with a spot colour
+			// used to read as gray (tint 1 = white), and an edit redrew it so
+			// (pdf-go-n0c5).
+			if len(op.Operands) >= 1 {
+				tint := csTintConverter(e.objects, e.namedColorSpace(operandName(op.Operands[0]), resources))
+				if op.Operator == "cs" {
+					e.fillTint = tint
+				} else {
+					e.strokeTint = tint
+				}
 			}
 		case "sc", "scn": // generic fill color: 1, 3 or 4 components
-			if r, g, b, ok := deviceColorOperands(op.Operands, ""); ok {
+			if r, g, b, ok := spaceColorOperands(op.Operands, e.fillTint); ok {
 				e.fillR, e.fillG, e.fillB = r, g, b
 			}
 		case "SC", "SCN":
-			if r, g, b, ok := deviceColorOperands(op.Operands, ""); ok {
+			if r, g, b, ok := spaceColorOperands(op.Operands, e.strokeTint); ok {
 				e.strokeR, e.strokeG, e.strokeB = r, g, b
 			}
 		}
 	}
+}
+
+// namedColorSpace resolves a cs/CS operand: nil for a device space or
+// Pattern, else the entry of the resources' /ColorSpace.
+func (e *textExtractor) namedColorSpace(name string, resources pdfDict) pdfValue {
+	switch name {
+	case "/DeviceRGB", "/DeviceGray", "/DeviceCMYK", "/Pattern", "/G", "/RGB", "/CMYK", "":
+		return nil
+	}
+	if csd, ok := resolveRefToDict(e.objects, resources["/ColorSpace"]); ok {
+		return csd[name]
+	}
+	return nil
+}
+
+// spaceColorOperands reads sc/scn operands: through tint when the colour
+// space has one, else as a device colour by count.
+func spaceColorOperands(ops []pdfValue, tint tintFunc) (r, g, b float64, ok bool) {
+	if tint != nil {
+		var n []float64
+		for _, v := range ops {
+			switch v.(type) {
+			case int, float64:
+				n = append(n, operandFloat(v))
+			}
+		}
+		if len(n) == 0 {
+			return 0, 0, 0, false
+		}
+		r8, g8, b8 := tint(n)
+		return float64(r8) / 255, float64(g8) / 255, float64(b8) / 255, true
+	}
+	return deviceColorOperands(ops, "")
 }
 
 // deviceColorOperands reads a colour operator's operands as RGB: gray,

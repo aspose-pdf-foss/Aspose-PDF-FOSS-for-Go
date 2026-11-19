@@ -156,6 +156,14 @@ func resolveFont(objects map[int]*pdfObject, fontDict pdfDict) fontInfo {
 			// program's cmap.
 			fi.encoding = defaultEncodingForFont(canon)
 			fi.known = true
+		} else if nonsymbolicUnembedded(objects, fontDict) {
+			// A non-embedded simple font its descriptor calls nonsymbolic
+			// (Flags bit 6 set, bit 3 clear) uses the standard Latin
+			// character set, which with no /Encoding is StandardEncoding
+			// (ISO 32000-1 §9.6.6.2): NewCenturySchlbk, Palatino and other
+			// faces outside the Standard 14 (pdf-go-k23c).
+			fi.encoding = standardEncoding
+			fi.known = true
 		} else if enc, ok := programEncoding(objects, fontDict); ok {
 			// No dictionary encoding, but the embedded program says what each
 			// code draws (pdf-go-nw0h).
@@ -611,4 +619,21 @@ func resolveFontDescriptor(objects map[int]*pdfObject, fontDict pdfDict, baseFon
 	if v, ok := fdDict["/Descent"]; ok {
 		fi.descent = operandFloat(v)
 	}
+}
+
+// nonsymbolicUnembedded reports whether a simple font has no embedded program
+// and a descriptor whose /Flags mark it nonsymbolic (bit 6) and not symbolic
+// (bit 3).
+func nonsymbolicUnembedded(objects map[int]*pdfObject, fontDict pdfDict) bool {
+	switch dictGetName(fontDict, "/Subtype") {
+	case "/Type1", "/MMType1", "/TrueType":
+	default:
+		return false
+	}
+	fd, ok := resolveRefToDict(objects, fontDict["/FontDescriptor"])
+	if !ok || fontDescriptorHasFile(objects, fontDict) {
+		return false
+	}
+	flags, _ := resolveRef(objects, fd["/Flags"]).(int)
+	return flags&(1<<5) != 0 && flags&(1<<2) == 0
 }
