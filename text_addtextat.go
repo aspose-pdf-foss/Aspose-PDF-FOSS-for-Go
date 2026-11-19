@@ -195,14 +195,16 @@ func (p *Page) AddTextAt(text string, style TextStyle, x, y float64) error {
 	}
 
 	buf.WriteString("BT\n")
+	// The stroking colour is written whatever the mode, so the text state
+	// reads back as it was set (a found fragment reports it).
+	if sc := style.StrokeColor; sc != nil {
+		buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
+			formatFloat(sc.R), formatFloat(sc.G), formatFloat(sc.B)))
+	}
 	switch {
 	case invisible:
 		buf.WriteString("3 Tr\n")
 	case style.RenderMode == RenderingStroke || style.RenderMode == RenderingFillStroke:
-		if sc := style.StrokeColor; sc != nil {
-			buf.WriteString(fmt.Sprintf("%s %s %s RG\n",
-				formatFloat(sc.R), formatFloat(sc.G), formatFloat(sc.B)))
-		}
 		if style.strokeWidth > 0 {
 			buf.WriteString(fmt.Sprintf("%s w\n", formatFloat(style.strokeWidth)))
 		}

@@ -155,6 +155,26 @@ type textFragment struct {
 	colorG      float64
 	colorB      float64
 	rotation    float64 // baseline angle in degrees CCW (0 = horizontal)
+	// run is the rest of the text state the fragment was drawn with, as it
+	// was at its first rune; runeRun is each rune's, nil while every rune
+	// has run. Like the fill colour, a change does not start a fragment (a
+	// shadowed headline alternates fill and stroke glyph by glyph), and the
+	// absorber splits segments by the rendering mode.
+	run     textRunState
+	runeRun []textRunState
+}
+
+// textRunState is the part of the text state a found fragment reports and
+// extraction itself does not use: word spacing (Tw), horizontal scaling
+// (Tz, percent), the rendering mode (Tr) and the stroking colour.
+type textRunState struct {
+	wordSpacing  float64
+	horizScaling float64
+	renderMode   int
+	stroke       Color
+	// fakedBold: bold comes from fill and stroke (Tr 2 or 6 with a line
+	// width) over a regular face, not from the font.
+	fakedBold bool
 }
 
 type textExtractor struct {
@@ -187,6 +207,8 @@ type textExtractor struct {
 
 	// Fill color (for text rendering).
 	fillR, fillG, fillB float64 // RGB, 0-1
+	// Stroking colour, reported with found text (rendering modes 1, 2).
+	strokeR, strokeG, strokeB float64
 
 	// Marked content stack for ActualText support (BDC/BMC/EMC).
 	mcStack []markedContentEntry
@@ -220,6 +242,9 @@ type extractorGState struct {
 	fillR        float64
 	fillG        float64
 	fillB        float64
+	strokeR      float64
+	strokeG      float64
+	strokeB      float64
 }
 
 // markedContentEntry tracks a BDC/BMC nesting level.
@@ -445,6 +470,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				ctm: e.ctm, font: e.font, fontSize: e.fontSize,
 				charSpace: e.charSpace, wordSpace: e.wordSpace, leading: e.leading,
 				horizScaling: e.horizScaling, fillR: e.fillR, fillG: e.fillG, fillB: e.fillB,
+				strokeR: e.strokeR, strokeG: e.strokeG, strokeB: e.strokeB,
 				renderMode: e.renderMode, lineWidth: e.lineWidth,
 			})
 
@@ -456,6 +482,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.charSpace, e.wordSpace, e.leading = s.charSpace, s.wordSpace, s.leading
 				e.horizScaling = s.horizScaling
 				e.fillR, e.fillG, e.fillB = s.fillR, s.fillG, s.fillB
+				e.strokeR, e.strokeG, e.strokeB = s.strokeR, s.strokeG, s.strokeB
 				e.renderMode, e.lineWidth = s.renderMode, s.lineWidth
 			}
 
@@ -493,39 +520,60 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.doFormXObject(op.Operands[0], resources)
 			}
 
-		// Fill color operators (text uses fill color).
-		case "g": // gray
-			if len(op.Operands) >= 1 {
-				gray := operandFloat(op.Operands[0])
-				e.fillR, e.fillG, e.fillB = gray, gray, gray
+		// Fill colour (text is filled with it) and stroking colour.
+		case "g", "rg", "k":
+			if r, g, b, ok := deviceColorOperands(op.Operands, op.Operator); ok {
+				e.fillR, e.fillG, e.fillB = r, g, b
 			}
-		case "rg": // RGB
-			if len(op.Operands) >= 3 {
-				e.fillR = operandFloat(op.Operands[0])
-				e.fillG = operandFloat(op.Operands[1])
-				e.fillB = operandFloat(op.Operands[2])
+		case "G", "RG", "K":
+			if r, g, b, ok := deviceColorOperands(op.Operands, op.Operator); ok {
+				e.strokeR, e.strokeG, e.strokeB = r, g, b
 			}
-		case "k": // CMYK → RGB
-			if len(op.Operands) >= 4 {
-				c := operandFloat(op.Operands[0])
-				m := operandFloat(op.Operands[1])
-				y := operandFloat(op.Operands[2])
-				k := operandFloat(op.Operands[3])
-				e.fillR = (1 - c) * (1 - k)
-				e.fillG = (1 - m) * (1 - k)
-				e.fillB = (1 - y) * (1 - k)
+		case "sc", "scn": // generic fill color: 1, 3 or 4 components
+			if r, g, b, ok := deviceColorOperands(op.Operands, ""); ok {
+				e.fillR, e.fillG, e.fillB = r, g, b
 			}
-		case "sc", "scn": // generic fill color (DeviceRGB assumed if 3 operands)
-			if len(op.Operands) == 1 {
-				gray := operandFloat(op.Operands[0])
-				e.fillR, e.fillG, e.fillB = gray, gray, gray
-			} else if len(op.Operands) >= 3 {
-				e.fillR = operandFloat(op.Operands[0])
-				e.fillG = operandFloat(op.Operands[1])
-				e.fillB = operandFloat(op.Operands[2])
+		case "SC", "SCN":
+			if r, g, b, ok := deviceColorOperands(op.Operands, ""); ok {
+				e.strokeR, e.strokeG, e.strokeB = r, g, b
 			}
 		}
 	}
+}
+
+// deviceColorOperands reads a colour operator's operands as RGB: gray,
+// RGB or CMYK by the operator (g/G, rg/RG, k/K), or, for sc/scn (op ""),
+// by the operand count. A pattern name operand is ignored.
+func deviceColorOperands(ops []pdfValue, op string) (r, g, b float64, ok bool) {
+	var n []float64
+	for _, v := range ops {
+		switch v.(type) {
+		case int, float64:
+			n = append(n, operandFloat(v))
+		}
+	}
+	want := len(n)
+	switch op {
+	case "g", "G":
+		want = 1
+	case "rg", "RG":
+		want = 3
+	case "k", "K":
+		want = 4
+	}
+	if len(n) < want {
+		return 0, 0, 0, false
+	}
+	switch want {
+	case 1:
+		return n[0], n[0], n[0], true
+	case 3:
+		return n[0], n[1], n[2], true
+	case 4:
+		c, m, y, k := n[0], n[1], n[2], n[3]
+		return (1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k), true
+	}
+	return 0, 0, 0, false
 }
 
 func (e *textExtractor) advanceGlyph(code byte) {
@@ -766,6 +814,14 @@ func (e *textExtractor) emitRune(r rune) {
 	// producers (and an edit setting FontStyleItalic) fake italic.
 	italic := e.font.italic || e.slanted()
 
+	run := textRunState{
+		wordSpacing:  e.wordSpace,
+		horizScaling: e.horizScaling * 100,
+		renderMode:   e.renderMode,
+		stroke:       Color{R: e.strokeR, G: e.strokeG, B: e.strokeB, A: 1},
+		fakedBold:    bold && !e.font.bold,
+	}
+
 	needNew := e.curFrag == nil ||
 		fontName != e.curFrag.fontName ||
 		bold != e.curFrag.bold ||
@@ -813,6 +869,7 @@ func (e *textExtractor) emitRune(r rune) {
 			colorG:      e.fillG,
 			colorB:      e.fillB,
 			rotation:    rotation,
+			run:         run,
 		}
 		e.fragments = append(e.fragments, frag)
 		e.curFrag = &e.fragments[len(e.fragments)-1]
@@ -822,6 +879,7 @@ func (e *textExtractor) emitRune(r rune) {
 		e.curFrag.fontMixed = true
 	}
 	e.curFrag.recordColor(e.fillR, e.fillG, e.fillB)
+	e.curFrag.recordRun(run)
 	e.curFrag.text.WriteRune(r)
 	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
 	e.curFrag.runeY = append(e.curFrag.runeY, y)
@@ -845,6 +903,22 @@ func (f *textFragment) recordColor(r, g, b float64) {
 		}
 	}
 	f.runeColor = append(f.runeColor, Color{R: r, G: g, B: b, A: 1})
+}
+
+// recordRun notes the text state of the rune about to be added, as
+// recordColor does the fill colour.
+func (f *textFragment) recordRun(rs textRunState) {
+	if f.runeRun == nil {
+		if rs == f.run {
+			return
+		}
+		n := len(f.runeX)
+		f.runeRun = make([]textRunState, n, n+8)
+		for i := range f.runeRun {
+			f.runeRun[i] = f.run
+		}
+	}
+	f.runeRun = append(f.runeRun, rs)
 }
 
 func (e *textExtractor) flushFragment() {

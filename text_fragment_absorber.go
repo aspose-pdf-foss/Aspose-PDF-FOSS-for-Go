@@ -143,6 +143,7 @@ type runKey struct {
 	size         int
 	r, g, b      float64
 	bold, italic bool
+	mode         int
 }
 
 // keyOf is the run key of rune li of fragment f: its look with the rune's
@@ -150,7 +151,15 @@ type runKey struct {
 // line text stays as it was; segments split there).
 func keyOf(f *TextFragment, li int) runKey {
 	c := runeColorOf(f, li)
-	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), c.R, c.G, c.B, f.Bold, f.Italic}
+	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), c.R, c.G, c.B, f.Bold, f.Italic, runeRunOf(f, li).renderMode}
+}
+
+// runeRunOf is the text state rune li of f was drawn with.
+func runeRunOf(f *TextFragment, li int) textRunState {
+	if li >= 0 && li < len(f.runeRun) {
+		return f.runeRun[li]
+	}
+	return f.run
 }
 
 // runeColorOf is the fill colour of rune li of f.
@@ -165,7 +174,8 @@ type runGroup struct {
 	a, b  int
 	key   runKey
 	src   *TextFragment
-	color Color // the run's fill colour (its first rune's)
+	color Color        // the run's fill colour (its first rune's)
+	run   textRunState // the rest of its first rune's text state
 	span  *lineSpan
 	text  []rune
 }
@@ -216,7 +226,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 					start, text = pending, pendText
 					pending, pendText = -1, nil
 				}
-				cur = &runGroup{a: start, key: key, src: src, color: runeColorOf(src, sp.m.local[k]), span: sp, text: text}
+				cur = &runGroup{a: start, key: key, src: src, color: runeColorOf(src, sp.m.local[k]), run: runeRunOf(src, sp.m.local[k]), span: sp, text: text}
 				cur.text = append(cur.text, r)
 				groups = append(groups, cur)
 				cur.b = k + 1
@@ -246,6 +256,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 				ForegroundColor: copyColor(&g.color),
 				Rotation:        g.src.Rotation,
 			}
+			foundRunState(&st, g.src.CharSpacing, g.run)
 			if g.src.Bold {
 				st.FontStyle |= FontStyleBold
 			}
@@ -310,6 +321,26 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true}
 	f.bind.snap = snapshotOf(f)
 	return f
+}
+
+// foundRunState fills the parts of st that come from the text state src
+// was drawn with: character and word spacing, horizontal scaling, the
+// rendering mode and the stroking colour. Tr 4-7 (the same with clipping)
+// report their painting mode, so 7, which paints nothing, is invisible.
+func foundRunState(st *TextState, charSpacing float64, run textRunState) {
+	st.CharacterSpacing = charSpacing
+	st.WordSpacing = run.wordSpacing
+	st.HorizontalScaling = run.horizScaling
+	mode := run.renderMode
+	if mode < 0 || mode > 7 {
+		mode = 0
+	}
+	st.RenderingMode = TextRenderingMode(mode % 4)
+	st.Invisible = st.RenderingMode == RenderingInvisible
+	st.fakedBold = run.fakedBold
+	if run.stroke.A > 0 {
+		st.StrokingColor = copyColor(&run.stroke)
+	}
 }
 
 // fontEmbedded reports whether the page's font resource named by the

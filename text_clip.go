@@ -98,6 +98,7 @@ func cloneFragment(f *textFragment, text string, runeX, runeY []float64, x, y, e
 		fontName: f.fontName, fontSize: f.fontSize, height: f.height, descent: f.descent,
 		bold: f.bold, italic: f.italic, charSpacing: f.charSpacing,
 		colorR: f.colorR, colorG: f.colorG, colorB: f.colorB, rotation: f.rotation,
+		run: f.run,
 	}
 }
 

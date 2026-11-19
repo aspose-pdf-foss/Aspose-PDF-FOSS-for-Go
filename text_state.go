@@ -44,6 +44,12 @@ type TextState struct {
 	Underline, StrikeOut, Invisible                  bool
 	CharacterSpacing, WordSpacing, HorizontalScaling float64
 	LineSpacing, Rotation                            float64
+
+	// fakedBold marks the state of found text drawn with fill and stroke
+	// over a regular face to look bold: the stroke is part of FontStyleBold,
+	// so the text is redrawn as bold (a bold face, or the emulation in
+	// style), not stroked in its old stroking colour.
+	fakedBold bool
 }
 
 // inherit fills s's zero fields from parent (bools are ORed).
@@ -87,6 +93,7 @@ func (s TextState) inherit(parent TextState) TextState {
 	s.Underline = s.Underline || parent.Underline
 	s.StrikeOut = s.StrikeOut || parent.StrikeOut
 	s.Invisible = s.Invisible || parent.Invisible
+	s.fakedBold = s.fakedBold || parent.fakedBold
 	return s
 }
 
@@ -126,6 +133,9 @@ func (s TextState) style() TextStyle {
 	}
 	if s.LineSpacing > 0 && s.FontSize > 0 {
 		st.LineSpacing = s.LineSpacing / s.FontSize
+	}
+	if s.fakedBold && st.RenderMode == RenderingFillStroke {
+		st.RenderMode, st.StrokeColor = RenderingFill, nil
 	}
 	// A style the document's font lacks is emulated: bold as fill and
 	// stroke, italic as a slant, so the glyphs keep their widths.
