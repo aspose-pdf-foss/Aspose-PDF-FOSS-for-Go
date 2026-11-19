@@ -79,13 +79,9 @@ func parseDestination(doc *Document, raw pdfValue) Destination {
 	if raw == nil {
 		return nil
 	}
-	switch v := raw.(type) {
+	switch v := resolveRefChain(doc.objects, raw).(type) {
 	case pdfArray:
 		return parseDestinationArray(doc, v)
-	case pdfRef:
-		if obj, ok := doc.objects[v.Num]; ok {
-			return parseDestination(doc, obj.Value)
-		}
 	case string:
 		return resolveNamedDest(doc, v)
 	case pdfHexString:

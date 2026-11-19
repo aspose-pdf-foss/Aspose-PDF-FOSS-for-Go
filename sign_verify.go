@@ -126,13 +126,18 @@ func (d *Document) collectSignatureFields() []sigFieldRef {
 	if !ok {
 		return res
 	}
+	// Each field is read once: a damaged or crafted hierarchy whose /Kids lead
+	// back to a field, or name one many times at each of many levels, would
+	// otherwise be walked forever or once per path.
+	seen := map[string]bool{}
 	var walk func(arr pdfArray)
 	walk = func(arr pdfArray) {
 		for _, fv := range arr {
 			fd, ok := resolveRefToDict(d.objects, fv)
-			if !ok {
+			if !ok || seen[dictIdentity(fd)] {
 				continue
 			}
+			seen[dictIdentity(fd)] = true
 			if n, _ := fd["/FT"].(pdfName); n == "/Sig" {
 				if sig, ok := resolveRefToDict(d.objects, fd["/V"]); ok {
 					res = append(res, sigFieldRef{name: decodeFormString(fd["/T"]), sig: sig})

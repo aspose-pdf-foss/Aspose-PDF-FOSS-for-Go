@@ -67,11 +67,7 @@ func parseDocumentJavaScript(d *Document) *JavaScriptCollection {
 // dict, possibly behind an indirect ref) to its script text. The /JS
 // entry may be a literal string or a stream per ISO 32000-1 §7.9.2.
 func jsScriptFromValue(d *Document, raw pdfValue) string {
-	switch v := raw.(type) {
-	case pdfRef:
-		if obj, ok := d.objects[v.Num]; ok {
-			return jsScriptFromValue(d, obj.Value)
-		}
+	switch v := resolveRefChain(d.objects, raw).(type) {
 	case pdfDict:
 		return jsStringFromJS(d, v["/JS"])
 	}
@@ -81,17 +77,13 @@ func jsScriptFromValue(d *Document, raw pdfValue) string {
 // jsStringFromJS decodes a /JS value (string, hex string, stream, or
 // indirect ref to a stream) into plain script text.
 func jsStringFromJS(d *Document, raw pdfValue) string {
-	switch v := raw.(type) {
+	switch v := resolveRefChain(d.objects, raw).(type) {
 	case string:
 		return decodeFormString(v)
 	case pdfHexString:
 		return decodeFormString(v)
 	case *pdfStream:
 		return string(v.Data)
-	case pdfRef:
-		if obj, ok := d.objects[v.Num]; ok {
-			return jsStringFromJS(d, obj.Value)
-		}
 	}
 	return ""
 }

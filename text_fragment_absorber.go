@@ -333,9 +333,11 @@ func fontEmbedded(p *Page, name string) bool {
 }
 
 func descriptorEmbedded(objs map[int]*pdfObject, fd pdfDict) bool {
+	// A composite font has one level of descendant; a crafted one naming
+	// itself as its descendant is read as the font it is.
 	if arr, ok := resolveRefToArray(objs, fd["/DescendantFonts"]); ok && len(arr) > 0 {
 		if cd, ok := resolveRefToDict(objs, arr[0]); ok {
-			return descriptorEmbedded(objs, cd)
+			fd = cd
 		}
 	}
 	desc, ok := resolveRefToDict(objs, fd["/FontDescriptor"])

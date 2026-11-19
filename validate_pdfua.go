@@ -115,8 +115,7 @@ func (d *Document) uaCheckFigures(r *PDFUAValidationReport) {
 	}
 	roleMap, _ := resolveRefToDict(d.objects, root["/RoleMap"])
 	reported := map[string]bool{}
-	var walk func(elem pdfDict)
-	walk = func(elem pdfDict) {
+	d.walkStructTree(root, func(elem pdfDict) {
 		std := resolveStructType(roleMap, dictGetName(elem, "/S"))
 		if (std == "/Figure" || std == "/Formula") && !reported[std] {
 			if !hasAltText(d.objects, elem) {
@@ -129,13 +128,7 @@ func (d *Document) uaCheckFigures(r *PDFUAValidationReport) {
 				reported[std] = true
 			}
 		}
-		for _, kid := range d.structElemKids(elem) {
-			walk(kid)
-		}
-	}
-	for _, kid := range d.structElemKids(root) {
-		walk(kid)
-	}
+	})
 }
 
 // uaCheckIdentification reports a file that does not claim PDF/UA (ISO 14289-1 §5).
@@ -182,8 +175,7 @@ func (d *Document) uaCheckStructure(r *PDFUAValidationReport) {
 	roleMap, _ := resolveRefToDict(d.objects, root["/RoleMap"])
 	last := 0
 	scopeReported, orderReported := false, false
-	var walk func(elem pdfDict)
-	walk = func(elem pdfDict) {
+	d.walkStructTree(root, func(elem pdfDict) {
 		std := resolveStructType(roleMap, dictGetName(elem, "/S"))
 		if std == "/TH" && !scopeReported && !d.thHasScope(elem) {
 			r.add("UA_TH_NO_SCOPE", "a /TH structure element has no /Scope attribute; PDF/UA requires it")
@@ -197,13 +189,7 @@ func (d *Document) uaCheckStructure(r *PDFUAValidationReport) {
 			}
 			last = n
 		}
-		for _, kid := range d.structElemKids(elem) {
-			walk(kid)
-		}
-	}
-	for _, kid := range d.structElemKids(root) {
-		walk(kid)
-	}
+	})
 }
 
 func (d *Document) thHasScope(elem pdfDict) bool {
@@ -227,6 +213,28 @@ func (d *Document) uaCheckAccessibility(r *PDFUAValidationReport) {
 	if perms, encrypted := d.Permissions(); encrypted && !perms.AllowAccessibility {
 		r.add("UA_INACCESSIBLE", "encryption denies the accessibility permission; PDF/UA requires content to be available to assistive technology")
 	}
+}
+
+// walkStructTree calls fn on every structure element below root, depth first
+// in reading order. An element is visited once: the structure tree is a tree,
+// but a damaged or crafted file can make an element its own descendant, or
+// name one element many times at each of many levels, which walked once per
+// path never ends or grows exponentially with the depth.
+func (d *Document) walkStructTree(root pdfDict, fn func(elem pdfDict)) {
+	seen := map[string]bool{dictIdentity(root): true}
+	var walk func(elem pdfDict)
+	walk = func(elem pdfDict) {
+		for _, kid := range d.structElemKids(elem) {
+			p := dictIdentity(kid)
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			fn(kid)
+			walk(kid)
+		}
+	}
+	walk(root)
 }
 
 // structElemKids returns the child structure elements (dicts with /S) reachable

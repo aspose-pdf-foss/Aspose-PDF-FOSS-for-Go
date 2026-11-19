@@ -48,20 +48,13 @@ func (d *Document) FiguresNeedingAltText() ([]*FigureAlt, error) {
 	pageImages := map[int]map[int]*Image{}
 
 	var figs []*FigureAlt
-	var walk func(elem pdfDict)
-	walk = func(elem pdfDict) {
+	d.walkStructTree(root, func(elem pdfDict) {
 		if resolveStructType(roleMap, dictGetName(elem, "/S")) == "/Figure" && !hasAltText(d.objects, elem) {
 			fa := &FigureAlt{doc: d, elem: elem}
 			fa.img = d.figureImage(elem, pageImages)
 			figs = append(figs, fa)
 		}
-		for _, kid := range d.structElemKids(elem) {
-			walk(kid)
-		}
-	}
-	for _, kid := range d.structElemKids(root) {
-		walk(kid)
-	}
+	})
 	return figs, nil
 }
 

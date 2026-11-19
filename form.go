@@ -112,17 +112,22 @@ func walkAcroForm(form *Form, objects map[int]*pdfObject, root pdfDict) []*field
 		return nil
 	}
 	var out []*fieldNode
+	expanded := map[string]bool{}
 	for _, item := range arr {
 		dict, ok := resolveRefToDict(objects, item)
 		if !ok {
 			continue
 		}
-		walkField(form, objects, dict, "", "", 0, &out)
+		walkField(form, objects, dict, "", "", 0, &out, expanded)
 	}
 	return out
 }
 
-func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName, parentFT string, parentFF int, out *[]*fieldNode) {
+// walkField reads one field. The /Kids of a field are followed once: the
+// field hierarchy is a tree, and a damaged or crafted one whose /Kids lead
+// back to a field, or name one field many times at each of many levels, would
+// otherwise be walked forever or once per path.
+func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName, parentFT string, parentFF int, out *[]*fieldNode, expanded map[string]bool) {
 	tName := dictGetString(dict, "/T")
 	fullName := tName
 	if parentName != "" && tName != "" {
@@ -172,12 +177,16 @@ func walkField(form *Form, objects map[int]*pdfObject, dict pdfDict, parentName,
 		return
 	}
 	// Recurse into sub-fields.
+	if expanded[dictIdentity(dict)] {
+		return
+	}
+	expanded[dictIdentity(dict)] = true
 	for _, item := range arr {
 		k, ok := resolveRefToDict(objects, item)
 		if !ok {
 			continue
 		}
-		walkField(form, objects, k, fullName, ft, ff, out)
+		walkField(form, objects, k, fullName, ft, ff, out, expanded)
 	}
 }
 

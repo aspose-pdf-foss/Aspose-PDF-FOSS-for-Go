@@ -68,16 +68,12 @@ func parseDestinationAny(d *Document, raw pdfValue) Destination {
 	if raw == nil {
 		return nil
 	}
-	switch v := raw.(type) {
+	switch v := resolveRefChain(d.objects, raw).(type) {
 	case pdfArray:
 		return parseDestinationArray(d, v)
 	case pdfDict:
 		if dArr, ok := v["/D"].(pdfArray); ok {
 			return parseDestinationArray(d, dArr)
-		}
-	case pdfRef:
-		if obj, ok := d.objects[v.Num]; ok {
-			return parseDestinationAny(d, obj.Value)
 		}
 	}
 	return nil

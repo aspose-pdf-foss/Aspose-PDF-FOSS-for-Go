@@ -261,13 +261,15 @@ func parseFDFFields(data []byte) (map[string]pdfValue, error) {
 		return map[string]pdfValue{}, nil // valid FDF with no fields
 	}
 	out := map[string]pdfValue{}
-	walkFDFFields(arr, "", resolve, out)
+	walkFDFFields(arr, "", resolve, out, map[string]bool{})
 	return out, nil
 }
 
 // walkFDFFields flattens an FDF /Fields array into full-name → /V, descending
-// /Kids and joining partial names with ".".
-func walkFDFFields(arr pdfArray, prefix string, resolve func(pdfValue) pdfValue, out map[string]pdfValue) {
+// /Kids and joining partial names with ".". A field's /Kids are followed once,
+// so a crafted file whose /Kids lead back to a field, or name one many times at
+// each of many levels, is not walked forever or once per path.
+func walkFDFFields(arr pdfArray, prefix string, resolve func(pdfValue) pdfValue, out map[string]pdfValue, expanded map[string]bool) {
 	for _, it := range arr {
 		d, ok := resolve(it).(pdfDict)
 		if !ok {
@@ -280,8 +282,9 @@ func walkFDFFields(arr pdfArray, prefix string, resolve func(pdfValue) pdfValue,
 		if v, ok := d["/V"]; ok {
 			out[full] = resolve(v)
 		}
-		if kids, ok := resolve(d["/Kids"]).(pdfArray); ok {
-			walkFDFFields(kids, full, resolve, out)
+		if kids, ok := resolve(d["/Kids"]).(pdfArray); ok && !expanded[dictIdentity(d)] {
+			expanded[dictIdentity(d)] = true
+			walkFDFFields(kids, full, resolve, out, expanded)
 		}
 	}
 }

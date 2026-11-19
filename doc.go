@@ -454,6 +454,31 @@ func resolveRef(objects map[int]*pdfObject, v pdfValue) pdfValue {
 	return obj.Value
 }
 
+// maxRefChain bounds resolveRefChain.
+const maxRefChain = 32
+
+// resolveRefChain follows references until it reaches a value that is not
+// one. An object whose value is itself a reference is unusual but parses; a
+// file whose objects name one another in a ring would otherwise be followed
+// forever. A chain longer than maxRefChain resolves to nil.
+func resolveRefChain(objects map[int]*pdfObject, v pdfValue) pdfValue {
+	for range maxRefChain {
+		ref, ok := v.(pdfRef)
+		if !ok {
+			return v
+		}
+		obj, ok := objects[ref.Num]
+		if !ok {
+			return nil
+		}
+		v = obj.Value
+	}
+	if _, ok := v.(pdfRef); ok {
+		return nil
+	}
+	return v
+}
+
 // resolveRefToDict resolves v to a pdfDict, following a ref if needed.
 func resolveRefToDict(objects map[int]*pdfObject, v pdfValue) (pdfDict, bool) {
 	rv := resolveRef(objects, v)

@@ -518,6 +518,14 @@ type pageInfo struct {
 }
 
 func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error {
+	return d.walkPageTreeNode(nodeRef, result, map[int]bool{}, map[int]bool{})
+}
+
+// walkPageTreeNode walks one node. An intermediate node that is its own
+// ancestor is an error; one reached again through another branch was walked
+// already and is skipped, as a crafted tree naming one node many times at each
+// of many levels would otherwise be walked once per path.
+func (d *rawDocument) walkPageTreeNode(nodeRef pdfValue, result *[]*pageInfo, active, done map[int]bool) error {
 	ref, ok := nodeRef.(pdfRef)
 	if !ok {
 		return fmt.Errorf("page tree node is not a ref")
@@ -529,6 +537,14 @@ func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error 
 	nodeType := dictGetName(nodeDict, "/Type")
 	switch nodeType {
 	case "/Pages":
+		if active[ref.Num] {
+			return fmt.Errorf("page tree node %d is its own ancestor", ref.Num)
+		}
+		if done[ref.Num] {
+			return nil
+		}
+		active[ref.Num] = true
+		defer func() { delete(active, ref.Num); done[ref.Num] = true }()
 		kids, ok := nodeDict["/Kids"]
 		if !ok {
 			return fmt.Errorf("Pages node missing /Kids")
@@ -542,7 +558,7 @@ func (d *rawDocument) walkPageTree(nodeRef pdfValue, result *[]*pageInfo) error 
 			return fmt.Errorf("/Kids is not an array")
 		}
 		for _, kid := range arr {
-			if err := d.walkPageTree(kid, result); err != nil {
+			if err := d.walkPageTreeNode(kid, result, active, done); err != nil {
 				return err
 			}
 		}

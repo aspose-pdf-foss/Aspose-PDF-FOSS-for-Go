@@ -159,6 +159,20 @@ type numberTreeEntry struct {
 
 // flattenNumberTree recursively collects all (key, dict) pairs from a PDF number tree.
 func flattenNumberTree(objects map[int]*pdfObject, nodeVal pdfValue) ([]numberTreeEntry, error) {
+	return flattenNumberTreeNode(objects, nodeVal, map[int]bool{})
+}
+
+// flattenNumberTreeNode reads one node. A node reached a second time is
+// skipped: a number tree is a tree, and a damaged or crafted one whose /Kids
+// lead back to a node, or name one node many times at each of many levels,
+// would otherwise be read forever or once per path.
+func flattenNumberTreeNode(objects map[int]*pdfObject, nodeVal pdfValue, seen map[int]bool) ([]numberTreeEntry, error) {
+	if r, ok := nodeVal.(pdfRef); ok {
+		if seen[r.Num] {
+			return nil, nil
+		}
+		seen[r.Num] = true
+	}
 	node, ok := resolveRefToDict(objects, nodeVal)
 	if !ok {
 		return nil, fmt.Errorf("number tree node is not a dict")
@@ -190,7 +204,7 @@ func flattenNumberTree(objects map[int]*pdfObject, nodeVal pdfValue) ([]numberTr
 		}
 		var entries []numberTreeEntry
 		for _, kid := range arr {
-			sub, err := flattenNumberTree(objects, kid)
+			sub, err := flattenNumberTreeNode(objects, kid, seen)
 			if err != nil {
 				continue
 			}
