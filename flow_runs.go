@@ -71,6 +71,7 @@ type runLine struct {
 	segs   []runSeg
 	h      float64 // line height
 	ascent float64 // baseline offset from the line top
+	hard   bool    // ended by a forced line break (not the last line)
 }
 
 // runToken is a word, a space, or a hard break, attributed to its run.
@@ -143,6 +144,9 @@ func tokenWidth(ms []runMetrics, ri int, text string) float64 {
 // With breakLong, a word wider than maxW is split into pieces of at most maxW
 // (at least one rune each) with a soft break between them; without it, words
 // are never split.
+//
+// CRLF, CR, LF, NEL, U+2028 and U+2029 inside a run's text force a line break
+// (splitParagraphs, as AddText breaks), never drawn as glyphs.
 func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool) []runToken {
 	var tokens []runToken
 	for ri, r := range runs {
@@ -150,34 +154,45 @@ func tokenizeRuns(runs []textRun, ms []runMetrics, maxW float64, breakLong bool)
 			tokens = append(tokens, runToken{run: ri, brk: true})
 			continue
 		}
-		text := r.text
-		for text != "" {
-			if text[0] == ' ' {
-				j := 1
-				for j < len(text) && text[j] == ' ' {
-					j++
-				}
-				tokens = append(tokens, runToken{run: ri, text: text[:j], w: tokenWidth(ms, ri, text[:j]), space: true})
-				text = text[j:]
-				continue
+		for pi, para := range splitParagraphs(r.text) {
+			if pi > 0 {
+				tokens = append(tokens, runToken{run: ri, brk: true})
 			}
-			j := strings.IndexByte(text, ' ')
-			if j < 0 {
-				j = len(text)
+			tokens = tokenizeRunText(tokens, ri, para, ms, maxW, breakLong)
+		}
+	}
+	return tokens
+}
+
+// tokenizeRunText appends the tokens of text (of run ri, holding no forced
+// line break) to tokens.
+func tokenizeRunText(tokens []runToken, ri int, text string, ms []runMetrics, maxW float64, breakLong bool) []runToken {
+	for text != "" {
+		if text[0] == ' ' {
+			j := 1
+			for j < len(text) && text[j] == ' ' {
+				j++
 			}
-			word := text[:j]
+			tokens = append(tokens, runToken{run: ri, text: text[:j], w: tokenWidth(ms, ri, text[:j]), space: true})
 			text = text[j:]
-			if w := tokenWidth(ms, ri, word); !breakLong || w <= maxW {
-				tokens = append(tokens, runToken{run: ri, text: word, w: w})
-				continue
-			}
-			for word != "" {
-				head, next := splitRunWord(ms, ri, word, maxW)
-				tokens = append(tokens, runToken{run: ri, text: head, w: tokenWidth(ms, ri, head)})
-				word = word[next:]
-				if word != "" {
-					tokens = append(tokens, runToken{run: ri, brk: true, soft: true})
-				}
+			continue
+		}
+		j := strings.IndexByte(text, ' ')
+		if j < 0 {
+			j = len(text)
+		}
+		word := text[:j]
+		text = text[j:]
+		if w := tokenWidth(ms, ri, word); !breakLong || w <= maxW {
+			tokens = append(tokens, runToken{run: ri, text: word, w: w})
+			continue
+		}
+		for word != "" {
+			head, next := splitRunWord(ms, ri, word, maxW)
+			tokens = append(tokens, runToken{run: ri, text: head, w: tokenWidth(ms, ri, head)})
+			word = word[next:]
+			if word != "" {
+				tokens = append(tokens, runToken{run: ri, brk: true, soft: true})
 			}
 		}
 	}
@@ -271,6 +286,7 @@ func layoutRunsOpt(runs []textRun, ms []runMetrics, maxW, firstW float64, breakL
 		if t.brk {
 			if !t.soft || len(cur) > 0 {
 				flush()
+				lines[len(lines)-1].hard = !t.soft
 			}
 			i++
 			continue

@@ -633,3 +633,28 @@ func TestAppendParagraphSameFragmentTwiceBoundOnce(t *testing.T) {
 		t.Fatalf("%d bindings", len(d.boundFragments))
 	}
 }
+
+// A forced line break inside a segment (CRLF, CR, LF, NEL, U+2028, U+2029)
+// starts a new line, as in AddText, and is never drawn as a glyph; the line
+// before it is not justified.
+func TestAppendParagraphForcedLineBreaks(t *testing.T) {
+	for _, sep := range []string{"\r\n", "\r", "\n", "\u0085", " ", " "} {
+		f := NewTextFragment("quick")
+		f.Segments = append(f.Segments, NewTextSegment(" fox"+sep+"brown dog"))
+		tp := NewTextParagraph()
+		tp.Justify = true
+		tp.AppendLine(f)
+		_, p := buildPara(t, tp)
+		lines := paraLines(t, p)
+		if len(lines) != 2 {
+			t.Fatalf("%q: %d lines, want 2", sep, len(lines))
+		}
+		if !pnear(lines[0].x0, 100, 0.01) || lines[0].x1 > 160 {
+			t.Fatalf("%q: line before the break spans %v..%v (justified?)", sep, lines[0].x0, lines[0].x1)
+		}
+		text, _ := p.ExtractText()
+		if strings.Contains(text, "?") || strings.Join(strings.Fields(text), " ") != "quick fox brown dog" {
+			t.Fatalf("%q: text %q", sep, text)
+		}
+	}
+}

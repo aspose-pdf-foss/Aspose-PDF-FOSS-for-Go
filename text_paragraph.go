@@ -63,7 +63,8 @@ type TextParagraph struct {
 func NewTextParagraph() *TextParagraph { return &TextParagraph{} }
 
 // AppendLine adds f as the next line of the paragraph. A line longer than the
-// paragraph is wrapped, as the paragraph's FormattingOptions say.
+// paragraph is wrapped, as the paragraph's FormattingOptions say; CRLF, CR,
+// LF, NEL, U+2028 and U+2029 in a segment's text start a new line.
 func (p *TextParagraph) AppendLine(f *TextFragment) {
 	if f != nil {
 		p.lines = append(p.lines, f)
@@ -83,7 +84,7 @@ type paraRun struct {
 type paraLine struct {
 	frag   int
 	ln     runLine
-	last   bool    // last line of its appended fragment
+	last   bool    // last line of its appended fragment, or of a line ended by a forced break
 	indent float64 // from the paragraph's left edge
 	avail  float64 // width available to the line
 }
@@ -185,7 +186,7 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 			if fi == 0 && li == 0 {
 				indent, avail = tp.FirstLineIndent, firstW
 			}
-			lines = append(lines, paraLine{frag: fi, ln: ln, last: li == len(laid)-1, indent: indent, avail: avail})
+			lines = append(lines, paraLine{frag: fi, ln: ln, last: li == len(laid)-1 || ln.hard, indent: indent, avail: avail})
 		}
 		frags[fi], mss[fi] = rs, ms
 	}
