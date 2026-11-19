@@ -834,7 +834,11 @@ func resolvePageIndices(total int, pageNums []int) ([]int, error) {
 func resolveIndirectStreamFilters(objects map[int]*pdfObject) {
 	for _, obj := range objects {
 		st, ok := obj.Value.(*pdfStream)
-		if !ok || st.Decoded {
+		if !ok {
+			continue
+		}
+		resolveIndirectStreamKeys(objects, st.Dict)
+		if st.Decoded {
 			continue
 		}
 		changed := false
@@ -854,6 +858,47 @@ func resolveIndirectStreamFilters(objects map[int]*pdfObject) {
 			}
 		}
 	}
+}
+
+// indirectStreamKeys are the stream-dictionary entries every reader of an
+// XObject takes as direct values; some producers (Acrobat among them) store
+// them as indirect references to a name, a number or an array.
+var indirectStreamKeys = []string{"/Type", "/Subtype", "/FormType", "/BBox", "/Matrix"}
+
+// resolveIndirectStreamKeys replaces an indirect value of indirectStreamKeys
+// with the name, number or array it refers to (array elements resolved one
+// level), so a Form XObject stored that way is recognised as one by text
+// extraction, rendering, Page.Forms and every other walk. Anything else
+// behind the reference is left alone.
+func resolveIndirectStreamKeys(objects map[int]*pdfObject, d pdfDict) {
+	for _, key := range indirectStreamKeys {
+		v, ok := d[key]
+		if !ok {
+			continue
+		}
+		if _, isRef := v.(pdfRef); !isRef {
+			if arr, isArr := v.(pdfArray); !isArr || !arrayHasRef(arr) {
+				continue
+			}
+		}
+		rv, changed := resolveValueShallow(objects, v)
+		if !changed {
+			continue
+		}
+		switch rv.(type) {
+		case pdfName, int, float64, pdfArray:
+			d[key] = rv
+		}
+	}
+}
+
+func arrayHasRef(a pdfArray) bool {
+	for _, el := range a {
+		if _, ok := el.(pdfRef); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveValueShallow resolves an indirect reference (and, for arrays, each

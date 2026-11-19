@@ -246,6 +246,13 @@ func edgeSpace(prev, next string) bool {
 }
 
 // lineFromOrdered builds a TextLine from fragments already in reading order.
+// wordGapEm is the gap between two fragments, in ems of the smaller one,
+// above which TextLine.Text and the search text put a space. A word space
+// typed as a TJ adjustment is often exactly -200 (0.2 em), and some
+// producers leave a hair less (0.198 em in a justified narrow column,
+// pdf-go-q04p), while kerning stays well under 0.15 em.
+const wordGapEm = 0.195
+
 func lineFromOrdered(frags []textFragment) TextLine {
 
 	// Determine baseline Y from the fragment with the largest font size.
@@ -275,7 +282,7 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			gap := fragmentGap(p.endX, p.endY, p.rotation, f.x, f.y, f.rotation)
 			// A real inter-word space advances 0.25–0.28 em in proportional
 			// faces, while kerning/tracking gaps stay well under 0.15 em —
-			// so 0.2 em separates them. The old 0.3 em threshold sat ABOVE
+			// so wordGapEm separates them. The old 0.3 em threshold sat ABOVE
 			// a genuine space's width and swallowed single spaces between
 			// styled runs ("Revenue grew" + bold "12%" → "Revenue grew12%").
 			// The em is taken from the SMALLER of the adjacent fragments: a
@@ -285,7 +292,7 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			if s := frags[lastEmitted].fontSize; s < minSize {
 				minSize = s
 			}
-			spaceThreshold := minSize * 0.2
+			spaceThreshold := minSize * wordGapEm
 			if spaceThreshold < 1 {
 				spaceThreshold = 1
 			}

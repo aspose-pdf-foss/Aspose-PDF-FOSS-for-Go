@@ -930,21 +930,32 @@ func (e *textExtractor) flushFragment() {
 }
 
 // computeSpaceWidth returns the space character width in text space units.
+//
+// The width is taken in ems and then scaled: with "1 Tf" and the size in the
+// text matrix (as Acrobat and Word write), every space is under one text-space
+// unit, and a floor of 1 unit made it an em, so word gaps of 0.2-0.3 em in a
+// TJ never started a fragment and the words ran together (pdf-go-q04p). A
+// missing width counts as 0.25 em, and one over half an em — a subset font's
+// code 32 is often some other glyph — as half an em.
 func (e *textExtractor) computeSpaceWidth() float64 {
-	var spaceWidth float64
+	var em float64
 	if e.font.isType0 {
 		if sw, ok := e.font.cidWidths[0x0020]; ok {
-			spaceWidth = sw / 1000.0 * e.fontSize
+			em = sw / 1000.0
 		} else {
-			spaceWidth = e.font.defaultW / 1000.0 * e.fontSize
+			em = e.font.defaultW / 1000.0
 		}
 	} else {
-		spaceWidth = e.font.widths[32] / 1000.0 * e.fontSize
+		em = e.font.widths[32] / 1000.0
 	}
-	if spaceWidth < 1 {
-		spaceWidth = e.fontSize * 0.25
+	if em < 0.1 {
+		em = 0.25
 	}
-	if spaceWidth < 1 {
+	if em > 0.5 {
+		em = 0.5
+	}
+	spaceWidth := em * math.Abs(e.fontSize)
+	if spaceWidth <= 0 {
 		spaceWidth = 1
 	}
 	return spaceWidth

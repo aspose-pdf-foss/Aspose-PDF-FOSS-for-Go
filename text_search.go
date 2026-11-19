@@ -385,10 +385,10 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		if havePrev {
 			gap := fragmentGap(prevEndX, prevEndY, prevRot, f.X, f.Y, f.Rotation)
 			// The rule TextLine.Text is assembled with (lineFromOrdered):
-			// 0.2 em of the smaller font. 0.3 em missed the spaces of a
+			// wordGapEm of the smaller font. 0.3 em missed the spaces of a
 			// justified line drawn word by word, so a search for its words
 			// found them run together (pdf-go-2tdw).
-			threshold := 0.2 * minf(f.FontSize, prevSize)
+			threshold := wordGapEm * minf(f.FontSize, prevSize)
 			if threshold < 1 {
 				threshold = 1
 			}
