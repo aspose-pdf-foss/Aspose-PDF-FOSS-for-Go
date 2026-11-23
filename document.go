@@ -43,6 +43,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Document is a PDF document. Operations directly mutate the receiver.
@@ -50,6 +51,13 @@ type Document struct {
 	objects      map[int]*pdfObject     // all PDF objects by ID
 	pages        []*pdfObject           // ordered /Page objects
 	pageCache    []*Page                // cached live views by index, lazy-allocated
+	pageMu       sync.Mutex             // guards pageCache, so Page is safe from several goroutines
+	// importedPages remembers the Form XObject a page of another document
+	// was imported as (ImportPage, PdfPageStamp), and importMaps the object
+	// numbers given to each source's objects, so a page imported again, or
+	// another page of the same source, reuses what is already here.
+	importedPages map[pageImportKey]importedPage
+	importMaps    map[*Document]map[int]int
 	catalog      pdfDict                // /Catalog dict
 	info         pdfDict                // /Info dict; nil = no metadata
 	sourceName   string                 // base name of the file opened from; "" otherwise
@@ -472,6 +480,10 @@ func (d *Document) Page(n int) (*Page, error) {
 		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 	}
 	index := n - 1
+	// Reading a document from several goroutines is safe (GitHub issue #26
+	// point 2): the cache is the one thing a read fills.
+	d.pageMu.Lock()
+	defer d.pageMu.Unlock()
 	// Lazily allocate and grow the page cache. Pages added after the cache
 	// was first populated (via AddBlankPage etc.) extend len(d.pages) past the
 	// cache length, so we must resize before indexing.

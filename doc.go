@@ -412,28 +412,43 @@ func deepCopyValue(v pdfValue) pdfValue {
 // nondeterministic besides (the replacement numbers depend on whatever
 // the target document's own object count happened to be).
 func rewriteRefs(v pdfValue, idMap map[int]int) pdfValue {
+	return remapRefs(v, idMap, false)
+}
+
+// importRefs is rewriteRefs for a graph copied into another document: a
+// reference idMap has no entry for names an object the source does not
+// have, which is null (ISO 32000-1 §7.3.10); kept as it was it would name
+// whatever the target holds under that number (GitHub issue #26 point 4).
+func importRefs(v pdfValue, idMap map[int]int) pdfValue {
+	return remapRefs(v, idMap, true)
+}
+
+func remapRefs(v pdfValue, idMap map[int]int, nullMissing bool) pdfValue {
 	switch val := v.(type) {
 	case pdfRef:
 		if newID, ok := idMap[val.Num]; ok {
 			return pdfRef{Num: newID, Gen: val.Gen}
 		}
+		if nullMissing {
+			return pdfNull{}
+		}
 		return val
 	case pdfDict:
 		nd := make(pdfDict, len(val))
 		for k, dv := range val {
-			nd[k] = rewriteRefs(dv, idMap)
+			nd[k] = remapRefs(dv, idMap, nullMissing)
 		}
 		return nd
 	case pdfArray:
 		na := make(pdfArray, len(val))
 		for i, av := range val {
-			na[i] = rewriteRefs(av, idMap)
+			na[i] = remapRefs(av, idMap, nullMissing)
 		}
 		return na
 	case *pdfStream:
 		nd := make(pdfDict, len(val.Dict))
 		for k, dv := range val.Dict {
-			nd[k] = rewriteRefs(dv, idMap)
+			nd[k] = remapRefs(dv, idMap, nullMissing)
 		}
 		data := append([]byte(nil), val.Data...)
 		return &pdfStream{Dict: nd, Data: data, Decoded: val.Decoded}

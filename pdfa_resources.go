@@ -62,6 +62,12 @@ func contentResourceUses(ops []contentOp) []resourceUse {
 	return uses
 }
 
+// defaultColorSpaceUses are the default colour spaces (ISO 32000-1 §8.6.5.6)
+// a form's device colours take from its resources.
+var defaultColorSpaceUses = []resourceUse{
+	{"/ColorSpace", "/DefaultGray"}, {"/ColorSpace", "/DefaultRGB"}, {"/ColorSpace", "/DefaultCMYK"},
+}
+
 // inheritedResources is what one form takes from those drawing it.
 type inheritedResources struct {
 	values   map[resourceUse]pdfValue
@@ -99,7 +105,15 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 			return
 		}
 		own, hasOwn := resolveRefToDict(objects, form.Dict["/Resources"])
-		for _, u := range contentResourceUses(ops) {
+		// The caller's default colour spaces apply to whatever a form with
+		// no resources of its own paints in a device space, the initial
+		// black included, so they go with it too (GitHub issue #26 point
+		// 6); a caller without them adds nothing.
+		uses := contentResourceUses(ops)
+		if !hasOwn {
+			uses = append(uses, defaultColorSpaceUses...)
+		}
+		for _, u := range uses {
 			if lookup(own, u) != nil {
 				continue
 			}
@@ -202,7 +216,10 @@ func (d *Document) pdfaCheckInheritedResources(format PDFAFormat, r *PDFAValidat
 	var names []string
 	for _, inh := range d.formsInheritingResources() {
 		for u := range maps.Keys(inh.values) {
-			names = append(names, strings.TrimPrefix(u.name, "/"))
+			// Taken implicitly, not by name: not what the rule is about.
+			if !slices.Contains(defaultColorSpaceUses, u) {
+				names = append(names, strings.TrimPrefix(u.name, "/"))
+			}
 		}
 	}
 	if len(names) > 0 {

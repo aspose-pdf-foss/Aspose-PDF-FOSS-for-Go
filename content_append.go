@@ -278,16 +278,37 @@ func (p *Page) prependToContentStream(data []byte) error {
 	if pageDict == nil {
 		return fmt.Errorf("page has no dict")
 	}
-	entries, _ := contentsEntries(p.doc.objects, pageDict["/Contents"])
 	newRef := newContentStream(p.doc, data, nil)
 
+	// Fast path: /Contents is still the array this page built here last
+	// time, with room left in front of it (GitHub issue #26 point 7: a
+	// copy per call made n Behind draws O(n²)).
+	if arr, ok := pageDict["/Contents"].(pdfArray); ok && p.frontBuf != nil && len(arr) > 0 &&
+		len(arr) == len(p.frontBuf)-p.frontStart && &arr[0] == &p.frontBuf[p.frontStart] {
+		if p.frontStart == 0 {
+			grown := make([]pdfValue, 2*len(p.frontBuf)+8)
+			start := len(grown) - len(arr)
+			copy(grown[start:], arr)
+			p.frontBuf, p.frontStart = grown, start
+		}
+		p.frontStart--
+		p.frontBuf[p.frontStart] = newRef
+		pageDict["/Contents"] = pdfArray(p.frontBuf[p.frontStart:])
+		return nil
+	}
+	p.frontBuf = nil
+
+	entries, _ := contentsEntries(p.doc.objects, pageDict["/Contents"])
 	if len(entries) == 0 {
 		pageDict["/Contents"] = newRef
 		return nil
 	}
-	wrapped := make(pdfArray, 0, len(entries)+1)
-	wrapped = append(wrapped, newRef)
-	wrapped = append(wrapped, entries...)
-	pageDict["/Contents"] = wrapped
+	n := len(entries) + 1
+	buf := make([]pdfValue, 2*n+8)
+	start := len(buf) - n
+	buf[start] = newRef
+	copy(buf[start+1:], entries)
+	p.frontBuf, p.frontStart = buf, start
+	pageDict["/Contents"] = pdfArray(buf[start:])
 	return nil
 }
