@@ -28,3 +28,21 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+  race:
+    # The data-race detector needs cgo, which the Linux runner has. A
+    # separate job, so the three-OS matrix above stays as fast as it was.
+    name: test -race (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Test with the race detector
+        run: go test -race -timeout 50m ./...

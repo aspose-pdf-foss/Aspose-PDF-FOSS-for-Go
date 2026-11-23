@@ -196,6 +196,9 @@ func TestValidate_StrippedStreamFilter(t *testing.T) {
 // quadratic fix, so the bound here is deliberately generous), just
 // enough to catch a gross regression.
 func TestValidate_DoesNotScanStreamBytesForReferences(t *testing.T) {
+	if raceEnabled {
+		t.Skip("absolute time bound; the race detector slows everything down")
+	}
 	start := time.Now()
 	if _, err := asposepdf.Validate("testdata/PdfWithImages.pdf"); err != nil {
 		t.Fatal(err)

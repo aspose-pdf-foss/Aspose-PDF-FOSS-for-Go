@@ -24,6 +24,11 @@ go test -v ./...
 
 # Build (no binary — library only)
 go build ./...
+
+# Data-race detector (needs cgo: on Windows a gcc on PATH, e.g. scoop's mingw);
+# CI runs it as the separate `race` job on ubuntu. Tests with an absolute time
+# bound skip under it (`raceEnabled`, race_on_test.go / race_off_test.go)
+CGO_ENABLED=1 go test -race ./...
 ```
 
 ## Architecture
