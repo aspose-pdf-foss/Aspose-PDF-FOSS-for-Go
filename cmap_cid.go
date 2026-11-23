@@ -71,9 +71,15 @@ func (c *cidCMap) verticalBases() map[uint16]uint16 {
 	for code, cid := range c.singles {
 		add(code, cid)
 	}
+	// A range covers at most the 65,536 CIDs there are, and the whole map
+	// is bounded: a range ending at 0xFFFFFFFF looped forever, and a wide
+	// one billions of times, from a CMap embedded in the file.
+	budget := maxCMapExpansion
 	for _, r := range c.ranges {
-		for code := r.lo; code <= r.hi; code++ {
-			add(code, r.cid+uint16(code-r.lo))
+		hi := min(uint64(r.hi), uint64(r.lo)+0xFFFF)
+		for code := uint64(r.lo); code <= hi && budget > 0; code++ {
+			add(uint32(code), r.cid+uint16(code-uint64(r.lo)))
+			budget--
 		}
 	}
 	return out

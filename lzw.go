@@ -14,6 +14,11 @@ import "fmt"
 // A truncated stream returns the bytes decoded so far without error (matching
 // the tolerance of flateDecode); an impossible code errors.
 func lzwDecode(data []byte, earlyChange int) ([]byte, error) {
+	return lzwDecodeLimit(data, earlyChange, maxDecodedStream)
+}
+
+// lzwDecodeLimit is lzwDecode refusing output past limit bytes.
+func lzwDecodeLimit(data []byte, earlyChange int, limit int) ([]byte, error) {
 	const (
 		clearCode = 256
 		eodCode   = 257
@@ -74,6 +79,9 @@ func lzwDecode(data []byte, earlyChange int) ([]byte, error) {
 				return out, fmt.Errorf("lzw: invalid code %d (table size %d)", code, len(table))
 			}
 			out = append(out, entry...)
+			if len(out) > limit {
+				return nil, errDecodedTooLarge
+			}
 			if prev != nil && len(table) < 1<<maxWidth {
 				ne := append(append(make([]byte, 0, len(prev)+1), prev...), entry[0])
 				table = append(table, ne)

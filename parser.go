@@ -81,6 +81,10 @@ func tryParseRef(n int, l *lexer) (pdfValue, error) {
 }
 
 func parseArray(l *lexer) (pdfArray, error) {
+	if err := l.enterNested(); err != nil {
+		return nil, err
+	}
+	defer l.leaveNested()
 	var arr pdfArray
 	for {
 		tok, err := l.Next()
@@ -122,7 +126,7 @@ func parseDictOrStream(l *lexer) (pdfValue, error) {
 		if _, hasFilter := d["/Filter"]; !hasFilter {
 			return &pdfStream{Dict: d, Data: streamData, Decoded: false}, nil
 		}
-		decoded, err := decodeStream(d, streamData)
+		decoded, err := decodeStreamLimit(d, streamData, maxEagerDecode)
 		if err != nil {
 			// Unsupported filter (e.g. DCTDecode/JPEG): keep raw bytes and
 			// preserve the original /Filter so the writer copies it as-is.
@@ -137,6 +141,10 @@ func parseDictOrStream(l *lexer) (pdfValue, error) {
 }
 
 func parseDictBody(l *lexer) (pdfDict, error) {
+	if err := l.enterNested(); err != nil {
+		return nil, err
+	}
+	defer l.leaveNested()
 	d := make(pdfDict)
 	for {
 		tok, err := l.Next()
@@ -184,7 +192,9 @@ func readStreamData(l *lexer, d pdfDict) ([]byte, error) {
 	// (e.g. a literal "/Length 1" in front of a 5 KB content stream) would
 	// otherwise truncate the stream; verifying the terminator catches that and
 	// falls through to the endstream scan, matching Acrobat/MuPDF/pdf.js.
-	if length >= 0 && l.pos+length <= len(l.data) && followedByEndstream(l.data, l.pos+length) {
+	// length <= len-pos, not pos+length <= len: a /Length near MaxInt64
+	// overflowed the sum past the check (GHSA-rfwg-hxcj-7pp5 point 6).
+	if length >= 0 && length <= len(l.data)-l.pos && followedByEndstream(l.data, l.pos+length) {
 		data := l.data[l.pos : l.pos+length]
 		l.pos += length
 		return data, nil
@@ -252,7 +262,27 @@ func streamEndIndex(data []byte) int {
 }
 
 // decodeStream decompresses stream data based on /Filter and /DecodeParms.
+// maxDecodedStream bounds what one stream decodes to, and maxEagerDecode
+// what a stream may decode to while the file is being parsed: a stream of a
+// few hundred bytes can inflate to gigabytes (Flate twice over zeros), and
+// every stream used to be decoded at open, referenced or not (GHSA-rfwg-
+// hxcj-7pp5 point 5). A larger stream stays as stored and is decoded when
+// used, as one with a filter this package does not decode is.
+const (
+	maxDecodedStream = 1 << 30
+	maxEagerDecode   = 64 << 20
+)
+
+// errDecodedTooLarge reports a stream decoding past its limit.
+var errDecodedTooLarge = fmt.Errorf("decoded stream larger than the limit")
+
 func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
+	return decodeStreamLimit(d, raw, maxDecodedStream)
+}
+
+// decodeStreamLimit is decodeStream refusing output past limit bytes at any
+// filter of the chain.
+func decodeStreamLimit(d pdfDict, raw []byte, limit int) ([]byte, error) {
 	filterVal, ok := d["/Filter"]
 	if !ok {
 		return raw, nil // uncompressed
@@ -288,9 +318,9 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 		if f == "/LZWDecode" || f == "/LZW" {
 			// Handled here rather than in applyFilter because /EarlyChange
 			// lives in DecodeParms; the predictor block below still applies.
-			data, err = lzwDecode(data, lzwEarlyChange(params[i]))
+			data, err = lzwDecodeLimit(data, lzwEarlyChange(params[i]), limit)
 		} else {
-			data, err = applyFilter(f, data)
+			data, err = applyFilterLimit(f, data, limit)
 		}
 		if err != nil {
 			return nil, err
@@ -309,6 +339,12 @@ func decodeStream(d pdfDict, raw []byte) ([]byte, error) {
 				bpcP := dictGetInt(params[i], "/BitsPerComponent")
 				if bpcP == 0 {
 					bpcP = 8
+				}
+				// Values a file can make negative, zero or overflowing
+				// (/Columns -2 divided by zero) are refused (GHSA-rfwg-
+				// hxcj-7pp5 point 6).
+				if columns < 1 || columns > 1<<24 || colors < 1 || colors > 32 || bpcP < 1 || bpcP > 16 {
+					return nil, fmt.Errorf("PNG predictor: /Columns %d /Colors %d /BitsPerComponent %d out of range", columns, colors, bpcP)
 				}
 				rowBytes := (columns*colors*bpcP + 7) / 8
 				bpp := colors * bpcP / 8
@@ -447,9 +483,13 @@ func toFilterList(v pdfValue) []string {
 }
 
 func applyFilter(filter string, data []byte) ([]byte, error) {
+	return applyFilterLimit(filter, data, maxDecodedStream)
+}
+
+func applyFilterLimit(filter string, data []byte, limit int) ([]byte, error) {
 	switch filter {
 	case "/FlateDecode", "/Fl":
-		return flateDecode(data)
+		return flateDecodeLimit(data, limit)
 	case "/ASCIIHexDecode", "/AHx":
 		return asciiHexDecode(data)
 	case "/ASCII85Decode", "/A85":
@@ -457,7 +497,7 @@ func applyFilter(filter string, data []byte) ([]byte, error) {
 	case "/RunLengthDecode", "/RL":
 		return runLengthDecode(data)
 	case "/LZWDecode", "/LZW":
-		return lzwDecode(data, 1) // default /EarlyChange; decodeStream passes the real one
+		return lzwDecodeLimit(data, 1, limit) // default /EarlyChange; decodeStream passes the real one
 	default:
 		return data, fmt.Errorf("unsupported filter: %s", filter)
 	}
@@ -511,12 +551,19 @@ func hasIndirectFilter(v pdfValue) bool {
 }
 
 func flateDecode(data []byte) ([]byte, error) {
+	return flateDecodeLimit(data, maxDecodedStream)
+}
+
+func flateDecodeLimit(data []byte, limit int) ([]byte, error) {
 	r, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	out, rerr := io.ReadAll(r)
+	out, rerr := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+	if len(out) > limit {
+		return nil, errDecodedTooLarge
+	}
 	if rerr != nil && len(out) > 0 {
 		// Tolerate a truncated stream or a bad trailing Adler-32 checksum (common
 		// in real-world PDFs with a wrong /Length): keep the bytes we inflated.

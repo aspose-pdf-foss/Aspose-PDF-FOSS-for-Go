@@ -35,7 +35,29 @@ func (t token) String() string { return string(t.raw) }
 type lexer struct {
 	data []byte
 	pos  int
+	// depth counts the arrays and dictionaries being parsed around the
+	// current token (enterNested).
+	depth int
 }
+
+// maxValueNesting bounds how deeply arrays and dictionaries may nest in one
+// value. Real files stay within a few dozen levels; without a bound a file
+// of a few kilobytes nested a million levels deep exhausted the goroutine
+// stack, which ends the process (GHSA-rfwg-hxcj-7pp5 point 1). Every walk
+// over parsed values is bounded by it too.
+const maxValueNesting = 512
+
+// enterNested counts one more level of nesting, or refuses past the bound.
+// The caller defers leaveNested when it succeeds.
+func (l *lexer) enterNested() error {
+	if l.depth >= maxValueNesting {
+		return fmt.Errorf("arrays and dictionaries nested more than %d deep", maxValueNesting)
+	}
+	l.depth++
+	return nil
+}
+
+func (l *lexer) leaveNested() { l.depth-- }
 
 func newLexer(data []byte) *lexer { return &lexer{data: data} }
 func newLexerAt(data []byte, pos int) *lexer {

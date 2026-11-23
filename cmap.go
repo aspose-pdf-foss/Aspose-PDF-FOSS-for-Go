@@ -24,7 +24,15 @@ type unicodeMap struct {
 	runes map[uint16]rune
 	seqs  map[uint16][]rune
 	nulls map[uint16]bool // codes mapped to U+0000, which say nothing of the text
+	// budget bounds the entries bfrange lines expand to: each line may name
+	// 65,536 codes, so a few kilobytes of lines could ask for billions.
+	budget int
 }
+
+// maxCMapExpansion bounds the codes ranges in one CMap are expanded to: far
+// above the 65,536 a two-byte CMap can define, far below what a crafted
+// file's repeated full ranges would cost.
+const maxCMapExpansion = 1 << 22
 
 func (u *unicodeMap) set(code uint16, dst []rune) {
 	if len(dst) == 0 {
@@ -54,7 +62,7 @@ func parseCMapFull(data []byte) (map[uint16]rune, map[uint16][]rune) {
 }
 
 func parseUnicodeMap(data []byte) *unicodeMap {
-	u := &unicodeMap{runes: make(map[uint16]rune)}
+	u := &unicodeMap{runes: make(map[uint16]rune), budget: maxCMapExpansion}
 	// Normalize CR/CRLF line endings: classic-Mac producers emit CR-only
 	// CMaps, which would otherwise arrive as one unsplittable line.
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
@@ -139,8 +147,9 @@ func parseBfrangeLine(s string, u *unicodeMap) {
 	start := decodeHexUint16(tokens[0])
 	end := decodeHexUint16(tokens[1])
 	dstStart := decodeHexRune(tokens[2])
-	for c := uint32(start); c <= uint32(end); c++ {
+	for c := uint32(start); c <= uint32(end) && u.budget > 0; c++ {
 		u.runes[uint16(c)] = dstStart + rune(c-uint32(start))
+		u.budget--
 	}
 }
 

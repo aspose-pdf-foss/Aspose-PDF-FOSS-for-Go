@@ -303,8 +303,10 @@ func parseCIDVerticalArray(objects map[int]*pdfObject, arr pdfArray) map[uint16]
 		}
 		last := int(num(arr[i+1]))
 		m := [3]float64{num(arr[i+2]), num(arr[i+3]), num(arr[i+4])}
-		for c := first; c <= last && c <= 0xFFFF; c++ {
-			out[uint16(c)] = m
+		if lo, hi, ok := cidRange(first, last); ok {
+			for c := lo; c <= hi; c++ {
+				out[uint16(c)] = m
+			}
 		}
 		i += 5
 	}
@@ -443,11 +445,22 @@ func parseCIDWidthArray(objects map[int]*pdfObject, arr pdfArray, widths map[uin
 			}
 			w := operandFloat(arr[i])
 			i++
-			for c := cidStart; c <= cidEnd; c++ {
-				widths[uint16(c)] = w
+			if lo, hi, ok := cidRange(cidStart, cidEnd); ok {
+				for c := lo; c <= hi; c++ {
+					widths[uint16(c)] = w
+				}
 			}
 		}
 	}
+}
+
+// cidRange clamps a CID range read from a /W or /W2 array to the 16-bit
+// CIDs there are, reporting false when nothing of it is left. The loop over
+// it used to run over whatever the file said: [0 2000000000 500] took
+// minutes and an end of MaxInt64 never stopped (GHSA-rfwg-hxcj-7pp5 point 4).
+func cidRange(first, last int) (lo, hi int, ok bool) {
+	lo, hi = max(first, 0), min(last, 0xFFFF)
+	return lo, hi, lo <= hi
 }
 
 // pdfValueToInt converts a pdfValue to int.

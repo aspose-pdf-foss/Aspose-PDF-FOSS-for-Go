@@ -215,6 +215,13 @@ func parseXRefStream(data []byte, offset int64, table *xrefTable) (pdfDict, erro
 		return nil, fmt.Errorf("xref stream /W must be array of 3")
 	}
 	w := [3]int{toInt(wArr[0]), toInt(wArr[1]), toInt(wArr[2])}
+	// A field is read into 8 bytes; a wider or negative one indexed out of
+	// range (GHSA-rfwg-hxcj-7pp5 point 6).
+	for _, n := range w {
+		if n < 0 || n > 8 {
+			return nil, fmt.Errorf("xref stream /W field width %d out of range 0..8", n)
+		}
+	}
 	entrySize := w[0] + w[1] + w[2]
 	if entrySize == 0 {
 		return d, nil
@@ -234,7 +241,7 @@ func parseXRefStream(data []byte, offset int64, table *xrefTable) (pdfDict, erro
 		indexes = []int{0, size}
 	}
 
-	streamData := s.Data
+	streamData := decodedStreamData(s) // left as stored when larger than maxEagerDecode
 	pos := 0
 
 	for i := 0; i+1 < len(indexes); i += 2 {
