@@ -51,6 +51,19 @@ type Page struct {
 	// corrupting anything.
 	contentsBounded bool
 	contentsLen     int
+
+	// frontBuf/frontStart: prependToContentStream keeps /Contents as
+	// frontBuf[frontStart:], with free room before it, so drawing Behind
+	// adds an entry in amortized O(1) instead of copying the array
+	// (GitHub issue #26 point 7). Checked against /Contents on every use.
+	frontBuf   []pdfValue
+	frontStart int
+
+	// formNames remembers the /XObject name each Form XObject was
+	// registered under on this page, and fmNext where the search for a
+	// free /FmN name resumes (registerFormXObject).
+	formNames map[int]string
+	fmNext    int
 }
 
 // Number returns the 1-based page number within the document.

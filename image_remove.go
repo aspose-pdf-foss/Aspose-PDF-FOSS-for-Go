@@ -72,7 +72,10 @@ func serializeOperand(buf *bytes.Buffer, v pdfValue) {
 		buf.WriteByte(']')
 	case pdfDict:
 		buf.WriteString("<<")
-		for k, dv := range val {
+		// Sorted, so a rewritten stream is the same every run (GitHub
+		// issue #26 point 3).
+		for _, k := range sortedDictKeys(val) {
+			dv := val[k]
 			_ = writeNameValue(buf, pdfName(k)) // dict key is a name too — same reasoning as the pdfName case above
 			buf.WriteByte(' ')
 			serializeOperand(buf, dv)
@@ -253,7 +256,8 @@ func serializeInlineImage(buf *bytes.Buffer, op contentOp) {
 	}
 	buf.WriteString("BI\n")
 	if dict, ok := op.Operands[0].(pdfDict); ok {
-		for k, v := range dict {
+		for _, k := range sortedDictKeys(dict) {
+			v := dict[k]
 			_ = writeNameValue(buf, pdfName(k)) // same escaping as every other dict-key write in this codebase
 			buf.WriteByte(' ')
 			serializeOperand(buf, v)

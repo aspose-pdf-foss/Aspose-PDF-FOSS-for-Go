@@ -21,9 +21,19 @@ func checkColor(context, field string, c *Color) error {
 
 // checkTextStyleValues rejects the TextStyle values that cannot be written
 // as PDF numbers or make no sense: a non-finite or negative LineSpacing (a
-// negative one stacked the lines upwards out of the rectangle) and a
-// non-finite component of Color, Background or StrokeColor.
+// negative one stacked the lines upwards out of the rectangle), a
+// non-finite CharSpacing, WordSpacing or HorizontalScaling (written as Tc,
+// Tw and Tz; GitHub issue #25 point 1) and a non-finite component of Color,
+// Background or StrokeColor.
 func checkTextStyleValues(context string, style TextStyle) error {
+	for _, f := range []struct {
+		name string
+		v    float64
+	}{{"character spacing", style.CharSpacing}, {"word spacing", style.WordSpacing}, {"horizontal scaling", style.HorizontalScaling}} {
+		if nonFinite(f.v) {
+			return fmt.Errorf("%s: %s must be finite, got %v", context, f.name, f.v)
+		}
+	}
 	if nonFinite(style.LineSpacing) {
 		return fmt.Errorf("%s: line spacing must be finite, got %v", context, style.LineSpacing)
 	}

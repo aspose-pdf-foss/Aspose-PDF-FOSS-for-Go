@@ -742,7 +742,7 @@ stays free of network code.
 | `ValidationReport` | ValidationReport is returned by Validate and summarises the structural integrity of a PDF. |
 | `WidgetAnnotation` | WidgetAnnotation is the read-only view of a form widget annotation surfaced through AnnotationCollection. |
 | `WordWrapMode` | WordWrapMode says how a TextParagraph breaks its lines. |
-| `XForm` | XForm is a reusable Form XObject (ISO 32000-1 §8.10) — an independent content stream (with its own resources) that can be placed on any number of pages and positions with a single Do invocation. Create one with `Document.CreateForm(w, h)` and draw into it via `Canvas()`, place it with `Page.AddForm(form, rect)`, list a page's existing forms with `Page.Forms()`, or copy one (with its whole resource graph) from another document with `Document.ImportForm`. |
+| `XForm` | XForm is a reusable Form XObject (ISO 32000-1 §8.10) — an independent content stream (with its own resources) that can be placed on any number of pages and positions with a single Do invocation. Create one with `Document.CreateForm(w, h)` and draw into it via `Canvas()`, place it with `Page.AddForm(form, rect)`, list a page's existing forms with `Page.Forms()`, or copy one (with its whole resource graph) from another document with `Document.ImportForm`. `Document.ImportPage(src, n)` imports a page of another document (or of this one) as a form once, sized as the page is shown, so a letterhead or cover can be placed on every page without copying it again. |
 | `XMPMetadata` | XMPMetadata is the document's XMP packet modelled as common schema fields plus a list of arbitrary Custom properties. |
 | `XMPProperty` | XMPProperty is a single simple (string-valued) XMP property in an arbitrary namespace. |
 

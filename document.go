@@ -43,29 +43,37 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Document is a PDF document. Operations directly mutate the receiver.
 type Document struct {
-	objects      map[int]*pdfObject     // all PDF objects by ID
-	pages        []*pdfObject           // ordered /Page objects
-	pageCache    []*Page                // cached live views by index, lazy-allocated
-	catalog      pdfDict                // /Catalog dict
-	info         pdfDict                // /Info dict; nil = no metadata
-	sourceName   string                 // base name of the file opened from; "" otherwise
-	version      pdfVersion             // header version of the file opened from (or the highest appended); 0 = none
-	versionSet   bool                   // version chosen by SetVersion: written as is, even below 1.4
-	linearized   bool                   // the source file is linearized (IsLinearized)
-	encrypt      *encryptConfig         // nil = no encryption
-	preserved    *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
-	nextID       int                    // next available object ID
-	outlinesRoot *OutlineItemCollection // nil until first Outlines() call
-	namedDests   *NamedDestinations     // nil until first NamedDestinations() call
-	js           *JavaScriptCollection  // nil until first JavaScript() call
-	tagged       *TaggedContent         // nil until first TaggedContent() call
-	sign         *signConfig            // nil unless Sign() configured a digital signature
-	source       []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
-	repair       RepairReport           // what had to be reconstructed to open the file; zero when it parsed as written
+	objects   map[int]*pdfObject // all PDF objects by ID
+	pages     []*pdfObject       // ordered /Page objects
+	pageCache []*Page            // cached live views by index, lazy-allocated
+	pageMu    sync.Mutex         // guards pageCache, so Page is safe from several goroutines
+	// importedPages remembers the Form XObject a page of another document
+	// was imported as (ImportPage, PdfPageStamp), and importMaps the object
+	// numbers given to each source's objects, so a page imported again, or
+	// another page of the same source, reuses what is already here.
+	importedPages map[pageImportKey]importedPage
+	importMaps    map[*Document]map[int]int
+	catalog       pdfDict                // /Catalog dict
+	info          pdfDict                // /Info dict; nil = no metadata
+	sourceName    string                 // base name of the file opened from; "" otherwise
+	version       pdfVersion             // header version of the file opened from (or the highest appended); 0 = none
+	versionSet    bool                   // version chosen by SetVersion: written as is, even below 1.4
+	linearized    bool                   // the source file is linearized (IsLinearized)
+	encrypt       *encryptConfig         // nil = no encryption
+	preserved     *encryptState          // captured verbatim at OpenWithPassword time; nil after any explicit mutation
+	nextID        int                    // next available object ID
+	outlinesRoot  *OutlineItemCollection // nil until first Outlines() call
+	namedDests    *NamedDestinations     // nil until first NamedDestinations() call
+	js            *JavaScriptCollection  // nil until first JavaScript() call
+	tagged        *TaggedContent         // nil until first TaggedContent() call
+	sign          *signConfig            // nil unless Sign() configured a digital signature
+	source        []byte                 // raw bytes the document was opened from; nil for built docs (used by VerifySignatures for /ByteRange)
+	repair        RepairReport           // what had to be reconstructed to open the file; zero when it parsed as written
 	// revisionAppended marks a document whose source bytes already carry an
 	// appended revision built in memory (AddValidationInfo). Rebuilding such a
 	// document would drop that revision, so it is written back verbatim.
@@ -472,6 +480,10 @@ func (d *Document) Page(n int) (*Page, error) {
 		return nil, fmt.Errorf("page number %d out of range (1..%d)", n, len(d.pages))
 	}
 	index := n - 1
+	// Reading a document from several goroutines is safe (GitHub issue #26
+	// point 2): the cache is the one thing a read fills.
+	d.pageMu.Lock()
+	defer d.pageMu.Unlock()
 	// Lazily allocate and grow the page cache. Pages added after the cache
 	// was first populated (via AddBlankPage etc.) extend len(d.pages) past the
 	// cache length, so we must resize before indexing.

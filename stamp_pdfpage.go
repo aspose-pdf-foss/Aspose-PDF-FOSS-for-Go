@@ -8,7 +8,8 @@ import (
 )
 
 // PdfPageStamp overlays (or underlays) a page from another PDF document as a
-// stamp — the source page is imported once as a Form XObject and drawn into the
+// stamp — the source page is imported once per target document as a Form
+// XObject (the one Document.ImportPage gives) and drawn into the
 // stamp's Rect, scaled to fit while preserving aspect ratio, positioned by
 // HAlign/VAlign, and honoring Opacity, RotateAngle and Background. Mirrors
 // Aspose.PDF for .NET's PdfPageStamp. Construct with NewPdfPageStamp.
@@ -33,10 +34,6 @@ func NewPdfPageStamp(srcDoc *Document, srcPageNum int) (*PdfPageStamp, error) {
 }
 
 func (s *PdfPageStamp) applyToPage(p *Page) error {
-	srcPage, err := s.srcDoc.Page(s.srcPage)
-	if err != nil {
-		return err
-	}
 	rect, err := s.resolveRect(p)
 	if err != nil {
 		return err
@@ -44,9 +41,10 @@ func (s *PdfPageStamp) applyToPage(p *Page) error {
 	if err := rect.validate(); err != nil {
 		return err
 	}
-	// Import the source page as a Form XObject into the target document, then
-	// register it on this page and draw it.
-	xobjID, box, err := p.doc.importPageAsXObject(s.srcDoc, srcPage, map[int]int{})
+	// The source page as a Form XObject of the target document, imported on
+	// the first page stamped and reused for the others; then registered on
+	// this page and drawn.
+	xobjID, box, err := p.doc.importPageOnce(s.srcDoc, s.srcPage)
 	if err != nil {
 		return err
 	}

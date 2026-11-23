@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"sort"
 )
 
 // NUpOrder controls the order in which source pages fill the grid cells of
@@ -265,17 +266,26 @@ func (result *Document) importPageAsXObject(src *Document, srcPage *Page, idMap 
 	remappedRes := result.importGraph(src.objects, resVal, idMap)
 	result.version = max(result.version, src.version)
 
+	dict := pdfDict{
+		"/Type":      pdfName("/XObject"),
+		"/Subtype":   pdfName("/Form"),
+		"/FormType":  1,
+		"/BBox":      pdfArray{box.LLX, box.LLY, box.URX, box.URY},
+		"/Matrix":    pdfArray{matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]},
+		"/Resources": remappedRes,
+	}
+	// A page's transparency group becomes the form's: ISO 32000-1 §11.6.6
+	// treats them alike, and without it an isolated or knockout page is
+	// composited straight onto the target (GitHub issue #26 point 5).
+	if pd := srcPage.pageDict(); pd != nil {
+		if g, ok := pd["/Group"]; ok {
+			dict["/Group"] = result.importGraph(src.objects, g, idMap)
+		}
+	}
 	xobjID := result.nextID
 	result.nextID++
 	result.objects[xobjID] = &pdfObject{Num: xobjID, Value: &pdfStream{
-		Dict: pdfDict{
-			"/Type":      pdfName("/XObject"),
-			"/Subtype":   pdfName("/Form"),
-			"/FormType":  1,
-			"/BBox":      pdfArray{box.LLX, box.LLY, box.URX, box.URY},
-			"/Matrix":    pdfArray{matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]},
-			"/Resources": remappedRes,
-		},
+		Dict:    dict,
 		Data:    content,
 		Decoded: true,
 	}}
@@ -298,7 +308,7 @@ func (p *Page) visibleFormBox() (box Rectangle, matrix [6]float64, shown Rectang
 		}
 	}
 	w, h := box.URX-box.LLX, box.URY-box.LLY
-	switch ((int(p.Rotation())%360)+360)%360 {
+	switch ((int(p.Rotation()) % 360) + 360) % 360 {
 	case 90:
 		matrix = [6]float64{0, -1, 1, 0, -box.LLY, box.URX}
 		shown = Rectangle{URX: h, URY: w}
@@ -324,21 +334,28 @@ func (result *Document) importGraph(srcObjects map[int]*pdfObject, root pdfValue
 	collectValueDepsDoc(srcObjects, root, deps, visited)
 
 	// Assign new IDs for all newly-seen objects before remapping any, so an
-	// object that references a sibling in this batch resolves correctly.
+	// object that references a sibling in this batch resolves correctly. In
+	// the order of the old numbers, so the same calls give the same file
+	// (GitHub issue #26 point 3).
+	ids := make([]int, 0, len(deps))
 	for oldID := range deps {
+		ids = append(ids, oldID)
+	}
+	sort.Ints(ids)
+	for _, oldID := range ids {
 		if _, done := idMap[oldID]; !done {
 			idMap[oldID] = result.nextID
 			result.nextID++
 		}
 	}
-	for oldID, obj := range deps {
+	for _, oldID := range ids {
 		newID := idMap[oldID]
 		if _, exists := result.objects[newID]; exists {
 			continue // copied on a previous page
 		}
-		result.objects[newID] = &pdfObject{Num: newID, Value: rewriteRefs(deepCopyValue(obj.Value), idMap)}
+		result.objects[newID] = &pdfObject{Num: newID, Value: importRefs(deepCopyValue(deps[oldID].Value), idMap)}
 	}
-	return rewriteRefs(deepCopyValue(root), idMap)
+	return importRefs(deepCopyValue(root), idMap)
 }
 
 // addImposedSheet appends a new sheet page of the given size, drawing every

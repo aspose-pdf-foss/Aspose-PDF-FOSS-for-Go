@@ -339,10 +339,23 @@ func (p *Page) registerFormXObject(ref pdfRef) string {
 		xobjDict = pdfDict{}
 		resources["/XObject"] = xobjDict
 	}
-	for i := 0; ; i++ {
+	// A form already registered here keeps its name, and the search for a
+	// free one resumes where it stopped: both were O(n) per placement
+	// (GitHub issue #26 point 7).
+	if name, ok := p.formNames[ref.Num]; ok {
+		if r, ok := xobjDict[name].(pdfRef); ok && r.Num == ref.Num {
+			return name
+		}
+	}
+	for i := p.fmNext; ; i++ {
 		name := fmt.Sprintf("/Fm%d", i)
 		if _, exists := xobjDict[name]; !exists {
 			xobjDict[name] = ref
+			p.fmNext = i + 1
+			if p.formNames == nil {
+				p.formNames = map[int]string{}
+			}
+			p.formNames[ref.Num] = name
 			return name
 		}
 	}
