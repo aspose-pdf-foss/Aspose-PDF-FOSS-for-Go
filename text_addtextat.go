@@ -55,12 +55,29 @@ func resolveSingleLine(font Font, size float64, text string, rtl bool, width wid
 
 // spacingText is the text whose characters character and word spacing
 // apply to: the drawn line on the rune-by-rune path (default-ignorables
-// dropped), the caller's text when shaped.
+// dropped); when shaped, one character per shown glyph, a space for a glyph
+// standing for a space. Tc applies after every glyph shown (ISO 32000-1
+// §9.3.2), and a ligature or a decomposition shows fewer or more glyphs than
+// the text has characters (GitHub issue #25 point 2); showOpsSpaced adds the
+// word spacing after exactly those space glyphs.
 func (s singleLineShape) spacingText(text string) string {
-	if s.shaper != nil {
-		return text
+	if s.shaper == nil {
+		return s.line
 	}
-	return s.line
+	b := make([]byte, len(s.shaped.glyphs))
+	for i, g := range s.shaped.glyphs {
+		b[i] = 'x'
+		if g.text == " " {
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}
+
+// glyphSpacingText is spacingText for text drawn alone in font: what a
+// TextParagraph piece, drawn with AddTextAt, spaces.
+func glyphSpacingText(font Font, text string, rtl bool) string {
+	return resolveSingleLine(font, 1, text, rtl, nil).spacingText(text)
 }
 
 // widthAt returns the line's real drawn width at size.

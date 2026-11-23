@@ -215,7 +215,7 @@ func fontShapesArabic(f *ttfFont) bool {
 // if not, the text pipeline keeps its plain rune-by-rune encoding.
 func fontHasShaping(f *ttfFont) bool {
 	l := f.layout()
-	return l != nil && (l.gsub != nil || l.gpos != nil)
+	return l != nil && (l.gsub != nil || l.gpos != nil || len(l.kern) > 0)
 }
 
 // shapeRun shapes one run of text (all of it in the same direction) and

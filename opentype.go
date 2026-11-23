@@ -478,18 +478,22 @@ type otChain3 struct {
 // --- table parsing -----------------------------------------------------
 
 // parseOTLayout reads the font's layout tables. It returns nil when the
-// font carries neither GSUB nor GPOS.
+// font carries neither GSUB, GPOS nor a usable 'kern' table.
 func parseOTLayout(f *ttfFont) *otLayout {
 	gsub := otParseLayoutTable(tableSlice(f.data, f.tables, "GSUB"), true)
 	gpos := otParseLayoutTable(tableSlice(f.data, f.tables, "GPOS"), false)
-	if gsub == nil && gpos == nil {
+	// A font with only a legacy 'kern' table (common in older TrueType
+	// fonts) has no other kerning, so it is shaped too (GitHub issue #25
+	// point 3).
+	kern := otParseKern(tableSlice(f.data, f.tables, "kern"))
+	if gsub == nil && gpos == nil && len(kern) == 0 {
 		return nil
 	}
 	return &otLayout{
 		gdef: otParseGDEF(tableSlice(f.data, f.tables, "GDEF")),
 		gsub: gsub,
 		gpos: gpos,
-		kern: otParseKern(tableSlice(f.data, f.tables, "kern")),
+		kern: kern,
 	}
 }
 

@@ -154,6 +154,9 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 				return err
 			}
 			style := st.style()
+			if err := checkTextStyleValues("text builder", style); err != nil {
+				return err
+			}
 			style.Background = nil // drawn per piece below
 			asc, desc, err := textBox(style.Font, st.FontSize)
 			if err != nil {
@@ -166,7 +169,10 @@ func (b *TextBuilder) AppendParagraph(tp *TextParagraph) error {
 				return fmt.Errorf("text builder: %w", err)
 			}
 			if tc, tw, tz := st.CharacterSpacing, st.WordSpacing, st.HorizontalScaling; tc != 0 || tw != 0 || (tz != 0 && tz != 100) {
-				m.adjust = func(text string, w float64) float64 { return spacedWidth(w, text, tc, tw, tz) }
+				font, rtl := style.Font, style.RTL
+				m.adjust = func(text string, w float64) float64 {
+					return spacedWidth(w, glyphSpacingText(font, text, rtl), tc, tw, tz)
+				}
 			}
 			ms[i] = m
 		}
