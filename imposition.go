@@ -308,7 +308,7 @@ func (p *Page) visibleFormBox() (box Rectangle, matrix [6]float64, shown Rectang
 		}
 	}
 	w, h := box.URX-box.LLX, box.URY-box.LLY
-	switch ((int(p.Rotation())%360)+360)%360 {
+	switch ((int(p.Rotation()) % 360) + 360) % 360 {
 	case 90:
 		matrix = [6]float64{0, -1, 1, 0, -box.LLY, box.URX}
 		shown = Rectangle{URX: h, URY: w}

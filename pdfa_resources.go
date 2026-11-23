@@ -73,6 +73,10 @@ type inheritedResources struct {
 	values   map[resourceUse]pdfValue
 	hasOwn   bool // it has /Resources, and they lack some name
 	conflict bool // two callers give one name different values
+	// absent holds the default colour spaces a caller does not have:
+	// absence means device colour there, so a caller with one and a caller
+	// without one disagree.
+	absent map[resourceUse]bool
 }
 
 // formsInheritingResources walks what the pages draw and returns each form that
@@ -118,15 +122,23 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 				continue
 			}
 			v := lookup(caller, u)
-			if v == nil {
+			isDefault := slices.Contains(defaultColorSpaceUses, u)
+			if v == nil && !isDefault {
 				continue
 			}
 			inh := out[form]
 			if inh == nil {
-				inh = &inheritedResources{values: map[resourceUse]pdfValue{}, hasOwn: hasOwn}
+				inh = &inheritedResources{values: map[resourceUse]pdfValue{}, absent: map[resourceUse]bool{}, hasOwn: hasOwn}
 				out[form] = inh
 			}
-			if old, known := inh.values[u]; known && !reflect.DeepEqual(old, v) {
+			if v == nil {
+				if _, known := inh.values[u]; known {
+					inh.conflict = true
+				}
+				inh.absent[u] = true
+				continue
+			}
+			if old, known := inh.values[u]; (known && !reflect.DeepEqual(old, v)) || inh.absent[u] {
 				inh.conflict = true
 			}
 			inh.values[u] = v
@@ -192,7 +204,7 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 // reported.
 func (d *Document) fixInheritedResources() {
 	for form, inh := range d.formsInheritingResources() {
-		if inh.hasOwn || inh.conflict {
+		if inh.hasOwn || inh.conflict || len(inh.values) == 0 {
 			continue
 		}
 		res := pdfDict{}

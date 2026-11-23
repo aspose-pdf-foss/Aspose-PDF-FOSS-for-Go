@@ -370,3 +370,147 @@ func TestSharedSourceStampedConcurrently(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// twoPageSource has pages showing "ONE" and "TWO".
+func twoPageSource(t *testing.T) *Document {
+	t.Helper()
+	d := NewDocument(300, 200)
+	if err := d.AddBlankPage(300, 200); err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range []string{"ONE", "TWO"} {
+		p, _ := d.Page(i + 1)
+		if err := p.AddTextAt(s, TextStyle{Size: 20}, 20, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return reopenDoc(t, d)
+}
+
+// The import cache follows the page, not its number: after the source's
+// pages move, page 1 is whatever page 1 now is.
+func TestImportCacheFollowsPageNotNumber(t *testing.T) {
+	src := twoPageSource(t)
+	d := NewDocument(300, 200)
+	if err := d.AddBlankPage(300, 200); err != nil {
+		t.Fatal(err)
+	}
+	stamp := func(n int) {
+		st, err := NewPdfPageStamp(src, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, _ := d.Page(n)
+		if err := p.AddStamp(st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp(1)
+	if err := src.DeletePage(1); err != nil {
+		t.Fatal(err)
+	}
+	stamp(2)
+	got := reopenDoc(t, d)
+	for i, want := range []string{"ONE", "TWO"} {
+		p, _ := got.Page(i + 1)
+		if txt, _ := p.ExtractText(); strings.TrimSpace(txt) != want {
+			t.Errorf("page %d: %q, want %q", i+1, txt, want)
+		}
+	}
+
+	src2 := twoPageSource(t)
+	d2 := NewDocument(300, 200)
+	f1, err := d2.ImportPage(src2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src2.Reorder([]int{2, 1}); err != nil {
+		t.Fatal(err)
+	}
+	f2, err := d2.ImportPage(src2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f1.formID == f2.formID {
+		t.Error("after a reorder, page 1 came back as the form of the old page 1")
+	}
+}
+
+// A page whose content was rewritten as a whole is imported again.
+func TestImportCacheFollowsContentRewrite(t *testing.T) {
+	src := twoPageSource(t)
+	d := NewDocument(300, 200)
+	f1, err := d.ImportPage(src, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.ReplaceText("ONE", "UNO"); err != nil {
+		t.Fatal(err)
+	}
+	f2, err := d.ImportPage(src, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f1.formID == f2.formID {
+		t.Fatal("rewritten page not imported again")
+	}
+	p := mustPage(t, d)
+	if err := p.AddForm(f2, Rectangle{URX: 300, URY: 200}); err != nil {
+		t.Fatal(err)
+	}
+	if txt, _ := mustPage(t, reopenDoc(t, d)).ExtractText(); !strings.Contains(txt, "UNO") {
+		t.Errorf("text %q", txt)
+	}
+}
+
+// Importing a page of the document itself copies nothing, also after
+// objects were added since an earlier self-import.
+func TestSelfImportCopiesNothing(t *testing.T) {
+	d := NewDocument(300, 200)
+	if err := d.AddBlankPage(300, 200); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ImportPage(d, 1); err != nil {
+		t.Fatal(err)
+	}
+	f, err := d.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, _ := d.Page(2)
+	if err := p2.AddTextAt("page two", TextStyle{Font: f, Size: 14}, 20, 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ImportPage(d, 2); err != nil {
+		t.Fatal(err)
+	}
+	got := reopenDoc(t, d)
+	if n := countObjects(got, hasFontProgram); n > 1 {
+		t.Errorf("%d font programs, want 1", n)
+	}
+}
+
+// A form drawn by a caller with a default colour space and by one without
+// is not given the default: the second would change colour.
+func TestPDFADefaultColorSpaceDisagreementNotForced(t *testing.T) {
+	objs := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R /Resources << /XObject << /X 6 0 R >> /ColorSpace << /DefaultRGB [/CalRGB << /WhitePoint [0.9505 1 1.089] >>] >> >> >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R /Resources << /XObject << /X 6 0 R >> >> >>",
+		"<< /Length 0 >> stream\n/X Do\nendstream",
+		"<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Length 0 >> stream\n1 0 0 rg 0 0 50 50 re f\nendstream",
+	}
+	for _, kids := range []string{"[3 0 R 4 0 R]", "[4 0 R 3 0 R]"} {
+		objs[1] = "<< /Type /Pages /Kids " + kids + " /Count 2 >>"
+		d := openHardening(t, hardeningPDF(objs...))
+		d.fixInheritedResources()
+		form := d.objects[6].Value.(*pdfStream)
+		if res, ok := resolveRefToDict(d.objects, form.Dict["/Resources"]); ok {
+			cs, _ := resolveRefToDict(d.objects, res["/ColorSpace"])
+			if cs["/DefaultRGB"] != nil {
+				t.Errorf("kids %s: default colour space forced onto the caller that had none", kids)
+			}
+		}
+	}
+}
