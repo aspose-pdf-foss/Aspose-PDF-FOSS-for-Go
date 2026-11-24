@@ -204,9 +204,13 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	// markDropped flags every currently-open marked-content span (at
 	// every nesting depth) as having had something redacted inside it —
 	// called whenever a Tj/TJ/'/" actually drops at least one glyph.
+	// Only the innermost span is marked: closeSpan passes the mark to the
+	// enclosing one, so every open span still ends up flagged, without a
+	// walk over the whole stack per operator (unbalanced BMCs made that
+	// quadratic, GHSA-rfwg-hxcj-7pp5 point 8).
 	markDropped := func() {
-		for _, span := range mcStack {
-			span.dropped = true
+		if n := len(mcStack); n > 0 {
+			mcStack[n-1].dropped = true
 		}
 	}
 

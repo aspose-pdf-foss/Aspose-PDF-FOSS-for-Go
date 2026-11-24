@@ -93,7 +93,39 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 		dict, _ := resolveRefToDict(objects, res[u.category])
 		return dict[u.name]
 	}
-	var walkContent func(data []byte, res pdfDict, depth int)
+	// A form is decoded and parsed once, and the names it uses listed once,
+	// however many resource contexts draw it; one with its own resources is
+	// walked into once. It used to be parsed again for every caller: one
+	// large form drawn from a hundred small ones took 20 s and 19 GB
+	// (GHSA-rfwg-hxcj-7pp5 point 7).
+	type parsedForm struct {
+		ops  []contentOp
+		uses []resourceUse
+		ok   bool
+	}
+	parsed := map[*pdfStream]*parsedForm{}
+	parse := func(form *pdfStream) *parsedForm {
+		if pf, ok := parsed[form]; ok {
+			return pf
+		}
+		pf := &parsedForm{}
+		parsed[form] = pf
+		ops, err := parseContentStream(decodedStreamData(form))
+		if err != nil {
+			return pf
+		}
+		pf.ops, pf.ok = ops, true
+		seenUse := map[resourceUse]bool{}
+		for _, u := range contentResourceUses(ops) {
+			if !seenUse[u] {
+				seenUse[u] = true
+				pf.uses = append(pf.uses, u)
+			}
+		}
+		return pf
+	}
+	walkedOwn := map[*pdfStream]bool{}
+	var walkOps func(ops []contentOp, res pdfDict, depth int)
 	drawForm := func(form *pdfStream, caller pdfDict, depth int) {
 		if form == nil || depth > maxFormDepth || dictGetName(form.Dict, "/Subtype") == "/Image" {
 			return
@@ -103,9 +135,8 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 			return
 		}
 		seen[key] = true
-		data := decodedStreamData(form)
-		ops, err := parseContentStream(data)
-		if err != nil {
+		pf := parse(form)
+		if !pf.ok {
 			return
 		}
 		own, hasOwn := resolveRefToDict(objects, form.Dict["/Resources"])
@@ -113,9 +144,9 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 		// no resources of its own paints in a device space, the initial
 		// black included, so they go with it too (GitHub issue #26 point
 		// 6); a caller without them adds nothing.
-		uses := contentResourceUses(ops)
+		uses := pf.uses
 		if !hasOwn {
-			uses = append(uses, defaultColorSpaceUses...)
+			uses = append(slices.Clip(uses), defaultColorSpaceUses...)
 		}
 		for _, u := range uses {
 			if lookup(own, u) != nil {
@@ -144,16 +175,15 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 			inh.values[u] = v
 		}
 		if hasOwn {
-			walkContent(data, own, depth+1)
+			if !walkedOwn[form] {
+				walkedOwn[form] = true
+				walkOps(pf.ops, own, depth+1)
+			}
 		} else {
-			walkContent(data, caller, depth+1)
+			walkOps(pf.ops, caller, depth+1)
 		}
 	}
-	walkContent = func(data []byte, res pdfDict, depth int) {
-		ops, err := parseContentStream(data)
-		if err != nil {
-			return
-		}
+	walkOps = func(ops []contentOp, res pdfDict, depth int) {
 		for _, op := range ops {
 			switch op.Operator {
 			case "Do":
@@ -173,7 +203,9 @@ func (d *Document) formsInheritingResources() map[*pdfStream]*inheritedResources
 	}
 	for _, p := range d.Pages() {
 		if data, err := p.contentStreams(); err == nil {
-			walkContent(data, p.pageResources(), 0)
+			if ops, err := parseContentStream(data); err == nil {
+				walkOps(ops, p.pageResources(), 0)
+			}
 		}
 		dict := p.pageDict()
 		if dict == nil {

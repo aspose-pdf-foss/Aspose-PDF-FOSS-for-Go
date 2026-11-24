@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 )
 
@@ -80,21 +81,20 @@ func reconstructXRef(data []byte, trailerSynthesised *bool) (*xrefTable, pdfDict
 // file this damaged.
 func reconstructTrailer(data []byte, table *xrefTable) (pdfDict, bool) {
 	raw := newRawDocument(data, table, pdfDict{})
-	// Deterministic scan order so the result is stable.
-	maxNum := 0
+	// Deterministic scan order so the result is stable: the numbers found,
+	// sorted. Counting up to the largest took seconds for one object
+	// numbered two billion, and never ended for one numbered MaxInt64
+	// (GHSA-rfwg-hxcj-7pp5 point 3).
+	nums := make([]int, 0, len(table.entries))
 	for num := range table.entries {
-		if num > maxNum {
-			maxNum = num
-		}
+		nums = append(nums, num)
 	}
+	slices.Sort(nums)
 	var catalog, encrypt int
 	var xrefDict pdfDict
 	var xrefOff int64 = -1
-	for num := 0; num <= maxNum; num++ {
-		entry, ok := table.entries[num]
-		if !ok {
-			continue
-		}
+	for _, num := range nums {
+		entry := table.entries[num]
 		obj, err := raw.getObject(num)
 		if err != nil {
 			continue

@@ -600,22 +600,44 @@ func (a *annotationBase) colorBarInk() ColorsOfCMYK {
 	if !ok {
 		return ColorsOfCMYKCyan
 	}
-	ops, err := parseContentStream(decodedStreamData(st))
-	if err != nil {
-		return ColorsOfCMYKCyan
+	// The annotation list is rebuilt often, and one large appearance shared
+	// by many bars was parsed again for each of them every time (GHSA-rfwg-
+	// hxcj-7pp5 point 9): the answer is kept per stream and its data length.
+	key := colorBarInkKey{st, len(st.Data)}
+	a.doc.colorBarMu.Lock()
+	ink, ok := a.doc.colorBarInks[key]
+	a.doc.colorBarMu.Unlock()
+	if ok {
+		return ink
 	}
-	for _, op := range ops {
-		if op.Operator == "k" && len(op.Operands) == 4 {
-			best := 0
-			for i := range op.Operands {
-				if operandFloat(op.Operands[i]) > operandFloat(op.Operands[best]) {
-					best = i
+	ink = ColorsOfCMYKCyan
+	if ops, err := parseContentStream(decodedStreamData(st)); err == nil {
+		for _, op := range ops {
+			if op.Operator == "k" && len(op.Operands) == 4 {
+				best := 0
+				for i := range op.Operands {
+					if operandFloat(op.Operands[i]) > operandFloat(op.Operands[best]) {
+						best = i
+					}
 				}
+				ink = ColorsOfCMYK(best)
+				break
 			}
-			return ColorsOfCMYK(best)
 		}
 	}
-	return ColorsOfCMYKCyan
+	a.doc.colorBarMu.Lock()
+	defer a.doc.colorBarMu.Unlock()
+	if a.doc.colorBarInks == nil {
+		a.doc.colorBarInks = map[colorBarInkKey]ColorsOfCMYK{}
+	}
+	a.doc.colorBarInks[key] = ink
+	return ink
+}
+
+// colorBarInkKey names a colour bar appearance whose ink has been read.
+type colorBarInkKey struct {
+	st *pdfStream
+	n  int
 }
 
 // planPrinterMarks works out the marks kind asks for on the page without changing

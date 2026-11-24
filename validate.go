@@ -353,7 +353,7 @@ func openDocumentFromBytes(data []byte) (*rawDocument, error) {
 		xref:       xref,
 		trailer:    trailer,
 		cache:      make(map[int]*pdfObject),
-		objStreams: make(map[int][]*pdfObject),
+		objStreams: make(map[int]map[int]*pdfObject),
 	}, nil
 }
 
@@ -364,7 +364,13 @@ type rawDocument struct {
 	xref       *xrefTable
 	trailer    pdfDict
 	cache      map[int]*pdfObject
-	objStreams map[int][]*pdfObject
+	// objStreams holds the members of each object stream read so far, by
+	// object number (a linear search made opening m members cost m², GHSA-
+	// rfwg-hxcj-7pp5 point 10).
+	objStreams map[int]map[int]*pdfObject
+	// resolving marks the objects getObject is reading, so a cycle through
+	// object streams ends in an error instead of exhausting the stack.
+	resolving map[int]bool
 	// Decryption (set up by the password-aware Open path before any
 	// non-/Encrypt object is fetched). When non-nil, getObject decrypts
 	// every parsed object except the one at encryptObjNum.
@@ -383,6 +389,14 @@ func (d *rawDocument) getObject(num int) (*pdfObject, error) {
 	if entry.Free {
 		return nil, fmt.Errorf("object %d is free", num)
 	}
+	if d.resolving[num] {
+		return nil, fmt.Errorf("object %d refers to itself through object streams", num)
+	}
+	if d.resolving == nil {
+		d.resolving = map[int]bool{}
+	}
+	d.resolving[num] = true
+	defer delete(d.resolving, num)
 	var obj *pdfObject
 	var err error
 	if entry.Compressed {
@@ -407,12 +421,16 @@ func (d *rawDocument) getObject(num int) (*pdfObject, error) {
 
 func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject, error) {
 	if objs, ok := d.objStreams[streamObjNum]; ok {
-		for _, o := range objs {
-			if o.Num == targetNum {
-				return o, nil
-			}
+		if o := objs[targetNum]; o != nil {
+			return o, nil
 		}
 		return nil, fmt.Errorf("object %d not found in stream %d", targetNum, streamObjNum)
+	}
+	// An object stream is never itself stored in an object stream (ISO
+	// 32000-1 §7.5.7); one listed so could name itself, and resolving it
+	// recursed until the stack ran out (GHSA-rfwg-hxcj-7pp5 point 2).
+	if e, ok := d.xref.entries[streamObjNum]; ok && e.Compressed {
+		return nil, fmt.Errorf("object stream %d is listed inside an object stream", streamObjNum)
 	}
 	streamObj, err := d.getObject(streamObjNum)
 	if err != nil {
@@ -422,6 +440,8 @@ func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject,
 	if !ok {
 		return nil, fmt.Errorf("object %d is not a stream", streamObjNum)
 	}
+	// Decoded here if parsing left it as stored (larger than maxEagerDecode).
+	s = &pdfStream{Dict: s.Dict, Data: decodedStreamData(s), Decoded: true}
 	n := dictGetInt(s.Dict, "/N")
 	first := dictGetInt(s.Dict, "/First")
 	if n < 0 || first < 0 || first > len(s.Data) {
@@ -447,20 +467,21 @@ func (d *rawDocument) getFromObjStream(streamObjNum, targetNum int) (*pdfObject,
 		}
 		offsets = append(offsets, objOffset{num: oNum, offset: first + oOff})
 	}
-	objs := make([]*pdfObject, 0, len(offsets))
+	objs := make(map[int]*pdfObject, len(offsets))
 	for _, oo := range offsets {
+		if _, dup := objs[oo.num]; dup {
+			continue // the first entry for a number wins, as the scan did
+		}
 		l := newLexer(s.Data[oo.offset:])
 		val, err := parseValue(l)
 		if err != nil {
 			continue
 		}
-		objs = append(objs, &pdfObject{Num: oo.num, Value: val})
+		objs[oo.num] = &pdfObject{Num: oo.num, Value: val}
 	}
 	d.objStreams[streamObjNum] = objs
-	for _, o := range objs {
-		if o.Num == targetNum {
-			return o, nil
-		}
+	if o := objs[targetNum]; o != nil {
+		return o, nil
 	}
 	return nil, fmt.Errorf("object %d not found in stream %d", targetNum, streamObjNum)
 }

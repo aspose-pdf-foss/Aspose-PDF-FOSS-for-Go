@@ -5,7 +5,6 @@ package asposepdf
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 // Styled-runs paragraph layout (epic pdf-go-fh4l.3): a paragraph as a
@@ -87,18 +86,7 @@ type runToken struct {
 // fitRunes returns the byte length of the longest prefix of word whose width
 // is at most maxW, at least one rune.
 func fitRunes(ms []runMetrics, ri int, word string, maxW float64) int {
-	n := 0
-	for i, r := range word {
-		end := i + utf8.RuneLen(r)
-		if r == utf8.RuneError {
-			end = i + 1
-		}
-		if i > 0 && tokenWidth(ms, ri, word[:end]) > maxW {
-			break
-		}
-		n = end
-	}
-	return n
+	return longestFit(word, maxW, func(s string) float64 { return tokenWidth(ms, ri, s) })
 }
 
 // splitRunWord returns the first piece of a word of run ri cut to maxW and

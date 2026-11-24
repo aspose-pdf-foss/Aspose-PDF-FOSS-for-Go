@@ -2,8 +2,6 @@
 
 package asposepdf
 
-import "strings"
-
 // Extraction limited to the page or to a rectangle (pdf-go-c0t0), mirroring
 // Aspose.PDF for .NET's TextSearchOptions.LimitToPageBounds and Rectangle on
 // extraction: the region is applied glyph by glyph, so a word the page edge
@@ -90,10 +88,8 @@ func clipFragments(frags []textFragment, r Rectangle) []textFragment {
 
 // cloneFragment is f with other text and extent; its style is kept.
 func cloneFragment(f *textFragment, text string, runeX, runeY []float64, x, y, endX, endY float64) textFragment {
-	var b strings.Builder
-	b.WriteString(text)
 	return textFragment{
-		text: b, x: x, y: y, endX: endX, endY: endY,
+		text: fragText(text), x: x, y: y, endX: endX, endY: endY,
 		runeX: append([]float64(nil), runeX...), runeY: append([]float64(nil), runeY...),
 		fontName: f.fontName, fontSize: f.fontSize, height: f.height, descent: f.descent,
 		bold: f.bold, italic: f.italic, charSpacing: f.charSpacing,

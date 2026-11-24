@@ -102,16 +102,21 @@ func (a *TextParagraphAbsorber) Visit(p *Page) error {
 			}
 		}
 	}
+	var ix *fragmentIndex
+	if len(rects) > 0 {
+		frags, err := p.extractFragments()
+		if err != nil {
+			return err
+		}
+		ix = newFragmentIndex(frags)
+	}
 	for _, r := range rects {
 		r = orderedRect(r)
 		// Glyphs are taken with half a point to spare: a line set flush with
 		// a clip rectangle's edge may start a hair outside it, and a glyph
 		// left out would not move with its word.
 		const slack = 0.5
-		lines, err := p.layoutLinesIn(Rectangle{LLX: r.LLX - slack, LLY: r.LLY - slack, URX: r.URX + slack, URY: r.URY + slack})
-		if err != nil {
-			return err
-		}
+		lines := groupFragmentsIntoLines(ix.clip(Rectangle{LLX: r.LLX - slack, LLY: r.LLY - slack, URX: r.URX + slack, URY: r.URY + slack}))
 		tp := &AbsorbedTextParagraph{page: p, rect: r}
 		for i := range lines {
 			if l, ok := paragraphTextLine(&lines[i]); ok {
@@ -147,8 +152,8 @@ func markParagraphEnds(lines []paraTextLine) {
 	}
 }
 
-// layoutLinesIn is ExtractTextWithLayout limited to the glyphs inside r.
-func (p *Page) layoutLinesIn(r Rectangle) ([]TextLine, error) {
+// extractFragments runs the text extractor over the page once.
+func (p *Page) extractFragments() ([]textFragment, error) {
 	data, err := p.contentStreams()
 	if err != nil || len(data) == 0 {
 		return nil, err
@@ -161,7 +166,7 @@ func (p *Page) layoutLinesIn(r Rectangle) ([]TextLine, error) {
 	ext := newTextExtractor(p.doc.objects, resolveFontResources(p.doc.objects, resources))
 	ext.process(ops, resources)
 	ext.flushFragment()
-	return groupFragmentsIntoLines(clipFragments(ext.fragments, r)), nil
+	return ext.fragments, nil
 }
 
 // paragraphTextLine splits a horizontal line into words with their extents.

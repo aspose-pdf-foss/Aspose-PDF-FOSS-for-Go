@@ -53,7 +53,7 @@ func parseType1(data []byte, len1, len2 int) *type1Font {
 	}
 
 	var clear, binary []byte
-	if len1 > 0 && len2 > 0 && len1+len2 <= len(data) {
+	if len1 > 0 && len2 > 0 && len1 <= len(data) && len2 <= len(data)-len1 { // no overflowing sum (GHSA-rfwg-hxcj-7pp5 point 6)
 		clear = data[:len1]
 		binary = data[len1 : len1+len2]
 	} else {

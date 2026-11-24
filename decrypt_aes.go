@@ -195,7 +195,7 @@ func decryptStreamAES128(s *pdfStream, decrypt func([]byte) ([]byte, error)) err
 		return err
 	}
 	s.Data, s.Decoded, s.raw = plain, false, nil
-	if decoded, derr := decodeStream(s.Dict, s.Data); derr == nil {
+	if decoded, derr := decodeStreamLimit(s.Dict, s.Data, maxEagerDecode); derr == nil {
 		s.Data = decoded
 		s.Decoded = true
 	}

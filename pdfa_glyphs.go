@@ -380,11 +380,14 @@ func (d *Document) glyphFontsInUse() []*glyphFont {
 		var cur state
 		var stack []state
 		// Marked content nests apart from q/Q; each entry says whether that
-		// sequence has /ActualText.
+		// sequence has /ActualText, and withText counts those that do, so a
+		// show operator does not search the stack: unbalanced BMCs made that
+		// quadratic (GHSA-rfwg-hxcj-7pp5 point 8).
 		var marked []bool
+		withText := 0
 		show := func(v pdfValue) {
 			if s, ok := v.(string); ok && cur.font != nil {
-				cur.font.show(d.objects, s, cur.tr, slices.Contains(marked, true))
+				cur.font.show(d.objects, s, cur.tr, withText > 0)
 			}
 		}
 		for _, op := range ops {
@@ -401,8 +404,14 @@ func (d *Document) glyphFontsInUse() []*glyphFont {
 				props, _ := resolveBDCProperties(d.objects, res, at(op, 1))
 				_, has := props["/ActualText"]
 				marked = append(marked, has)
+				if has {
+					withText++
+				}
 			case "EMC":
 				if n := len(marked); n > 0 {
+					if marked[n-1] {
+						withText--
+					}
 					marked = marked[:n-1]
 				}
 			case "Tr":

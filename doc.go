@@ -24,7 +24,7 @@ func newRawDocument(data []byte, xref *xrefTable, trailer pdfDict) *rawDocument 
 		xref:       xref,
 		trailer:    trailer,
 		cache:      make(map[int]*pdfObject),
-		objStreams: make(map[int][]*pdfObject),
+		objStreams: make(map[int]map[int]*pdfObject),
 	}
 }
 
