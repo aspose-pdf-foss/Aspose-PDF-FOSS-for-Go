@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-11-24
+
+A security release: two advisories fixed. Crafted files could crash, hang or exhaust memory in `Open`, and slow down `ConvertToPDFA` (GHSA-rfwg-hxcj-7pp5); text operations could crash the process, hang, or leave text `RemoveAllText` removed in the saved file (GHSA-gc9q-3vx8-phx2). Also new: `Document.ImportPage`, which imports a page as a reusable form, and `PdfPageStamp` imports its page once per document, so a stamp on many pages no longer copies its fonts onto each. Imported output is reproducible, and reading a document from several goroutines is safe. Text extraction now finds word gaps typed as `TJ` adjustments, reads fonts outside the Standard 14, text in spot colours, and text in forms with indirect dictionary values. Fixes for #25 and #26.
+
 ### Added
 
 - **`Document.ImportPage` imports a page as a reusable form** ([#26](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues/26), point 1). `d.ImportPage(src, n)` copies page n of src (or of d) with its resources once and returns an `XForm` to place with `Page.AddForm` on as many pages as needed; its size is the page as a viewer shows it, turned by its rotation. Importing the same page again gives the same form, and pages of one source share their fonts and images. Mirrors Aspose.PDF for .NET's `XForm.CreateNewForm(Page, Document)`. Requested by shadowhunter1470-svg.
@@ -769,7 +773,8 @@ Initial public release. Pure Go PDF library — no external dependencies, standa
 - Beads-based issue/task tracking (`bd` CLI)
 - All public API documented in `CLAUDE.md` and per-feature sections of `README.md`
 
-[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/compare/v0.15.0...v0.15.1
