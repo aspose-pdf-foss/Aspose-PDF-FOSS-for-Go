@@ -49,9 +49,10 @@ func (d *Document) removeAllText(pages []*Page) error {
 		}
 		dropped = append(dropped, ids...)
 	}
-	// The streams the pages and clones replaced, where nothing else uses
-	// them, so the removed text does not stay in the saved file.
-	d.dropUnreachable(append(dropped, r.replaced...))
+	// The streams the pages and clones replaced, and the property lists
+	// replaced by copies without /ActualText, where nothing else uses them,
+	// so the removed text does not stay in the saved file.
+	d.dropUnreachable(append(append(dropped, r.replaced...), r.scrubbed...))
 	return nil
 }
 
@@ -63,6 +64,7 @@ type textRemover struct {
 	// times is read once and cloned once.
 	clones   map[formKey]formResult
 	replaced []int // forms that were cloned
+	scrubbed []int // property lists replaced by a copy without /ActualText
 }
 
 // formKey names a form and, for one with no /Resources of its own, the
@@ -73,10 +75,32 @@ type formKey struct {
 }
 
 // formResult is a stripped form: its clone (0 when it holds no text) and
-// the redirections it passes up to its caller's resources.
+// the edits it passes up to its caller's resources.
 type formResult struct {
 	num     int
-	bubbled map[string]int
+	bubbled resEdits
+}
+
+// resEdits are the changes a stripped stream needs in the resources its
+// names resolve through: forms replaced by their clones (/XObject), and,
+// when it named a property list carrying /ActualText, every such list
+// replaced by a copy without it (/Properties), so the removed text is not
+// left reachable from the page (GHSA-gc9q-3vx8-phx2).
+type resEdits struct {
+	xobj  map[string]int
+	props bool
+}
+
+func (e *resEdits) empty() bool { return len(e.xobj) == 0 && !e.props }
+
+func (e *resEdits) merge(o resEdits) {
+	for k, v := range o.xobj {
+		if e.xobj == nil {
+			e.xobj = map[string]int{}
+		}
+		e.xobj[k] = v
+	}
+	e.props = e.props || o.props
 }
 
 // page strips the page's content and installs it, returning the object
@@ -87,14 +111,14 @@ func (r *textRemover) page(p *Page) ([]int, error) {
 		return nil, err
 	}
 	res := p.pageResources()
-	out, changed, redirect, err := r.stream(data, res, 0)
+	out, changed, edits, err := r.stream(data, res, 0)
 	if err != nil || !changed {
 		return nil, err
 	}
 	pd := p.pageDict()
 	old := contentStreamIDs(pd["/Contents"])
-	if len(redirect) > 0 {
-		pd["/Resources"] = redirectXObjects(r.d.objects, res, redirect)
+	if !edits.empty() {
+		pd["/Resources"] = r.editResources(res, edits)
 	}
 	if err := replacePageContents(p, out); err != nil {
 		return nil, err
@@ -120,15 +144,15 @@ func contentStreamIDs(v pdfValue) []int {
 }
 
 // stream removes the text from one content stream whose names resolve
-// through res. redirect maps the /XObject names in res whose forms were
-// cloned to their clones; changed reports whether anything was removed.
-func (r *textRemover) stream(data []byte, res pdfDict, depth int) (out []byte, changed bool, redirect map[string]int, err error) {
+// through res. edits are the changes res needs; changed reports whether
+// anything was removed.
+func (r *textRemover) stream(data []byte, res pdfDict, depth int) (out []byte, changed bool, edits resEdits, err error) {
 	if !mayChange(data) {
-		return data, false, nil, nil
+		return data, false, edits, nil
 	}
 	ops, err := parseContentStream(data)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, false, edits, err
 	}
 	kept := ops[:0:0]
 	for _, op := range ops {
@@ -159,6 +183,11 @@ func (r *textRemover) stream(data []byte, res pdfDict, depth int) (out []byte, c
 								scrubbed[k] = v
 							}
 						}
+						// A named list stays in /Properties: replace it there
+						// too, or the text is still in the file.
+						if _, ok := op.Operands[1].(pdfName); ok {
+							edits.props = true
+						}
 						op = contentOp{Operator: "BDC", Operands: []pdfValue{op.Operands[0], scrubbed}}
 						changed = true
 					}
@@ -169,22 +198,16 @@ func (r *textRemover) stream(data []byte, res pdfDict, depth int) (out []byte, c
 				if name, ok := op.Operands[0].(pdfName); ok {
 					num, sub, err := r.form(res, string(name), depth)
 					if err != nil {
-						return nil, false, nil, err
+						return nil, false, edits, err
 					}
 					if num != 0 {
-						if redirect == nil {
-							redirect = map[string]int{}
-						}
-						redirect[string(name)] = num
+						edits.merge(resEdits{xobj: map[string]int{string(name): num}})
 						changed = true
 					}
 					// A form with no /Resources of its own resolves its names
-					// through ours, so what it redirects is ours to install.
-					for k, v := range sub {
-						if redirect == nil {
-							redirect = map[string]int{}
-						}
-						redirect[k] = v
+					// through ours, so what it changes is ours to install.
+					if !sub.empty() {
+						edits.merge(sub)
 						changed = true
 					}
 				}
@@ -193,9 +216,9 @@ func (r *textRemover) stream(data []byte, res pdfDict, depth int) (out []byte, c
 		kept = append(kept, op)
 	}
 	if !changed {
-		return data, false, nil, nil
+		return data, false, edits, nil
 	}
-	return serializeContentOps(kept), true, redirect, nil
+	return serializeContentOps(kept), true, edits, nil
 }
 
 // mayChange reports whether a content stream could hold anything this walk
@@ -212,26 +235,27 @@ func mayChange(data []byte) bool {
 
 // form strips the Form XObject res names, returning the number of its
 // text-free clone (0 when it holds no text or is not a form) and, for a form
-// with no /Resources of its own, the redirections it needs in res.
-func (r *textRemover) form(res pdfDict, name string, depth int) (int, map[string]int, error) {
+// with no /Resources of its own, the edits it needs in res.
+func (r *textRemover) form(res pdfDict, name string, depth int) (int, resEdits, error) {
+	var none resEdits
 	if res == nil {
-		return 0, nil, nil
+		return 0, none, nil
 	}
 	xobjs, ok := resolveRefToDict(r.d.objects, res["/XObject"])
 	if !ok {
-		return 0, nil, nil
+		return 0, none, nil
 	}
 	ref, ok := xobjs[name].(pdfRef)
 	if !ok {
-		return 0, nil, nil
+		return 0, none, nil
 	}
 	obj := r.d.objects[ref.Num]
 	if obj == nil {
-		return 0, nil, nil
+		return 0, none, nil
 	}
 	st, ok := obj.Value.(*pdfStream)
 	if !ok || st.Dict["/Subtype"] != pdfName("/Form") {
-		return 0, nil, nil
+		return 0, none, nil
 	}
 	own, hasOwn := resolveRefToDict(r.d.objects, st.Dict["/Resources"])
 	key := formKey{st: st}
@@ -244,12 +268,12 @@ func (r *textRemover) form(res pdfDict, name string, depth int) (int, map[string
 		return done.num, done.bubbled, nil
 	}
 	if depth >= maxTextRemoveDepth {
-		return 0, nil, fmt.Errorf("form XObjects nested deeper than %d", maxTextRemoveDepth)
+		return 0, none, fmt.Errorf("form XObjects nested deeper than %d", maxTextRemoveDepth)
 	}
 	r.clones[key] = formResult{} // a form drawing itself stops here
-	out, changed, redirect, err := r.stream(decodedStreamData(st), formRes, depth+1)
+	out, changed, edits, err := r.stream(decodedStreamData(st), formRes, depth+1)
 	if err != nil || !changed {
-		return 0, nil, err
+		return 0, none, err
 	}
 	dict := make(pdfDict, len(st.Dict))
 	for k, v := range st.Dict {
@@ -257,13 +281,13 @@ func (r *textRemover) form(res pdfDict, name string, depth int) (int, map[string
 			dict[k] = v
 		}
 	}
-	var bubbled map[string]int
+	var bubbled resEdits
 	if hasOwn {
-		if len(redirect) > 0 {
-			dict["/Resources"] = redirectXObjects(r.d.objects, own, redirect)
+		if !edits.empty() {
+			dict["/Resources"] = r.editResources(own, edits)
 		}
 	} else {
-		bubbled = redirect
+		bubbled = edits
 	}
 	num := r.d.nextID
 	r.d.nextID++
@@ -274,6 +298,42 @@ func (r *textRemover) form(res pdfDict, name string, depth int) (int, map[string
 	return num, bubbled, nil
 }
 
+// editResources returns a copy of res with edits installed; res itself is
+// left alone, as other pages or forms may share it. The property lists are
+// all scrubbed, the ones no stream here names as well: the copy is this
+// page's alone, and a list left whole would keep the text in the file. A
+// list it replaces is recorded, to be dropped once nothing uses it.
+func (r *textRemover) editResources(res pdfDict, edits resEdits) pdfDict {
+	out := redirectXObjects(r.d.objects, res, edits.xobj)
+	if !edits.props {
+		return out
+	}
+	src, ok := resolveRefToDict(r.d.objects, res["/Properties"])
+	if !ok {
+		return out
+	}
+	props := make(pdfDict, len(src))
+	for name, v := range src {
+		props[name] = v
+		p, ok := resolveRefToDict(r.d.objects, v)
+		if !ok || p["/ActualText"] == nil {
+			continue
+		}
+		scrubbed := make(pdfDict, len(p))
+		for k, pv := range p {
+			if k != "/ActualText" {
+				scrubbed[k] = pv
+			}
+		}
+		props[name] = scrubbed
+		if ref, ok := v.(pdfRef); ok {
+			r.scrubbed = append(r.scrubbed, ref.Num)
+		}
+	}
+	out["/Properties"] = props
+	return out
+}
+
 // redirectXObjects returns a copy of res whose /XObject entries named in
 // redirect point at the given objects; res itself is left alone, as other
 // pages or forms may share it.
@@ -281,6 +341,9 @@ func redirectXObjects(objects map[int]*pdfObject, res pdfDict, redirect map[stri
 	out := make(pdfDict, len(res)+1)
 	for k, v := range res {
 		out[k] = v
+	}
+	if len(redirect) == 0 {
+		return out
 	}
 	xobjs := pdfDict{}
 	if src, ok := resolveRefToDict(objects, res["/XObject"]); ok {

@@ -13,6 +13,10 @@ import (
 // stays — and the new text is set in the paragraph's place, wrapped to its
 // width, in its first glyph's font, size and colour and at its line spacing.
 
+// maxShrinkSteps bounds how many sizes SetText tries; with quarter-point
+// steps a paragraph of up to 128pt is unaffected.
+const maxShrinkSteps = 256
+
 // SetText replaces the paragraph's text on the page it was found on. The new
 // text starts on the paragraph's first baseline and is wrapped to the
 // paragraph's width at its line spacing; a text needing more lines than the
@@ -105,7 +109,11 @@ func (mp *MarkupParagraph) SetText(text string) error {
 		return fmt.Errorf("set paragraph text: %w", err)
 	}
 	room := float64(len(mp.Lines)) * size * spacing
-	for s := size - 0.25; float64(lines)*lineHeight > room+0.01 && s >= size/2; s -= 0.25 {
+	// Steps of a quarter point, but never more than maxShrinkSteps of them:
+	// the size comes from the file, and a stated size of 1e9 would otherwise
+	// take hours (GHSA-gc9q-3vx8-phx2).
+	step := max(0.25, size/2/maxShrinkSteps)
+	for s := size - step; float64(lines)*lineHeight > room+0.01 && s >= size/2; s -= step {
 		style.Size = s
 		if lines, lineHeight, err = measureText(text, style, width); err != nil {
 			return fmt.Errorf("set paragraph text: %w", err)

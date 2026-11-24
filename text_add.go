@@ -849,6 +849,9 @@ func breakWordMeasured(word string, m *lineMeasurer, maxWidth float64) []string 
 // fitPrefix returns the byte length of the longest prefix of word that fits
 // within maxWidth, at least one rune.
 func (m *lineMeasurer) fitPrefix(word string, maxWidth float64) int {
+	if m.shaper != nil {
+		return longestFit(word, maxWidth, m.word)
+	}
 	n := 0
 	var w float64
 	for i, r := range word {
@@ -856,17 +859,62 @@ func (m *lineMeasurer) fitPrefix(word string, maxWidth float64) int {
 		if r == utf8.RuneError {
 			end = i + 1
 		}
-		if m.shaper == nil {
-			w += m.width(r)
-			if n > 0 && w > maxWidth {
-				break
-			}
-		} else if n > 0 && m.word(word[:end]) > maxWidth {
+		w += m.width(r)
+		if n > 0 && w > maxWidth {
 			break
 		}
 		n = end
 	}
 	return n
+}
+
+// longestFit returns the byte length of the longest prefix of word, at least
+// one rune, whose width is at most maxW, for a width that grows with the
+// prefix. Measuring every prefix in turn costs the square of the length
+// when glyphs have no width and the prefix keeps fitting (GHSA-gc9q-3vx8-
+// phx2), so it doubles the prefix while it fits and then bisects; runes are
+// decoded only as far as that reaches, so a word cut into many pieces stays
+// linear.
+func longestFit(word string, maxW float64, width func(string) float64) int {
+	var ends []int // ends[k] is the byte end of the prefix of k+1 runes
+	pos := 0
+	have := func(k int) bool {
+		for len(ends) <= k && pos < len(word) {
+			_, size := utf8.DecodeRuneInString(word[pos:])
+			pos += size
+			ends = append(ends, pos)
+		}
+		return len(ends) > k
+	}
+	if !have(0) {
+		return 0
+	}
+	fits := func(k int) bool { return width(word[:ends[k]]) <= maxW }
+	good, bad := 0, -1 // the prefix of good+1 runes fits, of bad+1 does not
+	for step := 1; bad < 0; step *= 2 {
+		k := good + step
+		if !have(k) {
+			k = len(ends) - 1
+			if k == good || fits(k) {
+				return ends[k]
+			}
+			bad = k
+			break
+		}
+		if fits(k) {
+			good = k
+		} else {
+			bad = k
+		}
+	}
+	for bad-good > 1 {
+		if mid := (good + bad) / 2; fits(mid) {
+			good = mid
+		} else {
+			bad = mid
+		}
+	}
+	return ends[good]
 }
 
 // isHyphenBreak reports whether a word may break after r: HYPHEN-MINUS and
@@ -911,7 +959,8 @@ func hyphenBreak(word string, n int, fits func(string) bool) (head string, next 
 			}
 			continue
 		}
-		next = c.at + utf8.RuneLen([]rune(word[c.at:])[0])
+		_, size := utf8.DecodeRuneInString(word[c.at:])
+		next = c.at + size
 		if next < len(word) {
 			return word[:next], next, true
 		}
