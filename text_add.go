@@ -931,11 +931,14 @@ func isHyphenBreak(r rune) bool {
 // must stand before and after the break. It returns the head, the byte
 // offset where the rest of word starts, and whether there is such a break.
 func hyphenBreak(word string, n int, fits func(string) bool) (head string, next int, ok bool) {
-	type cand struct {
-		at   int // byte offset of the hyphen or soft hyphen
-		soft bool
-	}
-	var cands []cand
+	// The last hyphen that leaves something after it always serves; a soft
+	// hyphen after it serves if its head fits. Soft hyphens draw nothing, so
+	// many of them can lie within n while no head with its hyphen fits:
+	// trying them one by one from the last measured a head of the whole
+	// length for each (GHSA-gc9q-3vx8-phx2). The heads grow with the offset,
+	// so the last one that fits is found by bisection.
+	hard := -1      // offset of the hard break after the last usable hyphen
+	var softs []int // offsets of the usable soft hyphens after it
 	for i, r := range word {
 		if i == 0 {
 			continue
@@ -945,25 +948,30 @@ func hyphenBreak(word string, n int, fits func(string) bool) (head string, next 
 		}
 		switch {
 		case r == '\u00ad':
-			cands = append(cands, cand{at: i, soft: true})
+			if i+utf8.RuneLen('\u00ad') < len(word) {
+				softs = append(softs, i)
+			}
 		case isHyphenBreak(r) && i+utf8.RuneLen(r) <= n:
-			cands = append(cands, cand{at: i})
+			if end := i + utf8.RuneLen(r); end < len(word) {
+				hard, softs = end, softs[:0]
+			}
 		}
 	}
-	for k := len(cands) - 1; k >= 0; k-- {
-		c := cands[k]
-		if c.soft {
-			next = c.at + utf8.RuneLen('\u00ad')
-			if next < len(word) && fits(word[:c.at]+"-") {
-				return word[:c.at] + "-", next, true
-			}
-			continue
+	good := -1 // the last soft hyphen known to fit
+	for lo, hi := 0, len(softs); lo < hi; {
+		mid := (lo + hi) / 2
+		if fits(word[:softs[mid]] + "-") {
+			good, lo = mid, mid+1
+		} else {
+			hi = mid
 		}
-		_, size := utf8.DecodeRuneInString(word[c.at:])
-		next = c.at + size
-		if next < len(word) {
-			return word[:next], next, true
-		}
+	}
+	if good >= 0 {
+		at := softs[good]
+		return word[:at] + "-", at + utf8.RuneLen('\u00ad'), true
+	}
+	if hard >= 0 {
+		return word[:hard], hard, true
 	}
 	return "", 0, false
 }

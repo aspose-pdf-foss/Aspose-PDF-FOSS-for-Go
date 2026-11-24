@@ -104,6 +104,9 @@ func (d *Document) ConvertToPDFA(format PDFAFormat) (*PDFAValidationReport, erro
 	d.clearImageInterpolation()
 	d.removeObjectMetadata()
 	d.removeTransferFunctions()
+	if format.part() == 1 || format.part() == 4 {
+		d.decodeLZWStreams()
+	}
 	d.fixSharedConformance(format.part() == 4)
 	d.signaturesRewritten = d.hasSignature()
 	d.fixFontDicts(format.part())
@@ -737,4 +740,20 @@ func srgbICCProfile() []byte {
 	out.Write(table.Bytes())
 	out.Write(dataBuf.Bytes())
 	return out.Bytes()
+}
+
+// decodeLZWStreams decodes the LZW streams left encoded, so that they are
+// written with Flate: PDF/A-1 and PDF/A-4 forbid LZWDecode. A stream decodes
+// on open only up to maxEagerDecode; a larger one stays as stored until
+// something needs it (GHSA-rfwg-hxcj-7pp5).
+func (d *Document) decodeLZWStreams() {
+	for _, obj := range d.objects {
+		s, ok := obj.Value.(*pdfStream)
+		if !ok || s.Decoded || !pdfaFilterHas(s.Dict["/Filter"], "/LZWDecode") {
+			continue
+		}
+		if decoded, err := decodeStream(s.Dict, s.Data); err == nil {
+			s.Data, s.Decoded = decoded, true
+		}
+	}
 }

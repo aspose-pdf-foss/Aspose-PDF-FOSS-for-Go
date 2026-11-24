@@ -604,10 +604,13 @@ func (a *annotationBase) colorBarInk() ColorsOfCMYK {
 	// by many bars was parsed again for each of them every time (GHSA-rfwg-
 	// hxcj-7pp5 point 9): the answer is kept per stream and its data length.
 	key := colorBarInkKey{st, len(st.Data)}
-	if ink, ok := a.doc.colorBarInks[key]; ok {
+	a.doc.colorBarMu.Lock()
+	ink, ok := a.doc.colorBarInks[key]
+	a.doc.colorBarMu.Unlock()
+	if ok {
 		return ink
 	}
-	ink := ColorsOfCMYKCyan
+	ink = ColorsOfCMYKCyan
 	if ops, err := parseContentStream(decodedStreamData(st)); err == nil {
 		for _, op := range ops {
 			if op.Operator == "k" && len(op.Operands) == 4 {
@@ -622,6 +625,8 @@ func (a *annotationBase) colorBarInk() ColorsOfCMYK {
 			}
 		}
 	}
+	a.doc.colorBarMu.Lock()
+	defer a.doc.colorBarMu.Unlock()
 	if a.doc.colorBarInks == nil {
 		a.doc.colorBarInks = map[colorBarInkKey]ColorsOfCMYK{}
 	}

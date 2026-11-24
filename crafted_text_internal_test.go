@@ -151,6 +151,9 @@ func TestFragmentIndexMatchesClipFragments(t *testing.T) {
 // zwsp is ZERO WIDTH SPACE, a character that draws nothing.
 var zwsp = string(rune(0x200b))
 
+// shy is SOFT HYPHEN, a break opportunity that draws nothing unless broken at.
+var shy = string(rune(0xad))
+
 func TestLongWordBreakingStaysLinear(t *testing.T) {
 	const small, large = 8000, 32000
 	zw := func(n int) string { return "a" + strings.Repeat(zwsp, n) + strings.Repeat("W", 1000) }
@@ -301,4 +304,77 @@ func TestRemoveAllTextScrubsNamedActualTextInForm(t *testing.T) {
 	if found, _ := documentContainsBytes(openHardening(t, buf.Bytes()), secret); found {
 		t.Errorf("%q is still in the saved file after RemoveAllText", secret)
 	}
+}
+
+// hyphenBreakScan is hyphenBreak as it was: every candidate tried from the
+// last one back.
+func hyphenBreakScan(word string, n int, fits func(string) bool) (string, int, bool) {
+	type cand struct {
+		at   int
+		soft bool
+	}
+	var cands []cand
+	for i, r := range word {
+		if i == 0 {
+			continue
+		}
+		if i > n {
+			break
+		}
+		switch {
+		case r == rune(0xad):
+			cands = append(cands, cand{at: i, soft: true})
+		case isHyphenBreak(r) && i+utf8.RuneLen(r) <= n:
+			cands = append(cands, cand{at: i})
+		}
+	}
+	for k := len(cands) - 1; k >= 0; k-- {
+		c := cands[k]
+		if c.soft {
+			next := c.at + utf8.RuneLen(rune(0xad))
+			if next < len(word) && fits(word[:c.at]+"-") {
+				return word[:c.at] + "-", next, true
+			}
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(word[c.at:])
+		if next := c.at + size; next < len(word) {
+			return word[:next], next, true
+		}
+	}
+	return "", 0, false
+}
+
+// The bisection gives what trying every candidate gave, for heads whose
+// width grows with their length.
+func TestHyphenBreakMatchesScan(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 4))
+	alphabet := []string{"a", "b", "é", "-", "‐", shy, shy, "x"}
+	for trial := 0; trial < 3000; trial++ {
+		var w strings.Builder
+		for k := 1 + rng.IntN(14); k > 0; k-- {
+			w.WriteString(alphabet[rng.IntN(len(alphabet))])
+		}
+		word := w.String()
+		limit := rng.IntN(utf8.RuneCountInString(word) + 2)
+		fits := func(s string) bool { return utf8.RuneCountInString(s) <= limit }
+		n := rng.IntN(len(word) + 1)
+		gh, gn, gok := hyphenBreak(word, n, fits)
+		wh, wn, wok := hyphenBreakScan(word, n, fits)
+		if gh != wh || gn != wn || gok != wok {
+			t.Fatalf("%q n=%d limit=%d: got (%q, %d, %v), want (%q, %d, %v)", word, n, limit, gh, gn, gok, wh, wn, wok)
+		}
+	}
+}
+
+// GHSA-gc9q-3vx8-phx2 point 4: many soft hyphens within the fitting part of
+// a word, none of whose heads fit with their hyphen, cost linear time.
+func TestSoftHyphensStayLinear(t *testing.T) {
+	assertLinearGrowth(t, "soft hyphens", 4000, 24000, func(n int) {
+		d := NewDocument(595, 842)
+		word := "a" + strings.Repeat(shy, n) + "bbbbbbbbbb"
+		if err := mustPage(t, d).AddText(word, TextStyle{Size: 12}, Rectangle{LLX: 10, LLY: 10, URX: 18.5, URY: 832}); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

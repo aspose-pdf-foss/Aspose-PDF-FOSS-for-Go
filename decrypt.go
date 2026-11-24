@@ -318,7 +318,7 @@ func decryptStreamInPlace(s *pdfStream, key []byte) {
 		return
 	}
 	s.Data, s.Decoded, s.raw = rc4Decrypted(src, key), false, nil
-	if decoded, err := decodeStream(s.Dict, s.Data); err == nil {
+	if decoded, err := decodeStreamLimit(s.Dict, s.Data, maxEagerDecode); err == nil {
 		s.Data = decoded
 		s.Decoded = true
 	}

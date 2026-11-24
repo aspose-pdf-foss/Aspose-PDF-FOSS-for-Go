@@ -4,6 +4,7 @@ package asposepdf
 
 import (
 	"bytes"
+	"compress/lzw"
 	"compress/zlib"
 	"encoding/binary"
 	"errors"
@@ -349,4 +350,128 @@ func TestUncheckedNumbersRefused(t *testing.T) {
 			}
 		})
 	})
+}
+
+// Filters after Flate that expand their input — RunLength runs, ASCII85's z —
+// are held to the same limit, so a chain of them cannot pass it.
+func TestDecompressionBoundedThroughExpandingFilters(t *testing.T) {
+	compress := func(data []byte) []byte {
+		var z bytes.Buffer
+		zw := zlib.NewWriter(&z)
+		zw.Write(data)
+		zw.Close()
+		return z.Bytes()
+	}
+	for _, tc := range []struct {
+		filter string
+		unit   []byte // input that expands
+	}{
+		{"/RunLengthDecode", []byte{0x81, 0x00}}, // 128 zero bytes
+		{"/ASCII85Decode", []byte("zzzz")},       // 16 zero bytes
+	} {
+		t.Run(tc.filter, func(t *testing.T) {
+			body := compress(bytes.Repeat(tc.unit, (32<<20)/len(tc.unit)))
+			objs := pageWith("", "", "<< >>", "BT ET")
+			objs = append(objs, fmt.Sprintf("<< /Filter [/FlateDecode %s] /Length %d >> stream\n%s\nendstream", tc.filter, len(body), body))
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			d, err := openCrafted(t, hardeningPDF(objs...))
+			runtime.ReadMemStats(&after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if grew := after.TotalAlloc - before.TotalAlloc; grew > 400<<20 {
+				t.Errorf("open allocated %d MB for an unreferenced stream", grew>>20)
+			}
+			if st, ok := d.objects[5].Value.(*pdfStream); !ok || st.Decoded {
+				t.Error("a stream expanding past the eager limit was decoded at open")
+			}
+		})
+	}
+	if _, err := runLengthDecodeLimit(bytes.Repeat([]byte{0x81, 0}, 1000), 1<<10); !errors.Is(err, errDecodedTooLarge) {
+		t.Errorf("RunLength limit not applied: %v", err)
+	}
+	if _, err := ascii85DecodeLimit(bytes.Repeat([]byte("z"), 1000), 1<<10); !errors.Is(err, errDecodedTooLarge) {
+		t.Errorf("ASCII85 limit not applied: %v", err)
+	}
+	if got, err := runLengthDecodeLimit([]byte{0x81, 'a', 1, 'b', 'c', 128}, 130); err != nil || len(got) != 130 {
+		t.Errorf("RunLength within the limit: %d bytes, %v", len(got), err)
+	}
+}
+
+// An encrypted document opened without a password decodes its streams at
+// open under the same limit as a plain one.
+func TestDecompressionBoundedWhenEncrypted(t *testing.T) {
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	zeros := make([]byte, 1<<20)
+	for i := 0; i < 400; i++ { // 400 MB of zeros
+		zw.Write(zeros)
+	}
+	zw.Close()
+	for _, alg := range []EncryptionAlgorithm{EncryptionAlgRC4_128, EncryptionAlgAES128, EncryptionAlgAES256} {
+		d := NewDocument(200, 200)
+		bomb := d.nextID
+		d.nextID++
+		d.objects[bomb] = &pdfObject{Num: bomb, Value: &pdfStream{Dict: pdfDict{"/Filter": pdfName("/FlateDecode")}, Data: z.Bytes()}}
+		d.SetEncryption(EncryptionOptions{OwnerPassword: "owner", Algorithm: alg})
+		var buf bytes.Buffer
+		if _, err := d.WriteTo(&buf); err != nil {
+			t.Fatal(err)
+		}
+		runtime.GC()
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		out, err := openCrafted(t, buf.Bytes())
+		runtime.ReadMemStats(&after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if grew := after.TotalAlloc - before.TotalAlloc; grew > 500<<20 {
+			t.Errorf("algorithm %d: open allocated %d MB for an unreferenced stream", alg, grew>>20)
+		}
+		found := false
+		for _, o := range out.objects {
+			if st, ok := o.Value.(*pdfStream); ok && st.Dict["/Filter"] != nil && len(st.Data) > 100_000 && len(st.Data) < 10<<20 {
+				found = found || !st.Decoded
+			}
+		}
+		if !found {
+			t.Errorf("algorithm %d: the stream over the eager limit was decoded at open", alg)
+		}
+	}
+}
+
+// An LZW stream too large to decode at open is decoded by ConvertToPDFA for
+// the parts that forbid LZW, so it is written with Flate.
+func TestConvertToPDFADecodesLargeLZW(t *testing.T) {
+	var buf bytes.Buffer
+	w := lzw.NewWriter(&buf, lzw.MSB, 8)
+	chunk := bytes.Repeat([]byte("0 0 1 1 re f\n"), 1<<14)
+	for written := 0; written <= maxEagerDecode; written += len(chunk) {
+		w.Write(chunk)
+	}
+	w.Close()
+	objs := pageWith("", "", "<< >>", "BT ET")
+	objs = append(objs, fmt.Sprintf("<< /Filter /LZWDecode /DecodeParms << /EarlyChange 0 >> /Length %d >> stream\n%s\nendstream", buf.Len(), buf.String()))
+	d, err := openCrafted(t, hardeningPDF(objs...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := d.objects[5].Value.(*pdfStream); st.Decoded {
+		t.Fatal("the stream over the eager limit was decoded at open")
+	}
+	rep, err := d.ConvertToPDFA(PDFA1B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, is := range rep.Issues {
+		if is.Rule == "LZW_FILTER" {
+			t.Errorf("still reported: %s", is.Message)
+		}
+	}
+	if st := d.objects[5].Value.(*pdfStream); !st.Decoded || len(st.Data) <= maxEagerDecode {
+		t.Errorf("stream left as stored (decoded %v, %d bytes)", st.Decoded, len(st.Data))
+	}
 }

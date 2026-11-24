@@ -493,9 +493,9 @@ func applyFilterLimit(filter string, data []byte, limit int) ([]byte, error) {
 	case "/ASCIIHexDecode", "/AHx":
 		return asciiHexDecode(data)
 	case "/ASCII85Decode", "/A85":
-		return ascii85Decode(data)
+		return ascii85DecodeLimit(data, limit)
 	case "/RunLengthDecode", "/RL":
-		return runLengthDecode(data)
+		return runLengthDecodeLimit(data, limit)
 	case "/LZWDecode", "/LZW":
 		return lzwDecodeLimit(data, 1, limit) // default /EarlyChange; decodeStream passes the real one
 	default:
@@ -507,6 +507,14 @@ func applyFilterLimit(filter string, data []byte, limit int) ([]byte, error) {
 // byte n < 128 copies the next n+1 bytes literally; n > 128 repeats the next
 // byte 257−n times; n == 128 is end-of-data.
 func runLengthDecode(data []byte) ([]byte, error) {
+	return runLengthDecodeLimit(data, maxDecodedStream)
+}
+
+// runLengthDecodeLimit is runLengthDecode stopping with errDecodedTooLarge
+// once the output would pass limit bytes: a run expands two bytes into 128,
+// so a stream within the limit before this filter is not within it after
+// (GHSA-rfwg-hxcj-7pp5).
+func runLengthDecodeLimit(data []byte, limit int) ([]byte, error) {
 	var out []byte
 	i := 0
 	for i < len(data) {
@@ -520,17 +528,41 @@ func runLengthDecode(data []byte) ([]byte, error) {
 			if end > len(data) {
 				end = len(data)
 			}
+			if len(out)+end-i > limit {
+				return nil, errDecodedTooLarge
+			}
+			out = growBytes(out, end-i, limit)
 			out = append(out, data[i:end]...)
 			i = end
 		default:
 			if i >= len(data) {
 				return out, nil
 			}
-			out = append(out, bytes.Repeat([]byte{data[i]}, 257-n)...)
+			if len(out)+257-n > limit {
+				return nil, errDecodedTooLarge
+			}
+			out = growBytes(out, 257-n, limit)
+			for k := 0; k < 257-n; k++ {
+				out = append(out, data[i])
+			}
 			i++
 		}
 	}
 	return out, nil
+}
+
+// growBytes makes room in b for extra more bytes, doubling its capacity up
+// to limit: append grows a large slice by a quarter, which for a stream
+// decoding to its limit allocates several times the limit on the way.
+func growBytes(b []byte, extra, limit int) []byte {
+	need := len(b) + extra
+	if need <= cap(b) {
+		return b
+	}
+	c := min(max(2*cap(b), need, 512), max(limit, need))
+	nb := make([]byte, len(b), c)
+	copy(nb, b)
+	return nb
 }
 
 // hasIndirectFilter reports whether a value is (or, for an array, contains) an
@@ -619,6 +651,12 @@ func validateASCII85(data []byte) error {
 }
 
 func ascii85Decode(data []byte) ([]byte, error) {
+	return ascii85DecodeLimit(data, maxDecodedStream)
+}
+
+// ascii85DecodeLimit is ascii85Decode stopping with errDecodedTooLarge once
+// the output passes limit bytes: each z stands for four.
+func ascii85DecodeLimit(data []byte, limit int) ([]byte, error) {
 	if err := validateASCII85(data); err != nil {
 		return nil, err
 	}
@@ -634,6 +672,10 @@ func ascii85Decode(data []byte) ([]byte, error) {
 		if isWhitespace(b) {
 			continue
 		}
+		if len(out)+4 > limit {
+			return nil, errDecodedTooLarge
+		}
+		out = growBytes(out, 4, limit)
 		if b == 'z' && n == 0 {
 			out = append(out, 0, 0, 0, 0)
 			continue

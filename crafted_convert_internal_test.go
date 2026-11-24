@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -105,18 +106,29 @@ func TestUnbalancedMarkedContentStaysLinear(t *testing.T) {
 }
 
 // GHSA-rfwg-hxcj-7pp5 point 9: colour bars sharing one large appearance read
-// its ink once.
+// its ink once. Two hundred bars sharing it must cost about what two hundred
+// bars with small appearances of their own do, not two hundred reads of it.
 func TestColorBarInkReadOnce(t *testing.T) {
-	build := func(bars int) *Document {
+	const bars = 200
+	build := func(shared bool) *Document {
 		var annots strings.Builder
 		for i := 0; i < bars; i++ {
 			fmt.Fprintf(&annots, "%d 0 R ", 6+i)
 		}
 		objs := pageWith("", "/Annots ["+annots.String()+"] /TrimBox [20 20 180 180]", "<< >>", "")
-		big := "0 0 0 1 k\n" + strings.Repeat("0 0 1 1 re f\n", 60000)
+		big := "0 0 0 1 k " + strings.Repeat("0 0 1 1 re f ", 60000)
 		objs = append(objs, flated("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", big))
 		for i := 0; i < bars; i++ {
-			objs = append(objs, "<< /Type /Annot /Subtype /PrinterMark /MN /ColorBar /Rect [0 0 10 10] /AP << /N 5 0 R >> >>")
+			ap := 5
+			if !shared {
+				ap = 6 + bars + i
+			}
+			objs = append(objs, fmt.Sprintf("<< /Type /Annot /Subtype /PrinterMark /MN /ColorBar /Rect [0 0 10 10] /AP << /N %d 0 R >> >>", ap))
+		}
+		if !shared {
+			for i := 0; i < bars; i++ {
+				objs = append(objs, flated("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", "0 0 0 1 k 0 0 1 1 re f"))
+			}
 		}
 		d, err := OpenStream(bytes.NewReader(hardeningPDF(objs...)))
 		if err != nil {
@@ -124,21 +136,55 @@ func TestColorBarInkReadOnce(t *testing.T) {
 		}
 		return d
 	}
-	one, many := build(1), build(200)
-	timeList := func(d *Document) time.Duration {
-		start := time.Now()
+	timeList := func(shared bool) time.Duration {
+		best := time.Duration(1 << 62)
 		for i := 0; i < 3; i++ {
-			mustPage(t, d).annotations = nil
+			d := build(shared)
+			start := time.Now()
 			mustPage(t, d).Annotations().All()
+			best = min(best, time.Since(start))
 		}
-		return time.Since(start)
+		return best
 	}
-	timeList(one) // warm
-	t1, t200 := timeList(one), timeList(many)
-	if t200 > 20*t1+50*time.Millisecond {
-		t.Errorf("200 bars took %v, one bar %v: the shared appearance is parsed per bar", t200, t1)
+	own, shared := timeList(false), timeList(true)
+	if shared > 10*own+200*time.Millisecond {
+		t.Errorf("%d bars sharing one appearance took %v, with their own %v: the shared appearance is read per bar", bars, shared, own)
 	}
-	if a, ok := mustPage(t, many).Annotations().At(0).(*ColorBarAnnotation); !ok || a.ColorOfCMYK() != ColorsOfCMYKBlack {
-		t.Errorf("ink read as %+v", mustPage(t, many).Annotations().At(0))
+	d := build(true)
+	if a, ok := mustPage(t, d).Annotations().At(0).(*ColorBarAnnotation); !ok || a.ColorOfCMYK() != ColorsOfCMYKBlack {
+		t.Errorf("ink read as %+v", mustPage(t, d).Annotations().At(0))
 	}
+}
+
+// Listing the annotations of different pages from several goroutines reads
+// colour-bar inks through one document-wide cache; run under -race.
+func TestColorBarInkConcurrentPages(t *testing.T) {
+	const pages = 8
+	var kids strings.Builder
+	objs := []string{"<< /Type /Catalog /Pages 2 0 R >>", ""}
+	for i := 0; i < pages; i++ {
+		page, ap, annot := 3+3*i, 4+3*i, 5+3*i
+		fmt.Fprintf(&kids, "%d 0 R ", page)
+		objs = append(objs,
+			fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /TrimBox [20 20 180 180] /Annots [%d 0 R] >>", annot),
+			"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 0 >> stream\n0 0 0 1 k 0 0 1 1 re f\nendstream",
+			fmt.Sprintf("<< /Type /Annot /Subtype /PrinterMark /MN /ColorBar /Rect [0 0 10 10] /AP << /N %d 0 R >> >>", ap))
+	}
+	objs[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids.String(), pages)
+	d, err := OpenStream(bytes.NewReader(hardeningPDF(objs...)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := d.Pages()
+	var wg sync.WaitGroup
+	for _, p := range ps {
+		wg.Add(1)
+		go func(p *Page) {
+			defer wg.Done()
+			if a, ok := p.Annotations().At(0).(*ColorBarAnnotation); !ok || a.ColorOfCMYK() != ColorsOfCMYKBlack {
+				t.Errorf("page %d: ink read as %+v", p.Number(), p.Annotations().At(0))
+			}
+		}(p)
+	}
+	wg.Wait()
 }
