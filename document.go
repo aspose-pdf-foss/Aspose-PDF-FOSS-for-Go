@@ -57,6 +57,8 @@ type Document struct {
 	// numbers given to each source's objects, so a page imported again, or
 	// another page of the same source, reuses what is already here.
 	importedPages map[pageImportKey]importedPage
+	// colorBarInks caches the ink read from a colour bar's appearance.
+	colorBarInks map[colorBarInkKey]ColorsOfCMYK
 	importMaps    map[*Document]map[int]int
 	catalog       pdfDict                // /Catalog dict
 	info          pdfDict                // /Info dict; nil = no metadata

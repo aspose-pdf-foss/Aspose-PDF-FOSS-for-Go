@@ -230,6 +230,9 @@ type textExtractor struct {
 
 	// Marked content stack for ActualText support (BDC/BMC/EMC).
 	mcStack []markedContentEntry
+	// actualTexts counts the entries of mcStack with /ActualText, so a
+	// glyph need not search the stack (GHSA-rfwg-hxcj-7pp5 point 8).
+	actualTexts int
 
 	// Output: collected text fragments.
 	fragments []textFragment
@@ -294,12 +297,7 @@ func identityMatrix() [6]float64 {
 // insideActualText returns true if the extractor is currently inside a
 // marked content sequence that carries /ActualText (glyph emission suppressed).
 func (e *textExtractor) insideActualText() bool {
-	for i := len(e.mcStack) - 1; i >= 0; i-- {
-		if e.mcStack[i].actualText != nil {
-			return true
-		}
-	}
-	return false
+	return e.actualTexts > 0
 }
 
 func (e *textExtractor) text() string {
@@ -528,11 +526,17 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				entry.actualText = e.resolveActualText(op.Operands[1], resources)
 			}
 			e.mcStack = append(e.mcStack, entry)
+			if entry.actualText != nil {
+				e.actualTexts++
+			}
 
 		case "EMC":
 			if len(e.mcStack) > 0 {
 				top := e.mcStack[len(e.mcStack)-1]
 				e.mcStack = e.mcStack[:len(e.mcStack)-1]
+				if top.actualText != nil {
+					e.actualTexts--
+				}
 				if top.actualText != nil {
 					e.emitCluster(*top.actualText)
 				}
