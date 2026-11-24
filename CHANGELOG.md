@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Crafted files no longer crash, hang or exhaust memory in `Open`, and a few later operations no longer slow down on them** ([GHSA-rfwg-hxcj-7pp5](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/security/advisories/GHSA-rfwg-hxcj-7pp5)). Before this fix:
+  - Arrays and dictionaries nested tens of thousands deep overflowed the stack. Nesting is now limited to 512 levels.
+  - An object stream holding itself recursed without end.
+  - Many members of one object stream were found one by one, in quadratic time.
+  - A rebuilt cross-reference table with a huge object number allocated by that number.
+  - A `/W` width range or a CMap range spanning billions of codes was expanded entry by entry.
+  - A Flate or LZW stream that inflates to gigabytes was inflated whole. Decoding now stops at 1 GiB, and a stream over 64 MB is decoded only when used.
+  - Unchecked `/Length`, `/W` field sizes, PNG predictor parameters and Type1 segment lengths could panic.
+
+  After opening, `ConvertToPDFA` parsed a form once for every resource context drawing it. The PDF/A glyph check, text extraction and redaction walked the whole marked-content stack at every glyph, which unbalanced `BMC`s made quadratic, and colour bars sharing one appearance read it once each. Reported by shadowhunter1470-svg.
+- **Text operations on crafted input no longer crash the process, hang or leave removed text in the file** ([GHSA-gc9q-3vx8-phx2](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/security/advisories/GHSA-gc9q-3vx8-phx2)). Before this fix:
+  - `ExtractText` with a `Rectangle` or `LimitToPageBounds` copied a used `strings.Builder` into each clipped fragment. Under garbage collection that could crash with "found bad pointer in Go heap".
+  - `MarkupParagraph.SetText` shrank a paragraph in quarter-point steps from a font size taken from the file, so a stated size of 1e7 took 26 s. It now tries at most 256 sizes, so paragraphs up to 128pt are set as before.
+  - `TextParagraphAbsorber.Visit` without rectangles extracted the page once per paragraph.
+  - Breaking a long word with `WrapByWordsBreakLong` remeasured every prefix, so zero-width characters made it quadratic. A word of many hyphens in `AddText` was quadratic too.
+  - `RemoveAllText` scrubbed `/ActualText` only from the copy written into the content stream, so a property list named from `/Resources /Properties` kept the removed text in the saved file.
+
+  Reported by shadowhunter1470-svg.
 - **`PdfPageStamp` imports its page once per document** ([#26](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues/26), point 1). Each page stamped got its own copy of the source page and everything it uses, fonts and images included: a letterhead on 100 pages made a 45 MB file with 100 copies of its font. The page is now imported once and every page draws the same form. Reported by shadowhunter1470-svg.
 - **Reading an opened document from several goroutines is safe** ([#26](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues/26), point 2). `Document.Page` filled its cache of page views without a lock, so stamping from one shared source in several goroutines was a data race. Changing a document from several goroutines is still not supported.
 - **Imported pages and rewritten content give the same file every run** ([#26](https://github.com/aspose-pdf-foss/aspose-pdf-foss-for-go/issues/26), point 3). Objects copied from another document (`PdfPageStamp`, `NUp`, `Booklet`, `ImportForm`) were numbered in Go's random map order, and inline dictionaries in rewritten content (`RemoveAllText`, redaction, `ReplaceText`, …) were written in that order too, so the same calls produced different bytes.
