@@ -360,10 +360,15 @@ func bidiVisualBaseLevel(runes []rune) int {
 // reordered exactly as bidiVisualString does. Mirrored brackets flip back for
 // the same reason.
 func bidiVisualToLogical(runes []rune) ([]rune, []int) {
+	return bidiVisualToLogicalBase(runes, bidiVisualBaseLevel(runes))
+}
+
+// bidiVisualToLogicalBase is bidiVisualToLogical with the base level given.
+func bidiVisualToLogicalBase(runes []rune, base int) ([]rune, []int) {
 	if len(runes) == 0 {
 		return runes, nil
 	}
-	levels := bidiResolve(runes, bidiVisualBaseLevel(runes))
+	levels := bidiResolve(runes, base)
 	order := bidiReorderIndices(levels)
 	out := make([]rune, len(runes))
 	for i, idx := range order {
@@ -374,6 +379,96 @@ func bidiVisualToLogical(runes []rune) ([]rune, []int) {
 		out[i] = r
 	}
 	return out, order
+}
+
+// bidiSegmentGapEm is the gap between two fragments of a line, in ems of the
+// larger, from which the two sides are separate paragraphs for the
+// visual-to-logical reordering: the cells of a table row or the columns of
+// a page that extraction joins on one baseline. Read as one paragraph, the
+// text of one cell takes the direction the row's majority gives it, and its
+// neutrals bind to the next cell's letters (a placeholder "&NAME_AR&" in an
+// Arabic cell lost its "&" to the English cell beside it).
+const bidiSegmentGapEm = 3.0
+
+// bidiVisualToLogicalSegments is bidiVisualToLogical for a line cut into
+// segments at the visual rune indexes cuts (where a segment starts): each
+// segment is reordered on its own base direction (the line's when its strong
+// characters are even), and the segments follow
+// one another in the line's base direction (right to left: the rightmost
+// first). A single space before a cut separates the segments and stays
+// between them. order maps each logical position to its visual index.
+func bidiVisualToLogicalSegments(runes []rune, cuts []int) ([]rune, []int) {
+	if len(cuts) == 0 {
+		return bidiVisualToLogical(runes)
+	}
+	type seg struct{ a, b, sep int } // runes [a, b), separator index or -1
+	var segs []seg
+	start := 0
+	for _, c := range append(append([]int(nil), cuts...), len(runes)) {
+		if c <= start || c > len(runes) {
+			continue
+		}
+		s := seg{a: start, b: c, sep: -1}
+		if c < len(runes) && c-1 > start && runes[c-1] == ' ' {
+			s.b, s.sep = c-1, c-1
+		}
+		segs = append(segs, s)
+		start = c
+	}
+	base := bidiVisualBaseLevel(runes)
+	if base == 1 {
+		for i, j := 0, len(segs)-1; i < j; i, j = i+1, j-1 {
+			segs[i], segs[j] = segs[j], segs[i]
+		}
+		// The separator before a cut now comes after its segment's
+		// right-hand neighbour: move each to the segment it follows.
+		seps := make([]int, len(segs))
+		for i := range segs {
+			seps[i] = -1
+			if i+1 < len(segs) {
+				seps[i] = segs[i+1].sep
+			}
+		}
+		for i := range segs {
+			segs[i].sep = seps[i]
+		}
+	}
+	out := make([]rune, 0, len(runes))
+	order := make([]int, 0, len(runes))
+	for _, s := range segs {
+		logical, local := bidiVisualToLogicalBase(runes[s.a:s.b], bidiSegmentBase(runes[s.a:s.b], base))
+		out = append(out, logical...)
+		for _, v := range local {
+			order = append(order, s.a+v)
+		}
+		if s.sep >= 0 {
+			out = append(out, ' ')
+			order = append(order, s.sep)
+		}
+	}
+	return out, order
+}
+
+// bidiSegmentBase is the base level of one segment of a line whose base is
+// lineBase: its majority of strong characters, the line's when there is no
+// majority (a cell of numbers, a word and its gloss in equal parts).
+func bidiSegmentBase(runes []rune, lineBase int) int {
+	var nr, nl int
+	for _, r := range runes {
+		switch bidiClass(r) {
+		case clsR, clsAL:
+			nr++
+		case clsL:
+			nl++
+		}
+	}
+	switch {
+	case nr > nl:
+		return 1
+	case nl > nr:
+		return 0
+	}
+	return lineBase
 }
 
 // bidiMirror returns the mirror image of a paired punctuation character (for

@@ -286,6 +286,8 @@ func lineFromOrdered(frags []textFragment) TextLine {
 
 	var buf strings.Builder
 	lastEmitted := -1
+	runes := 0     // runes written to buf
+	var cuts []int // where a new bidi paragraph starts (bidiSegmentGapEm)
 	for i, f := range frags {
 		text := f.text.String()
 		if text == "" {
@@ -316,10 +318,15 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			// justified line drawn word by word does, read "The  quick".
 			if gap > spaceThreshold && !edgeSpace(frags[lastEmitted].text.String(), text) {
 				buf.WriteByte(' ')
+				runes++
+			}
+			if gap > bidiSegmentGapEm*math.Max(f.fontSize, frags[lastEmitted].fontSize) {
+				cuts = append(cuts, runes)
 			}
 		}
 
 		buf.WriteString(text)
+		runes += utf8.RuneCountInString(text)
 		lastEmitted = i
 		tf := TextFragment{
 			Text:        text,
@@ -363,7 +370,7 @@ func lineFromOrdered(frags []textFragment) TextLine {
 	// reads backwards for right-to-left scripts; put the line back into the
 	// order its characters were typed.
 	if bidiHasStrongRTL(line.Text) {
-		logical, _ := bidiVisualToLogical([]rune(line.Text))
+		logical, _ := bidiVisualToLogicalSegments([]rune(line.Text), cuts)
 		line.Text = string(logical)
 	}
 	return line
