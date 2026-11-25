@@ -103,6 +103,9 @@ type fragmentBinding struct {
 	// left (its base direction, which may differ from the fragment's own
 	// text: a Latin placeholder in an Arabic line).
 	rtlLine bool
+	// colLo, colHi are the edges of the ruled table cell a found fragment
+	// is in (0 = none on that side): ShiftRestOfLine stops there.
+	colLo, colHi float64
 }
 
 // ownedPiece is what a drawn segment drew besides its glyphs: its background

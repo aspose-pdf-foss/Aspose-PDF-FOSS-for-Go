@@ -200,9 +200,10 @@ func (a *TextFragmentAbsorber) visit(pages []*Page) error {
 		}
 	}
 	fills := map[int][]shadedRect{}
+	cols := map[int]columnRules{}
 	var found []*TextFragment
 	for _, sm := range matches {
-		f := a.build(sm, byNum, fills)
+		f := a.build(sm, byNum, fills, cols)
 		if f == nil {
 			continue
 		}
@@ -255,7 +256,7 @@ type runGroup struct {
 	text  []rune
 }
 
-func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills map[int][]shadedRect) *TextFragment {
+func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills map[int][]shadedRect, cols map[int]columnRules) *TextFragment {
 	if len(sm.spans) == 0 {
 		return nil
 	}
@@ -396,6 +397,21 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true, noChar: a.TextEditOptions.NoCharacterAction}
 	f.ReplaceOptions = a.TextReplaceOptions
 	f.bind.rtlLine = bidiBaseLevel(sm.spans[0].line.Text, false) == 1
+	// The cell of a ruled table the fragment is in bounds its line
+	// (pdf-go-p5m0).
+	first := sm.spans[0]
+	c, ok := cols[first.page]
+	if !ok {
+		c = pageColumnRules(byNum[first.page])
+		cols[first.page] = c
+	}
+	if len(c) > 0 {
+		b := f.bind
+		b.colLo, b.colHi = c.cell(firstLine.LLX, f.Position.YIndent)
+		if rtl, ok := cellRTL(first.line, b.colLo, b.colHi); ok {
+			b.rtlLine = rtl
+		}
+	}
 	f.bind.snap = snapshotOf(f)
 	return f
 }
