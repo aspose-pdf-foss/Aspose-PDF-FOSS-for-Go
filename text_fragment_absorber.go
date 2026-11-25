@@ -40,6 +40,11 @@ type TextFragmentAbsorber struct {
 	// the new text. Set it before Visit. Mirrors Aspose.PDF for .NET's
 	// TextFragmentAbsorber.TextEditOptions.
 	TextEditOptions TextEditOptions
+	// TextReplaceOptions are given to every fragment the next Visit finds
+	// as its ReplaceOptions (how a change of its Text is fitted in). Set it
+	// before Visit. Mirrors Aspose.PDF for .NET's
+	// TextFragmentAbsorber.TextReplaceOptions.
+	TextReplaceOptions ReplaceOptions
 
 	phrase string
 	opts   SearchOptions
@@ -389,6 +394,8 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 		}
 	}
 	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true, noChar: a.TextEditOptions.NoCharacterAction}
+	f.ReplaceOptions = a.TextReplaceOptions
+	f.bind.rtlLine = bidiBaseLevel(sm.spans[0].line.Text, false) == 1
 	f.bind.snap = snapshotOf(f)
 	return f
 }

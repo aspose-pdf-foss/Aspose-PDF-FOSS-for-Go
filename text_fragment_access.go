@@ -71,6 +71,10 @@ func (f *TextFragment) CloneWithSegments() *TextFragment {
 	c.bind = nil
 	c.TextState = copyState(f.TextState)
 	c.Hyperlink = cloneHyperlink(f.Hyperlink)
+	if r := f.ReplaceOptions.Rectangle; r != nil {
+		rc := *r
+		c.ReplaceOptions.Rectangle = &rc
+	}
 	c.runeX = append([]float64(nil), f.runeX...)
 	c.runeColor = append([]Color(nil), f.runeColor...)
 	c.runeRun = append([]textRunState(nil), f.runeRun...)

@@ -66,6 +66,15 @@ type TextFragment struct {
 	// Hyperlink, when set, links every segment that has none of its own.
 	// Mirrors Aspose.PDF for .NET's TextFragment.Hyperlink.
 	Hyperlink Hyperlink
+	// ReplaceOptions say how a change of Text is fitted in: Adjustment
+	// ReplaceAdjustmentShiftRestOfLine moves the rest of the line by the
+	// change in width; the paragraph adjustments, Rectangle and
+	// FontSizeAdjustment lay the new text out as ReplaceText would (the
+	// fragment cannot be edited again after that). CaseInsensitive, Regex
+	// and Font do not apply. A fragment TextFragmentAbsorber finds starts
+	// with its TextReplaceOptions. Mirrors Aspose.PDF for .NET's
+	// TextFragment.ReplaceOptions.
+	ReplaceOptions ReplaceOptions
 	bind      *fragmentBinding
 }
 
