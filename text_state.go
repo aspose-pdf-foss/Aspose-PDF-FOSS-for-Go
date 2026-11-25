@@ -116,7 +116,7 @@ func (s *TextState) ApplyChangesFrom(o TextState) {
 // style maps the state to a TextStyle.
 func (s TextState) style() TextStyle {
 	st := TextStyle{
-		Font:          styledFont(s.Font, s.FontStyle),
+		Font:          styledFont(drawableFont(s.Font, s.FontStyle), s.FontStyle),
 		Size:          s.FontSize,
 		Color:         s.ForegroundColor,
 		Background:    s.BackgroundColor,
@@ -156,6 +156,16 @@ func (s TextState) style() TextStyle {
 }
 
 // styledFont selects the bold/italic Standard-14 face for a Standard-14 font.
+// drawableFont is f, except that a font found on a page, carried by a
+// fragment copied off it (CloneWithSegments) or set from one, is drawn in the
+// closest Standard-14 face of its family and style, as an edit would be.
+func drawableFont(f Font, fs FontStyle) Font {
+	if df, ok := f.(documentFont); ok {
+		return standard14ForFragment(df.name, fs&FontStyleBold != 0, fs&FontStyleItalic != 0)
+	}
+	return f
+}
+
 func styledFont(f Font, fs FontStyle) Font {
 	if f == nil || fs == FontStyleRegular || f.IsEmbedded() {
 		return f

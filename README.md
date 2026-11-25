@@ -233,9 +233,12 @@ flowchart TD
 - **Text object model** — the Aspose.PDF for .NET way to write and edit text: `TextBuilder.AppendText`
   draws a `TextFragment` of styled `TextSegment`s (`TextState`: font, size, colours, spacing,
   scaling, hyperlinks, backgrounds), `AppendParagraph` wraps, aligns and justifies a `TextParagraph`,
-  and `TextFragmentAbsorber` finds text as editable fragments — set `Text`, `Position` or
-  `TextState` and the page changes when the document is saved (or at once with `ApplyTextChanges`;
+  and `TextFragmentAbsorber` finds text as editable fragments — set `Text`, `Position`,
+  `TextState` or a `Hyperlink` (`WebHyperlink`, `LocalHyperlink` to a page), or `Remove` a
+  fragment, and the page changes when the document is saved (or at once with `ApplyTextChanges`;
   a later search, and any operation that rewrites page content, applies it first).
+  `TextEditOptions.NoCharacterAction` chooses what happens when the page's font lacks a character
+  of the new text; `Page`, `Rectangle`, `BaselinePosition` and `CloneWithSegments` mirror .NET's.
 - **Incremental save** — `SaveIncremental`/`WriteIncremental` keep the opened file's bytes and
   append only what changed as a new revision, so existing signatures stay valid.
 - **Text extraction, fonts, and optimization** — extract text in visual or raw reading order
@@ -581,6 +584,7 @@ stays free of network code.
 | `HeadingRecognitionStrategy` | HeadingRecognitionStrategy selects how AutoTag finds headings. |
 | `HighlightAnnotation` | HighlightAnnotation marks a region with semi-transparent highlight color. |
 | `HorizontalAlignment` | HorizontalAlignment is how a TextParagraph's lines sit in its rectangle. |
+| `Hyperlink` | Hyperlink is where a text segment or fragment links to: a *WebHyperlink (a URI) or a *LocalHyperlink (a page of the same document). |
 | `Image` | Image holds an extracted image with its encoded data and metadata. |
 | `ImageColorSpace` | ImageColorSpace describes the original color space of the image in the PDF. |
 | `ImageDescriptionCopilot` | ImageDescriptionCopilot describes images with a vision model. |
@@ -609,6 +613,7 @@ stays free of network code.
 | `LinkAnnotation` | LinkAnnotation is a clickable region. |
 | `LinkHighlightMode` | LinkHighlightMode controls the visual feedback when the link is activated by the user (the /H entry per ISO 32000-1 §12.5.6.5). |
 | `ListBoxField` | ListBoxField is a single- or multi-select list choice field. |
+| `LocalHyperlink` | LocalHyperlink links to a page of the same document. |
 | `MarginInfo` | MarginInfo describes margins or padding in points: Top / Right / Bottom / Left. |
 | `MarkdownOptions` | MarkdownOptions configures Markdown rendering. |
 | `MarkdownSaveOptions` | MarkdownSaveOptions configures SaveMarkdown / WriteMarkdown. |
@@ -622,6 +627,7 @@ stays free of network code.
 | `NamedActionType` | NamedActionType identifies one of the standard viewer commands supported by /Named actions per ISO 32000-1 §12.6.4.11. |
 | `NamedDestination` | NamedDestination wraps a name reference into the document's NamedDestinations collection. |
 | `NamedDestinations` | NamedDestinations is a name-to-destination map per ISO 32000-1 §12.3.2.3. |
+| `NoCharacterAction` | NoCharacterAction is what editing found text does when the font it is drawn in has no glyph for a character of the new text. |
 | `NumberField` | NumberField is a text field with a JavaScript number-format action, so viewers display and validate the value as a formatted number. |
 | `NumberFormatOptions` | NumberFormatOptions configures a NumberField's display formatting (maps to Acrobat's AFNumber_Format). |
 | `OCRBox` | OCRBox is a rectangle in image pixel space: origin at the top-left corner, Y increasing downward (the usual raster convention — distinct from PDF user space on purpose). |
@@ -714,6 +720,7 @@ stays free of network code.
 | `TextAnnotation` | TextAnnotation is a sticky-note annotation. |
 | `TextBoxField` | TextBoxField is a single- or multi-line text input. |
 | `TextBuilder` | TextBuilder appends text fragments and paragraphs to a page. |
+| `TextEditOptions` | TextEditOptions are the options of an edit of found text. |
 | `TextExtractOptions` | TextExtractOptions configures ExtractText. |
 | `TextExtractionMode` | TextExtractionMode selects how ExtractText orders the extracted text. |
 | `TextFormattingOptions` | TextFormattingOptions holds how a TextParagraph lays out its text. |
@@ -740,6 +747,7 @@ stays free of network code.
 | `ValidationIssue` | ValidationIssue describes a single problem found in a PDF file. |
 | `ValidationOptions` | ValidationOptions configures signature verification. |
 | `ValidationReport` | ValidationReport is returned by Validate and summarises the structural integrity of a PDF. |
+| `WebHyperlink` | WebHyperlink links to a URI. |
 | `WidgetAnnotation` | WidgetAnnotation is the read-only view of a form widget annotation surfaced through AnnotationCollection. |
 | `WordWrapMode` | WordWrapMode says how a TextParagraph breaks its lines. |
 | `XForm` | XForm is a reusable Form XObject (ISO 32000-1 §8.10) — an independent content stream (with its own resources) that can be placed on any number of pages and positions with a single Do invocation. Create one with `Document.CreateForm(w, h)` and draw into it via `Canvas()`, place it with `Page.AddForm(form, rect)`, list a page's existing forms with `Page.Forms()`, or copy one (with its whole resource graph) from another document with `Document.ImportForm`. `Document.ImportPage(src, n)` imports a page of another document (or of this one) as a form once, sized as the page is shown, so a letterhead or cover can be placed on every page without copying it again. |

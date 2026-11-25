@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`TextSegment.Hyperlink` is a `Hyperlink`, not a string** (breaking, `pdf-go-xe2v`). Mirroring Aspose.PDF for .NET, a link is a `*WebHyperlink` (a URI) or a `*LocalHyperlink` (a page of the same document, drawn as a GoTo link to the page's top). Replace `s.Hyperlink = "https://…"` with `s.Hyperlink = asposepdf.NewWebHyperlink("https://…")`.
+
+### Added
+
+- **Links to a page and on a whole fragment** (`pdf-go-xe2v`). `NewLocalHyperlink(n)` links text to page n; `TextFragment.Hyperlink` links every segment that has no link of its own, on drawn and on found text alike.
+- **`TextFragment.Page`, `Rectangle`, `BaselinePosition` and `CloneWithSegments`** (`pdf-go-29ba`), mirroring Aspose.PDF for .NET: the page a fragment was found or drawn on (followed through page reordering), its text box, the start of its baseline, and a copy of it and its segments that is on no page and can be drawn anew.
+- **`TextFragmentAbsorber.Remove`** (`pdf-go-xiru`), the counterpart of .NET's `TextFragmentCollection.Remove`: it takes a found fragment out of the results and deletes its text when the document is saved.
+- **`TextFragmentAbsorber.TextEditOptions`** (`pdf-go-1di0`), mirroring .NET's `TextEditOptions.NoCharacterAction`: when the page's font lacks a character of the new text, `NoCharacterActionFontReplace` (the default) draws in a font that has it, as before; `NoCharacterActionThrowException` keeps the page's font and makes applying the edits return an error naming the character; `NoCharacterActionReplaceAnyway` keeps the page's font and leaves the missing characters out.
+
 ### Fixed
 
 - **`RemoveAllText` no longer leaves text reachable through resources nothing draws** (`pdf-go-silc`, found in the review of GHSA-gc9q-3vx8-phx2). A form listed in a page's resources but not drawn there kept its text in the saved file: through another page sharing the dictionary, through a form's own resources, or because no page drew it at all; a `/Properties` list with `/ActualText` that no marked content named stayed the same way. Everything a page's or form's resources list is now cleared, drawn or not.

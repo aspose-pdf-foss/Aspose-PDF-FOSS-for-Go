@@ -468,7 +468,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		}
 		switch {
 		case textChanged && len(f.Segments) > 0:
-			tmp.Segments = []*TextSegment{{Text: f.Text, TextState: segState(f.Segments[0]), Hyperlink: f.Segments[0].Hyperlink}}
+			tmp.Segments = []*TextSegment{{Text: f.Text, TextState: segState(f.Segments[0]), Hyperlink: f.linkOf(f.Segments[0])}}
 		case textChanged || len(f.Segments) == 0:
 			if found {
 				// No segments left (an emptied fragment): the fragment's
@@ -479,7 +479,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			}
 		default:
 			for i, s := range f.Segments {
-				ts := &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}
+				ts := &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: f.linkOf(s)}
 				if found && f.Position == snap.position && i < len(snap.segments) {
 					ts.glyphX = keptGlyphs(s, ts.TextState, snap.segments[i])
 				}
@@ -502,7 +502,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			tmp.Position = place[0]
 		}
 		pl.place = place
-		if err := d.prepareDrawing(tmp, found, fonts, &snap); err != nil {
+		if err := d.prepareDrawing(tmp, found, fonts, &snap, b.noChar); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
 		if found && tmp.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
@@ -526,14 +526,14 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			pl.removed = append(pl.removed, b.owned[i])
 		}
 		one := &TextFragment{Position: pos,
-			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}}}
+			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: f.linkOf(s)}}}
 		if found && s.Position == snap.segments[i].pos {
 			one.Segments[0].glyphX = keptGlyphs(s, one.Segments[0].TextState, snap.segments[i])
 		}
 		if !found {
 			one.TextState = copyState(f.TextState)
 		}
-		if err := d.prepareDrawing(one, found, fonts, &snap); err != nil {
+		if err := d.prepareDrawing(one, found, fonts, &snap, b.noChar); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
 		pl.segs = append(pl.segs, i)
@@ -590,9 +590,9 @@ func keepRightEdge(tmp *TextFragment, drawn []QuadPoint, snap fragmentSnapshot) 
 // prepareDrawing resolves the fonts tmp's segments are drawn in. Fonts found
 // on the page (documentFont) are not drawable as they are; drawingFont picks
 // one.
-func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceFonts, snap *fragmentSnapshot) error {
+func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceFonts, snap *fragmentSnapshot, noChar NoCharacterAction) error {
 	if len(tmp.Segments) == 0 {
-		f, err := d.drawingFont(tmp.TextState, tmp.Text, fonts, snap)
+		f, err := d.drawingFont(tmp.TextState, tmp.Text, fonts, snap, noChar)
 		if err != nil {
 			return err
 		}
@@ -600,7 +600,7 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 		return nil
 	}
 	if !found {
-		f, err := d.drawingFont(tmp.TextState, "", fonts, snap)
+		f, err := d.drawingFont(tmp.TextState, "", fonts, snap, noChar)
 		if err != nil {
 			return err
 		}
@@ -611,7 +611,7 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 		if !found {
 			st = st.inherit(tmp.TextState)
 		}
-		f, err := d.drawingFont(st, s.Text, fonts, snap)
+		f, err := d.drawingFont(st, s.Text, fonts, snap, noChar)
 		if err != nil {
 			return err
 		}
@@ -629,8 +629,10 @@ func (d *Document) prepareDrawing(tmp *TextFragment, found bool, fonts *replaceF
 // family by name when the face lacks a character of text (as ReplaceText
 // chooses); any other font is used as it is. snap is the fragment as it was
 // found (the characters it showed in each font). The single place the
-// drawing font of an edit is chosen.
-func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts, snap *fragmentSnapshot) (Font, error) {
+// drawing font of an edit is chosen. noChar other than FontReplace keeps the
+// page's font: ThrowException refuses text it cannot show, ReplaceAnyway
+// draws it without the characters it has no code for.
+func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts, snap *fragmentSnapshot, noChar NoCharacterAction) (Font, error) {
 	var df documentFont
 	switch f := st.Font.(type) {
 	case documentFont:
@@ -642,10 +644,25 @@ func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts, s
 	}
 	// The font the text is drawn in on the page, when it shows the text
 	// and the style can be had from it.
-	if pf := fonts.pageFont(d, df, snap); pf != nil {
+	pf := fonts.pageFont(d, df, snap)
+	if pf != nil {
 		if _, _, ok := pf.emulatedStyle(st.FontStyle); ok && pf.covers(text) {
 			return pf, nil
 		}
+	}
+	switch noChar {
+	case NoCharacterActionReplaceAnyway:
+		if pf != nil {
+			return pf, nil
+		}
+	case NoCharacterActionThrowException:
+		if pf == nil {
+			return nil, fmt.Errorf("the text cannot be drawn in the font it was found in (%s), and the edit options forbid replacing it", df.name)
+		}
+		if _, _, ok := pf.emulatedStyle(st.FontStyle); !ok {
+			return nil, fmt.Errorf("font %s cannot show the style asked for, and the edit options forbid replacing it", df.name)
+		}
+		return nil, fmt.Errorf("font %s has no glyph for %q, and the edit options forbid replacing it", df.name, pf.missing(text))
 	}
 	bold, italic := st.FontStyle&FontStyleBold != 0, st.FontStyle&FontStyleItalic != 0
 	m := replaceMatch{font: standard14ForFragment(df.name, bold, italic), fontName: df.name, bold: bold, italic: italic}
