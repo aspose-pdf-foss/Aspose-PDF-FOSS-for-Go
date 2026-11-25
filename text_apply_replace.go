@@ -77,10 +77,14 @@ func (pl *textEditPlan) lineShift() (lineShift, bool, error) {
 	}
 	_, st := pl.newText()
 	tol := 0.3 * math.Abs(st.FontSize)
-	if pl.rtl() {
-		return lineShift{y: y, tol: tol, fromX: left, dx: (right - left) - newW, rtl: true}, true, nil
+	var lo, hi float64
+	if b := pl.f.bind; b != nil && b.found {
+		lo, hi = b.colLo, b.colHi
 	}
-	return lineShift{y: y, tol: tol, fromX: right, dx: newW - (right - x)}, true, nil
+	if pl.rtl() {
+		return lineShift{y: y, tol: tol, fromX: left, dx: (right - left) - newW, rtl: true}.bound(lo, hi), true, nil
+	}
+	return lineShift{y: y, tol: tol, fromX: right, dx: newW - (right - x)}.bound(lo, hi), true, nil
 }
 
 // applyLineShifts moves the rest of each line a plan on the page shifts
@@ -135,8 +139,14 @@ func applyLineShifts(p *Page, data []byte, pls []*textEditPlan) ([]byte, []QuadP
 	var bands []QuadPoint
 	for _, s := range shifts {
 		r := Rectangle{LLX: s.fromX, LLY: s.y - s.tol*4, URX: page.URX, URY: s.y + s.tol*4}
+		if s.toX != 0 {
+			r.URX = s.toX
+		}
 		if s.rtl {
 			r.LLX, r.URX = page.LLX, s.fromX
+			if s.loX != 0 {
+				r.LLX = s.loX
+			}
 		}
 		bands = append(bands, rectAsQuadPoint(r))
 	}

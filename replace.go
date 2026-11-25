@@ -264,6 +264,12 @@ type replaceMatch struct {
 	bold, italic bool
 	rtl          bool // the line reads right to left: what follows lies left
 
+	// line is the line the match starts on; colLo, colHi the edges of the
+	// table cell it is in (0 = none on that side), which bound
+	// ShiftRestOfLine and the line's direction (pdf-go-p5m0).
+	line         *TextLine
+	colLo, colHi float64
+
 	// more holds the boxes of a match's later lines (a regular expression
 	// matching across a line break, pdf-go-1kcx): their text is removed,
 	// the replacement goes on the first line.
@@ -352,6 +358,17 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	if len(matches) == 0 {
 		return 0, nil
 	}
+	// A line runs across a ruled table's columns: its cell gives the
+	// direction and the reach of a shift.
+	if cols := pageColumnRules(p); len(cols) > 0 {
+		for i := range matches {
+			m := &matches[i]
+			m.colLo, m.colHi = cols.cell(m.rect.LLX, m.y)
+			if rtl, ok := cellRTL(m.line, m.colLo, m.colHi); ok {
+				m.rtl = rtl
+			}
+		}
+	}
 	// Choose every replacement's font before anything changes, so a
 	// replacement no font can show leaves the page as it was.
 	if replacement != "" {
@@ -394,10 +411,10 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 			if m.rtl {
 				// The rest of a right-to-left line lies left of the match,
 				// which keeps its right edge (pdf-go-59bb).
-				shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.LLX, dx: (m.rect.URX - m.rect.LLX) - newW, rtl: true})
+				shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.LLX, dx: (m.rect.URX - m.rect.LLX) - newW, rtl: true}.bound(m.colLo, m.colHi))
 				continue
 			}
-			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)})
+			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)}.bound(m.colLo, m.colHi))
 		}
 		for i := range matches {
 			matches[i].x += lineShiftAt(shifts, matches[i].x, matches[i].y)
@@ -555,6 +572,7 @@ func replaceMatchAt(line *TextLine, m lineRuneMap, r0, r1 int, rtlLine bool) (re
 		bold:     f.Bold,
 		italic:   f.Italic,
 		rtl:      rtlLine,
+		line:     line,
 	}, true
 }
 
@@ -608,6 +626,7 @@ type lineShift struct {
 	y, tol, fromX, dx float64
 	rtl               bool    // moves what lies left of fromX instead of right
 	toX               float64 // when non-zero, glyphs right of it are not moved
+	loX               float64 // when non-zero, glyphs left of it are not moved
 }
 
 // lineShiftAt is the total shift for a glyph at (x, y).
@@ -617,7 +636,7 @@ func lineShiftAt(shifts []lineShift, x, y float64) float64 {
 		if math.Abs(y-s.y) > s.tol {
 			continue
 		}
-		if s.toX != 0 && x > s.toX {
+		if (s.toX != 0 && x > s.toX) || (s.loX != 0 && x < s.loX) {
 			continue
 		}
 		if (!s.rtl && x >= s.fromX-0.01) || (s.rtl && x <= s.fromX+0.01) {
