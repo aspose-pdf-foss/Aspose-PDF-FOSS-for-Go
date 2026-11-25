@@ -99,6 +99,10 @@ type fragmentBinding struct {
 	// noChar is what an edit does when the page's font lacks a character
 	// of the new text (TextFragmentAbsorber.TextEditOptions).
 	noChar NoCharacterAction
+	// rtlLine reports that the line a found fragment is on reads right to
+	// left (its base direction, which may differ from the fragment's own
+	// text: a Latin placeholder in an Arabic line).
+	rtlLine bool
 }
 
 // ownedPiece is what a drawn segment drew besides its glyphs: its background

@@ -142,6 +142,7 @@ func (d *Document) ApplyTextChanges() error {
 		}
 	}
 
+	shiftedOn := map[int][]QuadPoint{}
 	tx := d.beginTextEdit(order)
 	// A rollback also takes out what planning loaded (a fallback font).
 	tx.nextID, tx.fonts = planNext, planFonts
@@ -168,6 +169,11 @@ func (d *Document) ApplyTextChanges() error {
 		data, err := stripTextInRegions(p, pageRegions[idx])
 		if err == nil {
 			data, err = removeTextBackgrounds(data, bgs)
+		}
+		if err == nil {
+			var bands []QuadPoint
+			data, bands, err = applyLineShifts(p, data, byPage[idx])
+			shiftedOn[idx] = bands
 		}
 		if err == nil {
 			err = replacePageContents(p, data)
@@ -198,7 +204,7 @@ func (d *Document) ApplyTextChanges() error {
 	}
 	strippedOn := map[*pdfObject][]QuadPoint{}
 	for _, idx := range order {
-		touched := append([]QuadPoint(nil), pageRegions[idx]...)
+		touched := append(append([]QuadPoint(nil), pageRegions[idx]...), shiftedOn[idx]...)
 		for _, pl := range byPage[idx] {
 			touched = append(touched, pl.drawnWhole...)
 			for _, q := range pl.drawnSeg {
@@ -367,6 +373,12 @@ type textEditPlan struct {
 	// boxes, links), removed with it; p is the page drawn on.
 	removed []ownedPiece
 	p       *Page
+
+	// adj and lay are the fragment's ReplaceOptions for a text change
+	// (text_apply_replace.go); snap is the fragment as bound.
+	adj  ReplaceAdjustment
+	lay  *replaceLayout
+	snap fragmentSnapshot
 }
 
 func (pl *textEditPlan) errorf(format string, args ...any) error {
@@ -457,6 +469,14 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 	}
 
 	owned := len(b.owned) == len(b.drawn)
+	pl.snap = snap
+	if pl.whole && textChanged {
+		adj, lay, err := replaceAdjustment([]ReplaceOptions{f.ReplaceOptions})
+		if err != nil {
+			return nil, pl.errorf("%w", err)
+		}
+		pl.adj, pl.lay = adj, lay
+	}
 	if pl.whole {
 		pl.regions = append(pl.regions, b.drawn...)
 		if owned {
@@ -507,7 +527,12 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		if err := d.prepareDrawing(tmp, found, fonts, &snap, b.noChar); err != nil {
 			return nil, pl.errorf("%w", err)
 		}
-		if found && tmp.Position == snap.position && bidiBaseLevel(snap.text, false) == 1 {
+		// The line's own direction counts only when ReplaceOptions fit the
+		// new text in (as ReplaceText does); a plain edit keeps the rule it
+		// had: its old text's direction.
+		rtlEdge := bidiBaseLevel(snap.text, false) == 1 ||
+			((pl.adj != ReplaceAdjustmentNone || pl.lay != nil) && (pl.rtl() || bidiBaseLevel(f.Text, false) == 1))
+		if found && tmp.Position == snap.position && rtlEdge {
 			// Right-to-left text keeps its right edge on its line.
 			if err := keepRightEdge(tmp, b.drawn, snap); err != nil {
 				return nil, pl.errorf("%w", err)
@@ -727,6 +752,9 @@ func (pl *textEditPlan) draw(p *Page) error {
 		if pl.tmp.Text == "" && len(pl.tmp.Segments) == 0 {
 			return nil
 		}
+		if pl.lay != nil {
+			return pl.drawParagraph(p)
+		}
 		drawn, owned, err := drawFragment(p, pl.tmp, pl.place)
 		if err != nil {
 			return err
@@ -793,6 +821,11 @@ func (pl *textEditPlan) commit() {
 		}
 		b.drawn = pl.drawnWhole
 		b.placed = placedFlags(pl.place)
+		if pl.lay != nil {
+			// Laid out as a paragraph: its lines are not this fragment's
+			// segments, so it is not edited again (as AppendParagraph's).
+			b.noEdit = "text laid out as a paragraph by its ReplaceOptions"
+		}
 		// What this commit drew is the fragment's, found or drawn: a later
 		// edit removes it. A found fragment's original links and boxes
 		// were never recorded, so they stay.
