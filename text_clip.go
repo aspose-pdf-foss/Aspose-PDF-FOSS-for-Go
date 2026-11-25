@@ -49,6 +49,7 @@ func clipFragments(frags []textFragment, r Rectangle) []textFragment {
 			if inside(f.x, f.y) && inside(f.endX, f.endY) {
 				c := cloneFragment(f, string(runes), f.runeX, f.runeY, f.x, f.y, f.endX, f.endY)
 				clipRuneColors(&c, f, 0, len(runes))
+				clipRuneHidden(&c, f, 0, len(runes))
 				out = append(out, c)
 			}
 			continue
@@ -65,6 +66,7 @@ func clipFragments(frags []textFragment, r Rectangle) []textFragment {
 			c := cloneFragment(f, string(runes[start:end]), f.runeX[start:end], f.runeY[start:end],
 				f.runeX[start], f.runeY[start], ex, ey)
 			clipRuneColors(&c, f, start, end)
+			clipRuneHidden(&c, f, start, end)
 			out = append(out, c)
 			start = -1
 		}
@@ -105,4 +107,12 @@ func clipRuneColors(c *textFragment, f *textFragment, start, end int) {
 		return
 	}
 	c.runeColor = append([]Color(nil), f.runeColor[start:end]...)
+}
+
+// clipRuneHidden gives c f's per-rune hidden marks for runes [start, end).
+func clipRuneHidden(c *textFragment, f *textFragment, start, end int) {
+	if f.runeHidden == nil || len(f.runeHidden) < end {
+		return
+	}
+	c.runeHidden = append([]bool(nil), f.runeHidden[start:end]...)
 }

@@ -139,14 +139,16 @@ type textFragment struct {
 	// fragment's (colorR/G/B): a colour change does not start a fragment
 	// (it would change line text), but the absorber splits segments by it.
 	runeColor []Color
-	endX      float64 // device-space x after last glyph advance
-	endY      float64 // device-space y after last glyph advance
-	fontName  string
-	fontSize  float64 // effective font size (fontSize * textScaleX)
-	height    float64 // (ascent - descent) / 1000 * fontSize
-	descent   float64 // descent / 1000 * fontSize: how far the text box reaches below the baseline (≤ 0)
-	bold      bool
-	italic    bool
+	// runeHidden marks the runes the clip hides, nil while none is.
+	runeHidden []bool
+	endX       float64 // device-space x after last glyph advance
+	endY       float64 // device-space y after last glyph advance
+	fontName   string
+	fontSize   float64 // effective font size (fontSize * textScaleX)
+	height     float64 // (ascent - descent) / 1000 * fontSize
+	descent    float64 // descent / 1000 * fontSize: how far the text box reaches below the baseline (≤ 0)
+	bold       bool
+	italic     bool
 	// fontRef is the object number of the font every rune was drawn in, 0
 	// when unknown or when the runes come from several font objects.
 	fontRef     int
@@ -218,6 +220,9 @@ type textExtractor struct {
 	lm           [6]float64 // line matrix
 	ctm          [6]float64 // current transformation matrix
 	gsStack      []extractorGState
+	// clipT follows the rectangular clip, so a glyph it hides is marked
+	// (textFragment.runeHidden, pdf-go-64zt).
+	clipT clipTracker
 
 	// Fill color (for text rendering).
 	fillR, fillG, fillB float64 // RGB, 0-1
@@ -252,6 +257,7 @@ type textExtractor struct {
 // wrong encoding (Binder1.pdf: TOTAL rows became "3?3>;").
 type extractorGState struct {
 	ctm          [6]float64
+	clip         *Rectangle
 	font         *fontInfo
 	fontSize     float64
 	charSpace    float64
@@ -374,6 +380,7 @@ func cleanExtractedText(s string) string {
 
 func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 	for _, op := range ops {
+		e.clipT.op(op, e.ctm)
 		switch op.Operator {
 		case "BT":
 			e.tm = identityMatrix()
@@ -492,6 +499,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				strokeR: e.strokeR, strokeG: e.strokeG, strokeB: e.strokeB,
 				fillTint: e.fillTint, strokeTint: e.strokeTint,
 				renderMode: e.renderMode, lineWidth: e.lineWidth,
+				clip: e.clipT.clip,
 			})
 
 		case "Q":
@@ -505,6 +513,7 @@ func (e *textExtractor) process(ops []contentOp, resources pdfDict) {
 				e.strokeR, e.strokeG, e.strokeB = s.strokeR, s.strokeG, s.strokeB
 				e.fillTint, e.strokeTint = s.fillTint, s.strokeTint
 				e.renderMode, e.lineWidth = s.renderMode, s.lineWidth
+				e.clipT.clip = s.clip
 			}
 
 		case "Tr":
@@ -955,6 +964,7 @@ func (e *textExtractor) emitRune(r rune) {
 	}
 	e.curFrag.recordColor(e.fillR, e.fillG, e.fillB)
 	e.curFrag.recordRun(run)
+	e.curFrag.recordHidden(e.clipT.hides(x, y))
 	e.curFrag.text.WriteRune(r)
 	e.curFrag.runeX = append(e.curFrag.runeX, x) // exact glyph-start X for sub-fragment positioning
 	e.curFrag.runeY = append(e.curFrag.runeY, y)
@@ -978,6 +988,18 @@ func (f *textFragment) recordColor(r, g, b float64) {
 		}
 	}
 	f.runeColor = append(f.runeColor, Color{R: r, G: g, B: b, A: 1})
+}
+
+// recordHidden notes whether the clip hides the rune about to be added;
+// the per-rune list is only allocated once a rune is hidden.
+func (f *textFragment) recordHidden(h bool) {
+	if f.runeHidden == nil {
+		if !h {
+			return
+		}
+		f.runeHidden = make([]bool, len(f.runeX), len(f.runeX)+8)
+	}
+	f.runeHidden = append(f.runeHidden, h)
 }
 
 // recordRun notes the text state of the rune about to be added, as
@@ -1153,6 +1175,7 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 	// Save state.
 	savedCTM := e.ctm
 	savedFonts := e.fonts
+	savedClip := e.clipT.clip
 
 	// Apply form's /Matrix if present.
 	if matVal, ok := stream.Dict["/Matrix"]; ok {
@@ -1182,6 +1205,7 @@ func (e *textExtractor) doFormXObject(operand pdfValue, parentResources pdfDict)
 	e.fonts = savedFonts
 	e.fontPtrs = savedFontPtrs
 	e.ctm = savedCTM
+	e.clipT.clip = savedClip
 }
 
 // resolveActualText extracts /ActualText from a BDC property operand.

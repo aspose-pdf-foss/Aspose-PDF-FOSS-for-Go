@@ -411,6 +411,21 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 		if rtl, ok := cellRTL(first.line, b.colLo, b.colHi); ok {
 			b.rtlLine = rtl
 		}
+		// The boxes removed when the text changes stay in the cell where
+		// the next cell's text lies beyond the rule (pdf-go-64zt).
+		y := f.Position.YIndent
+		for i, q := range b.drawn {
+			r := Rectangle{LLX: q.X3, LLY: q.Y3, URX: q.X2, URY: q.Y2}
+			if y < r.LLY || y > r.URY {
+				continue
+			}
+			if c := stripInCell(first.line, r, b.colLo, b.colHi); c != r {
+				if b.full == nil {
+					b.full = append([]QuadPoint(nil), b.drawn...)
+				}
+				b.drawn[i] = rectAsQuadPoint(c)
+			}
+		}
 	}
 	f.bind.snap = snapshotOf(f)
 	return f

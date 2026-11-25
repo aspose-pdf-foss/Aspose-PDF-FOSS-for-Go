@@ -176,3 +176,22 @@ func (pl *textEditPlan) drawParagraph(p *Page) error {
 	}
 	return drawReplacementParagraph(p, m, text, pl.lay)
 }
+
+// cellClip is the clip for the plan's new text when a found fragment's text
+// runs past its table cell (pdf-go-64zt): the document clips the cell's text
+// at the rule, so the redraw is clipped there too.
+func (pl *textEditPlan) cellClip(p *Page) (*Rectangle, error) {
+	b := pl.f.bind
+	if b == nil || !b.found || (b.colLo == 0 && b.colHi == 0) {
+		return nil, nil
+	}
+	w := 0.0
+	for _, s := range pl.tmp.segmentsToDraw() {
+		sw, err := s.TextState.resolved().MeasureString(s.Text)
+		if err != nil {
+			return nil, err
+		}
+		w += sw
+	}
+	return cellClip(p, pl.tmp.Position.XIndent, w, b.colLo, b.colHi), nil
+}

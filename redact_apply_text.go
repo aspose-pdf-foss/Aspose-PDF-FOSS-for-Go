@@ -159,7 +159,16 @@ import "fmt"
 // resolves as known (font.go's resolveFont), instead of being refused
 // by the unknown-font check below.
 func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict, initial *textGState) ([]byte, error) {
-	if len(regions) == 0 {
+	return rewriteTextOperatorsHidden(data, regions, nil, fontMap, objects, resources, initial)
+}
+
+// rewriteTextOperatorsHidden is rewriteTextOperatorsInStream that also
+// removes the glyphs in hiddenOnly the page's rectangular clip hides, and
+// leaves those it shows (pdf-go-64zt): beyond a table cell's rule a match's
+// hidden glyphs go while the next cell's own glyphs drawn there stay. Only a
+// page's content passes hiddenOnly (the clip is tracked in page space).
+func rewriteTextOperatorsHidden(data []byte, regions, hiddenOnly []QuadPoint, fontMap map[string]fontInfo, objects map[int]*pdfObject, resources pdfDict, initial *textGState) ([]byte, error) {
+	if len(regions) == 0 && len(hiddenOnly) == 0 {
 		return data, nil
 	}
 
@@ -184,6 +193,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 		ctm        = identityMatrix()
 		gStack     []textGState
 		mcStack    []*mcSpan
+		clipT      clipTracker
 	)
 	if initial != nil {
 		// Seed the text-state portion of the inherited graphics state
@@ -240,6 +250,9 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 	}
 
 	for _, op := range ops {
+		if hiddenOnly != nil {
+			clipT.op(op, ctm)
+		}
 		switch op.Operator {
 
 		case "BT":
@@ -318,7 +331,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 			// for field except for the colour state this rewriter
 			// doesn't track.
 			gStack = append(gStack, textGState{
-				ctm: ctm, font: font, fontName: fontName, fontSize: fontSize,
+				clip: clipT.clip,
+				ctm:  ctm, font: font, fontName: fontName, fontSize: fontSize,
 				charSpace: charSpace, wordSpace: wordSpace, horizScale: filterHorizScale(font, horizScale),
 				leading: leading, rise: rise,
 			})
@@ -329,6 +343,7 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 				s := gStack[n-1]
 				gStack = gStack[:n-1]
 				ctm, font, fontName, fontSize = s.ctm, s.font, s.fontName, s.fontSize
+				clipT.clip = s.clip
 				charSpace, wordSpace, horizScale, leading = s.charSpace, s.wordSpace, s.horizScale, s.leading
 				rise = s.rise
 			}
@@ -428,6 +443,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
+					hiddenOnly: hiddenOnly,
+					clip:       &clipT,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
 				if err != nil {
@@ -455,6 +472,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
+					hiddenOnly: hiddenOnly,
+					clip:       &clipT,
 				}
 				newOps, totalAdvance, dropped, err := filterTJArray(op.Operands[0], state, regions)
 				if err != nil {
@@ -486,6 +505,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
+					hiddenOnly: hiddenOnly,
+					clip:       &clipT,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[0], state, regions)
 				if err != nil {
@@ -519,6 +540,8 @@ func rewriteTextOperatorsInStream(data []byte, regions []QuadPoint, fontMap map[
 					tm:         tm,
 					ctm:        ctm,
 					rise:       rise,
+					hiddenOnly: hiddenOnly,
+					clip:       &clipT,
 				}
 				newOps, totalAdvance, dropped, err := filterTjString(op.Operands[2], state, regions)
 				if err != nil {
@@ -659,6 +682,7 @@ func resolveBDCProperties(objects map[int]*pdfObject, resources pdfDict, operand
 // (pdf-go-ifpy point 3; ~900 bytes per q now). text.go's extractorGState
 // had the identical pattern and holds a pointer too.
 type textGState struct {
+	clip       *Rectangle // the page-level rectangular clip (rewriteTextOperatorsHidden)
 	ctm        [6]float64
 	font       *fontInfo
 	fontName   string
@@ -726,6 +750,19 @@ type glyphFilterState struct {
 	// (pdf-go-lx1f) — see rewriteTextOperatorsInStream's own doc comment
 	// for why it needs no further scaling.
 	rise float64
+	// hiddenOnly are regions whose glyphs go only when clip hides them
+	// (rewriteTextOperatorsHidden); nil for every other caller.
+	hiddenOnly []QuadPoint
+	clip       *clipTracker
+}
+
+// drops reports whether the glyph at page point (x, y) is removed: inside
+// regions, or inside hiddenOnly and hidden by the clip.
+func (st glyphFilterState) drops(x, y float64, regions []QuadPoint) bool {
+	if pointInAnyQuad(x, y, regions) {
+		return true
+	}
+	return len(st.hiddenOnly) > 0 && st.clip != nil && st.clip.hides(x, y) && pointInAnyQuad(x, y, st.hiddenOnly)
 }
 
 // glyphAdvance computes the text-space advance for a single-byte glyph code.
@@ -851,7 +888,7 @@ func filterTjStringSingleByte(s string, state glyphFilterState, regions []QuadPo
 		// Glyph center in text space: (runningX + adv/2, 0).
 		cx := runningX + adv/2.0
 		ux, uy := matApplyPoint(matMul(state.tm, state.ctm), cx, state.rise)
-		dropped := pointInAnyQuad(ux, uy, regions)
+		dropped := state.drops(ux, uy, regions)
 
 		glyphs[i] = singleByteGlyph{code: code, advance: adv, dropped: dropped}
 		runningX += adv
@@ -1010,7 +1047,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 			adv := glyphAdvanceCID(state.font, cid, n, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 			cx := runningX + adv/2.0
 			ux, uy := glyphCentre(state.font, matMul(localTM, state.ctm), cx, state.rise)
-			dropped := pointInAnyQuad(ux, uy, regions)
+			dropped := state.drops(ux, uy, regions)
 			glyphs = append(glyphs, cidGlyph{raw: b[:n], advance: adv, dropped: dropped})
 			runningX += adv
 			totalAdvance += adv
@@ -1024,7 +1061,7 @@ func decodeCIDGlyphs(s string, state glyphFilterState, localTM [6]float64, regio
 		adv := glyphAdvanceCID(state.font, cid, 2, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 		cx := runningX + adv/2.0
 		ux, uy := glyphCentre(state.font, matMul(localTM, state.ctm), cx, state.rise)
-		dropped := pointInAnyQuad(ux, uy, regions)
+		dropped := state.drops(ux, uy, regions)
 		glyphs = append(glyphs, cidGlyph{raw: b[i : i+2], advance: adv, dropped: dropped})
 		runningX += adv
 		totalAdvance += adv
@@ -1164,7 +1201,7 @@ func filterTJArray(operand pdfValue, state glyphFilterState, regions []QuadPoint
 					adv := glyphAdvance(state.font, code, state.fontSize, state.charSpace, state.wordSpace, state.horizScale)
 					cx := lx + adv/2.0
 					ux, uy := matApplyPoint(matMul(localTM, state.ctm), cx, state.rise)
-					dropped := pointInAnyQuad(ux, uy, regions)
+					dropped := state.drops(ux, uy, regions)
 					glyphs = append(glyphs, singleByteGlyph{code: code, advance: adv, dropped: dropped})
 					lx += adv
 					stringAdvance += adv
