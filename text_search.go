@@ -376,6 +376,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 	var havePrev bool
 	var prevEndX, prevEndY, prevRot, prevSize float64
 	var prevText string
+	var cuts []int // where a new bidi paragraph starts (bidiSegmentGapEm)
 	for fi := range line.Fragments {
 		f := &line.Fragments[fi]
 		if f.Text == "" {
@@ -398,6 +399,9 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 				m.local = append(m.local, -1)
 				m.text = append(m.text, ' ')
 			}
+			if gap > bidiSegmentGapEm*maxf(f.FontSize, prevSize) {
+				cuts = append(cuts, len(m.owner))
+			}
 		}
 		k := 0
 		for _, r := range f.Text {
@@ -411,7 +415,7 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		havePrev = true
 	}
 	if bidiHasStrongRTL(string(m.text)) {
-		m = m.logicalOrder()
+		m = m.logicalOrder(cuts)
 	}
 	return m
 }
@@ -420,12 +424,12 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 // turns a match back into a rectangle — into logical order, so a search for
 // right-to-left text matches the way the text is typed rather than the way its
 // glyphs sit on the page. The fragments themselves are left in visual order.
-func (m lineRuneMap) logicalOrder() lineRuneMap {
+func (m lineRuneMap) logicalOrder(cuts []int) lineRuneMap {
 	runes := []rune(string(m.text))
 	if len(runes) != len(m.owner) {
 		return m
 	}
-	logical, order := bidiVisualToLogical(runes)
+	logical, order := bidiVisualToLogicalSegments(runes, cuts)
 	out := lineRuneMap{
 		runeByte:   make([]int, 0, len(order)),
 		owner:      make([]int, 0, len(order)),
