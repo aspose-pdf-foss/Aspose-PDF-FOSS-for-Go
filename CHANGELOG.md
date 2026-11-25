@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`RemoveAllText` no longer leaves text reachable through resources nothing draws** (`pdf-go-silc`, found in the review of GHSA-gc9q-3vx8-phx2). A form listed in a page's resources but not drawn there kept its text in the saved file: through another page sharing the dictionary, through a form's own resources, or because no page drew it at all; a `/Properties` list with `/ActualText` that no marked content named stayed the same way. Everything a page's or form's resources list is now cleared, drawn or not.
+- **A page naming one content stream many times is decoded once and bounded** (`pdf-go-69pt`, found in the review of GHSA-rfwg-hxcj-7pp5). `/Contents` repeating a reference to a large stream was decoded and copied once per mention, and a stream too large to decode cost its decoding limit again at each; each stream is now decoded once per page and the page's content together is held to the 1 GiB limit of one stream.
+
 ## [0.18.0] — 2026-11-24
 
 A security release: two advisories fixed. Crafted files could crash, hang or exhaust memory in `Open`, and slow down `ConvertToPDFA` (GHSA-rfwg-hxcj-7pp5); text operations could crash the process, hang, or leave text `RemoveAllText` removed in the saved file (GHSA-gc9q-3vx8-phx2). Also new: `Document.ImportPage`, which imports a page as a reusable form, and `PdfPageStamp` imports its page once per document, so a stamp on many pages no longer copies its fonts onto each. Imported output is reproducible, and reading a document from several goroutines is safe. Text extraction now finds word gaps typed as `TJ` adjustments, reads fonts outside the Standard 14, text in spot colours, and text in forms with indirect dictionary values. Fixes for #25 and #26.
