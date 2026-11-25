@@ -63,7 +63,10 @@ type TextFragment struct {
 	// Position is where the fragment's baseline starts: an absolute point
 	// in page space (user space), not an offset. Zero means unset.
 	Position Position
-	bind     *fragmentBinding
+	// Hyperlink, when set, links every segment that has none of its own.
+	// Mirrors Aspose.PDF for .NET's TextFragment.Hyperlink.
+	Hyperlink Hyperlink
+	bind      *fragmentBinding
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.

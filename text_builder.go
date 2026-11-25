@@ -25,7 +25,9 @@ import (
 type TextSegment struct {
 	Text      string
 	TextState TextState
-	Hyperlink string
+	// Hyperlink, when set, links the segment: a *WebHyperlink or a
+	// *LocalHyperlink. A segment without one takes its fragment's.
+	Hyperlink Hyperlink
 	Position  Position
 	Rectangle Rectangle
 
@@ -55,6 +57,7 @@ func (f *TextFragment) segmentsToDraw() []*TextSegment {
 	for i, s := range src {
 		c := *s
 		c.TextState = s.TextState.inherit(f.TextState)
+		c.Hyperlink = f.linkOf(s)
 		out[i] = &c
 	}
 	return out
@@ -93,6 +96,9 @@ type fragmentBinding struct {
 	// background box and the link. A redraw removes them. A found
 	// fragment owns nothing: its background and links are the page's.
 	owned []ownedPiece
+	// noChar is what an edit does when the page's font lacks a character
+	// of the new text (TextFragmentAbsorber.TextEditOptions).
+	noChar NoCharacterAction
 }
 
 // ownedPiece is what a drawn segment drew besides its glyphs: its background
@@ -104,7 +110,7 @@ type ownedPiece struct {
 
 type segmentSnapshot struct {
 	text  string
-	link  string
+	link  linkTarget
 	state TextState
 	pos   Position
 }
@@ -140,13 +146,13 @@ func snapshotOf(f *TextFragment) fragmentSnapshot {
 	snap := fragmentSnapshot{text: f.Text, position: f.Position, state: copyState(f.TextState)}
 	if f.bind != nil && f.bind.found {
 		for _, s := range f.Segments {
-			snap.segments = append(snap.segments, segmentSnapshot{text: s.Text, link: s.Hyperlink,
+			snap.segments = append(snap.segments, segmentSnapshot{text: s.Text, link: targetOf(f.linkOf(s)),
 				state: copyState(s.TextState), pos: s.Position})
 		}
 		return snap
 	}
 	for i, s := range f.segmentsToDraw() {
-		seg := segmentSnapshot{text: s.Text, link: s.Hyperlink, state: copyState(s.TextState.resolved())}
+		seg := segmentSnapshot{text: s.Text, link: targetOf(s.Hyperlink), state: copyState(s.TextState.resolved())}
 		if i < len(f.Segments) {
 			seg.pos = f.Segments[i].Position
 		}
@@ -195,14 +201,14 @@ func (s *fragmentSnapshot) matches(f *TextFragment, found bool) bool {
 		}
 		for i, seg := range f.Segments {
 			sn := &s.segments[i]
-			if seg.Text != sn.text || seg.Hyperlink != sn.link || seg.Position != sn.pos || !sameState(seg.TextState, sn.state) {
+			if seg.Text != sn.text || targetOf(f.linkOf(seg)) != sn.link || seg.Position != sn.pos || !sameState(seg.TextState, sn.state) {
 				return false
 			}
 		}
 		return true
 	}
 	if len(f.Segments) == 0 {
-		return len(s.segments) == 1 && s.segments[0].text == f.Text && s.segments[0].link == "" &&
+		return len(s.segments) == 1 && s.segments[0].text == f.Text && s.segments[0].link == targetOf(f.Hyperlink) &&
 			sameState(resolvedForCompare(f.TextState), s.segments[0].state)
 	}
 	if len(f.Segments) != len(s.segments) {
@@ -210,7 +216,7 @@ func (s *fragmentSnapshot) matches(f *TextFragment, found bool) bool {
 	}
 	for i, seg := range f.Segments {
 		sn := &s.segments[i]
-		if seg.Text != sn.text || seg.Hyperlink != sn.link || seg.Position != sn.pos ||
+		if seg.Text != sn.text || targetOf(f.linkOf(seg)) != sn.link || seg.Position != sn.pos ||
 			!sameState(resolvedForCompare(seg.TextState.inherit(f.TextState)), sn.state) {
 			return false
 		}
@@ -305,7 +311,7 @@ func quadBounds(q QuadPoint) Rectangle {
 // its quad (rotated with the state's Rotation about (x, y)) and what it drew
 // besides the glyphs. Shared by AppendText and AppendParagraph so both bind
 // what they draw alike.
-func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text string, x, y, width, asc, desc float64) (Rectangle, QuadPoint, ownedPiece, error) {
+func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink Hyperlink, text string, x, y, width, asc, desc float64) (Rectangle, QuadPoint, ownedPiece, error) {
 	var own ownedPiece
 	box := Rectangle{LLX: x, LLY: y + desc, URX: x + width, URY: y + asc}
 	quad := QuadPoint{X1: box.LLX, Y1: box.URY, X2: box.URX, Y2: box.URY, X3: box.LLX, Y3: box.LLY, X4: box.URX, Y4: box.LLY}
@@ -324,9 +330,13 @@ func drawTextPiece(p *Page, st TextState, style TextStyle, hyperlink, text strin
 	if err := p.AddTextAt(text, style, x, y); err != nil {
 		return box, quad, own, err
 	}
-	if hyperlink != "" && text != "" {
+	if t := targetOf(hyperlink); !t.none() && text != "" {
+		act, err := t.action(p.doc)
+		if err != nil {
+			return box, quad, own, err
+		}
 		link := NewLinkAnnotation(p, box)
-		link.SetAction(NewGoToURIAction(hyperlink))
+		link.SetAction(act)
 		if err := p.Annotations().Add(link); err != nil {
 			return box, quad, own, err
 		}

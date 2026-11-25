@@ -149,7 +149,7 @@ func TestAppendTextHyperlink(t *testing.T) {
 	f := NewTextFragment("plain ")
 	f.Position = Position{XIndent: 50, YIndent: 700}
 	s := NewTextSegment("click")
-	s.Hyperlink = "https://example.com"
+	s.Hyperlink = NewWebHyperlink("https://example.com")
 	f.Segments = append(f.Segments, s)
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
@@ -267,7 +267,7 @@ func TestFragmentSnapshot(t *testing.T) {
 	mut("tz", func(g *TextFragment) { g.TextState.HorizontalScaling = 50 })
 	mut("leading", func(g *TextFragment) { g.TextState.LineSpacing = 4 })
 	mut("rot", func(g *TextFragment) { g.TextState.Rotation = 5 })
-	mut("link", func(g *TextFragment) { g.Segments[0].Hyperlink = "u" })
+	mut("link", func(g *TextFragment) { g.Segments[0].Hyperlink = NewWebHyperlink("u") })
 	mut("segtext", func(g *TextFragment) { g.Segments[0].Text = "q" })
 	mut("segcount", func(g *TextFragment) { g.Segments = append(g.Segments, NewTextSegment("z")) })
 }
@@ -278,7 +278,7 @@ func TestAppendTextRotatedQuad(t *testing.T) {
 	f := NewTextFragment("Rotated")
 	f.Position = Position{XIndent: 200, YIndent: 300}
 	f.TextState = TextState{Font: FontHelvetica, FontSize: 12, Rotation: 90}
-	f.Segments[0].Hyperlink = "https://example.com"
+	f.Segments[0].Hyperlink = NewWebHyperlink("https://example.com")
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
 	}

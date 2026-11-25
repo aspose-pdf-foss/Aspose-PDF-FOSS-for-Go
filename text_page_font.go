@@ -274,3 +274,13 @@ func documentFontOf(st TextState) TextState {
 	}
 	return st
 }
+
+// missing returns the first character of text covers rejects ("" when none).
+func (f *pageFont) missing(text string) string {
+	for _, r := range text {
+		if !f.covers(string(r)) {
+			return string(r)
+		}
+	}
+	return ""
+}

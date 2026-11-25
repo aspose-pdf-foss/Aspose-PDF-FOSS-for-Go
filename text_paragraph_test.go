@@ -363,7 +363,7 @@ func TestAppendParagraphSpacing(t *testing.T) {
 
 func TestAppendParagraphBackgroundAndLink(t *testing.T) {
 	f := NewTextFragment("alpha bravo charlie delta echo foxtrot golf")
-	f.Segments[0].Hyperlink = "https://example.com"
+	f.Segments[0].Hyperlink = NewWebHyperlink("https://example.com")
 	f.Segments[0].TextState = TextState{BackgroundColor: &Color{R: 1, G: 1, A: 1}}
 	tp := NewTextParagraph()
 	tp.AppendLine(f)

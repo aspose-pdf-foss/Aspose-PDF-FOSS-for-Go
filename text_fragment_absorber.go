@@ -35,9 +35,46 @@ func (f documentFont) IsEmbedded() bool { return f.embedded }
 // document and must not run concurrently with other calls on it. Bound
 // fragments live as long as the document does.
 type TextFragmentAbsorber struct {
+	// TextEditOptions say what an edit of a fragment found by the next
+	// Visit does when the font the text is drawn in lacks a character of
+	// the new text. Set it before Visit. Mirrors Aspose.PDF for .NET's
+	// TextFragmentAbsorber.TextEditOptions.
+	TextEditOptions TextEditOptions
+
 	phrase string
 	opts   SearchOptions
 	frags  []*TextFragment
+}
+
+// NoCharacterAction is what editing found text does when the font it is
+// drawn in has no glyph for a character of the new text. Mirrors
+// Aspose.PDF for .NET's TextEditOptions.NoCharacterAction (pdf-go-1di0).
+type NoCharacterAction int
+
+const (
+	// NoCharacterActionFontReplace (the zero value) draws the text in a
+	// font that has the characters: the Standard-14 face of the original's
+	// family and style, else that family by name.
+	NoCharacterActionFontReplace NoCharacterAction = iota
+	// NoCharacterActionThrowException keeps the page's font and refuses
+	// the edit when the new text has a character the font lacks: applying
+	// the edits (on save, or by ApplyTextChanges) returns an error naming
+	// it.
+	NoCharacterActionThrowException
+	// NoCharacterActionReplaceAnyway keeps the page's font when the new
+	// text has characters it lacks; those are not drawn.
+	NoCharacterActionReplaceAnyway
+
+	// Both apply where the text can be drawn in its page font at all (a
+	// simple or composite font with known codes, read from one font object,
+	// in a style it has or can emulate); otherwise the edit falls back to
+	// FontReplace, as a missing character is not the question there.
+)
+
+// TextEditOptions are the options of an edit of found text. Mirrors
+// Aspose.PDF for .NET's TextEditOptions.
+type TextEditOptions struct {
+	NoCharacterAction NoCharacterAction
 }
 
 // NewTextFragmentAbsorber returns an absorber for phrase (literal unless
@@ -56,6 +93,39 @@ func (a *TextFragmentAbsorber) TextFragments() []*TextFragment {
 // Reset clears the fragments found. Mirrors Aspose.PDF for .NET's
 // TextFragmentAbsorber.Reset. Edits already made to them still apply.
 func (a *TextFragmentAbsorber) Reset() { a.frags = nil }
+
+// Remove takes f out of the fragments found and deletes its text from the
+// page when the document's text edits are applied (on save, or by
+// ApplyTextChanges), as setting its Text to "" does. Mirrors Aspose.PDF for
+// .NET's TextFragmentCollection.Remove (pdf-go-xiru). It returns an error
+// when f is not one of this absorber's fragments, or is one that cannot be
+// edited (text on a rotated baseline, a match across pages, a page whose
+// content was rewritten since): removing it would only make applying the
+// edits fail.
+func (a *TextFragmentAbsorber) Remove(f *TextFragment) error {
+	for i, g := range a.frags {
+		if g != f {
+			continue
+		}
+		if b := f.bind; b != nil {
+			switch {
+			case b.noEdit != "":
+				return fmt.Errorf("text fragment absorber: cannot remove %q: %s", f.Text, b.noEdit)
+			case b.obj != nil && b.gen != b.obj.contentGen:
+				return fmt.Errorf("text fragment absorber: cannot remove %q: page content was rewritten after the fragment was found", f.Text)
+			}
+		}
+		f.Text = ""
+		for _, s := range f.Segments {
+			if s != nil {
+				s.Text = ""
+			}
+		}
+		a.frags = append(a.frags[:i:i], a.frags[i+1:]...)
+		return nil
+	}
+	return fmt.Errorf("text fragment absorber: the fragment was not found by this absorber")
+}
 
 // Visit finds the phrase on page p, replacing the fragments found before. It
 // applies the document's pending text edits first and returns their error.
@@ -318,7 +388,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			noEdit = "match spans several pages"
 		}
 	}
-	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true}
+	f.bind = &fragmentBinding{page: pg, drawn: drawn, noEdit: noEdit, found: true, noChar: a.TextEditOptions.NoCharacterAction}
 	f.bind.snap = snapshotOf(f)
 	return f
 }

@@ -336,7 +336,7 @@ func TestApplyRemovesOwnBackgroundAndLink(t *testing.T) {
 	f := NewTextFragment("linked")
 	f.Position = Position{XIndent: 100, YIndent: 600}
 	f.TextState = TextState{Font: FontHelvetica, FontSize: 12, BackgroundColor: &Color{1, 1, 0, 1}}
-	f.Segments[0].Hyperlink = "https://example.com/"
+	f.Segments[0].Hyperlink = NewWebHyperlink("https://example.com/")
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestApplySegmentRemovesOwnBackgroundAndLink(t *testing.T) {
 	f := &TextFragment{Position: Position{XIndent: 100, YIndent: 600},
 		TextState: TextState{Font: FontHelvetica, FontSize: 12, BackgroundColor: &Color{0.8, 0.8, 0.8, 1}}}
 	for _, s := range []string{"one ", "two ", "three"} {
-		f.Segments = append(f.Segments, &TextSegment{Text: s, Hyperlink: "https://example.com/" + strings.TrimSpace(s)})
+		f.Segments = append(f.Segments, &TextSegment{Text: s, Hyperlink: NewWebHyperlink("https://example.com/" + strings.TrimSpace(s))})
 	}
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
@@ -432,7 +432,7 @@ func TestApplyFoundKeepsPageGraphics(t *testing.T) {
 	f := NewTextFragment("boxed")
 	f.Position = Position{XIndent: 100, YIndent: 600}
 	f.TextState = TextState{Font: FontHelvetica, FontSize: 12, BackgroundColor: &Color{1, 1, 0, 1}}
-	f.Segments[0].Hyperlink = "https://example.com/"
+	f.Segments[0].Hyperlink = NewWebHyperlink("https://example.com/")
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +586,7 @@ func TestApplySegmentTwiceRemovesFirstRedraw(t *testing.T) {
 	f := &TextFragment{Position: Position{XIndent: 100, YIndent: 600},
 		TextState: TextState{Font: FontHelvetica, FontSize: 12, BackgroundColor: &Color{0.8, 0.8, 0.8, 1}}}
 	for _, s := range []string{"one ", "two"} {
-		f.Segments = append(f.Segments, &TextSegment{Text: s, Hyperlink: "https://example.com/"})
+		f.Segments = append(f.Segments, &TextSegment{Text: s, Hyperlink: NewWebHyperlink("https://example.com/")})
 	}
 	if err := NewTextBuilder(p).AppendText(f); err != nil {
 		t.Fatal(err)
