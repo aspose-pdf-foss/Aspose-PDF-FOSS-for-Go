@@ -288,11 +288,25 @@ func (p *Page) contentStreams() ([]byte, error) {
 		// no content — same as an absent key (ISO 32000-1 §7.3.10).
 		return nil, nil
 	case pdfArray:
+		// An array may name one stream many times. Each is decoded once (one
+		// that will not decode would otherwise cost its whole decoding limit
+		// again at every mention), and the content together is held to the
+		// limit of one stream, or a thousand mentions of a large stream
+		// would be concatenated a thousand times.
 		var buf []byte
+		decoded := map[*pdfStream][]byte{}
 		for _, item := range cv {
 			resolved := resolveRef(objects, item)
 			if s, ok := resolved.(*pdfStream); ok {
-				buf = append(buf, decodedStreamData(s)...)
+				data, seen := decoded[s]
+				if !seen {
+					data = decodedStreamData(s)
+					decoded[s] = data
+				}
+				if len(buf)+len(data)+1 > maxDecodedStream {
+					return nil, fmt.Errorf("page %d: content streams: %w", p.Number(), errDecodedTooLarge)
+				}
+				buf = append(buf, data...)
 				buf = append(buf, '\n')
 			}
 		}

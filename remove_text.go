@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sort"
 )
 
 // Removing all text from a page or a document, mirroring Aspose.PDF for
@@ -107,23 +108,69 @@ func (e *resEdits) merge(o resEdits) {
 // numbers of the content streams it replaced.
 func (r *textRemover) page(p *Page) ([]int, error) {
 	data, err := p.contentStreams()
-	if err != nil || data == nil {
+	if err != nil {
 		return nil, err
 	}
 	res := p.pageResources()
 	out, changed, edits, err := r.stream(data, res, 0)
-	if err != nil || !changed {
+	if err != nil {
 		return nil, err
 	}
+	swept, err := r.sweepResources(res, 0)
+	if err != nil {
+		return nil, err
+	}
+	edits.merge(swept)
 	pd := p.pageDict()
-	old := contentStreamIDs(pd["/Contents"])
 	if !edits.empty() {
 		pd["/Resources"] = r.editResources(res, edits)
 	}
+	if !changed {
+		return nil, nil
+	}
+	old := contentStreamIDs(pd["/Contents"])
 	if err := replacePageContents(p, out); err != nil {
 		return nil, err
 	}
 	return old, nil
+}
+
+// sweepResources strips what res holds whether or not a content stream
+// draws it: every Form XObject it lists, and every property list carrying
+// /ActualText. A dictionary shared between pages keeps the original of a
+// form one page draws and another only lists, and with it the text, so the
+// copy each page gets must not list it either (pdf-go-silc).
+func (r *textRemover) sweepResources(res pdfDict, depth int) (resEdits, error) {
+	var edits resEdits
+	if res == nil {
+		return edits, nil
+	}
+	if xobjs, ok := resolveRefToDict(r.d.objects, res["/XObject"]); ok {
+		names := make([]string, 0, len(xobjs))
+		for name := range xobjs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			num, sub, err := r.form(res, name, depth)
+			if err != nil {
+				return edits, err
+			}
+			if num != 0 {
+				edits.merge(resEdits{xobj: map[string]int{name: num}})
+			}
+			edits.merge(sub)
+		}
+	}
+	if props, ok := resolveRefToDict(r.d.objects, res["/Properties"]); ok {
+		for _, v := range props {
+			if p, ok := resolveRefToDict(r.d.objects, v); ok && p["/ActualText"] != nil {
+				edits.props = true
+				break
+			}
+		}
+	}
+	return edits, nil
 }
 
 // contentStreamIDs lists the object numbers a /Contents value refers to.
@@ -272,8 +319,22 @@ func (r *textRemover) form(res pdfDict, name string, depth int) (int, resEdits, 
 	}
 	r.clones[key] = formResult{} // a form drawing itself stops here
 	out, changed, edits, err := r.stream(decodedStreamData(st), formRes, depth+1)
-	if err != nil || !changed {
+	if err != nil {
 		return 0, none, err
+	}
+	if hasOwn {
+		// What the form's own resources list but its content does not draw
+		// goes too, as for a page; a form taking its caller's resources is
+		// swept with them.
+		swept, err := r.sweepResources(own, depth+1)
+		if err != nil {
+			return 0, none, err
+		}
+		edits.merge(swept)
+		changed = changed || !swept.empty()
+	}
+	if !changed {
+		return 0, none, nil
 	}
 	dict := make(pdfDict, len(st.Dict))
 	for k, v := range st.Dict {
