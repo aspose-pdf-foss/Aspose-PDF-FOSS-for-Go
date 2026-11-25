@@ -34,7 +34,9 @@ type LocalHyperlink struct {
 }
 
 // NewLocalHyperlink returns a link to page pageNum (1-based).
-func NewLocalHyperlink(pageNum int) *LocalHyperlink { return &LocalHyperlink{TargetPageNumber: pageNum} }
+func NewLocalHyperlink(pageNum int) *LocalHyperlink {
+	return &LocalHyperlink{TargetPageNumber: pageNum}
+}
 
 func (h *LocalHyperlink) target() linkTarget {
 	if h == nil || h.TargetPageNumber == 0 {
