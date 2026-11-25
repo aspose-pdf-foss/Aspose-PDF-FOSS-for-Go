@@ -462,13 +462,15 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		if owned {
 			pl.removed = append(pl.removed, b.owned...)
 		}
-		tmp := &TextFragment{Position: f.Position}
+		// The fragment's link stays on the fragment (segments keep only
+		// their own), so a later change to it is still seen.
+		tmp := &TextFragment{Position: f.Position, Hyperlink: f.Hyperlink}
 		if !found {
 			tmp.TextState = copyState(f.TextState)
 		}
 		switch {
 		case textChanged && len(f.Segments) > 0:
-			tmp.Segments = []*TextSegment{{Text: f.Text, TextState: segState(f.Segments[0]), Hyperlink: f.linkOf(f.Segments[0])}}
+			tmp.Segments = []*TextSegment{{Text: f.Text, TextState: segState(f.Segments[0]), Hyperlink: f.Segments[0].Hyperlink}}
 		case textChanged || len(f.Segments) == 0:
 			if found {
 				// No segments left (an emptied fragment): the fragment's
@@ -479,7 +481,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			}
 		default:
 			for i, s := range f.Segments {
-				ts := &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: f.linkOf(s)}
+				ts := &TextSegment{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}
 				if found && f.Position == snap.position && i < len(snap.segments) {
 					ts.glyphX = keptGlyphs(s, ts.TextState, snap.segments[i])
 				}
@@ -525,8 +527,8 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 		if owned {
 			pl.removed = append(pl.removed, b.owned[i])
 		}
-		one := &TextFragment{Position: pos,
-			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: f.linkOf(s)}}}
+		one := &TextFragment{Position: pos, Hyperlink: f.Hyperlink,
+			Segments: []*TextSegment{{Text: s.Text, TextState: segState(s), Hyperlink: s.Hyperlink}}}
 		if found && s.Position == snap.segments[i].pos {
 			one.Segments[0].glyphX = keptGlyphs(s, one.Segments[0].TextState, snap.segments[i])
 		}
@@ -644,25 +646,19 @@ func (d *Document) drawingFont(st TextState, text string, fonts *replaceFonts, s
 	}
 	// The font the text is drawn in on the page, when it shows the text
 	// and the style can be had from it.
-	pf := fonts.pageFont(d, df, snap)
-	if pf != nil {
-		if _, _, ok := pf.emulatedStyle(st.FontStyle); ok && pf.covers(text) {
-			return pf, nil
+	if pf := fonts.pageFont(d, df, snap); pf != nil {
+		if _, _, ok := pf.emulatedStyle(st.FontStyle); ok {
+			if pf.covers(text) {
+				return pf, nil
+			}
+			// The page's font lacks a character of the new text.
+			switch noChar {
+			case NoCharacterActionReplaceAnyway:
+				return pf, nil
+			case NoCharacterActionThrowException:
+				return nil, fmt.Errorf("font %s has no glyph for %q, and the edit options forbid replacing it", df.name, pf.missing(text))
+			}
 		}
-	}
-	switch noChar {
-	case NoCharacterActionReplaceAnyway:
-		if pf != nil {
-			return pf, nil
-		}
-	case NoCharacterActionThrowException:
-		if pf == nil {
-			return nil, fmt.Errorf("the text cannot be drawn in the font it was found in (%s), and the edit options forbid replacing it", df.name)
-		}
-		if _, _, ok := pf.emulatedStyle(st.FontStyle); !ok {
-			return nil, fmt.Errorf("font %s cannot show the style asked for, and the edit options forbid replacing it", df.name)
-		}
-		return nil, fmt.Errorf("font %s has no glyph for %q, and the edit options forbid replacing it", df.name, pf.missing(text))
 	}
 	bold, italic := st.FontStyle&FontStyleBold != 0, st.FontStyle&FontStyleItalic != 0
 	m := replaceMatch{font: standard14ForFragment(df.name, bold, italic), fontName: df.name, bold: bold, italic: italic}
@@ -797,9 +793,10 @@ func (pl *textEditPlan) commit() {
 		}
 		b.drawn = pl.drawnWhole
 		b.placed = placedFlags(pl.place)
-		if !b.found {
-			b.owned = pl.ownWhole
-		}
+		// What this commit drew is the fragment's, found or drawn: a later
+		// edit removes it. A found fragment's original links and boxes
+		// were never recorded, so they stay.
+		b.owned = pl.ownWhole
 	} else {
 		for k, i := range pl.segs {
 			s := f.Segments[i]
@@ -811,7 +808,10 @@ func (pl *textEditPlan) commit() {
 			if q := pl.drawnSeg[k]; len(q) == 1 {
 				b.drawn[i] = q[0]
 			}
-			if !b.found && len(b.owned) == len(b.drawn) {
+			if b.found && b.owned == nil {
+				b.owned = make([]ownedPiece, len(b.drawn))
+			}
+			if len(b.owned) == len(b.drawn) {
 				b.owned[i] = ownedPiece{}
 				if o := pl.ownSeg[k]; len(o) == 1 {
 					b.owned[i] = o[0]

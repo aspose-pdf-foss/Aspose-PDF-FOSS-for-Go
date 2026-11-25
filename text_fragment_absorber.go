@@ -57,12 +57,18 @@ const (
 	// family and style, else that family by name.
 	NoCharacterActionFontReplace NoCharacterAction = iota
 	// NoCharacterActionThrowException keeps the page's font and refuses
-	// the edit when the text cannot be drawn in it: applying the edits (on
-	// save, or by ApplyTextChanges) returns an error naming the character.
+	// the edit when the new text has a character the font lacks: applying
+	// the edits (on save, or by ApplyTextChanges) returns an error naming
+	// it.
 	NoCharacterActionThrowException
-	// NoCharacterActionReplaceAnyway keeps the page's font whatever the
-	// text holds; characters it has no code for are not drawn.
+	// NoCharacterActionReplaceAnyway keeps the page's font when the new
+	// text has characters it lacks; those are not drawn.
 	NoCharacterActionReplaceAnyway
+
+	// Both apply where the text can be drawn in its page font at all (a
+	// simple or composite font with known codes, read from one font object,
+	// in a style it has or can emulate); otherwise the edit falls back to
+	// FontReplace, as a missing character is not the question there.
 )
 
 // TextEditOptions are the options of an edit of found text. Mirrors
@@ -92,11 +98,22 @@ func (a *TextFragmentAbsorber) Reset() { a.frags = nil }
 // page when the document's text edits are applied (on save, or by
 // ApplyTextChanges), as setting its Text to "" does. Mirrors Aspose.PDF for
 // .NET's TextFragmentCollection.Remove (pdf-go-xiru). It returns an error
-// when f is not one of this absorber's fragments.
+// when f is not one of this absorber's fragments, or is one that cannot be
+// edited (text on a rotated baseline, a match across pages, a page whose
+// content was rewritten since): removing it would only make applying the
+// edits fail.
 func (a *TextFragmentAbsorber) Remove(f *TextFragment) error {
 	for i, g := range a.frags {
 		if g != f {
 			continue
+		}
+		if b := f.bind; b != nil {
+			switch {
+			case b.noEdit != "":
+				return fmt.Errorf("text fragment absorber: cannot remove %q: %s", f.Text, b.noEdit)
+			case b.obj != nil && b.gen != b.obj.contentGen:
+				return fmt.Errorf("text fragment absorber: cannot remove %q: page content was rewritten after the fragment was found", f.Text)
+			}
 		}
 		f.Text = ""
 		for _, s := range f.Segments {

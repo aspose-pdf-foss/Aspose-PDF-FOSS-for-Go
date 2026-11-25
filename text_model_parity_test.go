@@ -266,3 +266,131 @@ func TestTextEditNoCharacterAction(t *testing.T) {
 		t.Errorf("ReplaceAnyway drew in %q, want the page's Helvetica", fn)
 	}
 }
+
+// uriLinks counts page n's links to each URI (and GoTo links under "goto").
+func uriLinks(t *testing.T, d *Document, n int) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for _, a := range linkActions(t, d, n) {
+		switch v := a.(type) {
+		case *GoToURIAction:
+			out[v.URI()]++
+		case *GoToAction:
+			out["goto"]++
+		}
+	}
+	return out
+}
+
+// A fragment's hyperlink can be replaced and cleared after an edit has been
+// applied, on found and on drawn fragments; a found fragment's original
+// links stay as they are; a link survives a text edit of a fragment with no
+// segments.
+func TestTextHyperlinkEditsAfterApply(t *testing.T) {
+	t.Run("found", func(t *testing.T) {
+		d := twoPageTextDoc(t, "Linked words", "Other")
+		f := absorbOne(t, d, "Linked words")
+		f.Hyperlink = NewWebHyperlink("https://a/")
+		if err := d.ApplyTextChanges(); err != nil {
+			t.Fatal(err)
+		}
+		f.Hyperlink = NewWebHyperlink("https://b/")
+		if got := uriLinks(t, reopenDoc(t, d), 1); got["https://a/"] != 0 || got["https://b/"] != 1 || len(got) != 1 {
+			t.Errorf("after replacing the link: %v, want one link to b", got)
+		}
+		f.Hyperlink = nil
+		if got := uriLinks(t, reopenDoc(t, d), 1); len(got) != 0 {
+			t.Errorf("after clearing the link: %v, want none", got)
+		}
+	})
+	t.Run("found with a link of its own", func(t *testing.T) {
+		// The page already links the text; editing the fragment's link
+		// adds and removes only what the edits drew.
+		src := NewDocumentFromFormat(PageFormatA4)
+		g := NewTextFragment("Linked words")
+		g.Position = Position{XIndent: 100, YIndent: 600}
+		g.Hyperlink = NewWebHyperlink("https://page/")
+		if err := NewTextBuilder(mustPage(t, src)).AppendText(g); err != nil {
+			t.Fatal(err)
+		}
+		d := reopenDoc(t, src)
+		f := absorbOne(t, d, "Linked words")
+		f.Hyperlink = NewWebHyperlink("https://a/")
+		if err := d.ApplyTextChanges(); err != nil {
+			t.Fatal(err)
+		}
+		f.Hyperlink = NewWebHyperlink("https://b/")
+		if got := uriLinks(t, reopenDoc(t, d), 1); got["https://page/"] != 1 || got["https://b/"] != 1 || len(got) != 2 {
+			t.Errorf("links %v, want the page's own and one to b", got)
+		}
+		f.Hyperlink = nil
+		if got := uriLinks(t, reopenDoc(t, d), 1); got["https://page/"] != 1 || len(got) != 1 {
+			t.Errorf("links %v, want only the page's own", got)
+		}
+	})
+	t.Run("found, text and link changed together", func(t *testing.T) {
+		d := twoPageTextDoc(t, "Linked words", "Other")
+		f := absorbOne(t, d, "Linked words")
+		f.Text = "Other words"
+		f.Hyperlink = NewWebHyperlink("https://a/")
+		if err := d.ApplyTextChanges(); err != nil {
+			t.Fatal(err)
+		}
+		f.Hyperlink = nil
+		if got := uriLinks(t, reopenDoc(t, d), 1); len(got) != 0 {
+			t.Errorf("after clearing the link: %v, want none", got)
+		}
+	})
+	t.Run("drawn without segments", func(t *testing.T) {
+		d := NewDocumentFromFormat(PageFormatA4)
+		f := &TextFragment{Text: "Hi", Position: Position{XIndent: 100, YIndent: 600}, Hyperlink: NewWebHyperlink("https://a/")}
+		if err := NewTextBuilder(mustPage(t, d)).AppendText(f); err != nil {
+			t.Fatal(err)
+		}
+		f.Text = "Hello"
+		if got := uriLinks(t, reopenDoc(t, d), 1); got["https://a/"] != 1 || len(got) != 1 {
+			t.Errorf("after a text edit: %v, want one link to a", got)
+		}
+		f.Hyperlink = nil
+		if got := uriLinks(t, reopenDoc(t, d), 1); len(got) != 0 {
+			t.Errorf("after clearing the link: %v, want none", got)
+		}
+	})
+}
+
+// Remove refuses a fragment that cannot be edited, leaving the document
+// savable.
+func TestTextFragmentAbsorberRemoveReadOnly(t *testing.T) {
+	d := openBytes(t, rotatedDocBytes(t))
+	a := NewTextFragmentAbsorber("tilted")
+	if err := a.VisitDocument(d); err != nil || len(a.TextFragments()) != 1 {
+		t.Fatalf("visit: %d, %v", len(a.TextFragments()), err)
+	}
+	if err := a.Remove(a.TextFragments()[0]); err == nil || !strings.Contains(err.Error(), "rotated") {
+		t.Errorf("Remove on rotated text: %v, want a refusal", err)
+	}
+	if n := len(a.TextFragments()); n != 1 {
+		t.Errorf("%d fragments after the refused Remove, want 1", n)
+	}
+	if n := absorbCount(t, reopenDoc(t, d), "tilted"); n != 1 {
+		t.Errorf("rotated text found %d times after save, want 1", n)
+	}
+}
+
+// A refused ThrowException edit leaves the page as it was.
+func TestTextEditThrowExceptionLeavesPage(t *testing.T) {
+	d := twoPageTextDoc(t, "Hello there", "Other")
+	a := NewTextFragmentAbsorber("Hello there")
+	a.TextEditOptions = TextEditOptions{NoCharacterAction: NoCharacterActionThrowException}
+	if err := a.VisitDocument(d); err != nil {
+		t.Fatal(err)
+	}
+	a.TextFragments()[0].Text = "Hi Жx"
+	if err := d.ApplyTextChanges(); err == nil {
+		t.Fatal("the edit was applied")
+	}
+	text, err := mustPage(t, d).ExtractText()
+	if err != nil || !strings.Contains(text, "Hello there") {
+		t.Errorf("page reads %q (%v), want it unchanged", text, err)
+	}
+}

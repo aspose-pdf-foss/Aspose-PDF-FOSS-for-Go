@@ -13,10 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Links to a page and on a whole fragment** (`pdf-go-xe2v`). `NewLocalHyperlink(n)` links text to page n; `TextFragment.Hyperlink` links every segment that has no link of its own, on drawn and on found text alike.
+- **Links to a page and on a whole fragment** (`pdf-go-xe2v`). `NewLocalHyperlink(n)` links text to page n (the number, as Aspose's `TargetPageNumber`: reordering pages later does not move it); `TextFragment.Hyperlink` links every segment that has no link of its own, on drawn and on found text alike. A found fragment now owns the links and backgrounds its edits draw, so changing or clearing them later replaces them, while the page's own links stay.
 - **`TextFragment.Page`, `Rectangle`, `BaselinePosition` and `CloneWithSegments`** (`pdf-go-29ba`), mirroring Aspose.PDF for .NET: the page a fragment was found or drawn on (followed through page reordering), its text box, the start of its baseline, and a copy of it and its segments that is on no page and can be drawn anew.
-- **`TextFragmentAbsorber.Remove`** (`pdf-go-xiru`), the counterpart of .NET's `TextFragmentCollection.Remove`: it takes a found fragment out of the results and deletes its text when the document is saved.
-- **`TextFragmentAbsorber.TextEditOptions`** (`pdf-go-1di0`), mirroring .NET's `TextEditOptions.NoCharacterAction`: when the page's font lacks a character of the new text, `NoCharacterActionFontReplace` (the default) draws in a font that has it, as before; `NoCharacterActionThrowException` keeps the page's font and makes applying the edits return an error naming the character; `NoCharacterActionReplaceAnyway` keeps the page's font and leaves the missing characters out.
+- **`TextFragmentAbsorber.Remove`** (`pdf-go-xiru`), the counterpart of .NET's `TextFragmentCollection.Remove`: it takes a found fragment out of the results and deletes its text when the document is saved; a fragment that cannot be edited (rotated text, a match across pages) is refused.
+- **`TextFragmentAbsorber.TextEditOptions`** (`pdf-go-1di0`), mirroring .NET's `TextEditOptions.NoCharacterAction`: when the page's font lacks a character of the new text, `NoCharacterActionFontReplace` (the default) draws in a font that has it, as before; `NoCharacterActionThrowException` keeps the page's font and makes applying the edits return an error naming the character; `NoCharacterActionReplaceAnyway` keeps the page's font and leaves the missing characters out. Both apply where the text can be drawn in its page font at all; otherwise the edit falls back to `FontReplace`.
 
 ### Fixed
 
