@@ -35,6 +35,9 @@ type TextFragment struct {
 	// fragment (nil otherwise: every rune has Color). Unexported: the
 	// TextFragmentAbsorber splits segments by it.
 	runeColor []Color
+	// runeHidden marks the runes a rectangular clip hides (nil when none
+	// is): a cell's text run on under the next cell (pdf-go-64zt).
+	runeHidden []bool
 	// descent is how far the text box reaches below the baseline (≤ 0), so
 	// the box spans Y+descent .. Y+descent+Height. Unexported: used by
 	// SearchText and the comparer for match rectangles.
@@ -75,7 +78,7 @@ type TextFragment struct {
 	// with its TextReplaceOptions. Mirrors Aspose.PDF for .NET's
 	// TextFragment.ReplaceOptions.
 	ReplaceOptions ReplaceOptions
-	bind      *fragmentBinding
+	bind           *fragmentBinding
 }
 
 // TextLine represents a horizontal line of text fragments at a common Y position.
@@ -333,6 +336,7 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			Rotation:    f.rotation,
 			runeX:       f.runeX,
 			runeColor:   f.runeColor,
+			runeHidden:  f.runeHidden,
 			descent:     f.descent,
 			endY:        f.endY,
 			run:         f.run,

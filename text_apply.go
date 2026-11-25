@@ -127,10 +127,12 @@ func (d *Document) ApplyTextChanges() error {
 	// positions) is refused here, before any page changes: the page-level
 	// rewrite is run on the page's content without keeping the result.
 	pageRegions := map[int][]QuadPoint{}
+	pageHidden := map[int][]QuadPoint{}
 	for _, idx := range order {
 		var regions []QuadPoint
 		for _, pl := range byPage[idx] {
 			regions = append(regions, pl.regions...)
+			pageHidden[idx] = append(pageHidden[idx], pl.hiddenOnly...)
 		}
 		pageRegions[idx] = regions
 		p, err := d.Page(idx + 1)
@@ -166,7 +168,7 @@ func (d *Document) ApplyTextChanges() error {
 		old = append(old, formGraphRefs(d.objects, p.pageResources())...)
 		// Every region on the page is stripped before anything is drawn,
 		// so one fragment's new text is not removed with another's old.
-		data, err := stripTextInRegions(p, pageRegions[idx])
+		data, err := stripTextInRegions(p, pageRegions[idx], pageHidden[idx])
 		if err == nil {
 			data, err = removeTextBackgrounds(data, bgs)
 		}
@@ -355,6 +357,9 @@ type textEditPlan struct {
 	page    int    // index in d.pages
 	name    string // `page N: fragment "old" (new text "new")`, for errors
 	regions []QuadPoint
+	// hiddenOnly are boxes whose glyphs go only where the clip hides them
+	// (fragmentBinding.full).
+	hiddenOnly []QuadPoint
 
 	// whole redraws the fragment from tmp; else segs lists the segments
 	// redrawn, each from its own one-segment fragment.
@@ -479,6 +484,7 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 	}
 	if pl.whole {
 		pl.regions = append(pl.regions, b.drawn...)
+		pl.hiddenOnly = append(pl.hiddenOnly, b.full...)
 		if owned {
 			pl.removed = append(pl.removed, b.owned...)
 		}
@@ -549,6 +555,9 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			pos = s.Position // the segment was moved
 		}
 		pl.regions = append(pl.regions, b.drawn[i])
+		if b.full != nil {
+			pl.hiddenOnly = append(pl.hiddenOnly, b.full[i])
+		}
 		if owned {
 			pl.removed = append(pl.removed, b.owned[i])
 		}
@@ -755,8 +764,16 @@ func (pl *textEditPlan) draw(p *Page) error {
 		if pl.lay != nil {
 			return pl.drawParagraph(p)
 		}
-		drawn, owned, err := drawFragment(p, pl.tmp, pl.place)
+		var drawn []QuadPoint
+		var owned []ownedPiece
+		clip, err := pl.cellClip(p)
 		if err != nil {
+			return err
+		}
+		if err := p.clipped(clip, func() (err error) {
+			drawn, owned, err = drawFragment(p, pl.tmp, pl.place)
+			return err
+		}); err != nil {
 			return err
 		}
 		pl.drawnWhole, pl.ownWhole = drawn, owned
@@ -819,7 +836,7 @@ func (pl *textEditPlan) commit() {
 			f.Text = pl.tmp.Text
 			f.Position = pl.tmp.Position
 		}
-		b.drawn = pl.drawnWhole
+		b.drawn, b.full = pl.drawnWhole, nil
 		b.placed = placedFlags(pl.place)
 		if pl.lay != nil {
 			// Laid out as a paragraph: its lines are not this fragment's
@@ -840,6 +857,9 @@ func (pl *textEditPlan) commit() {
 			s.Position, s.Rectangle = one.Position, one.Rectangle
 			if q := pl.drawnSeg[k]; len(q) == 1 {
 				b.drawn[i] = q[0]
+				if b.full != nil {
+					b.full[i] = q[0]
+				}
 			}
 			if b.found && b.owned == nil {
 				b.owned = make([]ownedPiece, len(b.drawn))

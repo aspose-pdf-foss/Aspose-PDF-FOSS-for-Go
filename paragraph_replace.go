@@ -80,7 +80,7 @@ func (mp *MarkupParagraph) SetText(text string) error {
 	}
 
 	old := contentStreamIDs(p.pageDict()["/Contents"])
-	data, err := stripTextInRegions(p, regions)
+	data, err := stripTextInRegions(p, regions, nil)
 	if err != nil {
 		return fmt.Errorf("set paragraph text: %w", err)
 	}

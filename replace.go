@@ -384,13 +384,18 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 	// Remove the old glyphs with the redaction text rewriter (it drops glyphs
 	// whose drawn position falls inside the given regions).
 	regions := make([]QuadPoint, 0, len(matches))
+	var hidden []QuadPoint // boxes beyond a cell's rule: hidden glyphs only
 	for _, m := range matches {
-		regions = append(regions, rectAsQuadPoint(m.rect))
+		in := stripInCell(m.line, m.rect, m.colLo, m.colHi)
+		regions = append(regions, rectAsQuadPoint(in))
+		if in != m.rect {
+			hidden = append(hidden, rectAsQuadPoint(m.rect))
+		}
 		for _, r := range m.more {
 			regions = append(regions, rectAsQuadPoint(r))
 		}
 	}
-	data, err := stripTextInRegions(p, regions)
+	data, err := stripTextInRegions(p, regions, hidden)
 	if err != nil {
 		return 0, err
 	}
@@ -447,7 +452,19 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 			if m.rtl || bidiBaseLevel(replacement, false) == 1 {
 				style.HAlign, x = HAlignRight, m.rect.URX
 			}
-			if err := p.AddTextAt(replacement, style, x, m.y); err != nil {
+			var clip *Rectangle
+			if m.colLo != 0 || m.colHi != 0 {
+				w, err := MeasureText(replacement, style)
+				if err != nil {
+					return 0, fmt.Errorf("draw replacement: %w", err)
+				}
+				start := x
+				if style.HAlign == HAlignRight {
+					start = x - w
+				}
+				clip = cellClip(p, start, w, m.colLo, m.colHi)
+			}
+			if err := p.clipped(clip, func() error { return p.AddTextAt(replacement, style, x, m.y) }); err != nil {
 				return 0, fmt.Errorf("draw replacement: %w", err)
 			}
 		}
@@ -461,7 +478,7 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 // redirects that one placement to the clone. That adds resource names, so
 // the page gets its own copy of /Resources first, as ApplyRedactions does
 // (another page may share them). The caller installs the content.
-func stripTextInRegions(p *Page, regions []QuadPoint) ([]byte, error) {
+func stripTextInRegions(p *Page, regions, hiddenOnly []QuadPoint) ([]byte, error) {
 	data, err := p.contentStreams()
 	if err != nil {
 		return nil, err
@@ -472,7 +489,7 @@ func stripTextInRegions(p *Page, regions []QuadPoint) ([]byte, error) {
 	resources := privateXObjectResources(p.doc.objects, p.pageResources())
 	p.pageDict()["/Resources"] = resources
 	fontMap := resolveFontResources(p.doc.objects, resources)
-	data, err = rewriteTextOperatorsInStream(data, regions, fontMap, p.doc.objects, resources, nil)
+	data, err = rewriteTextOperatorsHidden(data, regions, hiddenOnly, fontMap, p.doc.objects, resources, nil)
 	if err != nil {
 		return nil, fmt.Errorf("remove matched text: %w", err)
 	}

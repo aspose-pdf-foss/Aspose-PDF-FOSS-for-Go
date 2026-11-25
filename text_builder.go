@@ -106,6 +106,10 @@ type fragmentBinding struct {
 	// colLo, colHi are the edges of the ruled table cell a found fragment
 	// is in (0 = none on that side): ShiftRestOfLine stops there.
 	colLo, colHi float64
+	// full holds drawn's boxes before they were cut to the cell (nil when
+	// none was): the glyphs beyond the rule go only where the clip hides
+	// them (pdf-go-64zt).
+	full []QuadPoint
 }
 
 // ownedPiece is what a drawn segment drew besides its glyphs: its background
