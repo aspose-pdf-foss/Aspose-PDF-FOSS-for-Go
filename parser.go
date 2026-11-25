@@ -268,10 +268,11 @@ func streamEndIndex(data []byte) int {
 // every stream used to be decoded at open, referenced or not (GHSA-rfwg-
 // hxcj-7pp5 point 5). A larger stream stays as stored and is decoded when
 // used, as one with a filter this package does not decode is.
-const (
-	maxDecodedStream = 1 << 30
-	maxEagerDecode   = 64 << 20
-)
+// maxDecodedStream also bounds a page's content streams together
+// (Page.contentStreams). A variable only so tests can lower it.
+var maxDecodedStream = 1 << 30
+
+const maxEagerDecode = 64 << 20
 
 // errDecodedTooLarge reports a stream decoding past its limit.
 var errDecodedTooLarge = fmt.Errorf("decoded stream larger than the limit")
