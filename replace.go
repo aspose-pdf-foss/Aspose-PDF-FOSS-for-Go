@@ -91,10 +91,16 @@ const (
 	// but a paragraph's last is spread to the rectangle's width by the
 	// space between its words.
 	ReplaceAdjustmentAdjustSpaceWidth ReplaceAdjustment = 1
-	// ReplaceAdjustmentWholeWordsHyphenation lays the replacement out as a
-	// paragraph wrapped at whole words (see ReplaceOptions.Rectangle); a
-	// word longer than a line is broken. It may be combined with
-	// ReplaceAdjustmentAdjustSpaceWidth (|).
+	// ReplaceAdjustmentWholeWordsHyphenation re-wraps the paragraph the
+	// replacement lands in at whole words, as Aspose.PDF for .NET does: the
+	// rest of the paragraph flows on after the new text, each run in its
+	// own font, within the paragraph's width (its cell's in a ruled table),
+	// keeping its indents, line pitch and justification; text after the
+	// paragraph is not moved. With ReplaceOptions.Rectangle, a font size
+	// adjustment or an edge adjustment, or when the replacement covers its
+	// whole paragraph, the replacement is laid out alone as a paragraph
+	// (see ReplaceOptions.Rectangle); a word longer than a line is broken.
+	// It may be combined with ReplaceAdjustmentAdjustSpaceWidth (|).
 	ReplaceAdjustmentWholeWordsHyphenation ReplaceAdjustment = 2
 	// ReplaceAdjustmentShiftRestOfLine moves the text after the
 	// replacement on the same line by the difference in width, so nothing
@@ -149,6 +155,8 @@ func replaceAdjustment(opts []ReplaceOptions) (ReplaceAdjustment, *replaceLayout
 		justify: a&ReplaceAdjustmentAdjustSpaceWidth != 0,
 		left:    o.LeftAdjustment,
 		right:   o.RightAdjustment,
+		reflow: a&ReplaceAdjustmentWholeWordsHyphenation != 0 && o.Rectangle == nil &&
+			o.FontSizeAdjustment == FontSizeAdjustmentNone && o.LeftAdjustment == 0 && o.RightAdjustment == 0,
 	}, nil
 }
 
@@ -379,6 +387,10 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 			}
 			matches[i].font = f
 		}
+	}
+
+	if lay != nil && lay.reflow {
+		return applyReflowToPage(p, matches, replacement, lay, fonts)
 	}
 
 	// Remove the old glyphs with the redaction text rewriter (it drops glyphs

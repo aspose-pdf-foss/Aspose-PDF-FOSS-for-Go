@@ -220,6 +220,7 @@ type runKey struct {
 	r, g, b      float64
 	bold, italic bool
 	mode         int
+	ref          int // font object
 }
 
 // keyOf is the run key of rune li of fragment f: its look with the rune's
@@ -227,7 +228,15 @@ type runKey struct {
 // line text stays as it was; segments split there).
 func keyOf(f *TextFragment, li int) runKey {
 	c := runeColorOf(f, li)
-	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), c.R, c.G, c.B, f.Bold, f.Italic, runeRunOf(f, li).renderMode}
+	return runKey{f.FontName, int(math.Round(f.FontSize * 100)), c.R, c.G, c.B, f.Bold, f.Italic, runeRunOf(f, li).renderMode, runeRefOf(f, li)}
+}
+
+// runeRefOf is the font object rune li of f was drawn in (0 when unknown).
+func runeRefOf(f *TextFragment, li int) int {
+	if li >= 0 && li < len(f.runeRef) {
+		return f.runeRef[li]
+	}
+	return f.fontRef
 }
 
 // runeRunOf is the text state rune li of f was drawn with.
@@ -327,7 +336,7 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 			// as a size to draw with must be positive, so a mirrored run
 			// is redrawn upright when edited.
 			st := TextState{
-				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName), ref: g.src.fontRef},
+				Font:            documentFont{name: cleanFontName(g.src.FontName), embedded: fontEmbedded(pg, g.src.FontName), ref: g.key.ref},
 				FontSize:        math.Abs(g.src.FontSize),
 				ForegroundColor: copyColor(&g.color),
 				Rotation:        g.src.Rotation,

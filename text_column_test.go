@@ -221,3 +221,15 @@ func TestCellRTL(t *testing.T) {
 		t.Errorf("a tie reads %v, %v; want left to right", rtl, ok)
 	}
 }
+
+// A line filling its cell says nothing by its alignment: the majority of
+// strong characters decides (a Latin placeholder in an Arabic line).
+func TestCellRTLFillingLine(t *testing.T) {
+	line := &TextLine{Fragments: []TextFragment{
+		{Text: "&KEY&", X: 302, Width: 40},
+		{Text: "שלום", X: 530, Width: 18},
+	}}
+	if rtl, ok := cellRTL(line, 300, 550); !rtl || !ok {
+		t.Errorf("a filled cell, Hebrew majority: %v, %v; want right to left", rtl, ok)
+	}
+}

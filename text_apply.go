@@ -102,6 +102,13 @@ func (d *Document) ApplyTextChanges() error {
 		}
 		byPage[pl.page] = append(byPage[pl.page], pl)
 	}
+	// A text change re-wrapping its paragraph (WholeWordsHyphenation)
+	// removes and redraws the whole paragraph, once for every change in it.
+	for _, idx := range order {
+		if err := d.planReflows(idx, byPage[idx], fonts); err != nil {
+			return refuse(err)
+		}
+	}
 	// Two changed fragments whose old text overlaps (the same words found
 	// twice, a line and a word in it) cannot both be redrawn: the second
 	// would describe text the first replaces.
@@ -384,6 +391,12 @@ type textEditPlan struct {
 	adj  ReplaceAdjustment
 	lay  *replaceLayout
 	snap fragmentSnapshot
+	// reflow is the text change a found fragment's WholeWordsHyphenation
+	// re-wraps its paragraph with (pdf-go-1vv8); group is the paragraph,
+	// drawn by its first plan (leader).
+	reflow *reflowEdit
+	group  *reflowGroup
+	leader bool
 }
 
 func (pl *textEditPlan) errorf(format string, args ...any) error {
@@ -545,6 +558,22 @@ func (d *Document) planTextEdit(f *TextFragment, fonts *replaceFonts) (*textEdit
 			}
 		}
 		pl.tmp = tmp
+		if found && pl.lay != nil && pl.lay.reflow {
+			e := &reflowEdit{}
+			full := b.full
+			if full == nil {
+				full = b.drawn
+			}
+			for _, q := range full {
+				e.rects = append(e.rects, quadBounds(q))
+			}
+			for _, s := range tmp.segmentsToDraw() {
+				if s.Text != "" {
+					e.runs = append(e.runs, reflowRun{text: s.Text, st: s.TextState.resolved(), edit: true})
+				}
+			}
+			pl.reflow = e
+		}
 		return pl, nil
 	}
 
@@ -756,6 +785,16 @@ func applyStateDiff(st, was, now TextState) TextState {
 // draw draws the plan's text on p (the page's old glyphs already removed).
 // Segments with no text draw nothing: an emptied fragment is a deletion.
 func (pl *textEditPlan) draw(p *Page) error {
+	if pl.group != nil {
+		if pl.leader {
+			drawn, err := pl.group.lay.draw(p)
+			if err != nil {
+				return err
+			}
+			pl.drawnWhole = drawn
+		}
+		return nil
+	}
 	if pl.whole {
 		pl.place = dropEmptySegments(pl.tmp, pl.place)
 		if pl.tmp.Text == "" && len(pl.tmp.Segments) == 0 {

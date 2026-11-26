@@ -216,6 +216,7 @@ func (p *Page) pageFragments() ([]textFragment, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.doc.refreshShapedText() // shaped glyphs drawn since the last save map to text (pdf-go-1vv8)
 	resources := p.pageResources()
 	fonts := resolveFontResources(p.doc.objects, resources)
 	ext := newTextExtractor(p.doc.objects, fonts)

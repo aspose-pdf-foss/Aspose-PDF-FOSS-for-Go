@@ -38,6 +38,9 @@ type TextFragment struct {
 	// runeHidden marks the runes a rectangular clip hides (nil when none
 	// is): a cell's text run on under the next cell (pdf-go-64zt).
 	runeHidden []bool
+	// runeRef is each rune's font object when it changes inside the
+	// fragment (nil otherwise): the absorber splits segments by it.
+	runeRef []int
 	// descent is how far the text box reaches below the baseline (≤ 0), so
 	// the box spans Y+descent .. Y+descent+Height. Unexported: used by
 	// SearchText and the comparer for match rectangles.
@@ -344,6 +347,7 @@ func lineFromOrdered(frags []textFragment) TextLine {
 			runeX:       f.runeX,
 			runeColor:   f.runeColor,
 			runeHidden:  f.runeHidden,
+			runeRef:     f.runeRef,
 			descent:     f.descent,
 			endY:        f.endY,
 			run:         f.run,
@@ -547,6 +551,7 @@ func (p *Page) ExtractTextWithLayout() ([]TextLine, error) {
 		return nil, err
 	}
 
+	p.doc.refreshShapedText() // shaped glyphs drawn since the last save map to text (pdf-go-1vv8)
 	resources := p.pageResources()
 	fonts := resolveFontResources(p.doc.objects, resources)
 

@@ -315,7 +315,14 @@ func (m *lineMeasurer) word(s string) float64 {
 	if w, ok := m.wordCache[s]; ok {
 		return w
 	}
-	w := shapeLine(m.shaper, s, 0, false).width(m.size)
+	// A right-to-left word is shaped right to left, as it is drawn: shaped
+	// the other way its cursive attachments come out with other advances
+	// (pdf-go-1vv8).
+	level, bidi := 0, false
+	if bidiHasStrongRTL(s) {
+		level, bidi = bidiBaseLevel(s, false), true
+	}
+	w := shapeLine(m.shaper, s, level, bidi).width(m.size)
 	m.wordCache[s] = w
 	return w
 }

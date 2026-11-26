@@ -58,8 +58,8 @@ func (c columnRules) cell(x, y float64) (lo, hi float64) {
 // left to right and the rightmost when it reads right to left: when both
 // ends agree, that is the direction. When they do not (Latin at the left of
 // an Arabic line, a placeholder in it), the side the text keeps to inside
-// the cell decides, and a cell bounded on one side only goes by the
-// majority of strong characters. Characters the clip hides are not the
+// the cell decides; a line filling its cell, or a cell bounded on one side
+// only, goes by the majority of strong characters. Characters the clip hides are not the
 // cell's (another cell's text pushed under it). ok is false when the cell
 // has no bound or no strong character, and the line's own direction
 // applies.
@@ -70,9 +70,13 @@ func cellRTL(line *TextLine, lo, hi float64) (rtl, ok bool) {
 	var nr, nl int
 	var left, right int // the strong class at each end: 1 L, 2 R
 	minX, maxX := math.Inf(1), math.Inf(-1)
+	inkL, inkR := math.Inf(1), math.Inf(-1) // the line's first and last glyph
 	visibleRunes(line, func(x float64, r rune) {
 		if (lo != 0 && x < lo-cellTol) || (hi != 0 && x >= hi-cellTol) {
 			return
+		}
+		if !unicode.IsSpace(r) {
+			inkL, inkR = math.Min(inkL, x), math.Max(inkR, x)
 		}
 		c := 0
 		switch bidiClass(r) {
@@ -96,8 +100,10 @@ func cellRTL(line *TextLine, lo, hi float64) (rtl, ok bool) {
 		return false, false
 	case left == right:
 		return left == 2, true
-	case lo != 0 && hi != 0:
-		return hi-maxX < minX-lo, true
+	case lo != 0 && hi != 0 && math.Abs((hi-inkR)-(inkL-lo)) > 0.1*(hi-lo):
+		// The side the text keeps to, when it keeps to one: a line
+		// filling its cell says nothing, and the majority decides.
+		return hi-inkR < inkL-lo, true
 	}
 	return nr > nl, true
 }

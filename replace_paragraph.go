@@ -15,6 +15,10 @@ type replaceLayout struct {
 	fit         FontSizeAdjustment
 	justify     bool
 	left, right float64
+	// reflow re-wraps the whole paragraph each match is in with the
+	// replacement in place (WholeWordsHyphenation with no rectangle, size
+	// fitting or edge adjustment: Aspose's rewrap, pdf-go-1vv8).
+	reflow bool
 }
 
 // region is the rectangle a paragraph replacement of m goes into: the

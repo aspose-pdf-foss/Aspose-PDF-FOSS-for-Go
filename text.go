@@ -62,6 +62,7 @@ func (p *Page) ExtractText(opts ...TextExtractOptions) (string, error) {
 		return "", err
 	}
 
+	p.doc.refreshShapedText() // shaped glyphs drawn since the last save map to text (pdf-go-1vv8)
 	resources := p.pageResources()
 	fonts := resolveFontResources(p.doc.objects, resources)
 
@@ -153,6 +154,10 @@ type textFragment struct {
 	// when unknown or when the runes come from several font objects.
 	fontRef     int
 	fontMixed   bool
+	// runeRef is each rune's font object, nil while every rune has
+	// fontRef: two font objects of one name (subsets) do not start a
+	// fragment, but the absorber splits segments there (pdf-go-1vv8).
+	runeRef []int
 	charSpacing float64
 	colorR      float64 // fill color RGB (0-1)
 	colorG      float64
@@ -962,6 +967,7 @@ func (e *textExtractor) emitRune(r rune) {
 	if e.font.ref != e.curFrag.fontRef {
 		e.curFrag.fontMixed = true
 	}
+	e.curFrag.recordRef(e.font.ref)
 	e.curFrag.recordColor(e.fillR, e.fillG, e.fillB)
 	e.curFrag.recordRun(run)
 	e.curFrag.recordHidden(e.clipT.hides(x, y))
@@ -988,6 +994,22 @@ func (f *textFragment) recordColor(r, g, b float64) {
 		}
 	}
 	f.runeColor = append(f.runeColor, Color{R: r, G: g, B: b, A: 1})
+}
+
+// recordRef notes the font object of the rune about to be added; the
+// per-rune list is only allocated once a rune's differs from the
+// fragment's first.
+func (f *textFragment) recordRef(ref int) {
+	if f.runeRef == nil {
+		if ref == f.fontRef {
+			return
+		}
+		f.runeRef = make([]int, len(f.runeX), len(f.runeX)+8)
+		for i := range f.runeRef {
+			f.runeRef[i] = f.fontRef
+		}
+	}
+	f.runeRef = append(f.runeRef, ref)
 }
 
 // recordHidden notes whether the clip hides the rune about to be added;

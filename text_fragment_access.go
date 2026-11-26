@@ -78,6 +78,7 @@ func (f *TextFragment) CloneWithSegments() *TextFragment {
 	c.runeX = append([]float64(nil), f.runeX...)
 	c.runeColor = append([]Color(nil), f.runeColor...)
 	c.runeHidden = append([]bool(nil), f.runeHidden...)
+	c.runeRef = append([]int(nil), f.runeRef...)
 	c.runeRun = append([]textRunState(nil), f.runeRun...)
 	c.Segments = make([]*TextSegment, len(f.Segments))
 	for i, s := range f.Segments {
