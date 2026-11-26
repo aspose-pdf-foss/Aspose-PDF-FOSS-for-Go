@@ -240,3 +240,66 @@ func TestFragmentReplaceOptionsShiftedLineIsStale(t *testing.T) {
 		t.Errorf("editing a fragment on another line: %v", err)
 	}
 }
+
+// On a page without rules, text set apart by a gap wider than three ems is
+// another column: a fragment's shift moves the rest of its own text, and
+// stops before the next column, as Aspose's does.
+func TestFragmentShiftStopsAtColumnGap(t *testing.T) {
+	d0 := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d0)
+	st := TextStyle{Font: FontHelvetica, Size: 12}
+	if err := p.AddTextAt("Name: Bob here", st, 100, 600); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddTextAt("Label", st, 300, 600); err != nil {
+		t.Fatal(err)
+	}
+	d := reopenDoc(t, d0)
+	here, label := startOf(t, d, "here"), startOf(t, d, "Label")
+	f := absorbOne(t, d, "Bob")
+	f.Text = "Roberta Longname"
+	f.ReplaceOptions.Adjustment = ReplaceAdjustmentShiftRestOfLine
+	out := reopenDoc(t, d)
+	grow := helv12Width(t, "Roberta Longname") - helv12Width(t, "Bob")
+	if got := startOf(t, out, "here") - here; !nearPt(got, grow) {
+		t.Errorf("\"here\" moved by %.2f, want %.2f", got, grow)
+	}
+	if got := startOf(t, out, "Label") - label; !nearPt(got, 0) {
+		t.Errorf("the next column moved by %.2f", got)
+	}
+}
+
+// Right to left the shift moves what lies left of the fragment, and stops
+// before a column further left.
+func TestFragmentShiftRTLStopsAtColumnGap(t *testing.T) {
+	d0 := NewDocumentFromFormat(PageFormatA4)
+	p := mustPage(t, d0)
+	font, err := d0.LoadFont("testdata/DejaVuSans.ttf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f0 := NewTextFragment("שלום עולם יפה")
+	f0.Position = Position{XIndent: 250, YIndent: 600}
+	f0.TextState = TextState{Font: font, FontSize: 14}
+	if err := NewTextBuilder(p).AppendText(f0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddTextAt("Label", TextStyle{Font: FontHelvetica, Size: 14}, 60, 600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d0.SubsetFonts(); err != nil {
+		t.Fatal(err)
+	}
+	d := openBytes(t, writeBytes(t, d0))
+	last, label := startOf(t, d, "יפה"), startOf(t, d, "Label")
+	f := absorbOne(t, d, "עולם")
+	f.Text = "עולםעולם"
+	f.ReplaceOptions.Adjustment = ReplaceAdjustmentShiftRestOfLine
+	out := reopenDoc(t, d)
+	if got := startOf(t, out, "יפה") - last; got > -10 {
+		t.Errorf("the text to the left moved by %.2f, want it moved left", got)
+	}
+	if got := startOf(t, out, "Label") - label; !nearPt(got, 0) {
+		t.Errorf("the column on the left moved by %.2f", got)
+	}
+}

@@ -106,8 +106,8 @@ func TestReplaceShiftRestOfLineAcrossOperators(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := "BT " + f + " 12 Tf 72 700 Td (Price: ) Tj (OLD) Tj ( EUR) Tj ET " +
-		"BT " + f + " 12 Tf 200 700 Td (tail) Tj 60 0 Td (more) Tj ET " +
-		"BT " + f + " 12 Tf 1 0 0 1 300 700 Tm [(ke) -200 (rn)] TJ ET"
+		"BT " + f + " 12 Tf 150 700 Td (tail) Tj 30 0 Td (more) Tj ET " +
+		"BT " + f + " 12 Tf 1 0 0 1 225 700 Tm [(ke) -200 (rn)] TJ ET"
 	if err := replacePageContents(p, []byte(content)); err != nil {
 		t.Fatal(err)
 	}
@@ -243,5 +243,32 @@ func TestReplaceShiftRestOfLineRightToLeftRepeated(t *testing.T) {
 	}
 	if want := left.URX + shrink; math.Abs(xl.URX-want) > 1 {
 		t.Errorf("left replacement ends at %.2f, want %.2f", xl.URX, want)
+	}
+}
+
+// Text set apart by a gap wider than three ems is another column on a page
+// without rules: the shift stops before it, as Aspose's (44842.pdf).
+func TestReplaceShiftStopsAtColumnGap(t *testing.T) {
+	doc := NewDocumentFromFormat(PageFormatA4)
+	p, _ := doc.Page(1)
+	f, err := p.ensureStandardFontResource("/Helvetica")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "BT " + f + " 10 Tf 72 700 Td (WO: OLD next) Tj ET " +
+		"BT " + f + " 10 Tf 220 700 Td (: column) Tj ET " +
+		"BT " + f + " 10 Tf 400 700 Td (far) Tj ET"
+	if err := replacePageContents(p, []byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	next, col := findOne(t, p, "next"), findOne(t, p, "column")
+	if _, err := p.ReplaceText("OLD", "A MUCH LONGER VALUE", ReplaceOptions{Adjustment: ReplaceAdjustmentShiftRestOfLine}); err != nil {
+		t.Fatal(err)
+	}
+	if got := findOne(t, p, "next"); got.LLX <= next.LLX+1 {
+		t.Errorf("the rest of the text line did not move: %.2f, was %.2f", got.LLX, next.LLX)
+	}
+	if got := findOne(t, p, "column"); math.Abs(got.LLX-col.LLX) > 0.01 {
+		t.Errorf("the next column moved: %.2f, was %.2f", got.LLX, col.LLX)
 	}
 }
