@@ -109,8 +109,13 @@ func clipRuneColors(c *textFragment, f *textFragment, start, end int) {
 	c.runeColor = append([]Color(nil), f.runeColor[start:end]...)
 }
 
-// clipRuneHidden gives c f's per-rune hidden marks for runes [start, end).
+// clipRuneHidden gives c f's per-rune hidden marks and font objects for
+// runes [start, end).
 func clipRuneHidden(c *textFragment, f *textFragment, start, end int) {
+	if f.runeRef != nil && len(f.runeRef) >= end {
+		c.runeRef = append([]int(nil), f.runeRef[start:end]...)
+		c.fontRef = c.runeRef[0]
+	}
 	if f.runeHidden == nil || len(f.runeHidden) < end {
 		return
 	}

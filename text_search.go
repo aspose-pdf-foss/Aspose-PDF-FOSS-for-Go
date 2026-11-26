@@ -372,6 +372,14 @@ type lineRuneMap struct {
 }
 
 func buildLineRuneMap(line *TextLine) lineRuneMap {
+	return buildLineRuneMapBase(line, -1)
+}
+
+// buildLineRuneMapBase is buildLineRuneMap reading the line as one
+// paragraph of the given base level (0 left to right, 1 right to left), or
+// for -1 as buildLineRuneMap does: a line whose paragraph's direction is
+// known (a table cell's) must not take the majority's (pdf-go-1vv8).
+func buildLineRuneMapBase(line *TextLine, base int) lineRuneMap {
 	m := lineRuneMap{runeCounts: make([]int, len(line.Fragments))}
 	var havePrev bool
 	var prevEndX, prevEndY, prevRot, prevSize float64
@@ -414,7 +422,12 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 		prevEndX, prevEndY, prevRot, prevSize, prevText = f.X+f.Width, f.endY, f.Rotation, f.FontSize, f.Text
 		havePrev = true
 	}
-	if bidiHasStrongRTL(string(m.text)) {
+	switch {
+	case base >= 0:
+		if base == 1 || bidiHasStrongRTL(string(m.text)) {
+			m = m.logicalOrderBase(base)
+		}
+	case bidiHasStrongRTL(string(m.text)):
 		m = m.logicalOrder(cuts)
 	}
 	return m
@@ -425,11 +438,22 @@ func buildLineRuneMap(line *TextLine) lineRuneMap {
 // right-to-left text matches the way the text is typed rather than the way its
 // glyphs sit on the page. The fragments themselves are left in visual order.
 func (m lineRuneMap) logicalOrder(cuts []int) lineRuneMap {
+	return m.reorder(func(runes []rune) ([]rune, []int) { return bidiVisualToLogicalSegments(runes, cuts) })
+}
+
+// logicalOrderBase is logicalOrder reading the line as one paragraph of the
+// given base level.
+func (m lineRuneMap) logicalOrderBase(base int) lineRuneMap {
+	return m.reorder(func(runes []rune) ([]rune, []int) { return bidiVisualToLogicalBase(runes, base) })
+}
+
+// reorder puts m in the order the function gives.
+func (m lineRuneMap) reorder(fn func([]rune) ([]rune, []int)) lineRuneMap {
 	runes := []rune(string(m.text))
 	if len(runes) != len(m.owner) {
 		return m
 	}
-	logical, order := bidiVisualToLogicalSegments(runes, cuts)
+	logical, order := fn(runes)
 	out := lineRuneMap{
 		runeByte:   make([]int, 0, len(order)),
 		owner:      make([]int, 0, len(order)),
