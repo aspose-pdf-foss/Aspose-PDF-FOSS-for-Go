@@ -106,6 +106,9 @@ type fragmentBinding struct {
 	// colLo, colHi are the edges of the ruled table cell a found fragment
 	// is in (0 = none on that side): ShiftRestOfLine stops there.
 	colLo, colHi float64
+	// gapLo, gapHi bound a shift on a page without rules: the wide gaps
+	// either side of the fragment's text on its line (gapBounds).
+	gapLo, gapHi float64
 	// full holds drawn's boxes before they were cut to the cell (nil when
 	// none was): the glyphs beyond the rule go only where the clip hides
 	// them (pdf-go-64zt).

@@ -5,6 +5,8 @@ package asposepdf
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"unicode"
 )
 
@@ -210,4 +212,40 @@ func (p *Page) clipped(r *Rectangle, draw func() error) error {
 		return err
 	}
 	return p.appendToContentStream([]byte("Q\n"))
+}
+
+// gapBounds returns the middles of the first gaps wider than
+// bidiSegmentGapEm left of x0 and right of x1 on line (0 for a side without
+// one): on a page without rules, text set apart by such a gap is another
+// column, which a shift of the rest of the line leaves where it is, as
+// Aspose's does (it shifts the text line, not the row).
+func gapBounds(line *TextLine, x0, x1 float64) (lo, hi float64) {
+	if line == nil {
+		return 0, 0
+	}
+	frags := make([]TextFragment, 0, len(line.Fragments))
+	for _, f := range line.Fragments {
+		if strings.TrimSpace(f.Text) != "" && f.Rotation == 0 {
+			frags = append(frags, f)
+		}
+	}
+	sort.Slice(frags, func(i, j int) bool { return frags[i].X < frags[j].X })
+	size := 0.0
+	for _, f := range frags {
+		size = math.Max(size, math.Abs(f.FontSize))
+	}
+	gap := bidiSegmentGapEm * size
+	end := math.Inf(-1)
+	for i, f := range frags {
+		if i > 0 && f.X-end > gap {
+			mid := (end + f.X) / 2
+			if mid <= x0 {
+				lo = mid
+			} else if mid >= x1 && hi == 0 {
+				hi = mid
+			}
+		}
+		end = math.Max(end, f.X+f.Width)
+	}
+	return lo, hi
 }

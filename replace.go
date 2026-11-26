@@ -428,10 +428,10 @@ func applyReplaceToPage(p *Page, re *regexp.Regexp, replacement string, adj Repl
 			if m.rtl {
 				// The rest of a right-to-left line lies left of the match,
 				// which keeps its right edge (pdf-go-59bb).
-				shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.LLX, dx: (m.rect.URX - m.rect.LLX) - newW, rtl: true}.bound(m.colLo, m.colHi))
+				shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.LLX, dx: (m.rect.URX - m.rect.LLX) - newW, rtl: true}.bound(m.shiftBounds()))
 				continue
 			}
-			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)}.bound(m.colLo, m.colHi))
+			shifts = append(shifts, lineShift{y: m.y, tol: 0.3 * m.size, fromX: m.rect.URX, dx: newW - (m.rect.URX - m.x)}.bound(m.shiftBounds()))
 		}
 		for i := range matches {
 			matches[i].x += lineShiftAt(shifts, matches[i].x, matches[i].y)
@@ -734,4 +734,13 @@ func shiftLineText(data []byte, objects map[int]*pdfObject, resources pdfDict, s
 		out = append(out, contentOp{Operator: "TJ", Operands: []pdfValue{arr}})
 	}
 	return serializeContentOps(out), nil
+}
+
+// shiftBounds is how far ShiftRestOfLine moves text around m: its table
+// cell, or on a page without rules the wide gaps either side of it.
+func (m replaceMatch) shiftBounds() (lo, hi float64) {
+	if m.colLo != 0 || m.colHi != 0 {
+		return m.colLo, m.colHi
+	}
+	return gapBounds(m.line, m.rect.LLX, m.rect.URX)
 }

@@ -80,6 +80,9 @@ func (pl *textEditPlan) lineShift() (lineShift, bool, error) {
 	var lo, hi float64
 	if b := pl.f.bind; b != nil && b.found {
 		lo, hi = b.colLo, b.colHi
+		if lo == 0 && hi == 0 {
+			lo, hi = b.gapLo, b.gapHi
+		}
 	}
 	if pl.rtl() {
 		return lineShift{y: y, tol: tol, fromX: left, dx: (right - left) - newW, rtl: true}.bound(lo, hi), true, nil

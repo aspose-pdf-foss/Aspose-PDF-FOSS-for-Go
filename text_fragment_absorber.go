@@ -414,6 +414,9 @@ func (a *TextFragmentAbsorber) build(sm spanMatch, byNum map[int]*Page, fills ma
 		c = pageColumnRules(byNum[first.page])
 		cols[first.page] = c
 	}
+	if len(c) == 0 {
+		f.bind.gapLo, f.bind.gapHi = gapBounds(first.line, firstLine.LLX, firstLine.URX)
+	}
 	if len(c) > 0 {
 		b := f.bind
 		b.colLo, b.colHi = c.cell(firstLine.LLX, f.Position.YIndent)
